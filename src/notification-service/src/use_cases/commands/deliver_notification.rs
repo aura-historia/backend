@@ -530,7 +530,7 @@ mod tests {
             Self {
                 claimed: ClaimedNotificationDelivery {
                     notification_delivery_id,
-                    notification_id: source.notification_id,
+                    source_id: source.source_id,
                     lease_token: Uuid::now_v7(),
                     lease_expires_at: OffsetDateTime::now_utc() + DELIVERY_LEASE_DURATION,
                     attempt_count: 2,
@@ -817,8 +817,9 @@ mod tests {
 
     fn source(notification_delivery_id: NotificationDeliveryId) -> NotificationDeliverySource {
         NotificationDeliverySource {
+            saved_search_digest: None,
             notification_delivery_id,
-            notification_id: NotificationId::new(),
+            source_id: crate::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),
             user_id: UserId::new(),
             channel: NotificationDeliveryChannel::Email,
             target_key: NotificationDeliveryTargetKey::primary(),

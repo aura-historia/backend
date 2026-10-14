@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+notification-service = { workspace = true }
+notification-postgres = { workspace = true }
+search-filter-service = { workspace = true }
+search-filter-postgres = { workspace = true }
 product-listing-service = { workspace = true }
 product-listing-postgres = { workspace = true }
 application = { workspace = true }

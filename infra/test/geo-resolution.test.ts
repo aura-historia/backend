@@ -27,7 +27,7 @@ describe.each(STAGES)("%s durable geographic resolution", (stage) => {
     expect(cleanup?.Properties).toMatchObject({ ScheduleExpression: "cron(0 * * * ? *)", State: "ENABLED", Target: { DeadLetterConfig: { Arn: expect.anything() }, RetryPolicy: { MaximumRetryAttempts: 3 } } });
     expect(JSON.stringify(cleanup?.Properties.Target.Arn)).toContain("BackendCleanupVersion");
     compute.hasResourceProperties("AWS::Lambda::Function", {
-      FunctionName: `backend-cleanup-lambda-${stage}`, Timeout: 10,
+      FunctionName: `backend-cleanup-lambda-${stage}`, Timeout: 120,
       Environment: { Variables: { EXPIRY_CLEANUP_BATCH_SIZE: "100" } },
     });
     const policies = Object.values(compute.findResources("AWS::IAM::Policy"));

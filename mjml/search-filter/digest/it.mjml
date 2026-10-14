@@ -1,0 +1,22 @@
+<mjml>
+<mj-head><mj-title>Nuovi risultati per le tue ricerche salvate</mj-title><mj-preview>{{match_count}} nuovi risultati per {{listing_count}} articoli</mj-preview>
+<mj-attributes><mj-all font-family="Manrope, Helvetica, Arial, sans-serif" /><mj-text color="#1c1c16" font-size="15px" line-height="1.6" /><mj-button background-color="#42120f" color="#ffffff" border-radius="4px" /></mj-attributes></mj-head>
+<mj-body background-color="#F7F4E9" width="600px">
+<mj-section background-color="#ffffff" padding="32px"><mj-column>
+<mj-text font-size="22px">Nuovi risultati per le tue ricerche salvate</mj-text><mj-text>Ciao{{#if first_name}} {{first_name}}{{/if}},</mj-text>
+<mj-text>{{match_count}} nuovi risultati per {{listing_count}} articoli.</mj-text>
+<mj-text><b>Ricerche salvate</b><br />{{#each groups}}<a href="{{url}}">{{name}}</a> ({{match_count}})<br />{{/each}}</mj-text>
+</mj-column></mj-section>
+<mj-raw>{{#each listings}}</mj-raw>
+<mj-section background-color="#ffffff" padding="16px 32px"><mj-column>
+<mj-text font-size="20px">{{#if title}}{{title}}{{else}}{{listing_source_name}}{{/if}}</mj-text>
+<mj-text>{{listing_source_name}}<br />{{#each searches}}<a href="{{url}}">{{name}}</a><br />{{/each}}</mj-text>
+<mj-raw>{{#if image_url}}</mj-raw><mj-image src="{{image_url}}" alt="{{listing_source_name}}" padding="8px 0" /><mj-raw>{{/if}}</mj-raw>
+<mj-button href="{{product_listing_url}}">Visualizza articolo</mj-button>
+</mj-column></mj-section>
+<mj-raw>{{/each}}</mj-raw>
+<mj-section padding="24px 32px"><mj-column>
+<mj-text>Anteprima: {{preview_count}} di {{listing_count}} articoli. Tutti i risultati restano disponibili nelle tue ricerche salvate.</mj-text>
+<mj-button href="{{results_url}}">Visualizza tutte le ricerche salvate</mj-button><mj-text align="center"><a href="{{settings_url}}">Gestisci le notifiche</a></mj-text>
+<mj-text align="center" font-size="12px">© 2026 Aura Historia<br />Julian Bruder Einzelunternehmen · Hardenbergstraße 80, 04275 Leipzig, Germany<br /><a href="mailto:contact@aura-historia.com">contact@aura-historia.com</a></mj-text>
+</mj-column></mj-section></mj-body></mjml>

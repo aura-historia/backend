@@ -69,6 +69,7 @@ pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateAvailability,
     SearchFilterMatch,
+    SavedSearchDigest,
     PartnershipApplicationApproval,
     PartnershipApplicationRejection,
 }
@@ -98,6 +99,7 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
             "mjml/watchlist/product-update/availability"
         }
         EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
+        EmailTemplateType::SavedSearchDigest => "mjml/search-filter/digest",
         EmailTemplateType::PartnershipApplicationApproval => {
             "mjml/partnership-application/approval"
         }
@@ -125,6 +127,7 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
         EmailTemplateType::WatchlistUpdateAvailability => "WATCHLIST_UPDATE_AVAILABILITY",
         EmailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
+        EmailTemplateType::SavedSearchDigest => "SAVED_SEARCH_DIGEST",
         EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
         EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
     }
@@ -136,6 +139,7 @@ pub(crate) const fn subject(
 ) -> &'static str {
     match language {
         EmailLanguage::De => match template_type {
+            EmailTemplateType::SavedSearchDigest => "Neue Treffer für deine gespeicherten Suchen",
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Der Preis auf deiner Merkliste hat sich geändert"
             }
@@ -149,6 +153,9 @@ pub(crate) const fn subject(
             }
         },
         EmailLanguage::Fr => match template_type {
+            EmailTemplateType::SavedSearchDigest => {
+                "Nouveaux résultats pour vos recherches enregistrées"
+            }
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Le prix de votre liste de souhaits a changé"
             }
@@ -164,6 +171,9 @@ pub(crate) const fn subject(
             }
         },
         EmailLanguage::Es => match template_type {
+            EmailTemplateType::SavedSearchDigest => {
+                "Nuevos resultados para tus búsquedas guardadas"
+            }
             EmailTemplateType::WatchlistUpdatePrice => {
                 "El precio de tu lista de deseos ha cambiado"
             }
@@ -177,6 +187,7 @@ pub(crate) const fn subject(
             }
         },
         EmailLanguage::It => match template_type {
+            EmailTemplateType::SavedSearchDigest => "Nuovi risultati per le tue ricerche salvate",
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Il prezzo della tua lista dei desideri è cambiato"
             }
@@ -192,6 +203,7 @@ pub(crate) const fn subject(
             }
         },
         EmailLanguage::En => match template_type {
+            EmailTemplateType::SavedSearchDigest => "New matches for your saved searches",
             EmailTemplateType::WatchlistUpdatePrice => "Your watchlist price changed",
             EmailTemplateType::WatchlistUpdateAvailability => {
                 "Your watchlist item's availability changed"
@@ -208,6 +220,9 @@ pub(crate) fn template_data(
     email_language: EmailLanguage,
     first_name: Option<&str>,
 ) -> Value {
+    if let Some(digest) = &source.saved_search_digest {
+        return digest_template_data(source, digest, email_language, first_name);
+    }
     let localized = source
         .content
         .clone()
@@ -296,6 +311,84 @@ pub(crate) fn template_data(
 fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
     data["first_name"] = json!(first_name);
     data
+}
+
+const DIGEST_PREVIEW_LIMIT: usize = 20;
+
+fn digest_template_data(
+    source: &NotificationDeliverySource,
+    digest: &notification_service::saved_search_digest::SavedSearchEmailDigest,
+    language: EmailLanguage,
+    first_name: Option<&str>,
+) -> Value {
+    use std::collections::BTreeMap;
+    let mut listings: BTreeMap<String, Value> = BTreeMap::new();
+    let mut groups: BTreeMap<String, Value> = BTreeMap::new();
+    for content in &digest.members {
+        if let LocalizedNotificationContent::SearchFilter {
+            product_listing_id,
+            snapshot,
+            user_search_filter_id,
+            user_search_filter_name,
+        } = content.clone().localized(&[language.as_language()])
+        {
+            let filter_id = user_search_filter_id.to_string();
+            let label = json!({ "id": filter_id, "name": user_search_filter_name.to_string(), "url": format!("https://aura-historia.com/search-filters/{filter_id}") });
+            let group = groups.entry(filter_id).or_insert_with(|| {
+                let mut group = label.clone();
+                group["match_count"] = json!(0);
+                group
+            });
+            group["match_count"] = json!(group["match_count"].as_u64().unwrap_or(0) + 1);
+            let card = listings
+                .entry(product_listing_id.to_string())
+                .or_insert_with(|| {
+                    let image = present_image(
+                        snapshot.image,
+                        snapshot.content_policy,
+                        source
+                            .presentation_preferences
+                            .show_unassessed_or_sensitive_content,
+                    )
+                    .and_then(|image| image.url)
+                    .map(|url| url.to_string());
+                    let mut card = product_template_data(
+                        snapshot.listing_source_name.to_string(),
+                        &snapshot.product_listing_title_slug_id,
+                        snapshot.title.map(|title| title.payload.to_string()),
+                        image,
+                        snapshot.view_url.to_string(),
+                    );
+                    card["searches"] = json!([]);
+                    card
+                });
+            if let Some(searches) = card["searches"].as_array_mut() {
+                searches.push(label);
+            }
+        }
+    }
+    for card in listings.values_mut() {
+        if let Some(labels) = card["searches"].as_array_mut() {
+            labels.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+            labels.dedup_by(|a, b| a["id"] == b["id"]);
+        }
+    }
+    let listing_count = listings.len();
+    let cards = listings
+        .into_values()
+        .take(DIGEST_PREVIEW_LIMIT)
+        .collect::<Vec<_>>();
+    tracing::info!(digest_id = %digest.digest_id, run_end = %digest.window_end, eligible_matches = digest.members.len(), deduplicated_listings = listing_count, rendered_preview_items = cards.len(), "saved_search.digest.rendered");
+    add_recipient_data(
+        json!({
+            "match_count": digest.members.len(), "listing_count": listing_count,
+            "preview_count": cards.len(), "preview_limit": DIGEST_PREVIEW_LIMIT,
+            "has_more": listing_count > DIGEST_PREVIEW_LIMIT, "groups": groups.into_values().collect::<Vec<_>>(),
+            "listings": cards, "results_url": "https://aura-historia.com/search-filters",
+            "settings_url": "https://aura-historia.com/search-filters", "notification_type": "saved_search_digest",
+        }),
+        first_name,
+    )
 }
 fn product_template_data(
     listing_source_name: String,
@@ -450,6 +543,111 @@ mod tests {
     use url::Url;
     use user_core::user_id::UserId;
 
+    #[test]
+    fn digest_deduplicates_labels_bounds_preview_and_keeps_full_accounting()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, Some(ContentPolicyDecision::Allowed))?;
+        let NotificationContent::Watchlist { mut snapshot, .. } = source.content.clone() else {
+            panic!("fixture")
+        };
+        snapshot.title = Some(HashMap::from([
+            (
+                Language::En,
+                serde_json::from_value(json!("<script>English & title</script>"))?,
+            ),
+            (
+                Language::De,
+                serde_json::from_value(json!("Deutscher Titel"))?,
+            ),
+        ]));
+        let first_filter = search_filter_core::user_search_filter_id::UserSearchFilterId::new();
+        let second_filter = search_filter_core::user_search_filter_id::UserSearchFilterId::new();
+        let mut members = (0..25)
+            .map(|_| NotificationContent::SearchFilter {
+                origin_event_id: EventId::new(),
+                product_listing_id: ProductListingId::new(),
+                user_search_filter_id: first_filter,
+                snapshot: snapshot.clone(),
+                user_search_filter_name: "<b>Saved & search</b>".into(),
+            })
+            .collect::<Vec<_>>();
+        let mut shared = members[0].clone();
+        if let NotificationContent::SearchFilter {
+            user_search_filter_id,
+            user_search_filter_name,
+            ..
+        } = &mut shared
+        {
+            *user_search_filter_id = second_filter;
+            *user_search_filter_name = "Other search".into();
+        }
+        members.push(shared);
+        source.saved_search_digest = Some(
+            notification_service::saved_search_digest::SavedSearchEmailDigest {
+                digest_id: notification_core::saved_search_digest_id::SavedSearchDigestId::new(),
+                window_end: time::OffsetDateTime::UNIX_EPOCH,
+                members,
+            },
+        );
+        let data = template_data(&source, EmailLanguage::En, Some("<img src=x>"));
+        assert_eq!(26, data["match_count"]);
+        assert_eq!(25, data["listing_count"]);
+        assert_eq!(20, data["preview_count"]);
+        assert_eq!(true, data["has_more"]);
+        assert_eq!(2, data["groups"].as_array().unwrap().len());
+        let lists = data["listings"].as_array().unwrap();
+        assert_eq!(20, lists.len());
+        assert_eq!(2, lists[0]["searches"].as_array().unwrap().len());
+        source
+            .saved_search_digest
+            .as_mut()
+            .unwrap()
+            .members
+            .reverse();
+        assert_eq!(
+            data,
+            template_data(&source, EmailLanguage::En, Some("<img src=x>"))
+        );
+        let german = template_data(&source, EmailLanguage::De, None);
+        assert_eq!("Deutscher Titel", german["listings"][0]["title"]);
+        let sensitive = source.saved_search_digest.as_mut().unwrap();
+        for member in &mut sensitive.members {
+            if let NotificationContent::SearchFilter { snapshot, .. } = member {
+                snapshot.content_policy = Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                ));
+            }
+        }
+        assert!(
+            template_data(&source, EmailLanguage::En, None)["listings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["image_url"].is_null())
+        );
+        let templates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../mjml/search-filter/digest");
+        for language in [
+            EmailLanguage::En,
+            EmailLanguage::De,
+            EmailLanguage::Fr,
+            EmailLanguage::Es,
+            EmailLanguage::It,
+        ] {
+            let template =
+                fs::read_to_string(templates.join(format!("{}.mjml", language.as_str())))?;
+            let rendered = handlebars::Handlebars::new().render_template(&template, &data)?;
+            assert!(!rendered.contains("<script>"));
+            assert!(!rendered.contains("<img src=x>"));
+            assert!(!rendered.contains("<b>Saved & search</b>"));
+            assert!(rendered.contains("&lt;script&gt;English &amp; title&lt;/script&gt;"));
+            assert!(rendered.contains("https://aura-historia.com/search-filters/"));
+            assert!(rendered.contains("https://aura-historia.com/search-filters\""));
+            assert!(!subject(EmailTemplateType::SavedSearchDigest, language).is_empty());
+        }
+        Ok(())
+    }
+
     #[rstest]
     #[case(Language::De, EmailLanguage::De)]
     #[case(Language::En, EmailLanguage::En)]
@@ -593,6 +791,7 @@ esac
                     "watchlist/product-update/availability",
                 ),
                 (EmailTemplateType::SearchFilterMatch, "search-filter/match"),
+                (EmailTemplateType::SavedSearchDigest, "search-filter/digest"),
                 (
                     EmailTemplateType::PartnershipApplicationApproval,
                     "partnership-application/approval",
@@ -642,7 +841,7 @@ esac
                     expected.insert(key);
                 }
             }
-            assert_eq!(expected.len(), 25);
+            assert_eq!(expected.len(), 30);
             fs::write(fixture.0.join("keys"), all_keys)?;
             fs::write(fixture.0.join("existing"), existing_keys)?;
             let git_init = Command::new("git")
@@ -715,7 +914,7 @@ esac
             let probed = read_log(&probes)?;
             assert_eq!(
                 probed.lines().count(),
-                if case == "probe_error" { 1 } else { 25 },
+                if case == "probe_error" { 1 } else { 30 },
                 "{case} probes: {probed}"
             );
             if case != "probe_error" {
@@ -1022,8 +1221,9 @@ esac
         content_policy: Option<ContentPolicyDecision>,
     ) -> Result<NotificationDeliverySource, Box<dyn std::error::Error>> {
         Ok(NotificationDeliverySource {
+            saved_search_digest: None,
             notification_delivery_id: NotificationDeliveryId::new(),
-            notification_id: NotificationId::new(),
+            source_id: notification_service::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),
             user_id: UserId::new(),
             channel: NotificationDeliveryChannel::Email,
             target_key: NotificationDeliveryTargetKey::primary(),

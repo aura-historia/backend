@@ -16,6 +16,8 @@ pub struct SearchFilterMatchNotificationSource {
     /// Database-assigned match time used for stable monthly notification ranking.
     pub matched_at: OffsetDateTime,
     pub external_delivery_requested: bool,
+    pub matching_run_end: Option<OffsetDateTime>,
+    pub notification_selection_complete: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +36,14 @@ pub enum SearchFilterMatchNotificationSourceReadError {
 
 #[async_trait::async_trait]
 pub trait SearchFilterMatchNotificationSourceReader: Send {
+    async fn complete_selection(
+        &mut self,
+        user_id: UserId,
+        search_filter_id: UserSearchFilterId,
+        product_listing_id: ProductListingId,
+        origin_event_id: EventId,
+    ) -> Result<(), SearchFilterMatchNotificationSourceReadError>;
+
     async fn find_source(
         &mut self,
         user_id: UserId,

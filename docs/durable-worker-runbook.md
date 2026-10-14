@@ -238,9 +238,10 @@ preserve checkpoints and match identities instead of resetting progress or delet
 matches to force a replay. The replay overlap tolerates bounded projection lag, not an
 unlimited outage: review uncovered windows after prolonged search/projection failures.
 
-Match INSERT delivery still requires healthy CDC/router/notification workers. Verify
-that path independently; rerunning matching is not a substitute for recovering a retained
-notification job and must not blindly resend historical mail.
+Match INSERTs normally wake generation through CDC/router/notification workers;
+[digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
+and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
+must not blindly resend historical mail or replace recovery of legacy notification jobs.
 
 ## Notification recovery limits
 
@@ -250,6 +251,49 @@ leases are not completion. A send/finalize crash can duplicate mail after lease 
 Inspect safe delivery IDs, database completion and restricted provider evidence before
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
 historic customer mail.
+
+## Saved-search digest recovery and cutover
+
+Pause and drain matcher invocations and match-notification generation while applying
+the digest migration and deploying the compatible matcher, generator, delivery and
+cleanup workers and versioned email templates. Resume only after these binaries are
+compatible. Historical matches have no digest-run membership: existing per-match
+delivery intents continue through their original delivery path, and historical CDC
+replays cannot enroll them in a digest. The database rejects individual delivery
+insertion for new run matches, fencing incompatible generators during cutover.
+Do not backfill historical matches or convert pending legacy delivery intents; an
+ambiguous old send must be reconciled using its original delivery identity.
+
+Normal filter completion and notification selection finalize ready digests
+immediately; delivery then follows the existing asynchronous outbox path. The hourly
+cleanup is the fallback for interrupted work, performing bounded
+notification-selection recovery and digest finalization using PostgreSQL,
+independently of CDC wake-ups. Failed selections are deferred for 15 minutes and
+reordered behind untouched work so they cannot starve the queue. Monitor cleanup
+invocation failures and backlog capacity: a healthy bounded invocation does not
+prove that all pending groups completed. A run retains its identity on retry until
+its fixed 24-hour recovery deadline. At expiry successful persisted matches can
+finalize even with unfinished filters; subsequent matching keeps ordinary
+progress/replay-overlap semantics. Selected late arrivals are retained for the next
+digest, including when that next run discovers no fresh matches.
+
+Inspect `saved_search_digest_status` with bounded, read-only queries for safe run/user
+and digest/delivery identities, pending filters/selections, group age, full eligible
+membership, distinct listings and delivery state/attempts/errors. Structured
+`saved_search.digest.*` events report finalization, rendering counts and current
+eligibility suppression; generator outcomes expose quota and other selection
+suppression. These observations do not provision CloudWatch metrics or alarms.
+Investigate groups approaching the deadline, old unassigned members, stalled
+selection, delivery queues/DLQs and expired processing leases. Do not export snapshot
+payloads, authored search instructions or private email addresses for diagnostics.
+
+Repair failed dependencies, then use the next cleanup/matcher invocation or an
+approved bounded recovery invocation. Preserve run keys, match keys, membership,
+finalized groups and delivery leases/receipts. Never reset a finalized group or clear
+members to force another email. A delivery remains pending/processing/failed until
+the established delivery handler confirms its outcome; outbox insertion and CDC
+publication are not provider acceptance. Reconcile ambiguous SES sends under
+[notification recovery](#notification-recovery-limits) before approved replay.
 
 ## Geographic resolution recovery
 

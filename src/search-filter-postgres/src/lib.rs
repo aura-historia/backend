@@ -20,3 +20,5 @@ pub use readers::{SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader};
 pub use repository::SqlxSearchFilterRepositoryFactory;
 pub use search_filter_match_writer::SqlxSearchFilterMatchWriterFactory;
 pub use search_filter_monthly_match_quota_reader::SqlxSearchFilterMonthlyMatchQuotaReaderFactory;
+mod pending_saved_search_notifications;
+pub use pending_saved_search_notifications::SqlxPendingSavedSearchNotificationReader;

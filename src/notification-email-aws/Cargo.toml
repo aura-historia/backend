@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tracing = { workspace = true }
 async-trait = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
@@ -21,6 +22,8 @@ serde_json = { workspace = true }
 
 
 [dev-dependencies]
+search-filter-core = { workspace = true }
+time = { workspace = true }
 listing-source-core = { workspace = true }
 party-core = { workspace = true }
 rstest = { workspace = true }

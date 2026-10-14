@@ -136,7 +136,11 @@ impl SesNotificationChannelSender {
         source: &NotificationDeliverySource,
         first_name: Option<&str>,
     ) -> Result<(String, String, &'static str), NotificationChannelSendError> {
-        let template_type = template_type(&source.content);
+        let template_type = if source.saved_search_digest.is_some() {
+            crate::template_mapping::EmailTemplateType::SavedSearchDigest
+        } else {
+            template_type(&source.content)
+        };
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
         let body = self
             .templates

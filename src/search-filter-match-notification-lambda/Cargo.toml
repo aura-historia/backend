@@ -28,6 +28,9 @@ tracing = { workspace = true }
 user-postgres = { workspace = true }
 
 [dev-dependencies]
+application = { workspace = true }
+notification-core = { workspace = true }
+time = { workspace = true }
 async-trait = { workspace = true }
 domain-primitives = { workspace = true }
 listing-source-core = { workspace = true }

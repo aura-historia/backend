@@ -148,7 +148,7 @@ commit/effect do not. SQS transport IDs are not business idempotency keys.
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
-| Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit notification and delivery intent together. |
+| Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
 | Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
@@ -245,6 +245,62 @@ eligibility and monthly quotas.
 The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)
 owns executable matching semantics; [periodic recovery](../durable-worker-runbook.md#periodic-matching-recovery)
 owns operator checks.
+
+### Saved-search email digests
+
+Saved-search email uses one durable user/run group. PostgreSQL freezes the run's
+intended filters and their versioned matching configuration before discovery. The
+persisted window end is the logical run identity: resumed invocations finish that
+run before starting another. Candidate selection, including an empty set, is also
+frozen before evaluation so process restarts cannot refill the first-50 budget.
+Successful, changed/inactive and superseded filters
+are terminal; exhausted retries remain pending until recovery or the fixed 24-hour
+run deadline. A user's group can finish independently of other users' failed filters.
+
+New matches carry their run identity at insertion. The existing CDC generator still
+selects each match under the authoritative user-tier lock and unchanged monthly
+ranking (distinct origin events, creation time and event identity). Selection reads
+its completion fence after acquiring that lock, including suppression and replay,
+so concurrent attempts cannot reverse a committed terminal decision. Email grouping
+and cross-filter display deduplication do not change that quota unit. Per-filter
+matches, feedback and per-match in-app notifications retain their existing behavior.
+Notification creation, eligible email membership snapshots and selection completion
+commit together. Suppressed selections are terminal; failed transactions remain
+recoverable. Repeated classifier evaluation and CDC replay cannot enroll an existing
+match again.
+
+Both filter completion and match notification selection attempt finalization for
+their user/run in the same transaction as their completion marker. Finalization
+locks the group before rereading readiness, so either completion order and
+concurrent completions can enqueue delivery immediately once both are complete. It
+waits for intended filter completion and notification selection of every persisted
+match, then freezes all selected membership and inserts one delivery into the
+existing notification outbox in the same transaction. Empty groups produce no
+delivery. Concurrent finalizers reuse the same group; finalized membership never
+changes. Unfinished older groups retain their own membership until finalization. A
+late selected member of a finalized group remains unassigned for the next user/run
+digest, without creating a second email for the old run. Hourly cleanup is the
+recovery path: it recovers unfinished selection from authoritative matches and
+finalizes ready or expired groups; failures retain their membership and retry
+custody.
+
+Delivery rereads current account status, filter ownership/active state/notifications,
+listing existence/lifecycle/current event and current content assessment. Existing
+image-consent presentation rules and recipient lookup apply. If no members remain
+eligible, delivery ends with the existing missing-source suppression outcome, never
+as delivered. Email snapshots retain localized content and search labels, while
+current restrictions can remove members or images. Rendering orders cards by listing
+identity and labels by filter identity, displays at most 20 distinct listings and
+states the preview and total counts. All eligible per-filter members remain enrolled;
+links lead to the complete saved searches and their notification settings. Text is
+escaped through the existing renderer. No classifier instructions or diagnostics
+enter the email payload.
+
+The delivery lease, retry and provider acceptance semantics are unchanged. SES has
+no idempotency token; a unique digest is one logical intent, not an exactly-once
+external-email guarantee. See [notification recovery](../durable-worker-runbook.md#notification-recovery-limits)
+for ambiguous sends and [digest recovery](../durable-worker-runbook.md#saved-search-digest-recovery-and-cutover)
+for interrupted runs and cutover.
 
 ### Stripe subscription reconciliation
 

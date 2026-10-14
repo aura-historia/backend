@@ -78,9 +78,25 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         })
     }
 
+    async fn insert_for_run(
+        &mut self,
+        matches: &[SearchFilterProductListingMatch],
+        end: time::OffsetDateTime,
+    ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
+        self.insert_batch(matches, Some(end)).await
+    }
     async fn insert_all_if_absent(
         &mut self,
+        matches: &[SearchFilterProductListingMatch],
+    ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
+        self.insert_batch(matches, None).await
+    }
+}
+impl SqlxSearchFilterMatchWriter<'_> {
+    async fn insert_batch(
+        &mut self,
         product_matches: &[SearchFilterProductListingMatch],
+        run_end: Option<time::OffsetDateTime>,
     ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
         if product_matches.is_empty() {
             return Ok(SearchFilterMatchBatchPersistResult::default());
@@ -136,9 +152,9 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             r#"
             INSERT INTO search_filter_matches (
                 user_id, user_search_filter_id, product_listing_id, origin_event_id,
-                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback
+                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback, matching_run_end
             )
-            SELECT * FROM unnest(
+            SELECT *, $9::timestamptz FROM unnest(
                 $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
                 $6::uuid[], $7::text[], $8::bool[]
             )
@@ -154,6 +170,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(fx_rate_ids)
         .bind(names)
         .bind(feedback)
+        .bind(run_end)
         .fetch_all(self.tx.connection())
         .await
         .map_err(|source| SearchFilterMatchWriteError::WriteFailed {
