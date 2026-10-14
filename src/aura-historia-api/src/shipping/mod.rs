@@ -20,7 +20,18 @@ use listing_source_core::ListingSourceId;
 use party_core::party_id::PartyId;
 use serde::{Deserialize, Serialize};
 use shipping_core::profile::{ShippingProfileContent, ShippingProfileId, ShippingProfileName};
-use shipping_service::{ShippingError, ports::*, use_cases::*};
+use shipping_service::{
+    ShippingError,
+    ports::{ShippingDefaultRevision, ShippingEvidence, ShippingManagementRevision},
+    use_cases::{
+        AssignDefaultCommand, AssignShippingDefaultUseCase, ClearDefaultCommand,
+        ClearShippingDefaultUseCase, CreateProfileCommand, CreateShippingProfileUseCase,
+        DefaultEligibility, DefaultView, GetShippingDefaultUseCase, GetShippingProfileUseCase,
+        ListShippingProfilesUseCase, ProfileLifecycleCommand, ProfileSummary, ProfileView,
+        ReplaceProfileCommand, ReplaceShippingProfileUseCase, RestoreShippingProfileUseCase,
+        RetireShippingProfileUseCase,
+    },
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -42,24 +53,25 @@ fn bad() -> ApiError {
 fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
     serde_json::from_str(body).map_err(|_| bad())
 }
+struct RequiredNullable<T>(Option<T>);
 fn required<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
-) -> Result<Option<T>, D::Error> {
-    Option::deserialize(d)
+) -> Result<RequiredNullable<T>, D::Error> {
+    Option::deserialize(d).map(RequiredNullable)
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ContentData {
     name: String,
     #[serde(deserialize_with = "required")]
-    attributed_party_id: Option<PartyId>,
+    attributed_party_id: RequiredNullable<PartyId>,
     terms: serde_json::Value,
 }
 impl ContentData {
     fn domain(self, source: ListingSourceId) -> Result<ShippingProfileContent, ApiError> {
         Ok(ShippingProfileContent {
             name: ShippingProfileName::new(self.name).map_err(|_| bad())?,
-            attributed_party: self.attributed_party_id,
+            attributed_party: self.attributed_party_id.0,
             terms: terms::decode(self.terms, source).map_err(|_| bad())?,
         })
     }
@@ -479,6 +491,8 @@ mod tests {
     fn revisions_and_private_causes_are_safe_at_api_boundary() {
         assert!(parse::<LifecycleData>(r#"{"expectedRevision":0}"#).is_err());
         assert!(parse::<LifecycleData>(r#"{"expectedRevision":-1}"#).is_err());
+        assert!(parse::<ContentData>(r#"{"name":"Advertised terms","terms":{"schema":"SHIP_TERMS_V1","shipping":null,"collection":null}}"#).is_err());
+        assert!(parse::<ContentData>(r#"{"name":"Advertised terms","attributedPartyId":null,"terms":{"schema":"SHIP_TERMS_V1","shipping":null,"collection":null}}"#).is_ok());
         assert!(terms::decode(json!({"schema":"SHIP_TERMS_V1","shipping":{"kind":"PROHIBITED","extra":"private"},"collection":null}),ListingSourceId::new()).is_err());
         let error = ApiError::from(ShippingError::CorruptShippingState {
             source: Box::new(std::io::Error::other("private evidence")),

@@ -1,4 +1,11 @@
-use crate::{ShippingError, ports::*};
+use crate::{
+    ShippingError,
+    ports::{
+        ShippingDefaultRevision, ShippingEvidence, ShippingManagementRevision, ShippingReader,
+        ShippingReaderFactory, ShippingRepository, ShippingRepositoryFactory, StoredDefault,
+        StoredProfile,
+    },
+};
 use application::{
     operation_context::{
         CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
@@ -14,7 +21,10 @@ use listing_source_service::{
 };
 use party_core::party_id::PartyId;
 use shipping_core::{
-    profile::*,
+    profile::{
+        ShippingProfile, ShippingProfileContent, ShippingProfileError, ShippingProfileId,
+        ShippingProfileLifecycle, ShippingProfileName, ShippingProfileRevision,
+    },
     terms::{DeliverySite, ShippingPolicy},
 };
 

@@ -5,11 +5,22 @@ use party_core::party_id::PartyId;
 use platform_postgres::SqlxTransaction;
 use serde::{Deserialize, Serialize};
 use shipping_core::{
-    profile::*,
+    profile::{
+        ShippingProfile, ShippingProfileContent, ShippingProfileId, ShippingProfileLifecycle,
+        ShippingProfileName, ShippingProfileRevision,
+    },
     selection::SourceDefaultProfile,
     terms::{DeliverySite, ShippingPolicy},
 };
-use shipping_service::{ShippingError, ports::*, use_cases::*};
+use shipping_service::{
+    ShippingError,
+    ports::{
+        ShippingDefaultRevision, ShippingEvidence, ShippingManagementRevision, ShippingReader,
+        ShippingReaderFactory, ShippingRepository, ShippingRepositoryFactory, StoredDefault,
+        StoredProfile,
+    },
+    use_cases::{DefaultEligibility, DefaultView, ProfileSummary, ProfileView},
+};
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 

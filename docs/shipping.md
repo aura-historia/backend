@@ -80,6 +80,9 @@ removal, so deletion cannot make an executed creation key reusable.
 PostgreSQL stores native UUID keys and adapter-owned `SHIP_TERMS_V1` terms. Every
 schema field, including nullable assertions, is explicit; unknown fields/versions,
 invalid codes, bounds, references and constructor failures reject persisted state.
+The versioned JSON protocol is shared by transport and persistence; each consuming
+adapter supplies its own strict object-reference codec. Public TypeID and stored UUID
+representations remain distinct, and core/service code does not depend on JSON codecs.
 Source-owned class/variant codes are interpreted only within the profile's immutable
 source. Lists read at most 100 summaries using UUID keysets; detail loads one bounded
 terms value. Readers never hydrate dependent listings or return evidence. Both API

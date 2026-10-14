@@ -6,14 +6,13 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
-geo = { workspace = true, features = ["data"] }
 listing-source-core = { workspace = true }
-money = { workspace = true }
 party-core = { workspace = true }
 platform-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shipping-core = { workspace = true }
+shipping-json = { workspace = true }
 shipping-service = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 shipping-core = { workspace = true }
+shipping-json = { workspace = true }
 shipping-service = { workspace = true }
 shipping-postgres = { workspace = true }
 geo-service = { workspace = true }
