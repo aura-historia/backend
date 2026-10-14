@@ -67,30 +67,10 @@ pub(super) async fn classify_matching_requests<E: ClassifierModel>(
             }
         });
         for index in plan.candidates {
-            let candidate = match &result {
-                Ok(response) => {
-                    let mut answers = BTreeMap::new();
-                    for question in &requests[index].questions {
-                        if let Some(score) = response.answers.get(&question_id(&format!(
-                            "c{index:04}.{}",
-                            question.id.as_str()
-                        ))) {
-                            answers.insert(question.id.clone(), *score);
-                        }
-                    }
-                    if answers.len() != requests[index].questions.len() {
-                        Err(ClassificationError::InvalidResponse)
-                    } else {
-                        Ok(ClassificationResponse {
-                            answers,
-                            // Usage belongs to the shared invocation, never each member.
-                            usage: Default::default(),
-                            diagnostics: response.diagnostics.clone(),
-                        })
-                    }
-                }
-                Err(error) => Err(error.clone()),
-            };
+            let candidate = result
+                .as_ref()
+                .map_err(Clone::clone)
+                .and_then(|response| candidate_response(response, &requests[index], index));
             // At most one singleton recovery per affected member. Timeouts/rate limits
             // use the caller's bounded attempt/backoff policy, avoiding immediate fan-out.
             if matches!(
@@ -131,6 +111,29 @@ pub(super) async fn classify_matching_requests<E: ClassifierModel>(
         }
     }
     resolved
+}
+
+fn candidate_response(
+    response: &ClassificationResponse,
+    request: &ClassificationRequest,
+    index: usize,
+) -> Result<ClassificationResponse, ClassificationError> {
+    let mut answers = BTreeMap::new();
+    for question in &request.questions {
+        let id = question_id(&format!("c{index:04}.{}", question.id.as_str()));
+        if let Some(score) = response.answers.get(&id) {
+            answers.insert(question.id.clone(), *score);
+        }
+    }
+    if answers.len() != request.questions.len() {
+        return Err(ClassificationError::InvalidResponse);
+    }
+    Ok(ClassificationResponse {
+        answers,
+        // Usage belongs to the shared invocation, never each member.
+        usage: Default::default(),
+        diagnostics: response.diagnostics.clone(),
+    })
 }
 
 fn plan_requests(
@@ -235,7 +238,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    fn limits() -> ClassificationRequestLimits {
+    pub(super) fn limits() -> ClassificationRequestLimits {
         ClassificationRequestLimits {
             max_questions: 64,
             max_images: 4,

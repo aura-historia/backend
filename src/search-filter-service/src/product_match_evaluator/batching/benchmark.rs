@@ -1,12 +1,21 @@
 //! Manual, opt-in provider benchmark. Ordinary library validation never calls a live model.
-use super::*;
+use super::{BATCH_PROMPT_VERSION, classify_matching_requests, plan_requests};
 use crate::product_match_evaluator::{match_scores, product_match_request};
-use classifier_model::{CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel};
+use classifier_model::{
+    ClassificationError, ClassificationRequest, ClassificationRequestLimits,
+    ClassificationResponse, ClassifierModel, CloudflareClassifierConfig, CloudflareClassifierModel,
+    CloudflareModel,
+};
 use localization::Language;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::MatchingEvidencePolicy;
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, sync::Mutex, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
+    sync::Mutex,
+    time::Instant,
+};
 
 struct Observation {
     millis: u64,
@@ -18,13 +27,13 @@ struct Observation {
     failed: bool,
 }
 
-struct MeasuredModel {
-    model: CloudflareClassifierModel,
+struct MeasuredModel<M> {
+    model: M,
     observations: Mutex<Vec<Observation>>,
 }
 
 #[async_trait::async_trait]
-impl ClassifierModel for MeasuredModel {
+impl<M: ClassifierModel> ClassifierModel for MeasuredModel<M> {
     fn request_limits(&self) -> Option<ClassificationRequestLimits> {
         self.model.request_limits()
     }
@@ -210,8 +219,8 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
     groups
 }
 
-async fn measure(
-    model: &MeasuredModel,
+async fn measure<M: ClassifierModel>(
+    model: &MeasuredModel<M>,
     groups: &[Vec<Fixture>],
     batch_size: usize,
     reverse: bool,
@@ -494,5 +503,272 @@ fn comparison_reports_disagreement_without_treating_unresolved_scores_as_negativ
             - 0.25)
             .abs()
             < 1e-12
+    );
+}
+
+// Synthetic data exercises the runner contract without claiming reviewed model quality.
+fn offline_manifest() -> Value {
+    let tags = json!([
+        "easy_positive",
+        "hard_positive",
+        "easy_negative",
+        "hard_negative",
+        "missing_description",
+        "missing_images",
+        "long_instructions",
+        "contradictory_neighbors",
+        "injection",
+        "antiques",
+        "art"
+    ]);
+    let groups = ["en", "de", "fr"]
+        .into_iter()
+        .map(|language| {
+            json!({
+                "language": language,
+                "base_queries": ["antique lamp", "bronze sculpture"],
+                "enhanced_description": "Original pieces, ideally brass",
+                "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES",
+                "cases": (0..14).map(|index| json!({
+                    "id": format!("{language}-{index}"),
+                    "title": if index % 2 == 0 { "Positive fixture" } else { "Negative fixture" },
+                    "description": if index == 1 { None } else { Some("Synthetic evidence") },
+                    "human_match": index % 2 == 0,
+                    "tags": tags,
+                })).collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "label_provenance": "human-reviewed", "reviewed_by": "synthetic-test-only",
+        "dataset_revision": "offline-contract-test", "groups": groups
+    })
+}
+
+#[test]
+fn fixture_manifest_preserves_identity_intent_policy_and_missing_evidence() {
+    let manifest = offline_manifest();
+    let groups = fixtures(&manifest);
+    assert_eq!(3, groups.len());
+    assert_eq!(42, groups.iter().map(Vec::len).sum::<usize>());
+    let first = &groups[0][0];
+    assert_eq!("en-0", first.id);
+    assert!(first.label);
+    assert_eq!(
+        Some("benchmark:en-0"),
+        first.request.correlation_id.as_deref()
+    );
+    assert_eq!(
+        manifest["groups"][0]["base_queries"],
+        first.request.state["search_intent"]["base_product_queries"]
+    );
+    assert_eq!(
+        manifest["groups"][0]["enhanced_description"],
+        first.request.state["search_intent"]["enhanced_description"]
+    );
+    assert_eq!(
+        "ENHANCED_TEXT_AND_FOUR_IMAGES",
+        first.request.state["evaluation_context"]["evidence_policy"]
+    );
+    assert_eq!("", groups[0][1].request.state["candidate"]["description"]);
+    assert!(
+        groups
+            .iter()
+            .flatten()
+            .all(|fixture| fixture.request.image_urls.is_empty())
+    );
+}
+
+#[test]
+fn fixture_manifest_rejects_untrustworthy_labels_identity_policy_and_coverage() {
+    for invalid in [
+        "provenance",
+        "language",
+        "duplicate",
+        "policy",
+        "enhanced",
+        "coverage",
+        "size",
+        "mixed",
+        "sample",
+    ] {
+        let mut manifest = offline_manifest();
+        match invalid {
+            "provenance" => manifest["label_provenance"] = "model-generated".into(),
+            "language" => manifest["groups"][0]["language"] = "en-US".into(),
+            "duplicate" => manifest["groups"][1]["cases"][0]["id"] = "en-0".into(),
+            "policy" => manifest["groups"][0]["evidence_policy"] = "UNKNOWN".into(),
+            "enhanced" => manifest["groups"][0]["evidence_policy"] = "TEXT_ONLY".into(),
+            "coverage" => {
+                for group in manifest["groups"].as_array_mut().unwrap() {
+                    for case in group["cases"].as_array_mut().unwrap() {
+                        case["tags"] = json!([]);
+                    }
+                }
+            }
+            "size" => manifest["groups"][0]["cases"] = json!([]),
+            "mixed" => {
+                for case in manifest["groups"][0]["cases"].as_array_mut().unwrap() {
+                    case["human_match"] = false.into();
+                }
+            }
+            "sample" => {
+                for group in manifest["groups"].as_array_mut().unwrap() {
+                    group["cases"].as_array_mut().unwrap().truncate(4);
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            std::panic::catch_unwind(|| fixtures(&manifest)).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+enum OfflineMode {
+    Complete,
+    Partial,
+    Timeout,
+    InvalidEnvelope,
+    UnknownUsage,
+    Flipped,
+}
+
+struct OfflineModel(OfflineMode);
+
+#[async_trait::async_trait]
+impl ClassifierModel for OfflineModel {
+    fn request_limits(&self) -> Option<ClassificationRequestLimits> {
+        Some(super::tests::limits())
+    }
+
+    async fn classify(
+        &self,
+        request: ClassificationRequest,
+    ) -> Result<ClassificationResponse, ClassificationError> {
+        if matches!(self.0, OfflineMode::Timeout) {
+            return Err(ClassificationError::Timeout);
+        }
+        let records = request.state["candidates"].as_array();
+        if records.is_some() && matches!(self.0, OfflineMode::InvalidEnvelope) {
+            return Err(ClassificationError::InvalidResponse);
+        }
+        let mut answers = BTreeMap::new();
+        for question in &request.questions {
+            let evidence = if let Some(records) = records {
+                let candidate_id = question.id.as_str().split_once('.').unwrap().0;
+                if matches!(self.0, OfflineMode::Partial)
+                    && candidate_id == records[1]["id"].as_str().unwrap()
+                    && question.id.as_str().ends_with(".should_show")
+                {
+                    continue;
+                }
+                &records
+                    .iter()
+                    .find(|record| record["id"] == candidate_id)
+                    .unwrap()["evidence"]
+            } else {
+                &request.state["candidate"]
+            };
+            let positive = evidence["title"].as_str().unwrap().starts_with("Positive")
+                ^ matches!(self.0, OfflineMode::Flipped);
+            answers.insert(
+                question.id.clone(),
+                classifier_model::Probability::new(if positive { 0.9 } else { 0.1 }).unwrap(),
+            );
+        }
+        Ok(ClassificationResponse {
+            answers,
+            usage: classifier_model::ClassificationUsage {
+                input_tokens: (!matches!(self.0, OfflineMode::UnknownUsage)).then_some(100),
+                output_tokens: None,
+            },
+            diagnostics: Default::default(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn benchmark_accounts_for_shared_calls_recovery_unresolved_work_and_unknown_costs() {
+    let groups = fixtures(&offline_manifest());
+    for (mode, calls, fallback, failed, unresolved, unknown) in [
+        (OfflineMode::Complete, 12, 0, 0, 0, 0),
+        (OfflineMode::Partial, 24, 12, 0, 0, 0),
+        (OfflineMode::Timeout, 12, 0, 12, 42, 12),
+        (OfflineMode::InvalidEnvelope, 54, 42, 12, 0, 12),
+        (OfflineMode::UnknownUsage, 12, 0, 0, 0, 12),
+    ] {
+        let model = MeasuredModel {
+            model: OfflineModel(mode),
+            observations: Mutex::default(),
+        };
+        let (report, scores) = measure(&model, &groups, 4, false, 0.5, 2.0).await;
+        assert_eq!(42, scores.len());
+        assert_eq!(12, report["planned_requests"]);
+        assert_eq!(12, report["shared_provider_requests"]);
+        assert_eq!(calls, report["provider_requests"]);
+        assert_eq!(fallback, report["fallback_requests"]);
+        assert_eq!(fallback, report["fallback_candidates"]);
+        assert_eq!(failed, report["failed_requests"]);
+        assert_eq!(unresolved, report["unresolved_candidates"]);
+        assert_eq!(unknown, report["unknown_token_requests"]);
+        if unresolved == 0 {
+            assert_eq!(21, report["true_positive"]);
+            assert_eq!(21, report["true_negative"]);
+            assert_eq!(1.0, report["recall_including_unresolved"]);
+        } else {
+            assert_eq!(0, report["false_negative"]);
+            assert_eq!(0.0, report["recall_including_unresolved"]);
+            assert!(report["precision"].is_null());
+        }
+        if unknown > 0 {
+            assert!(report["token_priced_cost_usd"].is_null());
+        } else {
+            assert_eq!(calls * 100, report["known_input_tokens"]);
+            let expected = f64::from(calls * 100) * 2.0 / 1_000_000.0;
+            assert!((report["token_priced_cost_usd"].as_f64().unwrap() - expected).abs() < 1e-12);
+        }
+        if matches!(mode, OfflineMode::Partial) {
+            assert_eq!(12, report["unresolved_questions"]);
+        }
+        if matches!(mode, OfflineMode::InvalidEnvelope) {
+            assert_eq!(12, report["invalid_response_envelopes"]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn benchmark_compares_identical_candidate_evidence_across_grouping_and_neighbor_order() {
+    let groups = fixtures(&offline_manifest());
+    let model = MeasuredModel {
+        model: OfflineModel(OfflineMode::Complete),
+        observations: Mutex::default(),
+    };
+    let (singleton, baseline) = measure(&model, &groups, 1, false, 0.5, 2.0).await;
+    assert_eq!(42, singleton["provider_requests"]);
+    assert_eq!(0, singleton["shared_provider_requests"]);
+    let (_, batched) = measure(&model, &groups, 4, false, 0.5, 2.0).await;
+    let (_, reversed) = measure(&model, &groups, 4, true, 0.5, 2.0).await;
+    assert_eq!(
+        0.0,
+        compare(&baseline, &batched, 0.5)["decision_disagreement"]
+    );
+    assert_eq!(
+        0.0,
+        compare(&batched, &reversed, 0.5)["should_show_mean_absolute_delta"]
+    );
+    let flipped_model = MeasuredModel {
+        model: OfflineModel(OfflineMode::Flipped),
+        observations: Mutex::default(),
+    };
+    let (flipped, scores) = measure(&flipped_model, &groups, 4, false, 0.5, 2.0).await;
+    assert_eq!(21, flipped["false_positive"]);
+    assert_eq!(21, flipped["false_negative"]);
+    assert_eq!(0.0, flipped["precision"]);
+    assert_eq!(
+        1.0,
+        compare(&baseline, &scores, 0.5)["decision_disagreement"]
     );
 }
