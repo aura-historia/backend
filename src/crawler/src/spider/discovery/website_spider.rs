@@ -62,6 +62,7 @@ pub enum CrawlFailureKind {
     EmptyCrawl,
     TinyCrawl,
     NoAcceptedPages,
+    RobotsBlocked,
     RateLimited,
     AccessDenied,
     CloudflareChallenge,
@@ -80,6 +81,7 @@ impl CrawlFailureKind {
             CrawlFailureKind::EmptyCrawl => "EmptyCrawl",
             CrawlFailureKind::TinyCrawl => "TinyCrawl",
             CrawlFailureKind::NoAcceptedPages => "NoAcceptedPages",
+            CrawlFailureKind::RobotsBlocked => "RobotsBlocked",
             CrawlFailureKind::RateLimited => "RateLimited",
             CrawlFailureKind::AccessDenied => "AccessDenied",
             CrawlFailureKind::CloudflareChallenge => "CloudflareChallenge",
@@ -103,7 +105,8 @@ impl CrawlFailureKind {
             | CrawlFailureKind::BotProtection
             | CrawlFailureKind::ConnectError
             | CrawlFailureKind::ServerError => CrawlCooldownProfile::Transient,
-            CrawlFailureKind::TlsError
+            CrawlFailureKind::RobotsBlocked
+            | CrawlFailureKind::TlsError
             | CrawlFailureKind::RedirectProblem
             | CrawlFailureKind::InvalidUrl => CrawlCooldownProfile::Recoverable,
             CrawlFailureKind::AccessDenied | CrawlFailureKind::JavascriptRequired => {
@@ -281,8 +284,14 @@ impl SpiderTransport for PublicSpiderTransport {
     }
 }
 
+/// Spider applies its configured user agent and headers only to a client it
+/// builds itself; an injected client must carry them as defaults, otherwise
+/// every request (robots.txt included) goes out anonymous and shops that
+/// reject anonymous clients answer 403.
 fn spider_client_builder(timeout: Duration) -> spider::reqwest::ClientBuilder {
     spider::reqwest::Client::builder()
+        .user_agent(SPIDER_USER_AGENT)
+        .default_headers(spider_request_headers())
         .redirect(spider::reqwest::redirect::Policy::none())
         .timeout(timeout)
         .connect_timeout(timeout)
@@ -792,12 +801,17 @@ fn page_diagnostic_signal(
     status_code: u16,
     anti_bot_tech: AntiBotTech,
 ) -> Option<DiagnosticSignal> {
-    anti_bot_signal(anti_bot_tech)
+    anti_bot_signal(status_code, anti_bot_tech)
         .or_else(|| status_code_signal(status_code))
         .or_else(|| redirect_signal(crawl_root_url, final_url))
 }
 
-fn anti_bot_signal(anti_bot_tech: AntiBotTech) -> Option<DiagnosticSignal> {
+/// A detected anti-bot vendor only explains a failure when the page was not
+/// served: many healthy shops sit behind Cloudflare and answer 200.
+fn anti_bot_signal(status_code: u16, anti_bot_tech: AntiBotTech) -> Option<DiagnosticSignal> {
+    if (200..300).contains(&status_code) {
+        return None;
+    }
     match anti_bot_tech {
         AntiBotTech::Cloudflare => Some(DiagnosticSignal::new(
             CrawlFailureKind::CloudflareChallenge,
@@ -864,13 +878,19 @@ fn apply_website_status(
     }
 }
 
-/// Distinguishes "Spider delivered pages but local filtering accepted none"
-/// from a genuinely empty library response. Library signals keep precedence.
+/// Distinguishes "robots.txt blocked the crawl root" and "Spider delivered
+/// pages but local filtering accepted none" from a genuinely empty library
+/// response. Library signals keep precedence.
 fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
-    if diagnostics.failure_kind.is_none()
-        && diagnostics.pages_received > 0
-        && diagnostics.accepted == 0
-    {
+    if diagnostics.failure_kind.is_some() {
+        return;
+    }
+    if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
+        diagnostics.apply_signal(DiagnosticSignal::new(
+            CrawlFailureKind::RobotsBlocked,
+            "robots_blocked_crawl_root",
+        ));
+    } else if diagnostics.pages_received > 0 && diagnostics.accepted == 0 {
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::NoAcceptedPages,
             "local_filters_rejected_all_pages",
@@ -1004,7 +1024,8 @@ mod tests {
         Drop,
     }
 
-    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String)>>>;
+    /// `(host, target, user_agent)` per request.
+    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String)>>>;
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
 
     struct TestSite {
@@ -1038,11 +1059,11 @@ mod tests {
                 .lock()
                 .await
                 .iter()
-                .filter(|(_, seen)| seen == target)
+                .filter(|(_, seen, _)| seen == target)
                 .count()
         }
 
-        async fn finish(self) -> Vec<(String, String)> {
+        async fn finish(self) -> Vec<(String, String, String)> {
             let log = self.requests.lock().await.clone();
             self.server.abort();
             log
@@ -1072,18 +1093,22 @@ mod tests {
                     .nth(1)
                     .unwrap_or_default()
                     .to_string();
-                let host = request
-                    .lines()
-                    .find_map(|line| {
-                        let (name, value) = line.split_once(':')?;
-                        name.eq_ignore_ascii_case("host")
-                            .then_some(value.trim().to_ascii_lowercase())
-                    })
-                    .unwrap_or_default();
+                let header = |name: &str| {
+                    request
+                        .lines()
+                        .find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case(name)
+                                .then_some(value.trim().to_string())
+                        })
+                        .unwrap_or_default()
+                };
+                let host = header("host").to_ascii_lowercase();
+                let user_agent = header("user-agent");
                 let previous = {
                     let mut log = requests.lock().await;
-                    let previous = log.iter().filter(|(_, seen)| *seen == target).count();
-                    log.push((host, target.clone()));
+                    let previous = log.iter().filter(|(_, seen, _)| *seen == target).count();
+                    log.push((host, target.clone(), user_agent));
                     previous
                 };
                 let response = match handler(&target, previous) {
@@ -1186,10 +1211,23 @@ mod tests {
         assert_eq!(
             request_log
                 .iter()
-                .filter(|(host, _)| host == "evil.example")
+                .filter(|(host, _, _)| host == "evil.example")
                 .count(),
             0,
             "external host was requested: {request_log:?}"
+        );
+        // Preflight, robots.txt and every Spider page must identify the crawler;
+        // anonymous clients are refused by common shop platforms.
+        assert!(
+            request_log
+                .iter()
+                .all(|(_, _, user_agent)| user_agent == SPIDER_USER_AGENT),
+            "request without the spider user agent: {request_log:?}"
+        );
+        assert!(
+            request_log
+                .iter()
+                .any(|(_, target, _)| target == "/robots.txt")
         );
         assert_eq!(diagnostics.accepted, discovered.len());
         assert_eq!(diagnostics.pages_received, discovered.len());
@@ -1397,6 +1435,39 @@ mod tests {
         );
         assert_eq!(site.requests_for("/product/1").await, 0);
         site.finish().await;
+    }
+
+    #[tokio::test]
+    async fn should_report_robots_blocked_root_instead_of_empty_crawl() {
+        for robots in [
+            SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /\n".to_string()),
+            SiteResponse::Html("403 Forbidden", String::new()),
+        ] {
+            let site = TestSite::spawn(Arc::new(move |target: &str, previous: usize| {
+                if target == "/robots.txt" {
+                    robots.clone()
+                } else {
+                    regression_site(target, previous)
+                }
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (discovered, diagnostics) =
+                run_crawl(&spider, "http://example.com/").await.unwrap();
+
+            assert!(discovered.is_empty(), "{diagnostics:?}");
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::RobotsBlocked),
+                "{diagnostics:?}"
+            );
+            assert_eq!(diagnostics.pages_received, 0);
+            assert!(diagnostics.robots_blocked >= 1);
+            assert_eq!(site.requests_for("/product/1").await, 0);
+            site.finish().await;
+        }
     }
 
     #[tokio::test]
@@ -1617,6 +1688,7 @@ mod tests {
             (CrawlFailureKind::BotProtection, Transient),
             (CrawlFailureKind::ConnectError, Transient),
             (CrawlFailureKind::ServerError, Transient),
+            (CrawlFailureKind::RobotsBlocked, Recoverable),
             (CrawlFailureKind::TlsError, Recoverable),
             (CrawlFailureKind::RedirectProblem, Recoverable),
             (CrawlFailureKind::InvalidUrl, Recoverable),
@@ -1913,6 +1985,19 @@ mod tests {
     #[test]
     fn should_not_map_cloudflare_from_normal_page_without_library_antibot_signal() {
         let diagnostics = page_diagnostics("https://example.com/cloudflare-cdn", 200);
+
+        assert_eq!(diagnostics.failure_kind, None);
+    }
+
+    #[test]
+    fn should_ignore_antibot_vendor_detection_on_served_pages() {
+        let diagnostics = diagnostics_from_library_page(
+            "https://example.com",
+            "https://example.com/",
+            200,
+            None,
+            AntiBotTech::Cloudflare,
+        );
 
         assert_eq!(diagnostics.failure_kind, None);
     }

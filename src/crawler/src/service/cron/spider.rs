@@ -479,10 +479,11 @@ mod tests {
         }
     }
 
-    const ALL_KINDS: [CrawlFailureKind; 13] = [
+    const ALL_KINDS: [CrawlFailureKind; 14] = [
         CrawlFailureKind::EmptyCrawl,
         CrawlFailureKind::TinyCrawl,
         CrawlFailureKind::NoAcceptedPages,
+        CrawlFailureKind::RobotsBlocked,
         CrawlFailureKind::RateLimited,
         CrawlFailureKind::CloudflareChallenge,
         CrawlFailureKind::BotProtection,
@@ -530,6 +531,7 @@ mod tests {
     fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
         for error in [
             insufficient_sample(),
+            crawl_failed(CrawlFailureKind::RobotsBlocked),
             crawl_failed(CrawlFailureKind::TlsError),
             crawl_failed(CrawlFailureKind::RedirectProblem),
             crawl_failed(CrawlFailureKind::InvalidUrl),
@@ -591,6 +593,7 @@ mod tests {
                 "EmptyCrawl",
                 "TinyCrawl",
                 "NoAcceptedPages",
+                "RobotsBlocked",
                 "RateLimited",
                 "CloudflareChallenge",
                 "BotProtection",
@@ -1142,6 +1145,7 @@ mod tests {
             (CrawlFailureKind::EmptyCrawl, "EmptyCrawl"),
             (CrawlFailureKind::TinyCrawl, "TinyCrawl"),
             (CrawlFailureKind::NoAcceptedPages, "NoAcceptedPages"),
+            (CrawlFailureKind::RobotsBlocked, "RobotsBlocked"),
             (CrawlFailureKind::RateLimited, "RateLimited"),
             (CrawlFailureKind::AccessDenied, "AccessDenied"),
             (CrawlFailureKind::CloudflareChallenge, "CloudflareChallenge"),
