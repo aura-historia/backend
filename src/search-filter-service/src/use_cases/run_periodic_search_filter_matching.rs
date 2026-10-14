@@ -51,6 +51,8 @@ pub struct PeriodicSearchFilterMatchingPolicy {
     pub hybrid_scan_limit: NonZeroUsize,
     pub evaluation_limit: NonZeroUsize,
     pub classification_concurrency: NonZeroUsize,
+    /// One preserves singleton evaluation; larger values enable budgeted text batches.
+    pub classification_batch_candidates: NonZeroUsize,
     pub should_show_threshold: Probability,
     pub max_attempts: NonZeroUsize,
     pub projection_lag: Duration,
@@ -302,7 +304,8 @@ impl<U, L, C, F, P, X, S, E, G, W, Q, D>
         digests: D,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
-        if policy.evaluation_limit.get() > 50
+        if policy.classification_batch_candidates.get() > 32
+            || policy.evaluation_limit.get() > 50
             || policy.hybrid_scan_limit.get() > 100
             || policy.evaluation_limit > policy.hybrid_scan_limit
             || policy.projection_lag.is_negative()
@@ -830,6 +833,7 @@ where
             &self.evaluator,
             evaluations,
             self.policy.classification_concurrency,
+            self.policy.classification_batch_candidates,
             self.policy.should_show_threshold,
         )
         .await;
@@ -1571,6 +1575,17 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ClassifierModel for NoopEvaluator {
+        fn request_limits(&self) -> Option<classifier_model::ClassificationRequestLimits> {
+            Some(classifier_model::ClassificationRequestLimits {
+                max_questions: 64,
+                max_images: 4,
+                max_text_tokens: 1_000_000,
+                max_context_tokens: 1_000_000,
+                context_reserve_tokens: 1024,
+                tokens_per_image: 1027,
+                max_payload_bytes: 13 * 1024 * 1024,
+            })
+        }
         async fn classify(
             &self,
             _request: ClassificationRequest,
@@ -1580,7 +1595,27 @@ mod tests {
                 state.lock_outcome = PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive;
             }
             state.evaluator_calls += 1;
-            state.evaluator_requests.push(_request);
+            state.evaluator_requests.push(_request.clone());
+            if let Some(candidates) = _request.state["candidates"].as_array() {
+                let mut answers = std::collections::BTreeMap::new();
+                for candidate in candidates {
+                    let response = state.evaluator_results.pop_front().unwrap()?;
+                    for (question, probability) in response.answers {
+                        let id = classifier_model::QuestionId::new(format!(
+                            "{}.{}",
+                            candidate["id"].as_str().unwrap(),
+                            question.as_str()
+                        ))
+                        .unwrap();
+                        answers.insert(id, probability);
+                    }
+                }
+                return Ok(ClassificationResponse {
+                    answers,
+                    usage: Default::default(),
+                    diagnostics: Default::default(),
+                });
+            }
             state
                 .evaluator_results
                 .pop_front()
@@ -1649,7 +1684,9 @@ mod tests {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     })?;
             state.match_writer_calls += 1;
-            state.existing.insert(product_match.product_listing_id);
+            if !state.existing.insert(product_match.product_listing_id) {
+                return Ok(SearchFilterMatchPersistOutcome::AlreadyExists);
+            }
             state.persisted.push(product_match.clone());
             Ok(SearchFilterMatchPersistOutcome::Inserted)
         }
@@ -1806,6 +1843,7 @@ mod tests {
                 hybrid_scan_limit: NonZeroUsize::MIN,
                 evaluation_limit: NonZeroUsize::MIN,
                 classification_concurrency: NonZeroUsize::MIN,
+                classification_batch_candidates: NonZeroUsize::MIN,
                 should_show_threshold: Probability::new(0.5)
                     .unwrap_or_else(|_| unreachable!("test threshold is valid")),
                 max_attempts: NonZeroUsize::MIN,
@@ -2387,56 +2425,123 @@ mod tests {
 
     #[tokio::test]
     async fn all_fifty_are_evaluated_regardless_of_rejection_prefix_and_no_tail_is_chased() {
-        for rejected_prefix in [10, 49, 50] {
-            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
-                matched_through: OffsetDateTime::UNIX_EPOCH,
-            });
-            let refs = seed_candidates(&state, 51);
-            state.lock().unwrap().evaluator_results = (0..50)
-                .map(|rank| decision(rank >= rejected_prefix))
-                .collect();
-            let handler = full_budget_handler(state.clone());
-            let mut selected = None;
-            let mut report = FilterAttemptReport::default();
-            let outcome = handler
-                .process_filter(
-                    &ordinary_filter(),
-                    &test_snapshot(),
-                    OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
-                    &mut selected,
-                    &mut report,
-                )
-                .await
-                .unwrap();
-            assert_eq!(FilterOutcome::Completed, outcome);
-            assert_eq!(selected.as_ref().unwrap(), &refs[..50]);
-            assert_eq!(51, report.candidates_scanned);
-            assert_eq!(50, report.candidates_selected);
-            assert_eq!(50, report.classification_requests);
-            assert_eq!(rejected_prefix, report.candidates_rejected);
-            assert_eq!(50 - rejected_prefix, report.matches_inserted);
-            assert_eq!(1, report.filters_candidate_cap);
-            let state = state.lock().unwrap();
-            assert_eq!(50, state.evaluator_calls);
-            assert!(
-                state
-                    .evaluator_requests
-                    .iter()
-                    .all(|request| request.image_urls.is_empty())
-            );
-            assert!(
-                state
-                    .persisted
-                    .iter()
-                    .all(|item| item.product_listing_id != refs[50].product_listing_id)
-            );
-            if rejected_prefix == 49 {
-                assert_eq!(
-                    refs[49].product_listing_id,
-                    state.persisted[0].product_listing_id
+        for batch_size in [1, 32] {
+            for rejected_prefix in [10, 49, 50] {
+                let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                    matched_through: OffsetDateTime::UNIX_EPOCH,
+                });
+                let refs = seed_candidates(&state, 51);
+                state.lock().unwrap().evaluator_results = (0..50)
+                    .map(|rank| decision(rank >= rejected_prefix))
+                    .collect();
+                let mut handler = full_budget_handler(state.clone());
+                handler.policy.classification_batch_candidates =
+                    NonZeroUsize::new(batch_size).unwrap();
+                let mut selected = None;
+                let mut report = FilterAttemptReport::default();
+                let outcome = handler
+                    .process_filter(
+                        &ordinary_filter(),
+                        &test_snapshot(),
+                        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                        &mut selected,
+                        &mut report,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(FilterOutcome::Completed, outcome);
+                assert_eq!(selected.as_ref().unwrap(), &refs[..50]);
+                assert_eq!(51, report.candidates_scanned);
+                assert_eq!(50, report.candidates_selected);
+                assert_eq!(50, report.classification_requests);
+                assert_eq!(rejected_prefix, report.candidates_rejected);
+                assert_eq!(50 - rejected_prefix, report.matches_inserted);
+                assert_eq!(1, report.filters_candidate_cap);
+                let state = state.lock().unwrap();
+                assert_eq!(if batch_size == 1 { 50 } else { 2 }, state.evaluator_calls);
+                assert!(
+                    state
+                        .evaluator_requests
+                        .iter()
+                        .all(|request| request.image_urls.is_empty())
                 );
+                assert!(
+                    state
+                        .persisted
+                        .iter()
+                        .all(|item| item.product_listing_id != refs[50].product_listing_id)
+                );
+                if rejected_prefix == 49 {
+                    assert_eq!(
+                        refs[49].product_listing_id,
+                        state.persisted[0].product_listing_id
+                    );
+                }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn batch_timeout_keeps_frozen_selection_and_retry_does_not_duplicate_matches() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let refs = seed_candidates(&state, 51);
+        // First request succeeds for 32 candidates; the second request times out.
+        state.lock().unwrap().evaluator_results = (0..33)
+            .map(|index| {
+                if index == 32 {
+                    Err(ClassificationError::Timeout)
+                } else {
+                    decision(true)
+                }
+            })
+            .collect();
+        let mut handler = full_budget_handler(state.clone());
+        handler.policy.classification_batch_candidates = NonZeroUsize::new(32).unwrap();
+        let filter = ordinary_filter();
+        let window = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let mut selected = None;
+        let mut first = FilterAttemptReport::default();
+        assert_eq!(
+            FilterOutcome::Retryable,
+            handler
+                .process_filter(&filter, &test_snapshot(), window, &mut selected, &mut first)
+                .await
+                .unwrap()
+        );
+        assert_eq!(Some(refs[..50].to_vec()), selected);
+        assert_eq!(32, first.matches_inserted);
+        assert_eq!(18, first.retryable_evaluation_failures);
+        assert_eq!(0, first.candidates_rejected);
+        assert_eq!(0, state.lock().unwrap().checkpoints);
+        state.lock().unwrap().evaluator_results = (0..50).map(|_| decision(true)).collect();
+        let mut second = FilterAttemptReport::default();
+        assert_eq!(
+            FilterOutcome::Completed,
+            handler
+                .process_filter(
+                    &filter,
+                    &test_snapshot(),
+                    window,
+                    &mut selected,
+                    &mut second
+                )
+                .await
+                .unwrap()
+        );
+        assert_eq!(Some(refs[..50].to_vec()), selected);
+        assert_eq!(18, second.matches_inserted);
+        assert_eq!(32, second.matches_duplicate);
+        let state = state.lock().unwrap();
+        assert_eq!(50, state.persisted.len());
+        assert!(
+            state
+                .persisted
+                .iter()
+                .all(|m| m.product_listing_id != refs[50].product_listing_id)
+        );
+        assert_eq!(1, state.checkpoints);
     }
 
     #[tokio::test]

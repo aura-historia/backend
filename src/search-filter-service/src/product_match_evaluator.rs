@@ -1,7 +1,9 @@
+mod batching;
+
 use classifier_model::{
-    BinaryClassificationQuestion, ClassificationBatchOptions, ClassificationError,
-    ClassificationOperation, ClassificationOptions, ClassificationRequest, ClassificationResponse,
-    ClassifierModel, Probability, QuestionId,
+    BinaryClassificationQuestion, ClassificationError, ClassificationOperation,
+    ClassificationOptions, ClassificationRequest, ClassificationResponse, ClassifierModel,
+    Probability, QuestionId,
 };
 use localization::Language;
 use product_listing_core::product_listing_search::ProductListingSearch;
@@ -38,6 +40,7 @@ pub(crate) async fn evaluate_product_matches<E, Key>(
     classifier: &E,
     evaluations: Vec<ProductListingMatchEvaluationRequest<'_, Key>>,
     max_concurrent_requests: NonZeroUsize,
+    max_batch_candidates: NonZeroUsize,
     should_show_threshold: Probability,
 ) -> Vec<ProductListingMatchEvaluationResult<Key>>
 where
@@ -72,12 +75,13 @@ where
         })
         .collect::<Vec<_>>();
     let batch_started = Instant::now();
-    let results = classifier
-        .classify_batch(
-            requests,
-            ClassificationBatchOptions::new(max_concurrent_requests),
-        )
-        .await;
+    let results = batching::classify_matching_requests(
+        classifier,
+        requests,
+        max_concurrent_requests,
+        max_batch_candidates,
+    )
+    .await;
 
     if results.len() != keys.len() {
         let error = ClassificationError::InvalidResponse;
@@ -93,6 +97,7 @@ where
                 response: None,
                 hard_conflict: None,
                 should_show: None,
+                prompt_version: MATCH_PROMPT_VERSION,
                 threshold: should_show_threshold,
                 decision: &decision,
                 duration_millis,
@@ -114,7 +119,8 @@ where
         .zip(request_metadata)
         .map(
             |((key, result), (requested_image_count, correlation_id, evidence_policy))| {
-                let outcome = match result {
+                let prompt_version = result.prompt_version;
+                let outcome = match result.result {
                     Ok(response) => match match_scores(&response) {
                         Ok((hard_conflict, should_show)) => {
                             let decision = if should_show.get() >= should_show_threshold.get() {
@@ -131,6 +137,7 @@ where
                                 response: Some(&response),
                                 hard_conflict: Some(hard_conflict),
                                 should_show: Some(should_show),
+                                prompt_version,
                                 threshold: should_show_threshold,
                                 decision: &decision,
                                 duration_millis: response
@@ -159,6 +166,7 @@ where
                                 response: Some(&response),
                                 hard_conflict,
                                 should_show,
+                                prompt_version,
                                 threshold: should_show_threshold,
                                 decision: &decision,
                                 duration_millis: response
@@ -180,6 +188,7 @@ where
                             response: None,
                             hard_conflict: None,
                             should_show: None,
+                            prompt_version,
                             threshold: should_show_threshold,
                             decision: &decision,
                             duration_millis: duration_millis(batch_started.elapsed()),
@@ -233,6 +242,7 @@ struct MatchEvaluationDiagnostic<'a> {
     response: Option<&'a ClassificationResponse>,
     hard_conflict: Option<Probability>,
     should_show: Option<Probability>,
+    prompt_version: &'static str,
     threshold: Probability,
     decision: &'a ProductListingMatchEvaluationOutcome,
 
@@ -249,6 +259,7 @@ fn log_match_evaluation(event: MatchEvaluationDiagnostic<'_>) {
         response,
         hard_conflict,
         should_show,
+        prompt_version,
         threshold,
         decision,
         duration_millis,
@@ -279,7 +290,7 @@ fn log_match_evaluation(event: MatchEvaluationDiagnostic<'_>) {
         classifierProvider = provider,
         classifierModel = model,
         correlationId = correlation_id,
-        promptVersion = MATCH_PROMPT_VERSION,
+        promptVersion = prompt_version,
         evidencePolicy = evidence_policy,
         evidencePolicyVersion = MatchingEvidencePolicy::VERSION,
         durationMs = duration_millis,
@@ -397,7 +408,9 @@ fn product_text(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use classifier_model::{ClassificationDiagnostics, ClassificationUsage};
+    use classifier_model::{
+        ClassificationBatchOptions, ClassificationDiagnostics, ClassificationUsage,
+    };
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -622,6 +635,7 @@ pub(crate) mod tests {
                 },
             ],
             NonZeroUsize::MIN,
+            NonZeroUsize::MIN,
             Probability::new(0.50)?,
         )
         .await;
@@ -673,6 +687,7 @@ pub(crate) mod tests {
                 evidence_policy: MatchingEvidencePolicy::EnhancedTextAndFourImages,
                 correlation_id: None,
             }],
+            NonZeroUsize::MIN,
             NonZeroUsize::MIN,
             Probability::new(0.5)?,
         )
@@ -736,6 +751,7 @@ pub(crate) mod tests {
                 evidence_policy: MatchingEvidencePolicy::EnhancedTextAndFourImages,
                 correlation_id: None,
             }],
+            NonZeroUsize::MIN,
             NonZeroUsize::MIN,
             Probability::new(0.5)?,
         )
@@ -884,6 +900,7 @@ pub(crate) mod tests {
             })
             .collect(),
             NonZeroUsize::new(3).unwrap(),
+            NonZeroUsize::MIN,
             Probability::new(0.5).unwrap(),
         )
         .await;

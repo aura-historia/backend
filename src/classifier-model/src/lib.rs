@@ -6,6 +6,7 @@ pub use cloudflare::{CloudflareClassifierConfig, CloudflareClassifierModel, Clou
 pub use error::ClassificationError;
 pub use types::{
     BinaryClassificationQuestion, ClassificationBatchOptions, ClassificationDiagnostics,
-    ClassificationOperation, ClassificationOptions, ClassificationRequest, ClassificationResponse,
-    ClassificationUsage, ClassifierModel, ImageOmissionReason, Probability, QuestionId,
+    ClassificationOperation, ClassificationOptions, ClassificationRequest,
+    ClassificationRequestLimits, ClassificationResponse, ClassificationUsage, ClassifierModel,
+    ImageOmissionReason, Probability, QuestionId,
 };

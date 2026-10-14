@@ -50,12 +50,16 @@ pub struct BinaryClassificationQuestion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClassificationOptions {
     pub request_timeout: Duration,
+    /// Keep valid keyed answers when another answer is missing or malformed.
+    /// Unknown or duplicate IDs still invalidate the complete response envelope.
+    pub allow_partial_answers: bool,
 }
 
 impl Default for ClassificationOptions {
     fn default() -> Self {
         Self {
             request_timeout: Duration::from_secs(30),
+            allow_partial_answers: false,
         }
     }
 }
@@ -69,6 +73,50 @@ pub struct ClassificationRequest {
     pub questions: Vec<BinaryClassificationQuestion>,
     pub image_urls: Vec<Url>,
     pub options: ClassificationOptions,
+}
+
+/// Conservative transport budgets advertised by the configured provider. UTF-8 bytes
+/// bound text tokens without depending on a provider tokenizer. Media bytes/pixels
+/// are additionally validated by the adapter after safe fetching and decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassificationRequestLimits {
+    pub max_questions: usize,
+    pub max_images: usize,
+    pub max_text_tokens: usize,
+    pub max_context_tokens: usize,
+    pub context_reserve_tokens: usize,
+    pub tokens_per_image: usize,
+    pub max_payload_bytes: usize,
+}
+
+impl ClassificationRequestLimits {
+    pub fn permits(&self, request: &ClassificationRequest) -> bool {
+        let Ok(state) = serde_json::to_vec(&request.state) else {
+            return false;
+        };
+        // Include JSON escaping, question identifiers, and per-question schema overhead.
+        let questions = request.questions.iter().map(|question| {
+            serde_json::json!({"type": "noul", "id": question.id.as_str(), "instructions": question.instructions})
+        }).collect::<Vec<_>>();
+        let Ok(questions) = serde_json::to_vec(&questions) else {
+            return false;
+        };
+        let text_tokens = state.len().saturating_add(questions.len());
+        !request.questions.is_empty()
+            && request.questions.len() <= self.max_questions
+            && request.image_urls.len() <= self.max_images
+            && text_tokens <= self.max_text_tokens
+            && text_tokens
+                .saturating_add(
+                    request
+                        .image_urls
+                        .len()
+                        .saturating_mul(self.tokens_per_image),
+                )
+                .saturating_add(self.context_reserve_tokens)
+                <= self.max_context_tokens
+            && text_tokens.saturating_add(256) <= self.max_payload_bytes
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,6 +220,10 @@ impl ImageOmissionReason {
 /// It does not spawn detached tasks: dropping the batch future drops its in-flight request futures.
 #[async_trait::async_trait]
 pub trait ClassifierModel: Send + Sync {
+    /// None keeps consumers on singleton requests until the adapter supplies budgets.
+    fn request_limits(&self) -> Option<ClassificationRequestLimits> {
+        None
+    }
     /// Stable, non-secret classifier identity for operational diagnostics.
     fn provider_name(&self) -> &'static str {
         "unknown"
@@ -205,6 +257,9 @@ impl<M> ClassifierModel for Arc<M>
 where
     M: ClassifierModel + ?Sized,
 {
+    fn request_limits(&self) -> Option<ClassificationRequestLimits> {
+        self.as_ref().request_limits()
+    }
     fn provider_name(&self) -> &'static str {
         self.as_ref().provider_name()
     }
@@ -376,6 +431,17 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ClassifierModel for IdentifiedBatchModel {
+        fn request_limits(&self) -> Option<ClassificationRequestLimits> {
+            Some(ClassificationRequestLimits {
+                max_questions: 64,
+                max_images: 4,
+                max_text_tokens: 23_552,
+                max_context_tokens: 24_576,
+                context_reserve_tokens: 1024,
+                tokens_per_image: 1027,
+                max_payload_bytes: 13 * 1024 * 1024,
+            })
+        }
         fn provider_name(&self) -> &'static str {
             "test-provider"
         }
@@ -408,6 +474,7 @@ mod tests {
     async fn arc_forwarding_preserves_identity_and_batch_override() {
         let identified = Arc::new(IdentifiedBatchModel(AtomicUsize::new(0)));
         let concrete: Arc<dyn ClassifierModel> = identified.clone();
+        assert_eq!(identified.request_limits(), concrete.request_limits());
         assert_eq!(
             "test-provider",
             <Arc<dyn ClassifierModel> as ClassifierModel>::provider_name(&concrete)
