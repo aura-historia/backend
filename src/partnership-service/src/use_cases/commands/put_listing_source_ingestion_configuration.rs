@@ -1,4 +1,5 @@
 use crate::ports::{ListingSourceAuthorization, SourceAuthorizationError};
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -26,6 +27,8 @@ pub struct PutListingSourceIngestionConfigurationResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PutListingSourceIngestionConfigurationError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -141,9 +144,25 @@ where
             return Err(PutListingSourceIngestionConfigurationError::InvalidConfiguration);
         }
 
+        let intent = CommandIntent::new(
+            context,
+            "PUT_LISTING_SOURCE_CONFIGURATION",
+            format!("{}:{}", command.listing_source_id, method.as_str()),
+            None,
+            serde_json::json!({"listing_source_id":command.listing_source_id,"configuration":listing_source_service::command_receipts::configuration_fingerprint(&command.configuration)}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             PutListingSourceIngestionConfigurationError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                PutListingSourceIngestionConfigurationError::CommitTransactionFailed(Box::new(
+                    source,
+                ))
+            })?;
+            return Ok(result);
+        }
+
         let stored = self
             .sources
             .in_transaction(&mut tx)
@@ -176,6 +195,15 @@ where
                 .await
                 .map_err(map_repository)?;
         }
+
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &PutListingSourceIngestionConfigurationResult {
+                created: !was_configured,
+            },
+        )
+        .await?;
         tx.commit().await.map_err(|source| {
             PutListingSourceIngestionConfigurationError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -438,6 +466,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

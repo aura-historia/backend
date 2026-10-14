@@ -2,6 +2,7 @@ use crate::ports::{
     ListingSourceDeletionBlocker, ListingSourceRepository, ListingSourceRepositoryError,
     ListingSourceRepositoryFactory,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -21,6 +22,8 @@ pub struct DeleteListingSourceCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeleteListingSourceError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to delete listing source")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -107,9 +110,23 @@ where
         let result = async {
             ensure_admin(context, &self.check_user_admin).await?;
 
+            let intent = CommandIntent::new(
+                context,
+                "DELETE_LISTING_SOURCE",
+                command.listing_source_id.to_string(),
+                None,
+                serde_json::json!({"listing_source_id":command.listing_source_id}),
+            );
             let mut tx = self.unit_of_work.begin().await.map_err(|source| {
                 DeleteListingSourceError::BeginTransactionFailed(Box::new(source))
             })?;
+            if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+                tx.commit().await.map_err(|source| {
+                    DeleteListingSourceError::CommitTransactionFailed(Box::new(source))
+                })?;
+                return Ok(result);
+            }
+
             let stored = self
                 .sources
                 .in_transaction(&mut tx)
@@ -135,6 +152,8 @@ where
                 .in_transaction(&mut tx)
                 .delete_unused(command.listing_source_id, stored.version)
                 .await?;
+
+            retry::complete(&mut tx, intent.as_ref(), &()).await?;
             tx.commit().await.map_err(|source| {
                 DeleteListingSourceError::CommitTransactionFailed(Box::new(source))
             })?;
@@ -163,6 +182,7 @@ where
 
 fn delete_outcome(result: &Result<(), DeleteListingSourceError>) -> &'static str {
     match result {
+        Err(DeleteListingSourceError::Receipt(_)) => "command_retry",
         Ok(()) => "success",
         Err(DeleteListingSourceError::AuthenticatedActorRequired) => "unauthenticated",
         Err(DeleteListingSourceError::Forbidden) => "forbidden",
@@ -470,6 +490,7 @@ mod tests {
     }
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -854,6 +875,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

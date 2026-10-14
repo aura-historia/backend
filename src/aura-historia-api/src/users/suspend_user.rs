@@ -1,5 +1,5 @@
 use super::util::{no_store, parse_json, parse_user_id};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::UsersState;
 use axum::Json;
@@ -71,7 +71,7 @@ async fn suspend_user_with(
     raw_user_id: String,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(authenticator, &headers).await {
+    let (context, _) = match command_context(authenticator, &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

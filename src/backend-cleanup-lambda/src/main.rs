@@ -110,8 +110,11 @@ async fn main() -> Result<(), Error> {
                             )),
                         ),
                         MaintainSavedSearchDigestsHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxSavedSearchDigestStoreFactory,
+                        ),
+                        application::command_cleanup::CommandReceiptCleanupHandler(
+                            SqlxUnitOfWork::new(pool),
                         ),
                     ))
                 })
@@ -130,6 +133,30 @@ async fn main() -> Result<(), Error> {
             }
             let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
             let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
+            let command_cleanup = cleanup
+                .value()
+                .6
+                .execute(
+                    &application::operation_context::OperationContext {
+                        command_key: None,
+                        principal: application::operation_context::Principal::Service(
+                            "backend-cleanup-worker".into(),
+                        ),
+                        request_id: "backend-cleanup".into(),
+                        correlation_id: "backend-cleanup".into(),
+                    },
+                    batch_size.get() as u16,
+                )
+                .await;
+            match &command_cleanup {
+                Ok((receipts, operations)) => tracing::info!(
+                    event = "backend_cleanup.command_receipts.completed",
+                    receipts_erased = receipts,
+                    operations_erased = operations
+                ),
+                Err(_) => tracing::warn!(event = "backend_cleanup.command_receipts.failed"),
+            }
+            command_cleanup?;
             cleanup_result?;
             let failed_notifications = notification_recovery?;
             digest_recovery?;

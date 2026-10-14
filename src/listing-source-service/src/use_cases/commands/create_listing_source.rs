@@ -1,4 +1,5 @@
 use crate::ports::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::{BoxError, static_error},
     operation_context::{
@@ -39,6 +40,8 @@ pub struct CreateListingSourceResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateListingSourceError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create listing source")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -139,10 +142,24 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "CREATE_LISTING_SOURCE",
+            "",
+            None,
+            serde_json::json!({"name":command.name.as_ref(),"operator":crate::command_receipts::operator_value(&command.operator),"configuration":crate::command_receipts::configurations_value(&command.ingestion_configuration),"url":command.presentation.url,"image":command.presentation.image,"referral":command.referral_configuration.as_ref().map(crate::command_receipts::referral_value)}),
+        );
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 CreateListingSourceError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                CreateListingSourceError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let operator_party_id = match command.operator {
             ListingSourceOperator::Existing(id) => {
                 self.parties
@@ -184,6 +201,11 @@ where
             .insert(&source, &command.ingestion_configuration)
             .await
             .map_err(CreateListingSourceError::from)?;
+        let outcome = CreateListingSourceResult {
+            listing_source_id: result.source.id(),
+            slug_id: result.source.slug_id().clone(),
+        };
+        retry::complete(&mut tx, intent.as_ref(), &outcome).await?;
         tx.commit().await.map_err(|source| {
             CreateListingSourceError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -196,10 +218,7 @@ where
             listing_source_slug_id = %result.source.slug_id(),
             outcome = "success",
         );
-        Ok(CreateListingSourceResult {
-            listing_source_id: result.source.id(),
-            slug_id: result.source.slug_id().clone(),
-        })
+        Ok(outcome)
     }
 }
 
@@ -493,6 +512,7 @@ mod tests {
     }
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::System,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -693,6 +713,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

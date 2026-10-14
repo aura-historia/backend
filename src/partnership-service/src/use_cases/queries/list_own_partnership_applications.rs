@@ -272,6 +272,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("list-own-request"),
             correlation_id: CorrelationId::new("list-own-correlation"),

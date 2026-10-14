@@ -2,6 +2,7 @@ use crate::ports::{
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
 };
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -20,6 +21,8 @@ pub struct DeleteOwnedSearchFilterResult;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeleteOwnedSearchFilterError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -92,9 +95,23 @@ where
         command: DeleteOwnedSearchFilterCommand,
     ) -> Result<DeleteOwnedSearchFilterResult, DeleteOwnedSearchFilterError> {
         authorize_owner(context, command.user_id)?;
+        let intent = CommandIntent::new(
+            context,
+            "DELETE_OWNED_SEARCH_FILTER",
+            format!("{}:{}", command.user_id, command.search_filter_id),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"search_filter_id":command.search_filter_id}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             DeleteOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|s| DeleteOwnedSearchFilterError::CommitTransactionFailed(Box::new(s)))?;
+            return Ok(result);
+        }
+
         let filter = self
             .filters
             .in_transaction(&mut tx)
@@ -108,6 +125,12 @@ where
             .delete(filter.filter.id())
             .await
             .map_err(delete_error)?;
+        tx.forget_commands(&application::idempotency::CommandResource {
+            owner: command.user_id,
+            target: format!("{}:{}", command.user_id, command.search_filter_id),
+        })
+        .await?;
+        retry::complete(&mut tx, intent.as_ref(), &DeleteOwnedSearchFilterResult).await?;
         tx.commit().await.map_err(|source| {
             DeleteOwnedSearchFilterError::CommitTransactionFailed(Box::new(source))
         })?;

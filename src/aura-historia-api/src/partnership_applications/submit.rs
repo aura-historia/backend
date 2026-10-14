@@ -2,7 +2,7 @@ use super::{
     types::{OwnPartnershipApplicationData, SubmitPartnershipApplicationData},
     util::parse_json,
 };
-use crate::{auth::protected_context, error::ApiError, state::PartnershipApplicationsState};
+use crate::{auth::command_context, error::ApiError, state::PartnershipApplicationsState};
 use axum::{
     Json,
     extract::State,
@@ -17,7 +17,7 @@ pub(super) async fn submit(
     body: String,
 ) -> Response {
     let (context, applicant_user_id) =
-        match protected_context(state.authenticator.as_ref(), &headers).await {
+        match command_context(state.authenticator.as_ref(), &headers).await {
             Ok(value) => value,
             Err(response) => return *response,
         };

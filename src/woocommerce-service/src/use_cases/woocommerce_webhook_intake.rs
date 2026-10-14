@@ -831,6 +831,7 @@ mod tests {
 
     fn user_context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("woocommerce-intake-test"),
             correlation_id: CorrelationId::new("woocommerce-intake-test"),
@@ -839,6 +840,7 @@ mod tests {
 
     fn delegated_context(capabilities: BTreeSet<CredentialCapability>) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id: UserId::new(),
                 capabilities,

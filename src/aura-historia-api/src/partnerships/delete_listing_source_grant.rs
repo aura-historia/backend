@@ -1,5 +1,5 @@
 use crate::{
-    auth::protected_context, error::ApiError, state::PartnershipsState, wire::parse_path_object_id,
+    auth::command_context, error::ApiError, state::PartnershipsState, wire::parse_path_object_id,
 };
 use axum::{
     extract::{Path, State},
@@ -15,7 +15,7 @@ pub(super) async fn delete_listing_source_grant(
     headers: HeaderMap,
     Path((raw_partnership_id, raw_listing_source_id)): Path<(String, String)>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

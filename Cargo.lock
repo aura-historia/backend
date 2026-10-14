@@ -110,9 +110,13 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tracing",
  "user-core",
 ]
 
@@ -256,6 +260,7 @@ dependencies = [
  "listing-source-core",
  "localization",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -1323,8 +1328,11 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "serde",
  "serde-email",
+ "serde_json",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tracing",
  "url",
@@ -4670,6 +4678,7 @@ dependencies = [
  "party-core",
  "party-service",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "time",
@@ -5266,6 +5275,7 @@ dependencies = [
  "oauth-service",
  "rstest",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "time",
@@ -5513,6 +5523,7 @@ dependencies = [
  "party-core",
  "party-service",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -5578,6 +5589,7 @@ dependencies = [
  "party-core",
  "serde",
  "serde-email",
+ "serde_json",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -5952,8 +5964,10 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tracing",
 ]
@@ -7366,6 +7380,7 @@ dependencies = [
  "async-trait",
  "auction-core",
  "domain-primitives",
+ "embedding",
  "fxrate-core",
  "geo",
  "listing-source-core",
@@ -7386,6 +7401,8 @@ dependencies = [
  "time",
  "tokio",
  "user-core",
+ "user-postgres",
+ "user-service",
  "uuid",
 ]
 
@@ -7411,6 +7428,7 @@ dependencies = [
  "product-listing-core",
  "product-listing-service",
  "search-filter-core",
+ "serde",
  "serde_json",
  "strum 0.28.0",
  "thiserror 2.0.21",
@@ -7420,6 +7438,7 @@ dependencies = [
  "url",
  "user-core",
  "user-service",
+ "uuid",
 ]
 
 [[package]]
@@ -9560,6 +9579,7 @@ dependencies = [
  "product-listing-service",
  "serde",
  "serde-email",
+ "serde_json",
  "strum 0.28.0",
  "thiserror 2.0.21",
  "time",

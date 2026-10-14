@@ -1,6 +1,6 @@
 use super::list_clients::OAuthClientAdminData;
 use super::{no_store, parse_scopes};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, non_nullable_option};
 use crate::state::OAuthState;
@@ -67,7 +67,7 @@ pub async fn update_client(
     Path(raw): Path<String>,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

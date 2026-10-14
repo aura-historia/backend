@@ -167,6 +167,7 @@ pub async fn execute_job(
         return ProductTranslationJobDisposition::Poison("unexpected_payload");
     };
     let context = OperationContext {
+        command_key: None,
         principal: Principal::System,
         request_id: RequestId::new(format!("product-translation:{}", command.event_id)),
         correlation_id: CorrelationId::new(command.event_id.to_string()),

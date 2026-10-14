@@ -6,6 +6,7 @@ use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{CredentialCapability, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use user_core::user_id::UserId;
@@ -23,6 +24,8 @@ pub struct UnsuspendUserResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UnsuspendUserError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to unsuspend user")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -116,6 +119,13 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "SET_USER_SUSPENSION",
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"suspended":false}),
+        );
         let mut tx = self
             .unit_of_work
             .begin()
@@ -126,6 +136,13 @@ where
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|e| UnsuspendUserError::CommitTransactionFailed(Box::new(e)))?;
+            return Ok(result);
+        }
+
         let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
@@ -146,6 +163,15 @@ where
                 .value;
         }
 
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &UnsuspendUserResult {
+                user_id: user.id(),
+                suspended: user.is_suspended(),
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| UnsuspendUserError::CommitTransactionFailed(Box::new(source)))?;
@@ -268,6 +294,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

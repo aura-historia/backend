@@ -8,6 +8,7 @@ This guide owns durable persistence rules, not a table or port inventory. [Archi
 - Service-owned transactions commit authoritative changes, required events and local delivery intent together. No database transaction spans provider I/O or claims atomicity with another system.
 - External execution must tolerate possible acceptance followed by lost finalization: fence claims/completion, preserve idempotency evidence and define recovery. Queue admission and diagnostic logs are not committed business completion.
 - Keep operational receipts, secrets and raw provider evidence out of CDC, projections and public history unless a separately designed contract requires them.
+- Successful synchronous command receipts share the service-owned business transaction. Response erasure must not erase an independently required execution fence; context-specific scope, codec compatibility and recovery are owned by [command retries](command-retries.md).
 
 ## Integrity and concurrency
 

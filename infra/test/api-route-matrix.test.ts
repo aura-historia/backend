@@ -213,6 +213,23 @@ describe("HTTP API route policy matrix", () => {
       ]);
   });
 
+  test("documents saved-filter optional command keys on the existing protected uncached route", () => {
+    const routePath = "/api/v1/me/search-filters";
+    const route = API_ROUTE_CATALOG.find((route) => route.method === "POST" && route.path === routePath);
+    expect(route?.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+    expect(matchesSelectiveCacheBehavior(routePath)).toBe(false);
+    const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");
+    const operation = swagger.split(`  ${routePath}:\n`)[1]?.split(/\n  \//)[0]?.split("    post:\n")[1];
+    expect(operation).toContain('#/components/parameters/ApplicationCommandIdempotencyKey');
+    expect(operation).toContain('#/components/headers/ApplicationCommandIdempotencyKey');
+    for (const error of ["IDEMPOTENCY_MISMATCH", "IDEMPOTENCY_IN_PROGRESS", "IDEMPOTENCY_RESULT_UNAVAILABLE"]) {
+      expect(operation).toContain(error);
+    }
+    const parameter = swagger.split("\n  parameters:\n")[1]?.split("    AsyncProductListingIdempotencyKey:")[0];
+    expect(parameter).toContain("required: false");
+    expect(parameter).toContain("maxLength: 128");
+  });
+
   test("preserves Party-location management authority and exposes independent public discovery", () => {
     const protectedRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/parties/{party_id}/locations"));
@@ -769,5 +786,37 @@ describe("HTTP API route policy matrix", () => {
     expect(Object.values(template.findResources("AWS::CloudFront::Function"))).toHaveLength(0);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
     expect(JSON.stringify(distributionConfig)).not.toMatch(/LambdaFunctionAssociations|FunctionAssociations|Lambda@Edge/);
+  });
+});
+
+describe("application command retry inventory", () => {
+  const policies = JSON.parse(fs.readFileSync(path.join(__dirname, "../../docs/command-retry-policies.json"), "utf8")) as Array<{
+    method: string; path: string; policy: string; owner: string; result: string; retention: string; rationale?: string;
+  }>;
+  test("classifies every write and preserves explicit protocol and batch exceptions", () => {
+    const writes = catalogRouteKeys().filter((key) => /^(POST|PUT|PATCH|DELETE) /.test(key));
+    const classified = policies.filter((policy) => policy.method !== "GET").map((policy) => routeKey(policy.method, policy.path)).sort();
+    expect(new Set(classified).size).toBe(classified.length);
+    expect(classified).toEqual(writes);
+    for (const policy of policies) {
+      expect(catalogRouteKeys()).toContain(routeKey(policy.method, policy.path));
+      expect(policy.owner).toMatch(/-service$/);
+      expect(policy.retention.length).toBeGreaterThan(0);
+      if (["keyless", "protocol", "security", "excluded"].includes(policy.policy)) expect(policy.rationale).toBeTruthy();
+    }
+  });
+  test("declares each identical policy in OpenAPI and keeps keyed commands uncached", () => {
+    const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");
+    for (const policy of policies) {
+      const operation = swagger.split(`  ${policy.path}:\n`)[1]?.split(/\n  \//)[0]
+        ?.split(`    ${policy.method.toLowerCase()}:\n`)[1]?.split(/\n    (?:get|post|put|patch|delete):/)[0];
+      expect(operation).toContain(`policy: "${policy.policy}"`);
+      expect(operation).toContain(`owner: "${policy.owner}"`);
+      if (["keyed", "workflow", "secret-fence", "external-fence"].includes(policy.policy)) {
+        expect(operation).toContain("#/components/parameters/ApplicationCommandIdempotencyKey");
+        expect(operation).toContain("responseHeader: Idempotency-Key");
+        expect(matchesSelectiveCacheBehavior(policy.path)).toBe(false);
+      }
+    }
   });
 });

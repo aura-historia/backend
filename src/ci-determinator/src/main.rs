@@ -29,6 +29,13 @@ fn main() -> Result<()> {
 
     let mut determinator = Determinator::new(&graph, &graph);
     determinator.add_changed_paths(changed_files.iter().map(String::as_str));
+    // The API compiles this inventory into its command-response middleware.
+    if changed_files
+        .iter()
+        .any(|path| path == "docs/command-retry-policies.json")
+    {
+        determinator.add_changed_paths(["src/aura-historia-api/src/idempotency.rs"]);
+    }
     let result = determinator.compute();
 
     let workspace_root = graph.workspace().root();

@@ -98,6 +98,9 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                 with_publication_deadline(deadline, next.run(request)).await
             },
         ))
+        .layer(axum::middleware::from_fn(
+            crate::idempotency::command_response,
+        ))
         .layer(axum::middleware::from_fn(cache_policy))
 }
 

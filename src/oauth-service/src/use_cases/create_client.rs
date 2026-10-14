@@ -1,6 +1,7 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{OAuthClientRepository, OAuthClientRepositoryFactory, OAuthClientView};
 use crate::use_cases::support::{authorize_oauth_admin, authorize_oauth_client_admin};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
@@ -83,6 +84,13 @@ where
         let redirect_uris = OAuthRedirectUris::try_from(command.redirect_uris)
             .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
+        let intent = CommandIntent::new(
+            context,
+            "CREATE_OAUTH_CLIENT",
+            "",
+            None,
+            serde_json::json!({"name":command.name,"redirect_uris":crate::command_receipts::sorted(redirect_uris.iter()),"tos_uri":command.tos_uri,"policy_uri":command.policy_uri,"client_uri":command.client_uri,"logo_uri":command.logo_uri,"scopes":crate::command_receipts::sorted(command.scopes.iter())}),
+        );
         let raw_client_secret = RawOAuthClientSecret::new();
         let client = OAuthClient::create(RehydratedOAuthClientState {
             client_id: OAuthClientId::new(),
@@ -97,8 +105,22 @@ where
         });
 
         let mut tx = self.unit_of_work.begin().await?;
+        if let Some(intent) = intent.as_ref()
+            && let Some(value) = tx.command_receipt(intent).await?
+        {
+            let issued=<crate::command_receipts::IssuedOAuthClient as application::idempotency::CommandOutcome>::decode(value).map_err(application::idempotency::CommandReceiptError::InvalidPersistedState)?;
+            return Err(OAuthServiceError::SecretResultUnavailable {
+                client_id: issued.client_id,
+            });
+        }
         let persisted = self.clients.in_transaction(&mut tx).insert(&client).await?;
         let client_id = persisted.value.client_id();
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &crate::command_receipts::IssuedOAuthClient { client_id },
+        )
+        .await?;
         tx.commit().await?;
 
         let client = OAuthClientView::from(persisted);

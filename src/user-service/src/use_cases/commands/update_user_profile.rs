@@ -4,6 +4,7 @@ use crate::ports::{
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -46,6 +47,8 @@ pub struct UpdateUserProfileResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateUserProfileError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to update user profile")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -148,6 +151,17 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            if self.admin_only {
+                "ADMIN_UPDATE_USER"
+            } else {
+                "UPDATE_USER_PROFILE"
+            },
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"category":"PROFILE","first_name":retry::patch(&command.first_name,|v|serde_json::json!(v)),"last_name":retry::patch(&command.last_name,|v|serde_json::json!(v)),"language":retry::patch(&command.language,|v|serde_json::json!(v.as_str())),"currency":retry::patch(&command.currency,|v|serde_json::json!(v.as_str())),"measurement_unit":retry::patch(&command.measurement_unit,|v|serde_json::json!(v.as_str())),"show_unassessed_or_sensitive_content":retry::patch(&command.show_unassessed_or_sensitive_content,|v|serde_json::json!(v))}),
+        );
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 UpdateUserProfileError::BeginTransactionFailed(Box::new(source))
@@ -160,6 +174,13 @@ where
             &self.admin_reader,
         )
         .await?;
+
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|s| UpdateUserProfileError::CommitTransactionFailed(Box::new(s)))?;
+            return Ok(result);
+        }
         let mut users = self.users.in_transaction(&mut tx);
         let VersionedUser {
             value: mut user,
@@ -176,6 +197,14 @@ where
         }
         drop(users);
 
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &UpdateUserProfileResult {
+                view: UserDetailsView::from(&user),
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| UpdateUserProfileError::CommitTransactionFailed(Box::new(source)))?;

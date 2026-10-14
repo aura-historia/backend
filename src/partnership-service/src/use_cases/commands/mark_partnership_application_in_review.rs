@@ -2,6 +2,7 @@ use crate::{
     admin_authorization::{AdminAuthorizationError, authorize_admin},
     ports::*,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{CredentialCapability, OperationContext},
@@ -22,6 +23,8 @@ pub struct MarkPartnershipApplicationInReviewResult {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum MarkPartnershipApplicationInReviewError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("operation not permitted")]
     Forbidden,
     #[error("partnership application not found")]
@@ -109,10 +112,26 @@ impl<
             MarkPartnershipApplicationInReviewResult,
             MarkPartnershipApplicationInReviewError,
         > = async {
+            let intent = CommandIntent::new(
+                context,
+                "REVIEW_PARTNERSHIP_APPLICATION",
+                command.application_id.to_string(),
+                None,
+                serde_json::json!({"application_id":command.application_id}),
+            );
             let mut tx = self.unit_of_work.begin().await.map_err(|source| {
                 MarkPartnershipApplicationInReviewError::BeginTransactionFailed(Box::new(source))
             })?;
             authorize_admin(context, &mut tx, &self.admins).await?;
+            if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+                tx.commit().await.map_err(|source| {
+                    MarkPartnershipApplicationInReviewError::CommitTransactionFailed(Box::new(
+                        source,
+                    ))
+                })?;
+                return Ok(result);
+            }
+
             let mut application = self
                 .applications
                 .in_transaction(&mut tx)
@@ -129,6 +148,10 @@ impl<
                 .update(&application.value, application.version)
                 .await?
                 .value;
+            let command_result = MarkPartnershipApplicationInReviewResult {
+                application: application.clone(),
+            };
+            retry::complete(&mut tx, intent.as_ref(), &command_result).await?;
             tx.commit().await.map_err(|source| {
                 MarkPartnershipApplicationInReviewError::CommitTransactionFailed(Box::new(source))
             })?;
@@ -459,6 +482,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -898,6 +922,7 @@ mod tests {
         ] {
             let state = Arc::new(Mutex::new(State::default()));
             let context = OperationContext {
+                command_key: None,
                 principal: application::operation_context::Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

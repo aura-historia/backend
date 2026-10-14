@@ -5,6 +5,7 @@ use crate::{
     },
     use_cases::queries::get_auction::AuctionAdminDetailsView,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::{BoxError, static_error},
     operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
@@ -38,6 +39,8 @@ pub type CreateAuctionResult = AuctionAdminDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateAuctionError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create auction")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -146,6 +149,13 @@ where
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
 
+        let intent = CommandIntent::new(
+            context,
+            "CREATE_AUCTION",
+            "",
+            None,
+            serde_json::json!({"listing_source_id":command.listing_source_id,"source_auction_id":command.source_auction_id.as_ref(),"name":command.name.as_ref().map(crate::command_receipts::name_value),"catalogue_url":command.catalogue_url,"format":command.format.map(|v|v.as_str()),"schedule":crate::command_receipts::schedule_value(&command.schedule),"reported_status":command.reported_status.map(|v|v.as_str()),"reported_lot_count":command.reported_lot_count.map(|v|v.value())}),
+        );
         let mut auction = Auction::create(NewAuction {
             id: AuctionId::new(),
             key: AuctionKey::new(command.listing_source_id, command.source_auction_id),
@@ -174,12 +184,21 @@ where
             .begin()
             .await
             .map_err(|source| CreateAuctionError::BeginTransactionFailed(Box::new(source)))?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|source| CreateAuctionError::CommitTransactionFailed(Box::new(source)))?;
+            return Ok(result);
+        }
+
         let stored = self
             .auctions
             .in_transaction(&mut tx)
             .insert(&auction)
             .await?;
         self.events.in_transaction(&mut tx).append(&event).await?;
+        let result = AuctionAdminDetailsView::from_details(crate::ports::AuctionDetails { stored });
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit()
             .await
             .map_err(|source| CreateAuctionError::CommitTransactionFailed(Box::new(source)))?;
@@ -193,9 +212,7 @@ where
             auction_id = %auction.id(),
             outcome = "success",
         );
-        Ok(AuctionAdminDetailsView::from_details(
-            crate::ports::AuctionDetails { stored },
-        ))
+        Ok(result)
     }
 }
 
@@ -450,6 +467,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

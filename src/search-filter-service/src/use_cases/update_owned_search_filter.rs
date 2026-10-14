@@ -8,6 +8,7 @@ use crate::tier_policy::{
 };
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -68,6 +69,8 @@ pub struct UpdateOwnedSearchFilterResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateOwnedSearchFilterError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -187,6 +190,28 @@ where
         command: UpdateOwnedSearchFilterCommand,
     ) -> Result<UpdateOwnedSearchFilterResult, UpdateOwnedSearchFilterError> {
         authorize_owner(context, command.user_id)?;
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_OWNED_SEARCH_FILTER",
+            format!("{}:{}", command.user_id, command.search_filter_id),
+            Some(command.user_id),
+            crate::command_receipts::update_intent(&command),
+        );
+        if intent.is_some() {
+            let mut tx =
+                self.unit_of_work.begin().await.map_err(|s| {
+                    UpdateOwnedSearchFilterError::BeginTransactionFailed(Box::new(s))
+                })?;
+            if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+                tx.commit().await.map_err(|s| {
+                    UpdateOwnedSearchFilterError::CommitTransactionFailed(Box::new(s))
+                })?;
+                return Ok(result);
+            }
+            tx.commit()
+                .await
+                .map_err(|s| UpdateOwnedSearchFilterError::CommitTransactionFailed(Box::new(s)))?;
+        }
         let prepared_view = self
             .filter_reader
             .find_for_user_by_id(command.user_id, command.search_filter_id)
@@ -221,6 +246,13 @@ where
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|s| UpdateOwnedSearchFilterError::CommitTransactionFailed(Box::new(s)))?;
+            return Ok(result);
+        }
+
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
@@ -284,6 +316,14 @@ where
                 .await
                 .map_err(update_error)?;
         }
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &UpdateOwnedSearchFilterResult {
+                filter: persisted.clone().into(),
+            },
+        )
+        .await?;
         tx.commit().await.map_err(|source| {
             UpdateOwnedSearchFilterError::CommitTransactionFailed(Box::new(source))
         })?;

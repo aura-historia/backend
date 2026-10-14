@@ -1,4 +1,5 @@
-//! Own private address commands and reads. No provider calls occur on this path.
+use application::idempotency::{self as retry, CommandIntent};
+// Own private address commands and reads. No provider calls occur on this path.
 use application::{
     error::BoxError,
     operation_context::{
@@ -13,6 +14,8 @@ use user_core::{user_address::*, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AddressBookError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authentication required")]
     AuthenticationRequired,
     #[error("operation not permitted")]
@@ -528,6 +531,27 @@ where
         c: UpdateUserAddress,
     ) -> Result<UserAddressView, AddressBookError> {
         let (owner, mut tx) = self.begin(ctx, true).await?;
+        let intent = CommandIntent::new(
+            ctx,
+            "UPDATE_USER_ADDRESS",
+            format!("{}:{}", owner, c.id),
+            Some(owner),
+            serde_json::json!({"owner":owner,"id":c.id,"expected_version":c.expected_version,"label":c.label.as_str(),"geography":geo::data::geography_data::GeographicDescriptionData::from(&c.geography)}),
+        );
+        if retry::replay::<(), _>(&mut tx, intent.as_ref())
+            .await?
+            .is_some()
+        {
+            let view = self.view(&mut tx, owner, c.id).await.map_err(|e| match e {
+                AddressBookError::NotFound => AddressBookError::Receipt(
+                    application::idempotency::CommandReceiptError::ResultUnavailable,
+                ),
+                e => e,
+            })?;
+            tx.commit().await?;
+            return Ok(view);
+        }
+
         let mut stored = self
             .current(&mut tx, owner, c.id, c.expected_version)
             .await?;
@@ -546,6 +570,7 @@ where
                 .await?;
         }
         let view = self.view(&mut tx, owner, c.id).await?;
+        retry::complete(&mut tx, intent.as_ref(), &()).await?;
         tx.commit().await?;
         Ok(view)
     }
@@ -556,11 +581,32 @@ where
         expected: u64,
     ) -> Result<(), AddressBookError> {
         let (owner, mut tx) = self.begin(ctx, true).await?;
+        let intent = CommandIntent::new(
+            ctx,
+            "DELETE_USER_ADDRESS",
+            format!("{}:{}", owner, id),
+            Some(owner),
+            serde_json::json!({"owner":owner,"id":id,"expected_version":expected}),
+        );
+        if retry::replay::<(), _>(&mut tx, intent.as_ref())
+            .await?
+            .is_some()
+        {
+            tx.commit().await?;
+            return Ok(());
+        }
+
         self.current(&mut tx, owner, id, expected).await?;
         self.addresses
             .repository(&mut tx)
             .delete(owner, id, expected)
             .await?;
+        tx.forget_commands(&application::idempotency::CommandResource {
+            owner,
+            target: format!("{}:{}", owner, id),
+        })
+        .await?;
+        retry::complete(&mut tx, intent.as_ref(), &()).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -572,6 +618,22 @@ where
     ) -> Result<DestinationView, AddressBookError> {
         valid_version(expected)?;
         let (owner, mut tx) = self.begin(ctx, true).await?;
+        let intent = CommandIntent::new(
+            ctx,
+            "SET_BROWSING_DESTINATION",
+            owner.to_string(),
+            Some(owner),
+            serde_json::json!({"owner":owner,"expected_version":expected,"destination":destination_value(&destination)}),
+        );
+        if retry::replay::<(), _>(&mut tx, intent.as_ref())
+            .await?
+            .is_some()
+        {
+            let view = self.addresses.reader(&mut tx).destination(owner).await?;
+            tx.commit().await?;
+            return Ok(view);
+        }
+
         if let BrowsingDestination::Address(id) = &destination {
             self.view(&mut tx, owner, *id).await?;
         }
@@ -580,6 +642,7 @@ where
             .set_destination(owner, &destination, expected)
             .await?;
         let view = self.addresses.reader(&mut tx).destination(owner).await?;
+        retry::complete(&mut tx, intent.as_ref(), &()).await?;
         tx.commit().await?;
         Ok(view)
     }
@@ -692,6 +755,19 @@ where
             resolution_status,
             attribution,
         })
+    }
+}
+
+fn destination_value(v: &BrowsingDestination) -> serde_json::Value {
+    match v {
+        BrowsingDestination::None => serde_json::json!({"kind":"NONE"}),
+        BrowsingDestination::Address(id) => serde_json::json!({"kind":"ADDRESS","id":id}),
+        BrowsingDestination::CountryPostal {
+            country,
+            postal_code,
+        } => {
+            serde_json::json!({"kind":"COUNTRY_POSTAL","country":country.alpha2(),"postal_code":postal_code.as_ref().map(|v|v.as_str())})
+        }
     }
 }
 

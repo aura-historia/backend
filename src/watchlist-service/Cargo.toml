@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde_json = { workspace = true }
 fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }

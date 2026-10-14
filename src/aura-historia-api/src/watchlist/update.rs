@@ -1,6 +1,6 @@
 use super::types::{PatchWatchlistData, WatchlistEntryData, watchlist_state};
 use super::util::parse_json;
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::patch_value::non_nullable_option;
 use crate::state::WatchlistState;
@@ -18,7 +18,7 @@ pub async fn patch_watchlist(
     Path(raw_product_listing_id): Path<String>,
     body: String,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, user_id) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

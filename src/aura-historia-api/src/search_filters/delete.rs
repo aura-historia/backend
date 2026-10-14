@@ -1,5 +1,5 @@
 use super::util::parse_search_filter_id;
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::SearchFiltersState;
 use axum::extract::{Path, State};
@@ -16,7 +16,7 @@ pub(super) async fn delete_search_filter(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, user_id) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

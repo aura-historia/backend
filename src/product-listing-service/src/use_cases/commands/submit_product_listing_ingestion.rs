@@ -559,6 +559,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request-1"),
             correlation_id: CorrelationId::new("correlation-1"),

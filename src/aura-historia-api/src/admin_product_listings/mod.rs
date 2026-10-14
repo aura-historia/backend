@@ -47,10 +47,11 @@ pub async fn update_admin_product_listing(
     Path(raw_id): Path<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command = parse_id(&raw_id).and_then(|id| parse_body::<UpdateData>(body)?.into_command(id));
     let command = match command {
         Ok(command) => command,
@@ -68,10 +69,11 @@ pub async fn withdraw_admin_product_listing(
     Path(raw_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command = parse_id(&raw_id).and_then(|product_listing_id| {
         let data: VersionData =
             serde_qs::from_str(query.as_deref().unwrap_or_default()).map_err(|_| {
@@ -101,10 +103,11 @@ pub async fn restore_admin_product_listing(
     Path(raw_id): Path<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command = parse_id(&raw_id).and_then(|product_listing_id| {
         Ok(AdminProductListingLifecycleCommand {
             product_listing_id,
@@ -127,6 +130,7 @@ fn parse_id(raw: &str) -> Result<ProductListingId, ApiError> {
 impl From<AdminProductListingError> for ApiError {
     fn from(error: AdminProductListingError) -> Self {
         match error {
+            AdminProductListingError::Receipt(error) => error.into(),
             AdminProductListingError::AuthenticatedActorRequired => {
                 Self::unauthorized(INVALID_CREDENTIALS)
             }

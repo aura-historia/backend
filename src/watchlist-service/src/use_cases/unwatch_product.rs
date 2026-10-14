@@ -1,5 +1,6 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -21,6 +22,8 @@ pub struct UnwatchProductListingResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UnwatchProductListingError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -79,9 +82,23 @@ where
     ) -> Result<UnwatchProductListingResult, UnwatchProductListingError> {
         authorize_write(context, command.user_id)?;
 
+        let intent = CommandIntent::new(
+            context,
+            "UNWATCH_PRODUCT_LISTING",
+            format!("{}:{}", command.user_id, command.product_listing_id),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"product_listing_id":command.product_listing_id}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UnwatchProductListingError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                UnwatchProductListingError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let loaded = self
             .watchlist
             .in_transaction(&mut tx)
@@ -108,6 +125,11 @@ where
             }
             Err(error) => return Err(error.into()),
         }
+        let result = UnwatchProductListingResult {
+            user_id: command.user_id,
+            product_listing_id: command.product_listing_id,
+        };
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await.map_err(|source| {
             UnwatchProductListingError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -121,10 +143,7 @@ where
             outcome = "success",
         );
 
-        Ok(UnwatchProductListingResult {
-            user_id: command.user_id,
-            product_listing_id: command.product_listing_id,
-        })
+        Ok(result)
     }
 }
 
@@ -471,6 +490,7 @@ mod tests {
 
     fn context_for_user(user_id: UserId) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -482,6 +502,7 @@ mod tests {
         capabilities: BTreeSet<CredentialCapability>,
     ) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities,

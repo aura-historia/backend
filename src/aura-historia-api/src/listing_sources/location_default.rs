@@ -163,6 +163,7 @@ fn response(result: Result<LocationDefaultView, LocationDefaultError>) -> Respon
 impl From<LocationDefaultError> for ApiError {
     fn from(error: LocationDefaultError) -> Self {
         match error {
+            LocationDefaultError::Receipt(error) => error.into(),
             LocationDefaultError::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
             LocationDefaultError::Forbidden => Self::forbidden(FORBIDDEN),
             LocationDefaultError::LocationNotFound => Self::not_found(PARTY_NOT_FOUND),
@@ -211,7 +212,7 @@ pub async fn assign(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -228,7 +229,7 @@ pub async fn clear(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -250,7 +251,7 @@ pub async fn change(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

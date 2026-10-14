@@ -222,6 +222,7 @@ mod tests {
         ] {
             let anonymous = principal == Principal::Anonymous;
             let context = OperationContext {
+                command_key: None,
                 principal,
                 request_id: RequestId::new("test"),
                 correlation_id: CorrelationId::new("test"),

@@ -4,6 +4,7 @@ use crate::ports::{
     SearchFilterRepositoryError, SearchFilterRepositoryFactory,
 };
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -28,6 +29,8 @@ pub struct UpdateSearchFilterMatchFeedbackResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateSearchFilterMatchFeedbackError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -118,9 +121,26 @@ where
     ) -> Result<UpdateSearchFilterMatchFeedbackResult, UpdateSearchFilterMatchFeedbackError> {
         authorize_owner(context, command.user_id)?;
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_SEARCH_FILTER_MATCH_FEEDBACK",
+            format!(
+                "{}:{}:{}",
+                command.user_id, command.search_filter_id, command.product_listing_id
+            ),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"search_filter_id":command.search_filter_id,"product_listing_id":command.product_listing_id,"feedback":retry::patch(&command.feedback,|v|serde_json::json!(v))}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|s| {
+                UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed(Box::new(s))
+            })?;
+            return Ok(result);
+        }
+
         let filter = self
             .filters
             .in_transaction(&mut tx)
@@ -155,6 +175,14 @@ where
                 .map_err(search_filter_match_update_error)?;
         }
 
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &UpdateSearchFilterMatchFeedbackResult {
+                search_filter_match: persisted_search_filter_match.clone().into(),
+            },
+        )
+        .await?;
         tx.commit().await.map_err(|source| {
             UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed(Box::new(source))
         })?;

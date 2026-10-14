@@ -549,6 +549,7 @@ mod tests {
 
     fn context(user_id: UserId) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -571,6 +572,7 @@ mod tests {
             Default::default()
         };
         OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities,

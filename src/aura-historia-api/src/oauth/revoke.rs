@@ -55,6 +55,7 @@ fn request(
 
 fn system_context() -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::System,
         request_id: RequestId::new("oauth-revoke"),
         correlation_id: CorrelationId::new("oauth-revoke"),

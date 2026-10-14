@@ -1,6 +1,7 @@
 use crate::ports::{
     PartyDeletionBlocker, PartyRepository, PartyRepositoryError, PartyRepositoryFactory,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -20,6 +21,8 @@ pub struct DeletePartyCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeletePartyError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to delete party")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -104,11 +107,25 @@ where
         let result = async {
             ensure_admin_or_internal(context, &self.check_user_admin).await?;
 
+            let intent = CommandIntent::new(
+                context,
+                "DELETE_PARTY",
+                command.party_id.to_string(),
+                None,
+                serde_json::json!({"party_id":command.party_id}),
+            );
             let mut tx = self
                 .unit_of_work
                 .begin()
                 .await
                 .map_err(|source| DeletePartyError::BeginTransactionFailed(Box::new(source)))?;
+            if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+                tx.commit().await.map_err(|source| {
+                    DeletePartyError::CommitTransactionFailed(Box::new(source))
+                })?;
+                return Ok(result);
+            }
+
             let stored = self
                 .parties
                 .in_transaction(&mut tx)
@@ -134,6 +151,8 @@ where
                 .in_transaction(&mut tx)
                 .delete_unused(command.party_id, stored.version)
                 .await?;
+
+            retry::complete(&mut tx, intent.as_ref(), &()).await?;
             tx.commit()
                 .await
                 .map_err(|source| DeletePartyError::CommitTransactionFailed(Box::new(source)))?;
@@ -170,6 +189,7 @@ fn blocker_name(blocker: PartyDeletionBlocker) -> &'static str {
 fn delete_outcome(result: &Result<(), DeletePartyError>) -> &'static str {
     match result {
         Ok(()) => "success",
+        Err(DeletePartyError::Receipt(_)) => "command_retry",
         Err(DeletePartyError::AuthenticatedActorRequired) => "unauthenticated",
         Err(DeletePartyError::Forbidden) => "forbidden",
         Err(DeletePartyError::NotFound) => "not_found",
@@ -286,6 +306,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

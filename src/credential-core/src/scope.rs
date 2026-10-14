@@ -28,6 +28,35 @@ pub enum Scope {
 }
 
 impl Scope {
+    pub fn from_code(value: &str) -> Option<Self> {
+        match value {
+            "auctions:read" => Some(Self::AuctionsRead),
+            "product-listings:read" => Some(Self::ProductListingsRead),
+            "auctions:write" => Some(Self::AuctionsWrite),
+            "listing-sources:read" => Some(Self::ListingSourcesRead),
+            "parties:read" => Some(Self::PartiesRead),
+            "parties:write" => Some(Self::PartiesWrite),
+            "partnership-applications:read" => Some(Self::PartnershipApplicationsRead),
+            "partnership-applications:write" => Some(Self::PartnershipApplicationsWrite),
+            "partnerships:read" => Some(Self::PartnershipsRead),
+            "partnerships:write" => Some(Self::PartnershipsWrite),
+            "admin-overview:read" => Some(Self::AdminOverviewRead),
+            "search-filters:read" => Some(Self::SearchFiltersRead),
+            "notifications:read" => Some(Self::NotificationsRead),
+            "notifications:write" => Some(Self::NotificationsWrite),
+            "product-listings:write" => Some(Self::ProductListingsWrite),
+            "listing-sources:write" => Some(Self::ListingSourcesWrite),
+            "users:read" => Some(Self::UsersRead),
+            "users:write" => Some(Self::UsersWrite),
+            "access-tokens:read" => Some(Self::AccessTokensRead),
+            "access-tokens:write" => Some(Self::AccessTokensWrite),
+            "search-filters:write" => Some(Self::SearchFiltersWrite),
+            "watchlist:read" => Some(Self::WatchlistRead),
+            "watchlist:write" => Some(Self::WatchlistWrite),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AuctionsRead => "auctions:read",

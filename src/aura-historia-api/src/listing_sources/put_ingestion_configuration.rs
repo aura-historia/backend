@@ -1,4 +1,4 @@
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, LISTING_SOURCE_INTERNAL_ERROR};
 use crate::state::ListingSourcesState;
 use crate::wire::parse_path_object_id;
@@ -36,7 +36,7 @@ pub async fn put_woocommerce_configuration(
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };
@@ -77,7 +77,7 @@ pub async fn put_shopify_configuration(
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

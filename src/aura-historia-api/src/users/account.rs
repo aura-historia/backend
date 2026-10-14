@@ -29,10 +29,11 @@ pub async fn patch_me(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
+    let (ctx, user_id) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(v) => v,
+            Err(r) => return *r,
+        };
     patch_user(state, ctx, user_id, body).await
 }
 

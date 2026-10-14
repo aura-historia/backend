@@ -10,6 +10,8 @@ use user_service::use_cases::queries::check_user_admin::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdminProductListingError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("administrator authority and credential capability required")]

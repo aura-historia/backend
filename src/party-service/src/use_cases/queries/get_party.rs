@@ -257,6 +257,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

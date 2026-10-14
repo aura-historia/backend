@@ -64,6 +64,7 @@ fn operation_context(event: &LambdaEvent<EventBridgeEvent<Value>>) -> OperationC
         .map(CorrelationId::new)
         .unwrap_or_else(|| CorrelationId::new(request_id.as_str()));
     OperationContext {
+        command_key: None,
         principal: Principal::System,
         request_id,
         correlation_id,

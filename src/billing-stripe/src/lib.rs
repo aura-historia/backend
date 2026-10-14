@@ -127,6 +127,12 @@ impl StripeCustomerCreator for StripeBillingClient {
 
 #[async_trait::async_trait]
 impl StripeCheckoutSessionCreator for StripeBillingClient {
+    fn redirects(&self) -> Option<billing_service::ports::CheckoutRedirects> {
+        Some(billing_service::ports::CheckoutRedirects {
+            success: self.config.checkout_success_url.clone(),
+            cancel: self.config.checkout_cancel_url.clone(),
+        })
+    }
     async fn create_checkout_session(
         &self,
         request: CreateStripeCheckoutSessionRequest,
@@ -154,8 +160,24 @@ impl StripeCheckoutSessionCreator for StripeBillingClient {
                 "subscription_data[metadata][userId]",
                 request.user_id.to_string(),
             ),
-            ("success_url", self.config.checkout_success_url.to_string()),
-            ("cancel_url", self.config.checkout_cancel_url.to_string()),
+            (
+                "success_url",
+                request
+                    .redirects
+                    .as_ref()
+                    .map(|v| &v.success)
+                    .unwrap_or(&self.config.checkout_success_url)
+                    .to_string(),
+            ),
+            (
+                "cancel_url",
+                request
+                    .redirects
+                    .as_ref()
+                    .map(|v| &v.cancel)
+                    .unwrap_or(&self.config.checkout_cancel_url)
+                    .to_string(),
+            ),
         ];
         let customer_id = request.stripe_customer_id.to_string();
         let body = self
@@ -173,6 +195,9 @@ impl StripeCheckoutSessionCreator for StripeBillingClient {
 
 #[async_trait::async_trait]
 impl StripePortalSessionCreator for StripeBillingClient {
+    fn return_url(&self) -> Option<Url> {
+        Some(self.config.portal_return_url.clone())
+    }
     async fn create_portal_session(
         &self,
         request: CreateStripePortalSessionRequest,
@@ -183,7 +208,14 @@ impl StripePortalSessionCreator for StripeBillingClient {
                 "v1/billing_portal/sessions",
                 vec![
                     ("customer", customer_id.clone()),
-                    ("return_url", self.config.portal_return_url.to_string()),
+                    (
+                        "return_url",
+                        request
+                            .return_url
+                            .as_ref()
+                            .unwrap_or(&self.config.portal_return_url)
+                            .to_string(),
+                    ),
                 ],
                 request
                     .idempotency_key

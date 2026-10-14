@@ -5,7 +5,7 @@ use super::{
     },
     util::{no_store, parse_id, parse_json},
 };
-use crate::{auth::protected_context, error::ApiError, state::PartnershipApplicationsState};
+use crate::{auth::command_context, error::ApiError, state::PartnershipApplicationsState};
 use axum::{
     Json,
     extract::{Path, State},
@@ -23,7 +23,7 @@ pub(super) async fn decide(
     Path(raw_id): Path<String>,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

@@ -1,5 +1,5 @@
 use super::{no_store, parse_scopes, scope_strings};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, OAUTH_INTERNAL_ERROR};
 use crate::state::OAuthState;
 use axum::{
@@ -87,7 +87,7 @@ pub async fn create_client(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

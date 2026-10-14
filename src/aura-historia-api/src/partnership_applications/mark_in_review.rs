@@ -2,7 +2,7 @@ use super::{
     types::AdminPartnershipApplicationData,
     util::{no_store, parse_id},
 };
-use crate::{auth::protected_context, error::ApiError, state::PartnershipApplicationsState};
+use crate::{auth::command_context, error::ApiError, state::PartnershipApplicationsState};
 use axum::{
     Json,
     extract::{Path, State},
@@ -16,7 +16,7 @@ pub(super) async fn mark_in_review(
     headers: HeaderMap,
     Path(raw_id): Path<String>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

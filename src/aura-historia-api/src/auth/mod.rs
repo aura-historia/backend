@@ -13,7 +13,7 @@ pub use cognito_jwt::{
     ReqwestJwksProvider,
 };
 pub use composite::ApiAuthService;
-pub use context::{protected_context, request_metadata};
+pub use context::{command_context, protected_context, request_metadata};
 pub use core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     operation_context,

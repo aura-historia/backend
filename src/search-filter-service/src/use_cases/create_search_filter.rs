@@ -1,3 +1,4 @@
+use crate::create_receipt::CreateSearchFilterIntent;
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
@@ -6,6 +7,9 @@ use crate::ports::{
 use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
+use application::idempotency::{
+    CommandReceiptError, CommandReceipts, CommandReceiptsFactory, IdempotencyKey,
+};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -24,6 +28,7 @@ use user_service::ports::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateSearchFilterCommand {
+    pub idempotency_key: Option<IdempotencyKey>,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
@@ -37,6 +42,8 @@ pub struct CreateSearchFilterResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateSearchFilterError {
+    #[error(transparent)]
+    Receipt(#[from] CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -91,21 +98,23 @@ pub trait CreateSearchFilterUseCase: Send + Sync {
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError>;
 }
 
-pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
+pub struct CreateSearchFilterHandler<U, R, E, Q, A, C> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
     quotas: Q,
     tier_entitlements: A,
+    receipts: C,
 }
 
-impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
+impl<U, R, E, Q, A, C> CreateSearchFilterHandler<U, R, E, Q, A, C> {
     pub fn new(
         unit_of_work: U,
         filters: R,
         embeddings: E,
         quotas: Q,
         tier_entitlements: A,
+        receipts: C,
     ) -> Self {
         Self {
             unit_of_work,
@@ -113,18 +122,20 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
             embeddings,
             quotas,
             tier_entitlements,
+            receipts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, Q, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, Q, A>
+impl<U, R, E, Q, A, C> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, Q, A, C>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: EmbeddingGenerator,
     Q: SearchFilterQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
+    C: CommandReceiptsFactory<U::Tx, CreateSearchFilterIntent, CreateSearchFilterResult>,
 {
     #[tracing::instrument(
         name = "create_search_filter",
@@ -142,6 +153,49 @@ where
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
         authorize_owner(context, command.user_id)?;
+        let intent = command
+            .idempotency_key
+            .clone()
+            .map(|key| CreateSearchFilterIntent::new(context, &command, key));
+        // A completed retry must not pay for provider preparation or fail on its own quota use.
+        if let Some(intent) = &intent {
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                CreateSearchFilterError::BeginTransactionFailed(Box::new(source))
+            })?;
+            self.receipts
+                .in_transaction(&mut tx)
+                .coordinate(intent)
+                .await
+                .map_err(receipt_error)?;
+            self.tier_entitlements
+                .in_transaction(&mut tx)
+                .lock_user_tier(command.user_id)
+                .await
+                .map_err(tier_entitlements_error)?
+                .ok_or(CreateSearchFilterError::UserNotFound)?;
+            let completed = self
+                .receipts
+                .in_transaction(&mut tx)
+                .find(intent)
+                .await
+                .map_err(receipt_error)?;
+            if let Some(result) = completed {
+                tx.commit().await.map_err(|source| {
+                    CreateSearchFilterError::CommitTransactionFailed(Box::new(source))
+                })?;
+                tracing::info!(
+                    event = "command.replayed",
+                    operation = "CREATE_SEARCH_FILTER",
+                    outcome = "success"
+                );
+                return Ok(result);
+            }
+            // Explicitly finish this read transaction: SQLx rollback on drop is asynchronous,
+            // so merely dropping it can retain locks into provider I/O or our next attempt.
+            tx.commit().await.map_err(|source| {
+                CreateSearchFilterError::CommitTransactionFailed(Box::new(source))
+            })?;
+        }
         let embedding = match embedding_query(&command.search).map_err(embedding_error)? {
             Some(query) => Some(
                 self.embeddings
@@ -167,6 +221,13 @@ where
             self.unit_of_work.begin().await.map_err(|source| {
                 CreateSearchFilterError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(intent) = &intent {
+            self.receipts
+                .in_transaction(&mut tx)
+                .coordinate(intent)
+                .await
+                .map_err(receipt_error)?;
+        }
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
@@ -174,6 +235,25 @@ where
             .await
             .map_err(tier_entitlements_error)?
             .ok_or(CreateSearchFilterError::UserNotFound)?;
+        if let Some(intent) = &intent {
+            let completed = self
+                .receipts
+                .in_transaction(&mut tx)
+                .find(intent)
+                .await
+                .map_err(receipt_error)?;
+            if let Some(result) = completed {
+                tx.commit().await.map_err(|source| {
+                    CreateSearchFilterError::CommitTransactionFailed(Box::new(source))
+                })?;
+                tracing::info!(
+                    event = "command.replayed",
+                    operation = "CREATE_SEARCH_FILTER",
+                    outcome = "success"
+                );
+                return Ok(result);
+            }
+        }
         validate_search_features(tier, filter.search()).map_err(|feature| {
             CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
         })?;
@@ -197,6 +277,16 @@ where
             .insert(&filter)
             .await
             .map_err(repository_error)?;
+        let result = CreateSearchFilterResult {
+            filter: persisted.into(),
+        };
+        if let Some(intent) = &intent {
+            self.receipts
+                .in_transaction(&mut tx)
+                .complete(intent, &result)
+                .await
+                .map_err(receipt_error)?;
+        }
         tx.commit()
             .await
             .map_err(|source| CreateSearchFilterError::CommitTransactionFailed(Box::new(source)))?;
@@ -204,14 +294,28 @@ where
             event = "search_filter.created",
             actor_type = context.principal.kind(),
             actor_id = ?context.principal.actor_id(),
-            search_filter_id = %persisted.filter.id(),
+            search_filter_id = %result.filter.search_filter_id,
             outcome = "success",
         );
 
-        Ok(CreateSearchFilterResult {
-            filter: persisted.into(),
-        })
+        Ok(result)
     }
+}
+
+fn receipt_error(error: CommandReceiptError) -> CreateSearchFilterError {
+    let outcome = match &error {
+        CommandReceiptError::Mismatch => "mismatch",
+        CommandReceiptError::InProgress => "in_progress",
+        CommandReceiptError::ResultUnavailable => "result_unavailable",
+        CommandReceiptError::Storage(_) => "storage_failed",
+        CommandReceiptError::InvalidPersistedState(_) => "invalid_receipt",
+    };
+    tracing::info!(
+        event = "command.retry",
+        operation = "CREATE_SEARCH_FILTER",
+        outcome
+    );
+    error.into()
 }
 
 fn authorize_owner(

@@ -16,6 +16,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
+| Application command identity, safe retries and receipt recovery | [Command retries](command-retries.md) |
 | External search host setup, security and recovery | [OpenSearch stage](opensearch-stage.md) |
 | Public API requests/responses and change history | [OpenAPI](swagger.yaml), [changelog](CHANGELOG.md) |
 | Crawler | [Crawler guide](crawler/README.md) |

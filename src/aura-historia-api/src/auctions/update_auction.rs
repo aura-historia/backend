@@ -1,6 +1,6 @@
 use crate::{
     auctions::types::{AuctionAdminData, UpdateAuctionData},
-    auth::protected_context,
+    auth::command_context,
     error::{ApiError, BAD_BODY_VALUE},
     state::AuctionsState,
     wire::parse_path_object_id,
@@ -19,7 +19,7 @@ pub async fn update_auction(
     Path(raw_auction_id): Path<String>,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

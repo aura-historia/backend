@@ -128,6 +128,14 @@ pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
+pub(crate) const IDEMPOTENCY_MISMATCH: ApiErrorCode = ApiErrorCode("IDEMPOTENCY_MISMATCH");
+pub(crate) const IDEMPOTENCY_IN_PROGRESS: ApiErrorCode = ApiErrorCode("IDEMPOTENCY_IN_PROGRESS");
+pub(crate) const IDEMPOTENCY_RESULT_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("IDEMPOTENCY_RESULT_UNAVAILABLE");
+pub(crate) const IDEMPOTENCY_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("IDEMPOTENCY_TEMPORARILY_UNAVAILABLE");
+pub(crate) const IDEMPOTENCY_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("IDEMPOTENCY_INTERNAL_ERROR");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
 pub(crate) const BILLING_PROVIDER_FAILURE: ApiErrorCode = ApiErrorCode("BILLING_PROVIDER_FAILURE");
 pub(crate) const BILLING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -449,6 +457,7 @@ impl From<GetAdminOverviewError> for ApiError {
 impl From<CreateAuctionError> for ApiError {
     fn from(error: CreateAuctionError) -> Self {
         match error {
+            CreateAuctionError::Receipt(error) => error.into(),
             CreateAuctionError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -510,6 +519,7 @@ impl From<GetAuctionError> for ApiError {
 impl From<UpdateAuctionError> for ApiError {
     fn from(error: UpdateAuctionError) -> Self {
         match error {
+            UpdateAuctionError::Receipt(error) => error.into(),
             UpdateAuctionError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -709,6 +719,7 @@ impl From<GetOwnedSearchFilterError> for ApiError {
 impl From<CreateSearchFilterError> for ApiError {
     fn from(error: CreateSearchFilterError) -> Self {
         match error {
+            CreateSearchFilterError::Receipt(error) => error.into(),
             CreateSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -755,9 +766,31 @@ impl From<CreateSearchFilterError> for ApiError {
     }
 }
 
+impl From<application::idempotency::CommandReceiptError> for ApiError {
+    fn from(error: application::idempotency::CommandReceiptError) -> Self {
+        use application::idempotency::CommandReceiptError as E;
+        match error {
+            E::Mismatch => Self::conflict(IDEMPOTENCY_MISMATCH)
+                .with_header_field("Idempotency-Key")
+                .with_detail("This key is bound to different command intent. Use the original command to retry, or a new key for a new action."),
+            E::InProgress => Self::conflict(IDEMPOTENCY_IN_PROGRESS)
+                .with_header_field("Idempotency-Key")
+                .with_detail("This command is still running. Retry the same command and key with bounded backoff."),
+            E::ResultUnavailable => Self::conflict(IDEMPOTENCY_RESULT_UNAVAILABLE)
+                .with_header_field("Idempotency-Key")
+                .with_detail("This command's result cannot be recovered or confirmed. It will not execute again automatically. Read current state or follow the operation's recovery procedure."),
+            E::Storage(_) => Self::service_unavailable(IDEMPOTENCY_TEMPORARILY_UNAVAILABLE)
+                .with_detail("Command outcome could not be confirmed. Retry the same command and key."),
+            E::InvalidPersistedState(_) => Self::internal_server_error(IDEMPOTENCY_INTERNAL_ERROR)
+                .with_detail("Command receipt is invalid."),
+        }
+    }
+}
+
 impl From<UpdateOwnedSearchFilterError> for ApiError {
     fn from(error: UpdateOwnedSearchFilterError) -> Self {
         match error {
+            UpdateOwnedSearchFilterError::Receipt(error)=>error.into(),
             UpdateOwnedSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -815,6 +848,7 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
 impl From<DeleteOwnedSearchFilterError> for ApiError {
     fn from(error: DeleteOwnedSearchFilterError) -> Self {
         match error {
+            DeleteOwnedSearchFilterError::Receipt(error) => error.into(),
             DeleteOwnedSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -883,6 +917,7 @@ impl From<ListSearchFilterMatchesError> for ApiError {
 impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
     fn from(error: UpdateSearchFilterMatchFeedbackError) -> Self {
         match error {
+            UpdateSearchFilterMatchFeedbackError::Receipt(error) => error.into(),
             UpdateSearchFilterMatchFeedbackError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -919,6 +954,7 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
 impl From<CreateListingSourceError> for ApiError {
     fn from(error: CreateListingSourceError) -> Self {
         match error {
+            CreateListingSourceError::Receipt(error) => error.into(),
             CreateListingSourceError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -959,6 +995,7 @@ impl From<CreateListingSourceError> for ApiError {
 impl From<DeleteListingSourceError> for ApiError {
     fn from(error: DeleteListingSourceError) -> Self {
         match error {
+            DeleteListingSourceError::Receipt(error) => error.into(),
             DeleteListingSourceError::AuthenticatedActorRequired => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is required."),
@@ -990,6 +1027,7 @@ impl From<DeleteListingSourceError> for ApiError {
 impl From<UpdateListingSourceError> for ApiError {
     fn from(error: UpdateListingSourceError) -> Self {
         match error {
+            UpdateListingSourceError::Receipt(error) => error.into(),
             UpdateListingSourceError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1032,6 +1070,7 @@ impl From<UpdateListingSourceError> for ApiError {
 impl From<PutListingSourceIngestionConfigurationError> for ApiError {
     fn from(error: PutListingSourceIngestionConfigurationError) -> Self {
         match error {
+            PutListingSourceIngestionConfigurationError::Receipt(error) => error.into(),
             PutListingSourceIngestionConfigurationError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1702,6 +1741,7 @@ impl From<AdminGetUserError> for ApiError {
 impl From<CreatePartyError> for ApiError {
     fn from(error: CreatePartyError) -> Self {
         match error {
+            CreatePartyError::Receipt(error) => error.into(),
             CreatePartyError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1730,6 +1770,7 @@ impl From<CreatePartyError> for ApiError {
 impl From<DeletePartyError> for ApiError {
     fn from(error: DeletePartyError) -> Self {
         match error {
+            DeletePartyError::Receipt(error) => error.into(),
             DeletePartyError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1773,6 +1814,7 @@ impl From<DeletePartyError> for ApiError {
 impl From<UpdatePartyError> for ApiError {
     fn from(error: UpdatePartyError) -> Self {
         match error {
+            UpdatePartyError::Receipt(error) => error.into(),
             UpdatePartyError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1882,6 +1924,7 @@ impl From<SearchUsersError> for ApiError {
 impl From<UpdateUserProfileError> for ApiError {
     fn from(error: UpdateUserProfileError) -> Self {
         match error {
+            UpdateUserProfileError::Receipt(error) => error.into(),
             UpdateUserProfileError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1916,6 +1959,7 @@ impl From<UpdateUserProfileError> for ApiError {
 impl From<ChangeUserRoleError> for ApiError {
     fn from(error: ChangeUserRoleError) -> Self {
         match error {
+            ChangeUserRoleError::Receipt(error) => error.into(),
             ChangeUserRoleError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1951,6 +1995,7 @@ impl From<ChangeUserRoleError> for ApiError {
 impl From<ChangeUserTierError> for ApiError {
     fn from(error: ChangeUserTierError) -> Self {
         match error {
+            ChangeUserTierError::Receipt(error) => error.into(),
             ChangeUserTierError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1986,6 +2031,7 @@ impl From<ChangeUserTierError> for ApiError {
 impl From<DeleteUserError> for ApiError {
     fn from(error: DeleteUserError) -> Self {
         match error {
+            DeleteUserError::Receipt(error) => error.into(),
             DeleteUserError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2020,6 +2066,7 @@ impl From<DeleteUserError> for ApiError {
 impl From<SuspendUserError> for ApiError {
     fn from(error: SuspendUserError) -> Self {
         match error {
+            SuspendUserError::Receipt(error) => error.into(),
             SuspendUserError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2057,6 +2104,7 @@ impl From<SuspendUserError> for ApiError {
 impl From<RevokeUserSessionsError> for ApiError {
     fn from(error: RevokeUserSessionsError) -> Self {
         match error {
+            RevokeUserSessionsError::Receipt(error) => error.into(),
             RevokeUserSessionsError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2086,6 +2134,7 @@ impl From<RevokeUserSessionsError> for ApiError {
 impl From<UnsuspendUserError> for ApiError {
     fn from(error: UnsuspendUserError) -> Self {
         match error {
+            UnsuspendUserError::Receipt(error) => error.into(),
             UnsuspendUserError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2119,6 +2168,8 @@ impl From<UnsuspendUserError> for ApiError {
 impl From<CreateAccessTokenError> for ApiError {
     fn from(error: CreateAccessTokenError) -> Self {
         match error {
+            CreateAccessTokenError::Receipt(error) => error.into(),
+            CreateAccessTokenError::SecretResultUnavailable{access_token_id}=>ApiError::from(application::idempotency::CommandReceiptError::ResultUnavailable).with_detail(format!("The secret cannot be replayed. Revoke access token {access_token_id} and issue a replacement with a new key.")),
             CreateAccessTokenError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2229,6 +2280,7 @@ impl From<GetAccessTokenError> for ApiError {
 impl From<UpdateAccessTokenError> for ApiError {
     fn from(error: UpdateAccessTokenError) -> Self {
         match error {
+            UpdateAccessTokenError::Receipt(error) => error.into(),
             UpdateAccessTokenError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2352,6 +2404,7 @@ impl From<ListWatchlistError> for ApiError {
 impl From<WatchProductListingError> for ApiError {
     fn from(error: WatchProductListingError) -> Self {
         match error {
+            WatchProductListingError::Receipt(error) => error.into(),
             WatchProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2398,6 +2451,7 @@ impl From<WatchProductListingError> for ApiError {
 impl From<UpdateWatchlistProductListingError> for ApiError {
     fn from(error: UpdateWatchlistProductListingError) -> Self {
         match error {
+            UpdateWatchlistProductListingError::Receipt(error) => error.into(),
             UpdateWatchlistProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2446,6 +2500,7 @@ impl From<UpdateWatchlistProductListingError> for ApiError {
 impl From<UnwatchProductListingError> for ApiError {
     fn from(error: UnwatchProductListingError) -> Self {
         match error {
+            UnwatchProductListingError::Receipt(error) => error.into(),
             UnwatchProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2494,6 +2549,7 @@ fn partnership_application_not_found() -> ApiError {
 impl From<SubmitPartnershipApplicationError> for ApiError {
     fn from(error: SubmitPartnershipApplicationError) -> Self {
         match error {
+            SubmitPartnershipApplicationError::Receipt(error) => error.into(),
             SubmitPartnershipApplicationError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2565,6 +2621,7 @@ impl From<GetOwnPartnershipApplicationError> for ApiError {
 impl From<WithdrawPartnershipApplicationError> for ApiError {
     fn from(error: WithdrawPartnershipApplicationError) -> Self {
         match error {
+            WithdrawPartnershipApplicationError::Receipt(error) => error.into(),
             WithdrawPartnershipApplicationError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2642,6 +2699,7 @@ impl From<GetAdminPartnershipError> for ApiError {
 impl From<DissolvePartnershipError> for ApiError {
     fn from(error: DissolvePartnershipError) -> Self {
         match error {
+            DissolvePartnershipError::Receipt(error) => error.into(),
             DissolvePartnershipError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -2669,6 +2727,7 @@ impl From<DissolvePartnershipError> for ApiError {
 impl From<GrantPartnershipListingSourceError> for ApiError {
     fn from(error: GrantPartnershipListingSourceError) -> Self {
         match error {
+            GrantPartnershipListingSourceError::Receipt(error) => error.into(),
             GrantPartnershipListingSourceError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -2701,6 +2760,7 @@ impl From<GrantPartnershipListingSourceError> for ApiError {
 impl From<RevokePartnershipListingSourceError> for ApiError {
     fn from(error: RevokePartnershipListingSourceError) -> Self {
         match error {
+            RevokePartnershipListingSourceError::Receipt(error) => error.into(),
             RevokePartnershipListingSourceError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -2729,6 +2789,7 @@ impl From<RevokePartnershipListingSourceError> for ApiError {
 impl From<GrantPartnershipMembershipError> for ApiError {
     fn from(error: GrantPartnershipMembershipError) -> Self {
         match error {
+            GrantPartnershipMembershipError::Receipt(error) => error.into(),
             GrantPartnershipMembershipError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -2756,6 +2817,7 @@ impl From<GrantPartnershipMembershipError> for ApiError {
 impl From<RevokePartnershipMembershipError> for ApiError {
     fn from(error: RevokePartnershipMembershipError) -> Self {
         match error {
+            RevokePartnershipMembershipError::Receipt(error) => error.into(),
             RevokePartnershipMembershipError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -2824,6 +2886,7 @@ macro_rules! impl_partnership_application_admin_transition_error {
         impl From<$error> for ApiError {
             fn from(error: $error) -> Self {
                 match error {
+                    $error::Receipt(error) => error.into(),
                     $error::Forbidden => partnership_application_forbidden(),
                     $error::NotFound => partnership_application_not_found(),
                     $error::$invalid_state | $error::ConcurrencyConflict => ApiError::conflict(
@@ -2852,6 +2915,7 @@ impl_partnership_application_admin_transition_error!(
 impl From<ApprovePartnershipApplicationError> for ApiError {
     fn from(error: ApprovePartnershipApplicationError) -> Self {
         match error {
+            ApprovePartnershipApplicationError::Receipt(error) => error.into(),
             ApprovePartnershipApplicationError::Forbidden => partnership_application_forbidden(),
             ApprovePartnershipApplicationError::NotFound => partnership_application_not_found(),
             ApprovePartnershipApplicationError::ListingSourceNotFound => {
@@ -2881,6 +2945,7 @@ impl From<ApprovePartnershipApplicationError> for ApiError {
 impl From<RejectPartnershipApplicationError> for ApiError {
     fn from(error: RejectPartnershipApplicationError) -> Self {
         match error {
+            RejectPartnershipApplicationError::Receipt(error) => error.into(),
             RejectPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
             RejectPartnershipApplicationError::NotFound => partnership_application_not_found(),
             RejectPartnershipApplicationError::ListingSourceNotFound => {
@@ -2909,6 +2974,8 @@ impl From<RejectPartnershipApplicationError> for ApiError {
 impl From<OAuthServiceError> for ApiError {
     fn from(error: OAuthServiceError) -> Self {
         match error {
+            OAuthServiceError::Receipt(error) => error.into(),
+            OAuthServiceError::SecretResultUnavailable{client_id}=>ApiError::from(application::idempotency::CommandReceiptError::ResultUnavailable).with_detail(format!("The secret cannot be replayed. Delete OAuth client {client_id} and issue a replacement with a new key.")),
             OAuthServiceError::AuthenticatedActorRequired
             | OAuthServiceError::InvalidClientSecret => {
                 ApiError::unauthorized(OAUTH_INVALID_CLIENT_SECRET).with_detail(error.to_string())
@@ -2954,6 +3021,7 @@ impl From<OAuthServiceError> for ApiError {
 impl From<CreateBillingCheckoutSessionError> for ApiError {
     fn from(error: CreateBillingCheckoutSessionError) -> Self {
         match error {
+            CreateBillingCheckoutSessionError::Receipt(error) => error.into(),
             CreateBillingCheckoutSessionError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -2996,6 +3064,7 @@ impl From<CreateBillingCheckoutSessionError> for ApiError {
 impl From<CreateBillingPortalSessionError> for ApiError {
     fn from(error: CreateBillingPortalSessionError) -> Self {
         match error {
+            CreateBillingPortalSessionError::Receipt(error) => error.into(),
             CreateBillingPortalSessionError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -3031,6 +3100,7 @@ impl From<CreateBillingPortalSessionError> for ApiError {
 impl From<CreateBillingManagementSessionError> for ApiError {
     fn from(error: CreateBillingManagementSessionError) -> Self {
         match error {
+            CreateBillingManagementSessionError::Receipt(error) => error.into(),
             CreateBillingManagementSessionError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -3085,6 +3155,7 @@ impl From<party_service::use_cases::party_locations::PartyLocationError> for Api
     fn from(error: party_service::use_cases::party_locations::PartyLocationError) -> Self {
         use party_service::use_cases::party_locations::PartyLocationError as E;
         match error {
+            E::Receipt(error) => error.into(),
             E::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
             E::Forbidden => Self::forbidden(FORBIDDEN),
             E::NotFound => Self::not_found(PARTY_NOT_FOUND),

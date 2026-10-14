@@ -58,6 +58,7 @@ impl CheckUserAdminUseCase for Admin {
 }
 fn context() -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::User(UserId::new()),
         request_id: RequestId::new("admin-test"),
         correlation_id: CorrelationId::new("admin-test"),

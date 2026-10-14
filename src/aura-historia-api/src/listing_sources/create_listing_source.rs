@@ -1,4 +1,4 @@
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, LISTING_SOURCE_INTERNAL_ERROR};
 use crate::listing_sources::types::{CreateListingSourceData, ListingSourceReferenceData};
 use crate::state::ListingSourcesState;
@@ -13,7 +13,7 @@ pub async fn create_listing_source(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

@@ -4,6 +4,7 @@ use crate::ports::{
 };
 use crate::tier_policy::active_watchlist_quota;
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -37,6 +38,8 @@ pub struct UpdateWatchlistProductListingResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateWatchlistProductListingError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -129,9 +132,23 @@ where
     ) -> Result<UpdateWatchlistProductListingResult, UpdateWatchlistProductListingError> {
         authorize_write(context, command.user_id)?;
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_WATCHLIST_PRODUCT_LISTING",
+            format!("{}:{}", command.user_id, command.product_listing_id),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"product_listing_id":command.product_listing_id,"notifications":command.notifications,"state":command.state.map(|v|v.as_str())}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateWatchlistProductListingError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                UpdateWatchlistProductListingError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let loaded = self
             .watchlist
             .in_transaction(&mut tx)
@@ -215,6 +232,8 @@ where
             };
         }
 
+        let result = UpdateWatchlistProductListingResult { entry };
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await.map_err(|source| {
             UpdateWatchlistProductListingError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -226,7 +245,7 @@ where
             product_listing_id = %command.product_listing_id,
             outcome = if changed { "success" } else { "unchanged" },
         );
-        Ok(UpdateWatchlistProductListingResult { entry })
+        Ok(result)
     }
 }
 
@@ -749,6 +768,7 @@ mod tests {
 
     fn context_for_user(user_id: UserId) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -760,6 +780,7 @@ mod tests {
         capabilities: BTreeSet<CredentialCapability>,
     ) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities,

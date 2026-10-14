@@ -5,6 +5,7 @@ use crate::{
     },
     use_cases::queries::get_auction::AuctionAdminDetailsView,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::{BoxError, static_error},
     operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
@@ -56,6 +57,8 @@ pub type UpdateAuctionResult = AuctionAdminDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateAuctionError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to update auction")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -170,11 +173,25 @@ where
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_AUCTION",
+            command.auction_id.to_string(),
+            None,
+            serde_json::json!({"auction_id":command.auction_id,"expected_version":command.expected_version,"name":retry::patch(&command.name,crate::command_receipts::name_value),"catalogue_url":retry::patch(&command.catalogue_url,|v|serde_json::json!(v)),"format":retry::patch(&command.format,|v|serde_json::json!(v.as_str())),"reported_status":retry::patch(&command.reported_status,|v|serde_json::json!(v.as_str())),"reported_lot_count":retry::patch(&command.reported_lot_count,|v|serde_json::json!(v.value())),"schedule":{"bidding_opens":retry::patch(&command.schedule.bidding_opens,|v|crate::command_receipts::instant(Some(*v))),"live_starts":retry::patch(&command.schedule.live_starts,|v|crate::command_receipts::instant(Some(*v))),"lots_begin_closing":retry::patch(&command.schedule.lots_begin_closing,|v|crate::command_receipts::instant(Some(*v))),"scheduled_end":retry::patch(&command.schedule.scheduled_end,|v|crate::command_receipts::instant(Some(*v)))}}),
+        );
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|source| UpdateAuctionError::BeginTransactionFailed(Box::new(source)))?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|source| UpdateAuctionError::CommitTransactionFailed(Box::new(source)))?;
+            return Ok(result);
+        }
+
         let stored = self
             .auctions
             .in_transaction(&mut tx)
@@ -206,6 +223,10 @@ where
         } else {
             stored
         };
+        let result = AuctionAdminDetailsView::from_details(crate::ports::AuctionDetails {
+            stored: persisted,
+        });
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit()
             .await
             .map_err(|source| UpdateAuctionError::CommitTransactionFailed(Box::new(source)))?;
@@ -219,9 +240,7 @@ where
             changed = changed.changed(),
             outcome = "success",
         );
-        Ok(AuctionAdminDetailsView::from_details(
-            crate::ports::AuctionDetails { stored: persisted },
-        ))
+        Ok(result)
     }
 }
 
@@ -526,6 +545,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

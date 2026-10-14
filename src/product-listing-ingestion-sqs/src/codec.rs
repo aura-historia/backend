@@ -1025,6 +1025,7 @@ mod tests {
         let result = handler
             .execute(
                 &OperationContext {
+                    command_key: None,
                     principal: Principal::Service("fixture-intake".into()),
                     request_id: RequestId::new("fixture-request"),
                     correlation_id: CorrelationId::new("fixture-correlation"),

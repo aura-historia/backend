@@ -2,6 +2,7 @@ use crate::ports::{
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -34,6 +35,8 @@ pub struct UpdateAccessTokenResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateAccessTokenError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to update access token")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -120,10 +123,24 @@ where
         let principal = context.principal.require_authenticated()?.clone();
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_ACCESS_TOKEN",
+            format!("{}:{}", command.user_id, command.access_token_id),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"access_token_id":command.access_token_id,"name":retry::patch(&command.name,|v|serde_json::json!(v.as_ref())),"scopes":retry::patch(&command.scopes,crate::command_receipts::scopes),"expires":retry::patch(&command.expires,|v|serde_json::json!(v.unix_timestamp_nanos().to_string()))}),
+        );
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 UpdateAccessTokenError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|s| UpdateAccessTokenError::CommitTransactionFailed(Box::new(s)))?;
+            return Ok(result);
+        }
+
         let mut repository = self.repository.in_transaction(&mut tx);
         let domain_primitives::versioned::Versioned {
             value: mut access_token,
@@ -138,6 +155,16 @@ where
             access_token = repository.update(&access_token, version).await?.value;
         }
         drop(repository);
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &UpdateAccessTokenResult {
+                view: crate::use_cases::queries::get_access_token::AccessTokenView::from(
+                    access_token.clone(),
+                ),
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| UpdateAccessTokenError::CommitTransactionFailed(Box::new(source)))?;
@@ -283,6 +310,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

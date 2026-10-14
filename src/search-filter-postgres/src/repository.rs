@@ -200,6 +200,9 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .await
             .map_err(SearchFilterRepositoryAdapterError::DeleteSqlx)?;
         if result.rows_affected() == 1 {
+            sqlx::query("UPDATE search_filter_create_receipts SET outcome=NULL WHERE user_search_filter_id=$1 AND outcome IS NOT NULL")
+                .bind(id).execute(self.tx.connection()).await
+                .map_err(SearchFilterRepositoryAdapterError::DeleteSqlx)?;
             Ok(())
         } else {
             Err(SearchFilterRepositoryAdapterError::DeleteNoRowsAffected.into())

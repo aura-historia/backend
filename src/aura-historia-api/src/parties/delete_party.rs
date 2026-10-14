@@ -1,5 +1,5 @@
 use crate::{
-    auth::protected_context, error::ApiError, state::PartiesState, wire::parse_path_object_id,
+    auth::command_context, error::ApiError, state::PartiesState, wire::parse_path_object_id,
 };
 use axum::{
     extract::{Path, State},
@@ -14,7 +14,7 @@ pub async fn delete_party(
     headers: HeaderMap,
     Path(raw_party_id): Path<String>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

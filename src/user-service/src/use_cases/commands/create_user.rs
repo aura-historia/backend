@@ -308,6 +308,7 @@ mod tests {
 
     fn ctx(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

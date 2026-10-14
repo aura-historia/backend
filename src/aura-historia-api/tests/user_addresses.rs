@@ -125,6 +125,7 @@ async fn resolve(pool: &sqlx::PgPool, id: UserAddressId, calls: Arc<AtomicUsize>
     )
     .execute(
         &OperationContext {
+            command_key: None,
             principal: Principal::Service("synthetic-test-worker".into()),
             request_id: "test".into(),
             correlation_id: "test".into(),

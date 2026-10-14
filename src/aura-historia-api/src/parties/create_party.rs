@@ -1,5 +1,5 @@
 use super::types::PartyData;
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, PARTY_INTERNAL_ERROR};
 use crate::state::PartiesState;
 use axum::Json;
@@ -27,7 +27,7 @@ pub async fn create_party(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

@@ -1,6 +1,6 @@
 use super::types::{PostWatchlistData, WatchlistEntryData};
 use super::util::parse_json;
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::WatchlistState;
 use crate::wire::parse_body_object_id;
@@ -15,7 +15,7 @@ pub async fn post_watchlist(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, user_id) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

@@ -2,6 +2,7 @@ use crate::ports::{
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -32,6 +33,10 @@ pub struct CreateAccessTokenResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateAccessTokenError {
+    #[error("the issued access token secret cannot be replayed")]
+    SecretResultUnavailable { access_token_id: AccessTokenId },
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create access token")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -111,6 +116,13 @@ where
         let principal = context.principal.require_authenticated()?;
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
+        let intent = CommandIntent::new(
+            context,
+            "CREATE_ACCESS_TOKEN",
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"name":command.name.as_ref(),"scopes":crate::command_receipts::scopes(&command.scopes),"expires":command.expires.map(|v|v.unix_timestamp_nanos().to_string()),"origin":crate::command_receipts::origin(&command.origin)}),
+        );
         let raw_access_token = RawAccessToken::new();
         let access_token = AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
@@ -126,10 +138,35 @@ where
             self.unit_of_work.begin().await.map_err(|source| {
                 CreateAccessTokenError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(intent) = intent.as_ref()
+            && let Some(value) = tx.command_receipt(intent).await?
+        {
+            let issued=<crate::command_receipts::IssuedAccessToken as application::idempotency::CommandOutcome>::decode(value).map_err(application::idempotency::CommandReceiptError::InvalidPersistedState)?;
+            if issued.user_id != command.user_id {
+                return Err(
+                    application::idempotency::CommandReceiptError::InvalidPersistedState(
+                        application::error::static_error("issued token owner mismatch"),
+                    )
+                    .into(),
+                );
+            }
+            return Err(CreateAccessTokenError::SecretResultUnavailable {
+                access_token_id: issued.access_token_id,
+            });
+        }
         self.repository
             .in_transaction(&mut tx)
             .insert(&access_token)
             .await?;
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &crate::command_receipts::IssuedAccessToken {
+                access_token_id: access_token.id(),
+                user_id: access_token.user_id(),
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| CreateAccessTokenError::CommitTransactionFailed(Box::new(source)))?;
@@ -242,6 +279,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

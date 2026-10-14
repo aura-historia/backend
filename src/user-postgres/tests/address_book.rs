@@ -17,6 +17,7 @@ type Handler =
     AddressBookHandler<SqlxUnitOfWork, SqlxAddressBookFactory, SqlxResolutionRepositoryFactory>;
 fn context(id: UserId) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::User(id),
         request_id: "address-test".into(),
         correlation_id: "address-test".into(),
@@ -1142,4 +1143,54 @@ async fn server_creation_receipts_roll_back_and_remain_immutable() {
             .unwrap()
             .id
     );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn keyed_address_mutations_recover_current_views_before_cas_and_scrub_deleted_content_fingerprints()
+ {
+    let (pool, h, mut a, _) = fixture().await;
+    let id = h
+        .create(&a, create("creation-key", "Synthetic original"))
+        .await
+        .unwrap()
+        .id;
+    a.command_key =
+        Some(application::idempotency::IdempotencyKey::new("address-replace".into()).unwrap());
+    let replace = || UpdateUserAddress {
+        id,
+        expected_version: 1,
+        label: UserAddressLabel::new("First".into()).unwrap(),
+        geography: geography("Synthetic first"),
+    };
+    let first = h.update(&a, replace()).await.unwrap();
+    assert_eq!(2, first.version);
+    let mut b = a.clone();
+    b.command_key =
+        Some(application::idempotency::IdempotencyKey::new("later-replace".into()).unwrap());
+    h.update(
+        &b,
+        UpdateUserAddress {
+            id,
+            expected_version: 2,
+            label: UserAddressLabel::new("Later".into()).unwrap(),
+            geography: geography("Synthetic later"),
+        },
+    )
+    .await
+    .unwrap();
+    let replay = h.update(&a, replace()).await.unwrap();
+    assert_eq!(3, replay.version);
+    assert_eq!("Later", replay.label.as_str());
+    b.command_key =
+        Some(application::idempotency::IdempotencyKey::new("delete-address".into()).unwrap());
+    h.delete(&b, id, 3).await.unwrap();
+    h.delete(&b, id, 3).await.unwrap();
+    assert!(matches!(
+        h.update(&a, replace()).await,
+        Err(AddressBookError::Receipt(
+            application::idempotency::CommandReceiptError::ResultUnavailable
+        ))
+    ));
+    let fingerprint:Option<Vec<u8>>=sqlx::query_scalar("SELECT fingerprint FROM application_command_receipts WHERE operation='UPDATE_USER_ADDRESS' AND idempotency_key='address-replace'").fetch_one(&pool).await.unwrap();
+    assert!(fingerprint.is_none());
 }

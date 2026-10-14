@@ -26,6 +26,8 @@ pub struct CreateBillingManagementSessionCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateBillingManagementSessionError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create a billing management session")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -70,6 +72,7 @@ pub trait CreateBillingManagementSessionUseCase: Send + Sync {
 }
 
 pub struct CreateBillingManagementSessionHandler<U, A, C, S, P> {
+    operations: Option<std::sync::Arc<dyn application::external_operation::ExternalOperations>>,
     users: U,
     associate_customer: A,
     customers: C,
@@ -88,6 +91,7 @@ impl<U, A, C, S, P> CreateBillingManagementSessionHandler<U, A, C, S, P> {
         prices: BillingPriceIds,
     ) -> Self {
         Self {
+            operations: None,
             users,
             associate_customer,
             customers,
@@ -95,6 +99,15 @@ impl<U, A, C, S, P> CreateBillingManagementSessionHandler<U, A, C, S, P> {
             portal_sessions,
             prices,
         }
+    }
+    pub fn with_operations<T: application::transaction::UnitOfWork + 'static>(
+        mut self,
+        unit_of_work: T,
+    ) -> Self {
+        self.operations = Some(std::sync::Arc::new(
+            application::external_operation::TransactionalExternalOperations(unit_of_work),
+        ));
+        self
     }
 }
 
@@ -127,6 +140,35 @@ where
         let user_id = authorize_billing_user(context)?;
         tracing::Span::current().record("actor_id", tracing::field::display(user_id));
         let user = self.users.execute(context, GetOwnUserRequest).await?;
+        if context.command_key.is_some() {
+            let operations = self.operations.as_deref().ok_or_else(|| {
+                application::idempotency::CommandReceiptError::Storage(
+                    application::error::static_error("billing operations unavailable"),
+                )
+            })?;
+            let url = crate::workflow::execute(
+                context,
+                user,
+                crate::workflow::Request {
+                    operation: "CREATE_BILLING_MANAGEMENT",
+                    plan: Some(command.plan),
+                    cycle: Some(command.cycle),
+                    prices: Some(&self.prices),
+                    strict_checkout: false,
+                    portal_only: false,
+                },
+                operations,
+                &self.users,
+                &self.associate_customer,
+                &self.customers,
+                &self.checkout_sessions,
+                &self.portal_sessions,
+            )
+            .await
+            .map_err(CreateBillingManagementSessionError::from)?;
+            return Ok(BillingSessionResult { url });
+        }
+
         let url = match user.tier {
             UserTier::Free => {
                 let stripe_customer_id = match user.stripe_customer_id {
@@ -155,6 +197,7 @@ where
                 };
                 self.checkout_sessions
                     .create_checkout_session(CreateStripeCheckoutSessionRequest {
+                        redirects: None,
                         user_id,
                         stripe_customer_id,
                         price_id: self.prices.price_id(command.plan, command.cycle).to_owned(),
@@ -168,6 +211,7 @@ where
                     .ok_or(CreateBillingManagementSessionError::StripeCustomerDoesNotExist)?;
                 self.portal_sessions
                     .create_portal_session(CreateStripePortalSessionRequest {
+                        return_url: None,
                         stripe_customer_id,
                         idempotency_key: command.idempotency_key,
                     })
@@ -265,6 +309,21 @@ impl From<StripeBillingError> for CreateBillingManagementSessionError {
             StripeBillingError::InvalidResponse { source } => {
                 Self::ProviderInvalidResponse { source }
             }
+        }
+    }
+}
+
+impl From<crate::workflow::WorkflowError> for CreateBillingManagementSessionError {
+    fn from(error: crate::workflow::WorkflowError) -> Self {
+        match error {
+            crate::workflow::WorkflowError::Receipt(e) => Self::Receipt(e),
+            crate::workflow::WorkflowError::ExistingCustomer => {
+                Self::StripeCustomerAssociationConflict
+            }
+            crate::workflow::WorkflowError::MissingCustomer => Self::StripeCustomerDoesNotExist,
+            crate::workflow::WorkflowError::Provider(e) => e.into(),
+            crate::workflow::WorkflowError::User(e) => e.into(),
+            crate::workflow::WorkflowError::Association(e) => e.into(),
         }
     }
 }

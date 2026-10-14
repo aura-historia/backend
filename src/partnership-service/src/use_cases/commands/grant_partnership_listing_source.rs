@@ -2,6 +2,7 @@ use crate::{
     admin_authorization::{AdminAuthorizationError, authorize_admin},
     ports::*,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::{BoxError, static_error},
     operation_context::{CredentialCapability, OperationContext},
@@ -44,6 +45,8 @@ pub struct GrantPartnershipListingSourceResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GrantPartnershipListingSourceError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("operation not permitted")]
     Forbidden,
     #[error("partnership not found")]
@@ -141,11 +144,14 @@ where
         }
 
         let result = async {
-            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            let intent=CommandIntent::new(context,"GRANT_PARTNERSHIP_LISTING_SOURCE",format!("{}:{}",command.partnership_id,command.listing_source_id),None,serde_json::json!({"partnership_id":command.partnership_id,"listing_source_id":command.listing_source_id}));
+ let mut tx = self.unit_of_work.begin().await.map_err(|source| {
                 GrantPartnershipListingSourceError::BeginTransactionFailed(Box::new(source))
             })?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
+ if let Some(result)=retry::replay(&mut tx,intent.as_ref()).await? {tx.commit().await.map_err(|source|GrantPartnershipListingSourceError::CommitTransactionFailed(Box::new(source)))?;return Ok(result);}
+
 
             let partnership = self
                 .partnerships
@@ -171,7 +177,18 @@ where
                 .grant_source_access(command.partnership_id, command.listing_source_id)
                 .await?;
 
-            tx.commit().await.map_err(|source| {
+            let command_result = GrantPartnershipListingSourceResult {
+                outcome: match outcome {
+                    ListingSourceGrantOutcome::Granted => {
+                        GrantPartnershipListingSourceOutcome::Granted
+                    }
+                    ListingSourceGrantOutcome::AlreadyGranted => {
+                        GrantPartnershipListingSourceOutcome::AlreadyGranted
+                    }
+                },
+            };
+ retry::complete(&mut tx,intent.as_ref(),&command_result).await?;
+ tx.commit().await.map_err(|source| {
                 GrantPartnershipListingSourceError::CommitTransactionFailed(Box::new(source))
             })?;
 
@@ -628,6 +645,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -1089,6 +1107,7 @@ mod tests {
         ] {
             let state = Arc::new(Mutex::new(State::default()));
             let context = OperationContext {
+                command_key: None,
                 principal: application::operation_context::Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

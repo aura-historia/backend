@@ -46,10 +46,11 @@ pub async fn update_partner_product_listing(
     Path((raw_source, raw_id)): Path<(String, String)>,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command = parse_ids(&raw_source, &raw_id).and_then(|(listing_source_id, id)| {
         let command = parse_body::<UpdateData>(body)?.into_command(id)?;
         Ok(UpdatePartnerProductListingCommand {
@@ -75,10 +76,11 @@ pub async fn withdraw_partner_product_listing(
     Path((raw_source, raw_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command =
         parse_ids(&raw_source, &raw_id).and_then(|(listing_source_id, product_listing_id)| {
             let data: VersionData = serde_qs::from_str(query.as_deref().unwrap_or_default())
@@ -111,10 +113,11 @@ pub async fn restore_partner_product_listing(
     Path((raw_source, raw_id)): Path<(String, String)>,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
+    let (context, _) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(value) => value,
+            Err(response) => return *response,
+        };
     let command =
         parse_ids(&raw_source, &raw_id).and_then(|(listing_source_id, product_listing_id)| {
             Ok(PartnerProductListingLifecycleCommand {

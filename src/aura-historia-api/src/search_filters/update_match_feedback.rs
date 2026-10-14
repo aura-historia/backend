@@ -1,6 +1,6 @@
 use super::types::{SearchFilterMatchData, UpdateSearchFilterMatchFeedbackData};
 use super::util::{last_modified, no_store, parse_product_listing_id, parse_search_filter_id};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::SearchFiltersState;
 use axum::Json;
@@ -23,7 +23,7 @@ pub(super) async fn update_search_filter_match_feedback(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, user_id) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

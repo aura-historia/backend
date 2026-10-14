@@ -8,6 +8,7 @@ use crate::use_cases::commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -27,6 +28,8 @@ pub struct DeleteUserResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeleteUserError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to delete user")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -136,6 +139,17 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = if self.admin_only {
+            CommandIntent::new(
+                context,
+                "DELETE_USER",
+                command.user_id.to_string(),
+                None,
+                serde_json::json!({"user_id":command.user_id}),
+            )
+        } else {
+            None
+        };
         let mut tx = self
             .unit_of_work
             .begin()
@@ -149,6 +163,13 @@ where
             &self.admin_reader,
         )
         .await?;
+
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|e| DeleteUserError::CommitTransactionFailed(Box::new(e)))?;
+            return Ok(result);
+        }
         match UserAdminMutationGuardFactory::in_transaction(&self.admin_reader, &mut tx)
             .check_removal(command.user_id)
             .await?
@@ -166,6 +187,14 @@ where
             .user_deletion_with_evidence(command.user_id, OffsetDateTime::now_utc())
             .await?;
 
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &DeleteUserResult {
+                user_id: command.user_id,
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| DeleteUserError::CommitTransactionFailed(Box::new(source)))?;
@@ -380,6 +409,7 @@ mod tests {
 
     fn ctx(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

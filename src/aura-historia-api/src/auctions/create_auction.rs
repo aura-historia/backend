@@ -1,6 +1,6 @@
 use crate::{
     auctions::types::{AuctionAdminData, CreateAuctionData},
-    auth::protected_context,
+    auth::command_context,
     error::{AUCTION_INTERNAL_ERROR, ApiError, BAD_BODY_VALUE},
     state::AuctionsState,
 };
@@ -16,7 +16,7 @@ pub async fn create_auction(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

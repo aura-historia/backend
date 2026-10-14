@@ -7,6 +7,7 @@ use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{CredentialCapability, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use user_core::role::UserRole;
@@ -38,6 +39,8 @@ pub struct SuspendUserResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SuspendUserError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error(
         "administrative reason must be nonempty and at most {MAX_ADMINISTRATIVE_REASON_BYTES} bytes"
     )]
@@ -138,6 +141,13 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "SET_USER_SUSPENSION",
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"suspended":true,"reason":reason}),
+        );
         let mut tx = self
             .unit_of_work
             .begin()
@@ -148,6 +158,13 @@ where
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|e| SuspendUserError::CommitTransactionFailed(Box::new(e)))?;
+            return Ok(result);
+        }
+
         let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
@@ -186,6 +203,15 @@ where
                 .value;
         }
 
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &SuspendUserResult {
+                user_id: user.id(),
+                suspended: user.is_suspended(),
+            },
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|source| SuspendUserError::CommitTransactionFailed(Box::new(source)))?;
@@ -334,6 +360,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

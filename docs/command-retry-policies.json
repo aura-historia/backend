@@ -1,0 +1,717 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/auctions",
+    "policy": "keyed",
+    "owner": "auction-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/auctions/{auctionId}",
+    "policy": "keyed",
+    "owner": "auction-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/listing-sources",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/listing-sources/{listingSourceId}",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/listing-sources/{listingSourceId}",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/oauth-clients",
+    "policy": "secret-fence",
+    "owner": "oauth-service",
+    "result": "unavailable",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/oauth-clients/{clientId}",
+    "policy": "keyless",
+    "owner": "oauth-service",
+    "result": "current-state",
+    "retention": "none",
+    "rationale": "Irreversible identity-scoped deletion; missing is terminal success for recovery."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/oauth-clients/{clientId}",
+    "policy": "keyed",
+    "owner": "oauth-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/parties",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/parties/{partyId}",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/parties/{partyId}",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/partnership-applications/{partnershipApplicationId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/partnership-applications/{partnershipApplicationId}/decision",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/partnerships/{partnershipId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/partnerships/{partnershipId}/members/{userId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/partnerships/{partnershipId}/members/{userId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/product-listings/{productListingId}",
+    "policy": "keyed",
+    "owner": "product-listing-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/product-listings/{productListingId}",
+    "policy": "keyed",
+    "owner": "product-listing-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/product-listings/{productListingId}/restore",
+    "policy": "keyed",
+    "owner": "product-listing-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{userId}",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/users/{userId}",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{userId}/access-tokens",
+    "policy": "excluded",
+    "owner": "user-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{userId}/access-tokens/{accessTokenId}",
+    "policy": "keyless",
+    "owner": "user-service",
+    "result": "current-state",
+    "retention": "none",
+    "rationale": "Irreversible identity-scoped deletion; missing is terminal success for recovery."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/{userId}/sessions/revoke",
+    "policy": "external-fence",
+    "owner": "user-service",
+    "result": "original-or-reconcile",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/{userId}/suspension",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/users/{userId}/suspension",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/listing-sources/{listingSourceId}/ingestion-configurations/shopify",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
+    "policy": "excluded",
+    "owner": "listing-source-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/listing-sources/{listing_source_id}/location-default",
+    "policy": "keyed",
+    "owner": "listing-source-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me",
+    "policy": "security",
+    "owner": "user-service",
+    "result": "authentication-terminal",
+    "retention": "account-erasure",
+    "rationale": "Erasure removes authentication and private receipts; obtain current account state without retrying an old credential."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/access-tokens",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/access-tokens",
+    "policy": "secret-fence",
+    "owner": "user-service",
+    "result": "unavailable",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/access-tokens/{accessTokenId}",
+    "policy": "keyless",
+    "owner": "user-service",
+    "result": "current-state",
+    "retention": "none",
+    "rationale": "Irreversible identity-scoped deletion; missing is terminal success for recovery."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/account",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/addresses",
+    "policy": "required-key",
+    "owner": "user-service",
+    "result": "current-view",
+    "retention": "until-account-erasure"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/addresses/{address_id}",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/me/addresses/{address_id}",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "current-view",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/billing/checkout",
+    "policy": "workflow",
+    "owner": "billing-service",
+    "result": "capability-url",
+    "retention": "checkout-23h-or-portal-5m"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/billing/manage",
+    "policy": "workflow",
+    "owner": "billing-service",
+    "result": "capability-url",
+    "retention": "checkout-23h-or-portal-5m"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/billing/portal",
+    "policy": "workflow",
+    "owner": "billing-service",
+    "result": "capability-url",
+    "retention": "checkout-23h-or-portal-5m"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/me/browsing-destination",
+    "policy": "keyed",
+    "owner": "user-service",
+    "result": "current-view",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/notifications",
+    "policy": "excluded",
+    "owner": "notification-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/notifications",
+    "policy": "excluded",
+    "owner": "notification-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/notifications/all",
+    "policy": "excluded",
+    "owner": "notification-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/notifications/{notificationId}",
+    "policy": "keyless",
+    "owner": "notification-service",
+    "result": "current-state",
+    "retention": "none",
+    "rationale": "Irreversible identity-scoped deletion; missing is terminal success for recovery."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/notifications/{notificationId}",
+    "policy": "keyless",
+    "owner": "notification-service",
+    "result": "current-state",
+    "retention": "none",
+    "rationale": "Low-risk seen-state setter has last-write-wins semantics; retry only while that choice is current, otherwise GET and reconcile."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/partnership-applications",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/partnership-applications/{partnershipApplicationId}",
+    "policy": "keyed",
+    "owner": "partnership-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/search-filters",
+    "policy": "keyed",
+    "owner": "search-filter-service",
+    "result": "original",
+    "retention": "until-filter-deletion"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/search-filters/{userSearchFilterId}",
+    "policy": "keyed",
+    "owner": "search-filter-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/search-filters/{userSearchFilterId}",
+    "policy": "keyed",
+    "owner": "search-filter-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/search-filters/{userSearchFilterId}/matches/{productListingId}",
+    "policy": "keyed",
+    "owner": "search-filter-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/me/watchlist",
+    "policy": "keyed",
+    "owner": "watchlist-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/me/watchlist/{productListingId}",
+    "policy": "keyed",
+    "owner": "watchlist-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/me/watchlist/{productListingId}",
+    "policy": "keyed",
+    "owner": "watchlist-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/newsletter-subscriptions",
+    "policy": "protocol",
+    "owner": "user-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Consent proof, throttling and OAuth credential-consumption rules remain authoritative; do not cache secrets or proofs."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/newsletter-subscriptions/confirm",
+    "policy": "protocol",
+    "owner": "user-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Consent proof, throttling and OAuth credential-consumption rules remain authoritative; do not cache secrets or proofs."
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/oauth/authorize",
+    "policy": "protocol",
+    "owner": "oauth-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Protocol security flow or query; no application command replay."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/oauth/introspect",
+    "policy": "excluded",
+    "owner": "oauth-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Protocol security flow or query; no application command replay."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/oauth/revoke",
+    "policy": "protocol",
+    "owner": "oauth-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Consent proof, throttling and OAuth credential-consumption rules remain authoritative; do not cache secrets or proofs."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/oauth/token",
+    "policy": "protocol",
+    "owner": "oauth-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Consent proof, throttling and OAuth credential-consumption rules remain authoritative; do not cache secrets or proofs."
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}",
+    "policy": "protocol",
+    "owner": "oauth-service",
+    "result": "protocol-defined",
+    "retention": "owning-contract",
+    "rationale": "Protocol security flow or query; no application command replay."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/parties/{party_id}/locations",
+    "policy": "required-key",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "permanent"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/parties/{party_id}/locations/{location_id}",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle",
+    "policy": "keyed",
+    "owner": "party-service",
+    "result": "original",
+    "retention": "30d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/webhooks/loops",
+    "policy": "excluded",
+    "owner": "user-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/webhooks/woocommerce/{listingSourceId}",
+    "policy": "excluded",
+    "owner": "user-service",
+    "result": "owning-contract",
+    "retention": "owning-contract",
+    "rationale": "Batch or provider-authenticated workflow retains its independent contract."
+  }
+]

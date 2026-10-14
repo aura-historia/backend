@@ -272,6 +272,12 @@ impl StripeCustomerCreator for TestStripeBilling {
 
 #[async_trait::async_trait]
 impl StripeCheckoutSessionCreator for TestStripeBilling {
+    fn redirects(&self) -> Option<billing_service::ports::CheckoutRedirects> {
+        Some(billing_service::ports::CheckoutRedirects {
+            success: url("https://example.test/success"),
+            cancel: url("https://example.test/cancel"),
+        })
+    }
     async fn create_checkout_session(
         &self,
         request: CreateStripeCheckoutSessionRequest,
@@ -285,6 +291,9 @@ impl StripeCheckoutSessionCreator for TestStripeBilling {
 
 #[async_trait::async_trait]
 impl StripePortalSessionCreator for TestStripeBilling {
+    fn return_url(&self) -> Option<Url> {
+        Some(url("https://example.test/billing"))
+    }
     async fn create_portal_session(
         &self,
         request: CreateStripePortalSessionRequest,
@@ -1851,6 +1860,7 @@ async fn test_state(
             TestEmbeddingGenerator::Success,
             SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
@@ -1960,40 +1970,49 @@ async fn test_state(
         ultimate_yearly: "price_ultimate_yearly".to_owned(),
     };
     let billing_state = BillingState::new(
-        Arc::new(CreateBillingCheckoutSessionHandler::new(
-            GetOwnUserHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAccountReaderFactory::new(),
-            ),
-            AssociateUserStripeCustomerIdHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserRepositoryFactory::new(),
-            ),
-            TestStripeBilling,
-            TestStripeBilling,
-            billing_prices.clone(),
-        )),
-        Arc::new(CreateBillingPortalSessionHandler::new(
-            GetOwnUserHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAccountReaderFactory::new(),
-            ),
-            TestStripeBilling,
-        )),
-        Arc::new(CreateBillingManagementSessionHandler::new(
-            GetOwnUserHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAccountReaderFactory::new(),
-            ),
-            AssociateUserStripeCustomerIdHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserRepositoryFactory::new(),
-            ),
-            TestStripeBilling,
-            TestStripeBilling,
-            TestStripeBilling,
-            billing_prices,
-        )),
+        Arc::new(
+            CreateBillingCheckoutSessionHandler::new(
+                GetOwnUserHandler::new(
+                    unit_of_work.clone(),
+                    user_postgres::SqlxUserAccountReaderFactory::new(),
+                ),
+                AssociateUserStripeCustomerIdHandler::new(
+                    unit_of_work.clone(),
+                    user_postgres::SqlxUserRepositoryFactory::new(),
+                ),
+                TestStripeBilling,
+                TestStripeBilling,
+                billing_prices.clone(),
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
+        Arc::new(
+            CreateBillingPortalSessionHandler::new(
+                GetOwnUserHandler::new(
+                    unit_of_work.clone(),
+                    user_postgres::SqlxUserAccountReaderFactory::new(),
+                ),
+                TestStripeBilling,
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
+        Arc::new(
+            CreateBillingManagementSessionHandler::new(
+                GetOwnUserHandler::new(
+                    unit_of_work.clone(),
+                    user_postgres::SqlxUserAccountReaderFactory::new(),
+                ),
+                AssociateUserStripeCustomerIdHandler::new(
+                    unit_of_work.clone(),
+                    user_postgres::SqlxUserRepositoryFactory::new(),
+                ),
+                TestStripeBilling,
+                TestStripeBilling,
+                TestStripeBilling,
+                billing_prices,
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -2066,7 +2085,92 @@ async fn test_state(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    use party_postgres::{
+        SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
+        SqlxPartyLocationRepositoryFactory,
+    };
+    use party_service::use_cases::party_locations::*;
+    let location_admin = || {
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )
+    };
+    let party_locations_state=state::PartyLocationsState::new(
+        Arc::new(CreatePartyLocationHandler::new(unit_of_work.clone(),SqlxPartyLocationRepositoryFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(UpdatePartyLocationHandler::new(unit_of_work.clone(),SqlxPartyLocationRepositoryFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(SetPartyLocationLifecycleHandler::new(unit_of_work.clone(),SqlxPartyLocationRepositoryFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(GrantPartyLocationManagementHandler::new(unit_of_work.clone(),SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(GetPartyLocationHandler::new(unit_of_work.clone(),SqlxPartyLocationReaderFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(ListPartyLocationsHandler::new(unit_of_work.clone(),SqlxPartyLocationReaderFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::new(party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler::new(unit_of_work.clone(),party_postgres::SqlxPartyLocationManagerReaderFactory,SqlxPartyLocationAccessFactory,location_admin())),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>);
+    use listing_source_postgres::{
+        SqlxLocationDefaultReaderFactory, SqlxLocationDefaultRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    };
+    use listing_source_service::use_cases::location_default::*;
+    let source_location_defaults_state = state::SourceLocationDefaultsState {
+        assign: Arc::new(AssignLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        clear: Arc::new(ClearLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        get: Arc::new(GetLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
+    let admin_source_location_defaults_state = state::SourceLocationDefaultsState {
+        assign: Arc::new(AssignLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        clear: Arc::new(ClearLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        get: Arc::new(GetLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let user_addresses_state = state::UserAddressesState {
+        commands: address_book.clone(),
+        queries: address_book,
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     state::AppState::new()
+        .with_party_locations(party_locations_state)
+        .with_source_location_defaults(source_location_defaults_state)
+        .with_admin_source_location_defaults(admin_source_location_defaults_state)
+        .with_user_addresses(user_addresses_state)
         .with_auctions(auctions_state)
         .with_admin_product_listings(admin_product_listings_state)
         .with_public_auctions(public_auctions_state)

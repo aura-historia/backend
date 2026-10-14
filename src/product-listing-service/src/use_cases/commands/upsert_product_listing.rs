@@ -810,6 +810,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

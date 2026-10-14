@@ -124,6 +124,7 @@ mod tests {
     }
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::Anonymous,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

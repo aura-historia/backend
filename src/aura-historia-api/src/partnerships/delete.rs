@@ -1,5 +1,5 @@
 use crate::{
-    auth::protected_context,
+    auth::command_context,
     error::{ApiError, PARTNERSHIP_INTERNAL_ERROR},
     state::PartnershipsState,
     wire::parse_path_object_id,
@@ -17,7 +17,7 @@ pub(super) async fn delete_partnership(
     headers: HeaderMap,
     Path(raw_partnership_id): Path<String>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

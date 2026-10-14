@@ -39,6 +39,8 @@ pub struct BillingSessionResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateBillingCheckoutSessionError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create a billing checkout session")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -83,6 +85,7 @@ pub trait CreateBillingCheckoutSessionUseCase: Send + Sync {
 }
 
 pub struct CreateBillingCheckoutSessionHandler<U, A, C, S> {
+    operations: Option<std::sync::Arc<dyn application::external_operation::ExternalOperations>>,
     users: U,
     associate_customer: A,
     customers: C,
@@ -118,12 +121,22 @@ impl<U, A, C, S> CreateBillingCheckoutSessionHandler<U, A, C, S> {
         prices: BillingPriceIds,
     ) -> Self {
         Self {
+            operations: None,
             users,
             associate_customer,
             customers,
             checkout_sessions,
             prices,
         }
+    }
+    pub fn with_operations<T: application::transaction::UnitOfWork + 'static>(
+        mut self,
+        unit_of_work: T,
+    ) -> Self {
+        self.operations = Some(std::sync::Arc::new(
+            application::external_operation::TransactionalExternalOperations(unit_of_work),
+        ));
+        self
     }
 }
 
@@ -155,6 +168,35 @@ where
         let user_id = authorize_billing_user(context)?;
         tracing::Span::current().record("actor_id", tracing::field::display(user_id));
         let user = self.users.execute(context, GetOwnUserRequest).await?;
+        if context.command_key.is_some() {
+            let operations = self.operations.as_deref().ok_or_else(|| {
+                application::idempotency::CommandReceiptError::Storage(
+                    application::error::static_error("billing operations unavailable"),
+                )
+            })?;
+            let url = crate::workflow::execute(
+                context,
+                user,
+                crate::workflow::Request {
+                    operation: "CREATE_BILLING_CHECKOUT",
+                    plan: Some(command.plan),
+                    cycle: Some(command.cycle),
+                    prices: Some(&self.prices),
+                    strict_checkout: true,
+                    portal_only: false,
+                },
+                operations,
+                &self.users,
+                &self.associate_customer,
+                &self.customers,
+                &self.checkout_sessions,
+                &crate::workflow::Unused,
+            )
+            .await
+            .map_err(CreateBillingCheckoutSessionError::from)?;
+            return Ok(BillingSessionResult { url });
+        }
+
         if user.stripe_customer_id.is_some() {
             return Err(CreateBillingCheckoutSessionError::StripeCustomerAlreadyExists);
         }
@@ -180,6 +222,7 @@ where
         let url = self
             .checkout_sessions
             .create_checkout_session(CreateStripeCheckoutSessionRequest {
+                redirects: None,
                 user_id,
                 stripe_customer_id,
                 price_id: self.prices.price_id(command.plan, command.cycle).to_owned(),
@@ -210,6 +253,7 @@ pub(crate) fn authorize_billing_user(
 
 pub(crate) fn billing_service_context(context: &OperationContext) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::Service("billing-service".to_owned()),
         request_id: context.request_id.clone(),
         correlation_id: context.correlation_id.clone(),
@@ -298,6 +342,21 @@ impl From<StripeBillingError> for CreateBillingCheckoutSessionError {
             StripeBillingError::InvalidResponse { source } => {
                 Self::ProviderInvalidResponse { source }
             }
+        }
+    }
+}
+
+impl From<crate::workflow::WorkflowError> for CreateBillingCheckoutSessionError {
+    fn from(error: crate::workflow::WorkflowError) -> Self {
+        match error {
+            crate::workflow::WorkflowError::Receipt(e) => Self::Receipt(e),
+            crate::workflow::WorkflowError::ExistingCustomer => Self::StripeCustomerAlreadyExists,
+            crate::workflow::WorkflowError::MissingCustomer => {
+                Self::StripeCustomerAssociationConflict
+            }
+            crate::workflow::WorkflowError::Provider(e) => e.into(),
+            crate::workflow::WorkflowError::User(e) => e.into(),
+            crate::workflow::WorkflowError::Association(e) => e.into(),
         }
     }
 }
@@ -411,6 +470,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: application::operation_context::RequestId::new("request"),
             correlation_id: application::operation_context::CorrelationId::new("correlation"),

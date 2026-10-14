@@ -20,6 +20,8 @@ pub struct CreateBillingPortalSessionResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateBillingPortalSessionError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create a billing portal session")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -60,6 +62,7 @@ pub trait CreateBillingPortalSessionUseCase: Send + Sync {
 }
 
 pub struct CreateBillingPortalSessionHandler<U, S> {
+    operations: Option<std::sync::Arc<dyn application::external_operation::ExternalOperations>>,
     users: U,
     portal_sessions: S,
 }
@@ -67,9 +70,19 @@ pub struct CreateBillingPortalSessionHandler<U, S> {
 impl<U, S> CreateBillingPortalSessionHandler<U, S> {
     pub fn new(users: U, portal_sessions: S) -> Self {
         Self {
+            operations: None,
             users,
             portal_sessions,
         }
+    }
+    pub fn with_operations<T: application::transaction::UnitOfWork + 'static>(
+        mut self,
+        unit_of_work: T,
+    ) -> Self {
+        self.operations = Some(std::sync::Arc::new(
+            application::external_operation::TransactionalExternalOperations(unit_of_work),
+        ));
+        self
     }
 }
 
@@ -98,12 +111,25 @@ where
         let user_id = authorize_billing_user(context)?;
         tracing::Span::current().record("actor_id", tracing::field::display(user_id));
         let user = self.users.execute(context, GetOwnUserRequest).await?;
+        if context.command_key.is_some() {
+            let operations = self.operations.as_deref().ok_or_else(|| {
+                application::idempotency::CommandReceiptError::Storage(
+                    application::error::static_error("billing operations unavailable"),
+                )
+            })?;
+            let url = crate::workflow::portal(context, user, operations, &self.portal_sessions)
+                .await
+                .map_err(CreateBillingPortalSessionError::from)?;
+            return Ok(CreateBillingPortalSessionResult { url });
+        }
+
         let stripe_customer_id = user
             .stripe_customer_id
             .ok_or(CreateBillingPortalSessionError::StripeCustomerDoesNotExist)?;
         let url = self
             .portal_sessions
             .create_portal_session(CreateStripePortalSessionRequest {
+                return_url: None,
                 stripe_customer_id,
                 idempotency_key: command.idempotency_key,
             })
@@ -172,6 +198,23 @@ impl From<StripeBillingError> for CreateBillingPortalSessionError {
             StripeBillingError::InvalidResponse { source } => {
                 Self::ProviderInvalidResponse { source }
             }
+        }
+    }
+}
+
+impl From<crate::workflow::WorkflowError> for CreateBillingPortalSessionError {
+    fn from(error: crate::workflow::WorkflowError) -> Self {
+        match error {
+            crate::workflow::WorkflowError::Receipt(e) => Self::Receipt(e),
+            crate::workflow::WorkflowError::ExistingCustomer => Self::Internal {
+                source: application::error::static_error("unexpected portal customer guard"),
+            },
+            crate::workflow::WorkflowError::MissingCustomer => Self::StripeCustomerDoesNotExist,
+            crate::workflow::WorkflowError::Provider(e) => e.into(),
+            crate::workflow::WorkflowError::User(e) => e.into(),
+            crate::workflow::WorkflowError::Association(e) => Self::Internal {
+                source: Box::new(e),
+            },
         }
     }
 }

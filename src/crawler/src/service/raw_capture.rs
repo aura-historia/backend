@@ -179,6 +179,7 @@ impl ProductListingRawCaptureService for ProductListingRawCaptureServiceImpl {
 fn crawler_operation_context(listing_source_id: ListingSourceId) -> OperationContext {
     let key = format!("crawler-raw-capture:{listing_source_id}");
     OperationContext {
+        command_key: None,
         principal: Principal::Service("crawler".to_owned()),
         request_id: RequestId::new(key.clone()),
         correlation_id: CorrelationId::new(key),

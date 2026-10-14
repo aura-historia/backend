@@ -1086,7 +1086,7 @@ Aggregate-to-storage serialization belongs inside the repository/DAO write opera
 
 The service use-case handler defines transaction scope without importing SQLx. It begins an abstract unit of work, binds the required repositories and invariant-critical readers to the same transaction, performs domain behavior and authoritative writes, and explicitly commits on success. The adapter implements the transaction using PostgreSQL. Transport, queue consumers, and composition roots MUST NOT begin or commit business transactions on behalf of a service use case. Public inbound use cases SHOULD remain transaction-free for callers: transactional mechanics are private to their implementation.
 
-A transaction abstraction exposes lifecycle, not entity-specific methods. Service-owned factories bind narrow repository or reader ports to it; concrete scoped implementations remain private to their adapters. Multiple entity-specific PostgreSQL ports MAY participate in one compatible transaction, but a pool-backed read on another connection MUST NOT substitute for a transaction-bound read that determines an invariant-critical write. Ordinary presentation reads MAY use standalone readers; several reads requiring one consistent snapshot need an explicit read transaction.
+A transaction abstraction exposes lifecycle and MAY expose shared, technology-neutral command-evidence capabilities so recovery evidence participates in the same commit. Unsupported capabilities MUST fail closed when required; entity-specific methods remain outside the transaction abstraction. Service-owned factories bind narrow repository or reader ports to it; concrete scoped implementations remain private to their adapters. Multiple entity-specific PostgreSQL ports MAY participate in one compatible transaction, but a pool-backed read on another connection MUST NOT substitute for a transaction-bound read that determines an invariant-critical write. Ordinary presentation reads MAY use standalone readers; several reads requiring one consistent snapshot need an explicit read transaction.
 
 **Illustrative flow (not a prescribed handler implementation):**
 
@@ -1549,11 +1549,24 @@ A reconciliation that changes aggregates must lock its owner first, then affecte
 
 ### Idempotency
 
-Externally retried commands SHOULD accept an idempotency key when duplicate execution would be harmful.
+Every user-facing non-batch write MUST define a retry/recovery contract: keyed command recovery,
+a justified sufficient keyless contract, or dedicated protocol/security/workflow behavior.
+Ordinary application commands SHOULD support keyed recovery; existing clients need an explicit
+compatibility plan before keys become mandatory. Batch ingestion retains its separate contract.
 
 Idempotency handling belongs to the use-case transaction boundary.
 
+Current authority MUST precede stored-outcome disclosure. Completed-command recovery precedes
+new-command quota and revision checks. Authoritative changes, required local effects and successful
+receipts MUST commit together, with database coordination across instances. Fingerprints bind
+validated intent; keys do not replace domain uniqueness or concurrency control.
+
+Service-owned, versioned application outcome codecs MAY encode minimal successful results and frozen external-operation checkpoints behind a transaction capability. These are application recovery contracts; storage rows, provider payloads and HTTP responses remain adapter-owned and MUST NOT become replay payloads. Decoding MUST re-enter canonical constructors, preserve technical causes and fail closed on unsupported evidence.
+
 The result of a completed idempotent command SHOULD be replayable without repeating its side effects.
+Response retention, execution fences and external-workflow evidence have independent ownership and
+erasure policies. Never silently persist one-time secrets for replay or reinterpret ambiguous provider
+acceptance as a definite failure. Endpoint contracts and operations belong in [command retries](command-retries.md).
 
 
 ## 18. API controller rules

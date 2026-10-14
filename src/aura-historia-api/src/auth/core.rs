@@ -51,6 +51,7 @@ impl TransportPrincipal {
 
     pub fn operation_context(&self, metadata: RequestMetadata) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: self.to_service_principal(),
             request_id: metadata.request_id,
             correlation_id: metadata.correlation_id,

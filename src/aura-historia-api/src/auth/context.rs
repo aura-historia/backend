@@ -27,6 +27,18 @@ pub async fn protected_context(
     Ok((principal.operation_context(metadata), user_id))
 }
 
+/// Opted-in application command metadata, after the ordinary authentication boundary.
+#[allow(clippy::result_large_err)]
+pub async fn command_context(
+    authenticator: &dyn crate::auth::TokenAuthenticator,
+    headers: &HeaderMap,
+) -> Result<(OperationContext, UserId), Box<axum::response::Response>> {
+    let (mut context, user_id) = protected_context(authenticator, headers).await?;
+    context.command_key = crate::idempotency::optional_key(headers)
+        .map_err(|error| Box::new(error.into_response()))?;
+    Ok((context, user_id))
+}
+
 fn user_id(principal: &TransportPrincipal) -> Option<UserId> {
     match principal {
         TransportPrincipal::Anonymous => None,

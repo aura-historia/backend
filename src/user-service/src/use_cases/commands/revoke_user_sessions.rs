@@ -7,6 +7,7 @@ use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
 use application::error::BoxError;
+use application::idempotency::CommandIntent;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -25,6 +26,8 @@ pub struct RevokeUserSessionsResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RevokeUserSessionsError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to revoke user sessions")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -112,6 +115,13 @@ where
         let result = async {
             require_admin_actor_credential(context, CredentialCapability::UsersWrite)?;
 
+            let intent = CommandIntent::new(
+                context,
+                "REVOKE_USER_SESSIONS",
+                command.user_id.to_string(),
+                Some(command.user_id),
+                serde_json::json!({"user_id":command.user_id}),
+            );
             let mut tx = self.unit_of_work.begin().await.map_err(|source| {
                 RevokeUserSessionsError::BeginTransactionFailed(Box::new(source))
             })?;
@@ -125,11 +135,64 @@ where
                 .find_by_user_id(command.user_id)
                 .await?
                 .ok_or(RevokeUserSessionsError::UserNotFound)?;
+            let operation = if let Some(intent) = intent.as_ref() {
+                let scope = application::idempotency::CommandFingerprint::digest(
+                    1,
+                    serde_json::json!([
+                        intent.actor,
+                        intent.operation,
+                        intent.target,
+                        intent.key.as_str()
+                    ])
+                    .to_string()
+                    .as_bytes(),
+                )
+                .as_bytes()
+                .iter()
+                .map(|v| format!("{v:02x}"))
+                .collect::<String>();
+                let operation = tx
+                    .claim_external_operation(
+                        intent,
+                        serde_json::json!({"issuer":identity.issuer.as_str(),"subject":identity.subject.as_str()}),
+                        &format!("SESSION_REVOCATION:{scope}"),
+                        false,
+                    )
+                    .await?;
+                if operation.completed {
+                    tx.commit().await.map_err(|e| {
+                        RevokeUserSessionsError::CommitTransactionFailed(Box::new(e))
+                    })?;
+                    return Ok(RevokeUserSessionsResult {
+                        user_id: command.user_id,
+                    });
+                }
+                Some(operation)
+            } else {
+                None
+            };
             tx.commit().await.map_err(|source| {
                 RevokeUserSessionsError::CommitTransactionFailed(Box::new(source))
             })?;
 
             self.session_revoker.revoke_sessions(&identity).await?;
+            if let (Some(intent), Some(operation)) = (intent.as_ref(), operation) {
+                let mut tx =
+                    self.unit_of_work.begin().await.map_err(|e| {
+                        RevokeUserSessionsError::BeginTransactionFailed(Box::new(e))
+                    })?;
+                tx.checkpoint_external_operation(
+                    intent,
+                    operation.attempt,
+                    operation.state,
+                    true,
+                )
+                .await?;
+                tx.commit()
+                    .await
+                    .map_err(|e| RevokeUserSessionsError::CommitTransactionFailed(Box::new(e)))?;
+            }
+
             Ok(RevokeUserSessionsResult {
                 user_id: command.user_id,
             })
@@ -280,6 +343,7 @@ mod tests {
     }
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

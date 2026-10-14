@@ -1,5 +1,6 @@
 use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
 use application::error::{BoxError, static_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
@@ -24,6 +25,8 @@ pub type CreatePartyResult = PartyDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreatePartyError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to create party")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -107,6 +110,13 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "CREATE_PARTY",
+            "",
+            None,
+            serde_json::json!({"name":command.name.as_ref(),"phone":command.contact.phone,"email":command.contact.email}),
+        );
         let party = Party::create(NewParty {
             id: PartyId::new(),
             name: command.name,
@@ -117,6 +127,12 @@ where
             .begin()
             .await
             .map_err(|source| CreatePartyError::BeginTransactionFailed(Box::new(source)))?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|source| CreatePartyError::CommitTransactionFailed(Box::new(source)))?;
+            return Ok(result);
+        }
 
         if self
             .parties
@@ -130,13 +146,14 @@ where
             });
         }
 
-        let result = self
+        let result: CreatePartyResult = self
             .parties
             .in_transaction(&mut tx)
             .insert(&party)
             .await?
             .into();
 
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit()
             .await
             .map_err(|source| CreatePartyError::CommitTransactionFailed(Box::new(source)))?;
@@ -368,6 +385,7 @@ mod tests {
             InternalAdmin,
         );
         let context = OperationContext {
+            command_key: None,
             principal: Principal::System,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -437,6 +455,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

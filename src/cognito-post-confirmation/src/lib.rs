@@ -34,6 +34,7 @@ pub async fn handler(
     service
         .execute(
             &OperationContext {
+                command_key: None,
                 principal: Principal::System,
                 request_id: RequestId::new(request_id.clone()),
                 correlation_id: CorrelationId::new(request_id),

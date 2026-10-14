@@ -205,6 +205,7 @@ impl CheckUserAdminUseCase for NoAdmin {
 }
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: "test-request".into(),
         correlation_id: "test-correlation".into(),
@@ -1467,4 +1468,55 @@ async fn location_authority_holds_user_status_until_commit() {
             .unwrap()
     );
     operation.commit().await.unwrap();
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn keyed_location_lifecycle_replays_original_revision_after_a_later_transition() {
+    let pool = get_postgres_client().await;
+    let party_id = party(&pool).await;
+    let created = create(&pool)
+        .execute(&trusted(), command(party_id, "create-keyed-lifecycle"))
+        .await
+        .unwrap();
+    let mut a = trusted();
+    a.command_key =
+        Some(application::idempotency::IdempotencyKey::new("retire-action".into()).unwrap());
+    let retire = SetPartyLocationLifecycleCommand {
+        party_id,
+        expected: ExpectedPartyLocation {
+            id: created.id,
+            revision: created.revision,
+        },
+        lifecycle: PartyLocationLifecycle::Retired,
+    };
+    let retired = lifecycle(&pool).execute(&a, retire.clone()).await.unwrap();
+    let mut b = a.clone();
+    b.command_key =
+        Some(application::idempotency::IdempotencyKey::new("restore-action".into()).unwrap());
+    let restored = lifecycle(&pool)
+        .execute(
+            &b,
+            SetPartyLocationLifecycleCommand {
+                party_id,
+                expected: ExpectedPartyLocation {
+                    id: created.id,
+                    revision: retired.revision,
+                },
+                lifecycle: PartyLocationLifecycle::Active,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(retired, lifecycle(&pool).execute(&a, retire).await.unwrap());
+    let current = get(&pool)
+        .execute(
+            &trusted(),
+            GetPartyLocationRequest {
+                party_id,
+                id: created.id,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored, current);
 }

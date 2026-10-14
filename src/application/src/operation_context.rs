@@ -36,6 +36,7 @@ impl Principal {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OperationContext {
+    pub command_key: Option<crate::idempotency::IdempotencyKey>,
     pub principal: Principal,
     pub request_id: RequestId,
     pub correlation_id: CorrelationId,
@@ -576,6 +577,7 @@ mod tests {
     fn should_allow_operation_when_capability_and_principal_rules_pass() {
         let user_id = UserId::new();
         let context = OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
@@ -599,6 +601,7 @@ mod tests {
     fn should_reject_operation_when_delegated_user_lacks_capability() {
         let user_id = UserId::new();
         let context = OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities: BTreeSet::new(),
@@ -622,6 +625,7 @@ mod tests {
     #[test]
     fn should_reject_operation_when_user_rule_fails() {
         let context = OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("req"),
             correlation_id: CorrelationId::new("corr"),
@@ -636,6 +640,7 @@ mod tests {
     #[test]
     fn should_reject_operation_when_anonymous() {
         let context = OperationContext {
+            command_key: None,
             principal: Principal::Anonymous,
             request_id: RequestId::new("req"),
             correlation_id: CorrelationId::new("corr"),
@@ -652,6 +657,7 @@ mod tests {
     #[test]
     fn should_authorize_operation_as_unit_result() {
         let context = OperationContext {
+            command_key: None,
             principal: Principal::Service("svc".to_owned()),
             request_id: RequestId::new("req"),
             correlation_id: CorrelationId::new("corr"),

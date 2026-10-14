@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-14 — Safe retries for non-batch commands (#2027)
+
+- Ordinary creation, transition and single-target mutation routes accept optional `Idempotency-Key` values and recover their declared application outcome without repeating committed changes, quota consumption or required local effects. Legacy requests without a key keep existing behavior. Current authority is always checked; new stale commands still conflict. The [retry inventory](command-retry-policies.json) and [retry contract](command-retries.md) specify every endpoint, exception and retention window.
+- New keyed paths reject malformed/multiple values with `400 BAD_HEADER_VALUE`; distinguish `409 IDEMPOTENCY_MISMATCH`, `IDEMPOTENCY_IN_PROGRESS` and `IDEMPOTENCY_RESULT_UNAVAILABLE`; echo accepted keys and use private, non-cacheable responses. Ordinary results last 30 days, with retained execution fences. Private erasure and existing address, Party-location, ingestion and saved-filter policies remain explicit exceptions.
+- Billing commands durably resume frozen provider steps, including customer association, and recover their session URL within the declared window. Expired or unrecoverable operations never silently create a new provider session. Credential issuance never stores/replays its raw secret; uncertain issuance requires list/revoke/replace. An ambiguous session-revocation call is never automatically repeated.
+
 ## 2026-10-13 — Saved-search matching across tiers (#2040)
 
 - Active ordinary and enhanced saved searches discover matches in scheduled runs. Each run evaluates the first up to 50 eligible candidates independently; rejected candidates do not stop discovery. Matching remains bounded and subject to projection lag.

@@ -69,6 +69,7 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
     let result = typed_handler
         .execute(
             &OperationContext {
+                command_key: None,
                 principal: Principal::System,
                 request_id: RequestId::new("raw-preserves-auction"),
                 correlation_id: CorrelationId::new("raw-preserves-auction"),

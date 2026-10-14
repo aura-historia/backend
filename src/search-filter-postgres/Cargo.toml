@@ -27,6 +27,9 @@ time = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+embedding = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
 listing-source-core = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }

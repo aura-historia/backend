@@ -407,6 +407,123 @@ fn listing_sources_request() -> Result<lambda_http::Request, lambda_http::Error>
     )
 }
 
+#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+async fn keyed_search_filter_retries_traverse_lambda_authentication_cors_and_receipts() {
+    let app = api_support::aura_api_app().await;
+    let user_id = api_support::seed_user("USER").await;
+    let token = String::from(
+        api_support::seed_access_token_for(user_id, [Scope::SearchFiltersWrite].into()).await,
+    );
+    let path = "/api/v1/me/search-filters";
+    let body = r#"{"name":"original","search":{"language":"en","currency":"EUR","productQuery":["desk"]}}"#;
+    for key in ["", "first,second", "with space", "a/b", &"a".repeat(129)] {
+        let request =
+            http_api_v2_json_request_with_key("POST", path, &token, body, Some(key)).unwrap();
+        let response = handle_http_api_v2_request(app.clone(), request)
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        let problem: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!("BAD_HEADER_VALUE", problem["error"]);
+        assert_eq!("Idempotency-Key", problem["source"]["field"]);
+    }
+    let mut duplicates = http_api_v2_json_request("POST", path, &token, body).unwrap();
+    duplicates.headers_mut().append(
+        "idempotency-key",
+        axum::http::HeaderValue::from_static("same"),
+    );
+    duplicates.headers_mut().append(
+        "idempotency-key",
+        axum::http::HeaderValue::from_static("same"),
+    );
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        handle_http_api_v2_request(app.clone(), duplicates)
+            .await
+            .unwrap()
+            .status()
+    );
+    let mut original = None;
+    let mut request_id = None;
+    for _ in 0..2 {
+        let request =
+            http_api_v2_json_request_with_key("POST", path, &token, body, Some("retry-key"))
+                .unwrap();
+        let response = handle_http_api_v2_request(app.clone(), request)
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::CREATED, response.status());
+        assert_eq!("retry-key", response.headers()["idempotency-key"]);
+        assert_eq!(
+            "private, no-store",
+            response.headers()[axum::http::header::CACHE_CONTROL]
+        );
+        assert_eq!(
+            "*",
+            response.headers()[axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN]
+        );
+        assert!(
+            response.headers()[axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                .to_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains("idempotency-key")
+        );
+        let current_id = response.headers()["x-request-id"].clone();
+        if let Some(previous) = request_id {
+            assert_ne!(previous, current_id);
+        }
+        request_id = Some(current_id);
+        let outcome: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        if let Some(previous) = original {
+            assert_eq!(previous, outcome);
+        }
+        original = Some(outcome);
+    }
+    let changed = body.replace("original", "changed");
+    let request =
+        http_api_v2_json_request_with_key("POST", path, &token, &changed, Some("retry-key"))
+            .unwrap();
+    let response = handle_http_api_v2_request(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::CONFLICT, response.status());
+    let problem: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!("IDEMPOTENCY_MISMATCH", problem["error"]);
+    let reduced = String::from(
+        api_support::seed_access_token_for(user_id, [Scope::SearchFiltersRead].into()).await,
+    );
+    let request =
+        http_api_v2_json_request_with_key("POST", path, &reduced, body, Some("retry-key")).unwrap();
+    assert_eq!(
+        StatusCode::FORBIDDEN,
+        handle_http_api_v2_request(app.clone(), request)
+            .await
+            .unwrap()
+            .status()
+    );
+    let pool = get_postgres_client().await;
+    sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let request =
+        http_api_v2_json_request_with_key("POST", path, &token, body, Some("retry-key")).unwrap();
+    assert_eq!(
+        StatusCode::UNAUTHORIZED,
+        handle_http_api_v2_request(app.clone(), request)
+            .await
+            .unwrap()
+            .status()
+    );
+}
+
 fn http_api_v2_json_request(
     method: &str,
     path: &str,

@@ -114,10 +114,11 @@ pub async fn post_access_token(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
+    let (ctx, user_id) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(v) => v,
+            Err(r) => return *r,
+        };
     let data: PostTokenData = match parse_json(&body) {
         Ok(v) => v,
         Err(r) => return r,
@@ -316,10 +317,11 @@ pub async fn patch_access_token(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
+    let (ctx, user_id) =
+        match crate::auth::command_context(state.authenticator.as_ref(), &headers).await {
+            Ok(v) => v,
+            Err(r) => return *r,
+        };
     let data: PatchTokenData = match parse_json(&body) {
         Ok(v) => v,
         Err(r) => return r,

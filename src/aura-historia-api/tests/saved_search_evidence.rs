@@ -51,6 +51,7 @@ impl EmbeddingGenerator for TestEmbeddings {
 
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: RequestId::new("policy-test"),
         correlation_id: CorrelationId::new("policy-test"),
@@ -87,6 +88,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
     );
     for (tier, expected) in [
         ("FREE", MatchingEvidencePolicy::TextOnly),
@@ -107,6 +109,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
                 .execute(
                     &context(principal),
                     CreateSearchFilterCommand {
+                        idempotency_key: None,
                         user_id,
                         name: "ordinary filter".into(),
                         notifications: false,
@@ -135,6 +138,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
     );
     for tier in ["FREE", "PRO"] {
         let user_id = seed_user(&pool, tier).await;
@@ -142,6 +146,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
             .execute(
                 &context(Principal::System),
                 CreateSearchFilterCommand {
+                    idempotency_key: None,
                     user_id,
                     name: "unauthorized".into(),
                     notifications: true,
@@ -174,6 +179,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
     );
     let update = UpdateOwnedSearchFilterHandler::new(
         unit.clone(),
@@ -187,6 +193,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         .execute(
             &context(Principal::System),
             CreateSearchFilterCommand {
+                idempotency_key: None,
                 user_id,
                 name: "enhanced filter".into(),
                 notifications: false,
@@ -276,11 +283,13 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
     );
     let filter = create
         .execute(
             &context(Principal::System),
             CreateSearchFilterCommand {
+                idempotency_key: None,
                 user_id,
                 name: "query".into(),
                 notifications: false,

@@ -1,5 +1,5 @@
 use super::types::BillingSessionData;
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::BillingState;
 use axum::Json;
@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use billing_service::use_cases::CreateBillingPortalSessionCommand;
 
 pub(crate) async fn portal(State(state): State<BillingState>, headers: HeaderMap) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

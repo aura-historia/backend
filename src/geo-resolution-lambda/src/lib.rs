@@ -8,6 +8,7 @@ use std::time::Duration;
 
 fn context() -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::Service("geo-resolution-worker".into()),
         request_id: "geo-resolution".into(),
         correlation_id: "geo-resolution".into(),

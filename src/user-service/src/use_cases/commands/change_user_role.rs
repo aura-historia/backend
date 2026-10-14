@@ -7,6 +7,7 @@ use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{CredentialCapability, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use user_core::user_id::UserId;
@@ -25,6 +26,8 @@ pub struct ChangeUserRoleResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChangeUserRoleError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to change user role")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -120,6 +123,13 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "ADMIN_UPDATE_USER",
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"category":"ROLE","role":command.role.as_str()}),
+        );
         let mut tx = self
             .unit_of_work
             .begin()
@@ -130,6 +140,13 @@ where
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|s| ChangeUserRoleError::CommitTransactionFailed(Box::new(s)))?;
+            return Ok(result);
+        }
+
         let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
@@ -172,6 +189,7 @@ where
                 .value;
         }
 
+        retry::complete(&mut tx, intent.as_ref(), &ChangeUserRoleResult::from(&user)).await?;
         tx.commit()
             .await
             .map_err(|source| ChangeUserRoleError::CommitTransactionFailed(Box::new(source)))?;
@@ -345,6 +363,7 @@ mod tests {
 
     fn ctx(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),

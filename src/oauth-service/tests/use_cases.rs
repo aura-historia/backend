@@ -166,6 +166,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: RequestId::new("req"),
         correlation_id: CorrelationId::new("corr"),

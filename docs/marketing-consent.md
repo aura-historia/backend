@@ -170,3 +170,5 @@ inspect the exact intent, current decision/revision, mailbox ownership, provider
 and corrective work. Never recreate a missing intent from a message, reset applied receipts,
 replay an expired/revoked grant or remove fences to force a resubscription. Resolve raced
 blocked grants through the guarded repair path rather than declaring them settled by status alone.
+
+The [command retry inventory](command-retry-policies.json) keeps newsletter request/confirmation and provider webhooks within this workflow. Application command keys do not bypass recipient throttles, proof consumption or consent identity. Account erasure records its local deletion and required withdrawal intent together; a lost self-erasure response never permits authentication with erased credentials.

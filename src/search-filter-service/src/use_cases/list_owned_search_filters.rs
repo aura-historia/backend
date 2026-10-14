@@ -134,6 +134,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: application::operation_context::Principal::DelegatedUser {
                     user_id,
                     capabilities,

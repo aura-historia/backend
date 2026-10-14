@@ -180,6 +180,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -294,6 +295,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id,
                     capabilities,

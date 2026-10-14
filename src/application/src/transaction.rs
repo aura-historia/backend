@@ -9,6 +9,69 @@ pub enum TransactionError {
 #[async_trait::async_trait]
 pub trait Transaction: Send {
     async fn commit(self) -> Result<(), TransactionError>;
+
+    /// Optional command evidence, in the same transaction as the use case's authoritative writes.
+    /// Unsupported transaction implementations fail closed when a command key is supplied.
+    async fn command_receipt(
+        &mut self,
+        _intent: &crate::idempotency::CommandIntent,
+    ) -> Result<Option<serde_json::Value>, crate::idempotency::CommandReceiptError> {
+        Err(crate::idempotency::CommandReceiptError::Storage(
+            crate::error::static_error("command receipts unavailable"),
+        ))
+    }
+
+    async fn cleanup_command_receipts(
+        &mut self,
+        _limit: u16,
+    ) -> Result<(u64, u64), crate::idempotency::CommandReceiptError> {
+        Err(crate::idempotency::CommandReceiptError::Storage(
+            crate::error::static_error("command receipt cleanup unavailable"),
+        ))
+    }
+
+    async fn claim_external_operation(
+        &mut self,
+        _intent: &crate::idempotency::CommandIntent,
+        _initial: serde_json::Value,
+        _scope: &str,
+        _resumable: bool,
+    ) -> Result<crate::external_operation::ExternalAttempt, crate::idempotency::CommandReceiptError>
+    {
+        Err(crate::idempotency::CommandReceiptError::Storage(
+            crate::error::static_error("external operations unavailable"),
+        ))
+    }
+    async fn checkpoint_external_operation(
+        &mut self,
+        _intent: &crate::idempotency::CommandIntent,
+        _attempt: i64,
+        _state: serde_json::Value,
+        _completed: bool,
+    ) -> Result<(), crate::idempotency::CommandReceiptError> {
+        Err(crate::idempotency::CommandReceiptError::Storage(
+            crate::error::static_error("external operations unavailable"),
+        ))
+    }
+
+    /// Forget resource-linked content while retaining successful-command identity.
+    /// Implementations supporting command receipts must erase the linked evidence here.
+    async fn forget_commands(
+        &mut self,
+        _resource: &crate::idempotency::CommandResource,
+    ) -> Result<(), crate::idempotency::CommandReceiptError> {
+        Ok(())
+    }
+
+    async fn complete_command(
+        &mut self,
+        _intent: &crate::idempotency::CommandIntent,
+        _outcome: serde_json::Value,
+    ) -> Result<(), crate::idempotency::CommandReceiptError> {
+        Err(crate::idempotency::CommandReceiptError::Storage(
+            crate::error::static_error("command receipts unavailable"),
+        ))
+    }
 }
 
 #[async_trait::async_trait]

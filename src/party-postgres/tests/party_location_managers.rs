@@ -40,6 +40,7 @@ impl CheckUserAdminUseCase for Admin {
 
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: RequestId::new("location-managers-test"),
         correlation_id: CorrelationId::new("location-managers-test"),

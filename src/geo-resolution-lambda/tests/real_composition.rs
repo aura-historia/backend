@@ -224,6 +224,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
         SqlxResolutionRepositoryFactory,
     );
     let context = OperationContext {
+        command_key: None,
         principal: Principal::Service("backend-cleanup-worker".into()),
         request_id: "test".into(),
         correlation_id: "test".into(),
@@ -284,6 +285,7 @@ async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
     let (pool, provider, binding, work) = setup(true).await;
     let use_case = compose(&pool, &provider);
     let context = OperationContext {
+        command_key: None,
         principal: Principal::Service("worker-test".into()),
         request_id: "test".into(),
         correlation_id: "test".into(),

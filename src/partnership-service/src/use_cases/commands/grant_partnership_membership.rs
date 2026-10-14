@@ -2,6 +2,7 @@ use crate::{
     admin_authorization::{AdminAuthorizationError, authorize_admin},
     ports::*,
 };
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::{BoxError, static_error},
     operation_context::{CredentialCapability, OperationContext},
@@ -45,6 +46,8 @@ pub struct GrantPartnershipMembershipResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GrantPartnershipMembershipError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("operation not permitted")]
     Forbidden,
     #[error("partnership not found")]
@@ -140,11 +143,14 @@ where
         }
 
         let result = async {
-            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            let intent=CommandIntent::new(context,"GRANT_PARTNERSHIP_MEMBERSHIP",format!("{}:{}",command.partnership_id,command.user_id),None,serde_json::json!({"partnership_id":command.partnership_id,"user_id":command.user_id}));
+ let mut tx = self.unit_of_work.begin().await.map_err(|source| {
                 GrantPartnershipMembershipError::BeginTransactionFailed(Box::new(source))
             })?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
+ if let Some(result)=retry::replay(&mut tx,intent.as_ref()).await? {tx.commit().await.map_err(|source|GrantPartnershipMembershipError::CommitTransactionFailed(Box::new(source)))?;return Ok(result);}
+
 
             self.partnerships
                 .in_transaction(&mut tx)
@@ -164,7 +170,18 @@ where
                 .add_member(command.user_id, command.partnership_id)
                 .await?;
 
-            tx.commit().await.map_err(|source| {
+            let command_result = GrantPartnershipMembershipResult {
+                outcome: match outcome {
+                    PartnershipMembershipAddOutcome::Added => {
+                        GrantPartnershipMembershipOutcome::Added
+                    }
+                    PartnershipMembershipAddOutcome::AlreadyMember => {
+                        GrantPartnershipMembershipOutcome::AlreadyMember
+                    }
+                },
+            };
+ retry::complete(&mut tx,intent.as_ref(),&command_result).await?;
+ tx.commit().await.map_err(|source| {
                 GrantPartnershipMembershipError::CommitTransactionFailed(Box::new(source))
             })?;
 
@@ -545,6 +562,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -822,6 +840,7 @@ mod tests {
         ] {
             let state = Arc::new(Mutex::new(State::default()));
             let context = OperationContext {
+                command_key: None,
                 principal: application::operation_context::Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

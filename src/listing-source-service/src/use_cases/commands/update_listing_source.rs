@@ -1,4 +1,5 @@
 use crate::ports::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -39,6 +40,8 @@ pub struct UpdateListingSourceResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateListingSourceError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to update listing source")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -135,10 +138,24 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_LISTING_SOURCE",
+            command.listing_source_id.to_string(),
+            None,
+            serde_json::json!({"listing_source_id":command.listing_source_id,"name":match &command.name {RequiredPatch::Unchanged=>serde_json::json!({"kind":"UNCHANGED"}),RequiredPatch::Set(v)=>serde_json::json!({"kind":"SET","value":v.as_ref()})},"configuration":match &command.ingestion_configuration {RequiredPatch::Unchanged=>serde_json::json!({"kind":"UNCHANGED"}),RequiredPatch::Set(v)=>serde_json::json!({"kind":"SET","value":crate::command_receipts::updates_value(v)})},"url":retry::patch(&command.url,|v|serde_json::json!(v)),"image":retry::patch(&command.image,|v|serde_json::json!(v)),"referral":retry::patch(&command.referral_configuration,crate::command_receipts::referral_value)}),
+        );
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 UpdateListingSourceError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                UpdateListingSourceError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let stored = self
             .sources
             .in_transaction(&mut tx)
@@ -151,7 +168,7 @@ where
         configuration
             .validate_for(&source)
             .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
-        let result = if outcome.changed() {
+        let result: UpdateListingSourceResult = if outcome.changed() {
             self.sources
                 .in_transaction(&mut tx)
                 .update(&source, &configuration, stored.version)
@@ -163,6 +180,8 @@ where
                 slug_id: source.slug_id().clone(),
             }
         };
+
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await.map_err(|source| {
             UpdateListingSourceError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -444,6 +463,7 @@ mod tests {
     }
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::System,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -541,6 +561,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

@@ -6,6 +6,12 @@ use user_service::ports::{AccessTokenAuthenticationReadError, AccessTokenReposit
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthServiceError {
+    #[error("the issued OAuth client secret cannot be replayed")]
+    SecretResultUnavailable {
+        client_id: credential_core::oauth_client_id::OAuthClientId,
+    },
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]

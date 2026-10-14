@@ -282,6 +282,7 @@ fn racing_handler(
 
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: RequestId::new("ingestion-integration-request"),
         correlation_id: CorrelationId::new("ingestion-integration-correlation"),

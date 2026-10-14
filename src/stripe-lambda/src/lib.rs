@@ -38,6 +38,7 @@ pub async fn handler(
     subscriptions: &(dyn ApplyStripeSubscriptionUseCase + Send + Sync),
 ) -> Result<(), lambda_runtime::Error> {
     let context = OperationContext {
+        command_key: None,
         principal: Principal::System,
         request_id: RequestId::new(event.context.request_id.clone()),
         correlation_id: CorrelationId::new(

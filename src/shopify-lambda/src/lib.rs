@@ -215,6 +215,7 @@ pub async fn handler(
 fn operation_context(event: &LambdaEvent<SqsEvent>) -> OperationContext {
     let request_id = RequestId::new(event.context.request_id.clone());
     OperationContext {
+        command_key: None,
         principal: Principal::System,
         correlation_id: CorrelationId::new(request_id.as_str()),
         request_id,
@@ -469,6 +470,7 @@ mod tests {
             ShopifyProductPayloadDecoder,
         );
         let context = OperationContext {
+            command_key: None,
             principal: Principal::Service("shopify-lambda".to_owned()),
             correlation_id: CorrelationId::new("correlation"),
             request_id: RequestId::new("request"),

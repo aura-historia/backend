@@ -604,6 +604,7 @@ mod tests {
         GetProductListingHistoryHandler::new(ports.clone(), ports.clone(), ports.clone())
             .execute(
                 &OperationContext {
+                    command_key: None,
                     principal: Principal::Anonymous,
                     request_id: application::operation_context::RequestId::new("request"),
                     correlation_id: application::operation_context::CorrelationId::new(

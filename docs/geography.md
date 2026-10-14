@@ -315,3 +315,5 @@ users manage those separately and account erasure removes them. Future orders mu
 snapshot accepted destinations. Active-database erasure does not instantly erase retained
 backups or provider records: operators manage snapshot expiry, and restores must replay
 erasures before serving data or enabling resolution. Provider retention follows its terms.
+
+Synchronous location/default mutations and private address replacements/deletes also follow the optional-key [command retry contract](command-retries.md). It preserves the existing address current-view/privacy exception, permanent Party-location creation receipts, current grant checks and new-command CAS.

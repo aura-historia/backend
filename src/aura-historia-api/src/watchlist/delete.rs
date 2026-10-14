@@ -1,4 +1,4 @@
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::WatchlistState;
 use crate::wire::parse_path_object_id;
@@ -13,7 +13,7 @@ pub async fn delete_watchlist(
     headers: HeaderMap,
     Path(raw_product_listing_id): Path<String>,
 ) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, user_id) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-geo = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+geo = { workspace = true, features = ["data"] }
 async-trait = { workspace = true }
 application = { workspace = true }
 classifier-model = { workspace = true }

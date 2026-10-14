@@ -19,6 +19,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 fn context(principal: Principal) -> OperationContext {
     OperationContext {
+        command_key: None,
         principal,
         request_id: "default-test".into(),
         correlation_id: "default-test".into(),
@@ -1073,4 +1074,55 @@ async fn malformed_persisted_evidence_and_geography_fail_closed() {
         reader.get(id).await,
         Err(LocationDefaultError::InvalidPersistedState { .. })
     ));
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn keyed_source_default_aliases_recover_original_revisions_without_restoring_a_cleared_assignment()
+ {
+    let pool = get_postgres_client().await;
+    let owner = party(&pool).await;
+    let source_id = source(&pool, owner).await;
+    let location_id = location(&pool, owner).await;
+    let mut ctx = trusted();
+    ctx.command_key =
+        Some(application::idempotency::IdempotencyKey::new("assign-action".into()).unwrap());
+    let initial = command(source_id, location_id);
+    let assigned = assign(&pool).execute(&ctx, initial.clone()).await.unwrap();
+    let replay = admin_assign(&pool)
+        .execute(&ctx, initial.clone())
+        .await
+        .unwrap();
+    assert_eq!(assigned, replay);
+    let mut later = ctx.clone();
+    later.command_key =
+        Some(application::idempotency::IdempotencyKey::new("clear-action".into()).unwrap());
+    let cleared = clear(&pool)
+        .execute(
+            &later,
+            ClearLocationDefaultCommand {
+                source_id,
+                expected_revision: assigned.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(cleared.assignment.is_none());
+    assert_eq!(
+        assigned,
+        assign(&pool).execute(&ctx, initial).await.unwrap()
+    );
+    assert!(read(&pool, source_id).await.assignment.is_none());
+    assert_eq!(
+        cleared,
+        admin_clear(&pool)
+            .execute(
+                &later,
+                ClearLocationDefaultCommand {
+                    source_id,
+                    expected_revision: assigned.revision
+                }
+            )
+            .await
+            .unwrap()
+    );
 }

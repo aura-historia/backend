@@ -690,6 +690,7 @@ mod tests {
 
     fn context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::System,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -698,6 +699,7 @@ mod tests {
 
     fn authenticated_context(user_id: user_core::user_id::UserId) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),

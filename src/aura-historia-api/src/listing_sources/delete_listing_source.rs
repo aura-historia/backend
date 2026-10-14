@@ -1,5 +1,5 @@
 use crate::{
-    auth::protected_context,
+    auth::command_context,
     error::{ApiError, LISTING_SOURCE_INTERNAL_ERROR},
     state::ListingSourcesState,
     wire::parse_path_object_id,
@@ -22,7 +22,7 @@ pub async fn delete_listing_source(
             Ok(value) => value,
             Err(error) => return no_store(error.into_response()),
         };
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };

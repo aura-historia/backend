@@ -30,6 +30,7 @@ fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
 impl From<AddressBookError> for ApiError {
     fn from(e: AddressBookError) -> Self {
         match e {
+            AddressBookError::Receipt(error) => error.into(),
             AddressBookError::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
             AddressBookError::Forbidden
             | AddressBookError::Resolution(ResolutionError::Forbidden) => {
@@ -258,7 +259,7 @@ pub(crate) async fn update(
     Path(raw): Path<String>,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -287,7 +288,7 @@ pub(crate) async fn delete(
     Path(raw): Path<String>,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -324,7 +325,7 @@ pub(crate) async fn set_destination(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

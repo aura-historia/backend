@@ -1,4 +1,5 @@
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
+pub mod idempotency;
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
@@ -497,6 +498,169 @@ impl UnitOfWork for SqlxUnitOfWork {
 
 #[async_trait::async_trait]
 impl Transaction for SqlxTransaction {
+    async fn command_receipt(
+        &mut self,
+        intent: &application::idempotency::CommandIntent,
+    ) -> Result<Option<serde_json::Value>, application::idempotency::CommandReceiptError> {
+        use application::{
+            error::{box_error, static_error},
+            idempotency::CommandReceiptError as E,
+        };
+        let identity = serde_json::to_vec(&(
+            &intent.actor,
+            intent.operation,
+            &intent.target,
+            intent.key.as_str(),
+        ))
+        .map_err(|e| E::Storage(box_error(e)))?;
+        idempotency::coordinate_command(self.connection(), &identity).await?;
+        let row=sqlx::query_as::<_,(i32,Option<Vec<u8>>,i32,Option<serde_json::Value>,bool)>("SELECT fingerprint_version,fingerprint,outcome_version,outcome,outcome_expires_at>clock_timestamp() FROM application_command_receipts WHERE actor=$1 AND operation=$2 AND target=$3 AND idempotency_key=$4")
+            .bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).fetch_optional(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+        let Some((fingerprint_version, fingerprint, outcome_version, outcome, live)) = row else {
+            return Ok(None);
+        };
+        if fingerprint_version != 1
+            || outcome_version != 1
+            || fingerprint.as_ref().is_some_and(|v| v.len() != 32)
+        {
+            return Err(E::InvalidPersistedState(static_error(
+                "unsupported command receipt codec",
+            )));
+        }
+        let fingerprint = fingerprint.ok_or(E::ResultUnavailable)?;
+        if fingerprint != intent.fingerprint.as_bytes() {
+            tracing::info!(
+                event = "command.retry",
+                operation = intent.operation,
+                outcome = "mismatch"
+            );
+            return Err(E::Mismatch);
+        }
+        if !live {
+            return Err(E::ResultUnavailable);
+        }
+        outcome.map(Some).ok_or(E::ResultUnavailable)
+    }
+
+    async fn cleanup_command_receipts(
+        &mut self,
+        limit: u16,
+    ) -> Result<(u64, u64), application::idempotency::CommandReceiptError> {
+        use application::idempotency::CommandReceiptError as E;
+        let receipts=sqlx::query("WITH expired AS (SELECT actor,operation,target,idempotency_key FROM application_command_receipts WHERE outcome_expires_at<=clock_timestamp() AND outcome IS NOT NULL ORDER BY outcome_expires_at LIMIT $1 FOR UPDATE SKIP LOCKED) UPDATE application_command_receipts r SET outcome=NULL FROM expired e WHERE (r.actor,r.operation,r.target,r.idempotency_key)=(e.actor,e.operation,e.target,e.idempotency_key)").bind(i64::from(limit)).execute(self.connection()).await.map_err(|e|E::Storage(Box::new(e)))?.rows_affected();
+        let operations=sqlx::query("WITH expired AS (SELECT actor,operation,target,idempotency_key FROM external_command_operations WHERE completed AND evidence_expires_at<=clock_timestamp() AND state IS NOT NULL ORDER BY evidence_expires_at LIMIT $1 FOR UPDATE SKIP LOCKED) UPDATE external_command_operations r SET state=NULL FROM expired e WHERE (r.actor,r.operation,r.target,r.idempotency_key)=(e.actor,e.operation,e.target,e.idempotency_key)").bind(i64::from(limit)).execute(self.connection()).await.map_err(|e|E::Storage(Box::new(e)))?.rows_affected();
+        Ok((receipts, operations))
+    }
+
+    async fn claim_external_operation(
+        &mut self,
+        intent: &application::idempotency::CommandIntent,
+        initial: serde_json::Value,
+        scope: &str,
+        resumable: bool,
+    ) -> Result<
+        application::external_operation::ExternalAttempt,
+        application::idempotency::CommandReceiptError,
+    > {
+        use application::{
+            error::{box_error, static_error},
+            external_operation::ExternalAttempt,
+            idempotency::CommandReceiptError as E,
+        };
+        // Scope first also serializes different keys creating a customer for one owner.
+        idempotency::coordinate_command(self.connection(), scope.as_bytes()).await?;
+        let row=sqlx::query_as::<_,(i32,Vec<u8>,i32,Option<serde_json::Value>,i64,time::OffsetDateTime,bool,bool,bool)>("SELECT fingerprint_version,fingerprint,state_version,state,attempt,admitted_at,completed,lease_until>clock_timestamp(),evidence_expires_at>clock_timestamp() FROM external_command_operations WHERE actor=$1 AND operation=$2 AND target=$3 AND idempotency_key=$4 FOR UPDATE")
+            .bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).fetch_optional(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+        if let Some((fv, fingerprint, sv, state, attempt, admitted_at, completed, leased, live)) =
+            row
+        {
+            if fv != 1 || sv != 1 || fingerprint.len() != 32 {
+                return Err(E::InvalidPersistedState(static_error(
+                    "unsupported external operation codec",
+                )));
+            }
+            if fingerprint != intent.fingerprint.as_bytes() {
+                return Err(E::Mismatch);
+            }
+            if !live {
+                return Err(E::ResultUnavailable);
+            }
+            let state = state.ok_or(E::ResultUnavailable)?;
+            if completed {
+                return Ok(ExternalAttempt {
+                    state,
+                    attempt,
+                    admitted_at,
+                    completed,
+                });
+            }
+            if leased {
+                return Err(E::InProgress);
+            }
+            // Non-deduplicating providers are never automatically called a second time.
+            if !resumable {
+                return Err(E::ResultUnavailable);
+            }
+            let attempt = attempt.checked_add(1).ok_or_else(|| {
+                E::InvalidPersistedState(static_error("external operation attempt exhausted"))
+            })?;
+            sqlx::query("UPDATE external_command_operations SET attempt=$5,lease_until=clock_timestamp()+interval '60 seconds' WHERE actor=$1 AND operation=$2 AND target=$3 AND idempotency_key=$4").bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).bind(attempt).execute(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+            return Ok(ExternalAttempt {
+                state,
+                attempt,
+                admitted_at,
+                completed: false,
+            });
+        }
+        let occupied:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_command_operations WHERE exclusive_scope=$1 AND NOT completed)").bind(scope).fetch_one(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+        if occupied {
+            return Err(E::InProgress);
+        }
+        let admitted_at=sqlx::query_scalar("INSERT INTO external_command_operations(actor,operation,target,idempotency_key,private_owner,fingerprint,state,exclusive_scope) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING admitted_at")
+            .bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).bind(intent.private_owner.map(|id|id.into_uuid())).bind(intent.fingerprint.as_bytes().as_slice()).bind(&initial).bind(scope).fetch_one(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+        Ok(ExternalAttempt {
+            state: initial,
+            attempt: 1,
+            admitted_at,
+            completed: false,
+        })
+    }
+    async fn checkpoint_external_operation(
+        &mut self,
+        intent: &application::idempotency::CommandIntent,
+        attempt: i64,
+        state: serde_json::Value,
+        completed: bool,
+    ) -> Result<(), application::idempotency::CommandReceiptError> {
+        use application::idempotency::CommandReceiptError as E;
+        let result=sqlx::query("UPDATE external_command_operations SET state=$6,completed=$7,lease_until=clock_timestamp()+interval '60 seconds' WHERE actor=$1 AND operation=$2 AND target=$3 AND idempotency_key=$4 AND attempt=$5 AND NOT completed AND lease_until>clock_timestamp() AND evidence_expires_at>clock_timestamp()")
+            .bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).bind(attempt).bind(state).bind(completed).execute(self.connection()).await.map_err(|e|E::Storage(Box::new(e)))?;
+        if result.rows_affected() != 1 {
+            return Err(E::InProgress);
+        }
+        Ok(())
+    }
+    async fn forget_commands(
+        &mut self,
+        resource: &application::idempotency::CommandResource,
+    ) -> Result<(), application::idempotency::CommandReceiptError> {
+        sqlx::query("UPDATE application_command_receipts SET outcome=NULL,fingerprint=NULL WHERE private_owner=$1 AND (target=$2 OR starts_with(target,$2 || ':')) AND operation NOT LIKE 'DELETE_%'")
+            .bind(resource.owner.into_uuid()).bind(&resource.target).execute(self.connection()).await.map_err(|e|application::idempotency::CommandReceiptError::Storage(Box::new(e)))?;
+        Ok(())
+    }
+
+    async fn complete_command(
+        &mut self,
+        intent: &application::idempotency::CommandIntent,
+        outcome: serde_json::Value,
+    ) -> Result<(), application::idempotency::CommandReceiptError> {
+        use application::{error::box_error, idempotency::CommandReceiptError as E};
+        sqlx::query("INSERT INTO application_command_receipts(actor,operation,target,idempotency_key,private_owner,fingerprint_version,fingerprint,outcome_version,outcome) VALUES($1,$2,$3,$4,$5,1,$6,1,$7)")
+            .bind(&intent.actor).bind(intent.operation).bind(&intent.target).bind(intent.key.as_str()).bind(intent.private_owner.map(|id|id.into_uuid())).bind(intent.fingerprint.as_bytes().as_slice()).bind(outcome)
+            .execute(self.connection()).await.map_err(|e|E::Storage(box_error(e)))?;
+        Ok(())
+    }
+
     async fn commit(self) -> Result<(), TransactionError> {
         self.transaction
             .commit()

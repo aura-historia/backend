@@ -1,4 +1,5 @@
 use crate::ports::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -20,6 +21,8 @@ pub struct WithdrawPartnershipApplicationResult {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum WithdrawPartnershipApplicationError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -99,9 +102,23 @@ impl<U: UnitOfWork, A: PartnershipApplicationRepositoryFactory<U::Tx>>
                 return Err(WithdrawPartnershipApplicationError::Forbidden);
             }
         };
+        let intent = CommandIntent::new(
+            context,
+            "WITHDRAW_PARTNERSHIP_APPLICATION",
+            command.application_id.to_string(),
+            Some(user),
+            serde_json::json!({"application_id":command.application_id}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             WithdrawPartnershipApplicationError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                WithdrawPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let mut application = self
             .applications
             .in_transaction(&mut tx)
@@ -118,6 +135,10 @@ impl<U: UnitOfWork, A: PartnershipApplicationRepositoryFactory<U::Tx>>
             .update(&application.value, application.version)
             .await?
             .value;
+        let command_result = WithdrawPartnershipApplicationResult {
+            application: application.clone(),
+        };
+        retry::complete(&mut tx, intent.as_ref(), &command_result).await?;
         tx.commit().await.map_err(|source| {
             WithdrawPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -354,6 +375,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("withdraw-request"),
             correlation_id: CorrelationId::new("withdraw-correlation"),

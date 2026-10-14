@@ -221,6 +221,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("test"),
             correlation_id: CorrelationId::new("test"),

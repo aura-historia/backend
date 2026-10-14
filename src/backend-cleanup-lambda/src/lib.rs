@@ -101,6 +101,7 @@ pub async fn run_cleanup(
         ),
     }
     let context = OperationContext {
+        command_key: None,
         principal: Principal::Service("backend-cleanup-worker".into()),
         request_id: "backend-cleanup".into(),
         correlation_id: "backend-cleanup".into(),

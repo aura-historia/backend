@@ -1,4 +1,5 @@
 use crate::ports::location_default::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
@@ -87,6 +88,8 @@ pub struct EffectiveSourceGeographyView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocationDefaultError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticationRequired,
     #[error("source location operation not permitted")]
@@ -233,12 +236,24 @@ impl<
     ) -> Result<LocationDefaultView, LocationDefaultError> {
         capability(context, true)?;
         validate_revision(command.expected_revision)?;
+        let intent = CommandIntent::new(
+            context,
+            "ASSIGN_LOCATION_DEFAULT",
+            command.source_id.to_string(),
+            None,
+            serde_json::json!({"source_id":command.source_id,"expected_revision":command.expected_revision,"assignment":crate::command_receipts::assignment_value(&command.assignment)}),
+        );
         let mut tx = self.uow.begin().await?;
         let party_id = self
             .access
             .in_transaction(&mut tx)
             .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         let stored = self
             .locations
             .in_transaction(&mut tx)
@@ -259,6 +274,12 @@ impl<
             stored,
             Some(command.assignment),
             context,
+        )
+        .await?;
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &result.clone().into_view(Some(eligibility)),
         )
         .await?;
         tx.commit().await?;
@@ -313,11 +334,23 @@ impl<
     ) -> Result<LocationDefaultView, LocationDefaultError> {
         capability(context, true)?;
         validate_revision(command.expected_revision)?;
+        let intent = CommandIntent::new(
+            context,
+            "CLEAR_LOCATION_DEFAULT",
+            command.source_id.to_string(),
+            None,
+            serde_json::json!({"source_id":command.source_id,"expected_revision":command.expected_revision}),
+        );
         let mut tx = self.uow.begin().await?;
         self.access
             .in_transaction(&mut tx)
             .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         let stored = self
             .locations
             .in_transaction(&mut tx)
@@ -325,6 +358,7 @@ impl<
             .await?;
         expected(&stored, command.expected_revision)?;
         let result = persist(&self.locations, &mut tx, stored, None, context).await?;
+        retry::complete(&mut tx, intent.as_ref(), &result.clone().into_view(None)).await?;
         tx.commit().await?;
         tracing::info!(event = "listing_source.location_default_cleared", actor_type = context.principal.kind(), actor_id = %context.principal.label(), revision = result.revision.into_inner(), changed = result.revision != command.expected_revision, outcome = "success");
         Ok(result.into_view(None))
@@ -377,12 +411,24 @@ impl<
     ) -> Result<LocationDefaultView, LocationDefaultError> {
         capability(context, true)?;
         validate_revision(command.expected_revision)?;
+        let intent = CommandIntent::new(
+            context,
+            "CHANGE_LOCATION_DEFAULT_APPLICABILITY",
+            command.source_id.to_string(),
+            None,
+            serde_json::json!({"source_id":command.source_id,"expected_revision":command.expected_revision,"business_association":retry::patch(&command.business_association,crate::command_receipts::evidence_value),"advertised_inventory":retry::patch(&command.advertised_inventory,crate::command_receipts::evidence_value)}),
+        );
         let mut tx = self.uow.begin().await?;
         let party_id = self
             .access
             .in_transaction(&mut tx)
             .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         let stored = self
             .locations
             .in_transaction(&mut tx)
@@ -407,6 +453,12 @@ impl<
             patch(old.advertised_inventory(), command.advertised_inventory),
         )?;
         let result = persist(&self.locations, &mut tx, stored, Some(replacement), context).await?;
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &result.clone().into_view(Some(eligibility)),
+        )
+        .await?;
         tx.commit().await?;
         tracing::info!(event = "listing_source.location_default_applicability_changed", actor_type = context.principal.kind(), actor_id = %context.principal.label(), revision = result.revision.into_inner(), changed = result.revision != command.expected_revision, outcome = "success");
         Ok(result.into_view(Some(eligibility)))

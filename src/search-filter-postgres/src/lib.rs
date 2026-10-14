@@ -10,6 +10,7 @@ mod repository;
 mod search_filter_match_writer;
 mod search_filter_monthly_match_quota_reader;
 
+pub use create_receipts::SqlxSearchFilterCreateReceiptsFactory;
 pub use existing_search_filter_match_reader::SqlxExistingSearchFilterMatchReader;
 pub use match_notification_source_reader::SqlxSearchFilterMatchNotificationSourceReaderFactory;
 pub use match_repository::SqlxSearchFilterMatchRepositoryFactory;
@@ -22,3 +23,4 @@ pub use search_filter_match_writer::SqlxSearchFilterMatchWriterFactory;
 pub use search_filter_monthly_match_quota_reader::SqlxSearchFilterMonthlyMatchQuotaReaderFactory;
 mod pending_saved_search_notifications;
 pub use pending_saved_search_notifications::SqlxPendingSavedSearchNotificationReader;
+mod create_receipts;

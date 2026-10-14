@@ -1,6 +1,7 @@
 use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
 use crate::use_cases::queries::get_party::PartyDetailsView;
 use application::error::BoxError;
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
@@ -31,6 +32,8 @@ pub type UpdatePartyResult = PartyDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdatePartyError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required to update party")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -119,11 +122,25 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_PARTY",
+            command.party_id.to_string(),
+            None,
+            serde_json::json!({"party_id":command.party_id,"name":retry::patch(&command.name,|v|serde_json::json!(v.as_ref())),"phone":retry::patch(&command.phone,|v|serde_json::json!(v)),"email":retry::patch(&command.email,|v|serde_json::json!(v))}),
+        );
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|source| UpdatePartyError::BeginTransactionFailed(Box::new(source)))?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|source| UpdatePartyError::CommitTransactionFailed(Box::new(source)))?;
+            return Ok(result);
+        }
+
         let stored = self
             .parties
             .in_transaction(&mut tx)
@@ -133,7 +150,7 @@ where
         let mut party = stored.party;
         let outcome = apply_update(&mut party, command);
 
-        let result = if outcome.changed() {
+        let result: UpdatePartyResult = if outcome.changed() {
             self.parties
                 .in_transaction(&mut tx)
                 .update(&party, stored.version)
@@ -148,6 +165,7 @@ where
             })
         };
 
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit()
             .await
             .map_err(|source| UpdatePartyError::CommitTransactionFailed(Box::new(source)))?;
@@ -434,6 +452,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -677,6 +696,7 @@ mod tests {
             ),
         ] {
             let context = OperationContext {
+                command_key: None,
                 principal: Principal::DelegatedUser {
                     user_id: user_core::user_id::UserId::new(),
                     capabilities,

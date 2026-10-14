@@ -59,6 +59,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 fn system_context() -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::System,
         request_id: RequestId::new("request"),
         correlation_id: CorrelationId::new("correlation"),

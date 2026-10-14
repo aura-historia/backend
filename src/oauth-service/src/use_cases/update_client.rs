@@ -3,6 +3,7 @@ use crate::ports::{
     OAuthClientRepository, OAuthClientRepositoryFactory, OAuthClientView, PersistedOAuthClient,
 };
 use crate::use_cases::support::{authorize_oauth_admin, authorize_oauth_client_admin};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
@@ -85,7 +86,18 @@ where
             .transpose()
             .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_OAUTH_CLIENT",
+            client_id.to_string(),
+            None,
+            serde_json::json!({"client_id":client_id,"name":command.name,"redirect_uris":redirect_uris.as_ref().map(|v|crate::command_receipts::sorted(v.iter())),"tos_uri":command.tos_uri,"policy_uri":command.policy_uri,"client_uri":command.client_uri,"logo_uri":command.logo_uri,"scopes":command.scopes.as_ref().map(|v|crate::command_receipts::sorted(v.iter()))}),
+        );
         let mut tx = self.unit_of_work.begin().await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let loaded = self
             .clients
             .in_transaction(&mut tx)
@@ -111,6 +123,7 @@ where
         };
         let result = OAuthClientView::from(persisted);
 
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await?;
         tracing::info!(
             event = "oauth_client.updated",

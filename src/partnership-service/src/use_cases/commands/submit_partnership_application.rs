@@ -1,4 +1,5 @@
 use crate::ports::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -25,6 +26,8 @@ pub struct SubmitPartnershipApplicationResult {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum SubmitPartnershipApplicationError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -93,6 +96,13 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
                 }
             })?;
         authorize(context, command.applicant_user_id)?;
+        let intent = CommandIntent::new(
+            context,
+            "SUBMIT_PARTNERSHIP_APPLICATION",
+            command.applicant_user_id.to_string(),
+            Some(command.applicant_user_id),
+            serde_json::json!({"applicant":command.applicant_user_id,"proposal":crate::command_receipts::proposal_value(&command.proposal)}),
+        );
         let application = PartnershipApplication::submit(NewPartnershipApplication {
             id: PartnershipApplicationId::new(),
             applicant_user_id: command.applicant_user_id,
@@ -101,12 +111,23 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             SubmitPartnershipApplicationError::BeginTransactionFailed(Box::new(source))
         })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                SubmitPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let application = self
             .applications
             .in_transaction(&mut tx)
             .insert(&application)
             .await?
             .value;
+        let command_result = SubmitPartnershipApplicationResult {
+            application: application.clone(),
+        };
+        retry::complete(&mut tx, intent.as_ref(), &command_result).await?;
         tx.commit().await.map_err(|source| {
             SubmitPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -343,6 +364,7 @@ mod tests {
 
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal,
             request_id: RequestId::new("submit-request"),
             correlation_id: CorrelationId::new("submit-correlation"),

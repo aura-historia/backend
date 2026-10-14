@@ -264,6 +264,7 @@ where
             }
         };
         let context = OperationContext {
+            command_key: None,
             principal,
             request_id: metadata.request_id.clone(),
             correlation_id: metadata.correlation_id.clone(),

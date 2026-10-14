@@ -373,7 +373,7 @@ pub async fn update(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -393,7 +393,7 @@ pub async fn lifecycle(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
@@ -421,7 +421,7 @@ pub async fn grant(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(s.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };

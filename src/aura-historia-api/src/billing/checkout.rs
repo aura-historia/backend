@@ -1,5 +1,5 @@
 use super::types::{BillingSessionData, BillingSessionRequestData};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::BillingState;
 use axum::Json;
@@ -13,7 +13,7 @@ pub(crate) async fn checkout(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };

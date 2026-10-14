@@ -1,4 +1,5 @@
 use crate::ports::party_location::*;
+use application::idempotency::{self as retry, CommandIntent};
 use application::{
     error::BoxError,
     operation_context::{
@@ -213,6 +214,8 @@ pub struct PartyLocationsPage {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartyLocationError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticationRequired,
     #[error("operation not permitted")]
@@ -693,8 +696,20 @@ where
         command: UpdatePartyLocationCommand,
     ) -> Result<PartyLocationView, PartyLocationError> {
         let privileged = privileged(context, &self.admin, true).await?;
+        let intent = CommandIntent::new(
+            context,
+            "UPDATE_PARTY_LOCATION",
+            format!("{}:{}", command.party_id, command.expected.id),
+            None,
+            serde_json::json!({"id":command.expected.id,"revision":command.expected.revision,"label":retry::patch(&command.label,|v|serde_json::json!(v.as_str())),"roles":retry::patch(&command.roles,|v|serde_json::json!(v.iter().map(|v|v.as_str()).collect::<Vec<_>>())),"geography":retry::patch(&command.geography,|v|serde_json::json!(geo::data::geography_data::GeographicDescriptionData::from(v))),"position":retry::patch(&command.position,|v|serde_json::json!(geo::data::geography_data::SpatialPositionData::from(*v))),"evidence":retry::patch(&command.evidence,crate::command_receipts::location_evidence)}),
+        );
         let mut tx = self.uow.begin().await?;
         authorize(context, privileged, &self.access, &mut tx, command.party_id).await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         let mut stored = load(&self.locations, &mut tx, command.party_id, command.expected).await?;
         let c = stored.location.content().clone();
         let content = PartyLocationContent {
@@ -717,6 +732,12 @@ where
                 .await?;
             sync_resolution(&self.locations, &mut tx, &stored).await?;
         }
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &PartyLocationView::from(stored.clone()),
+        )
+        .await?;
         tx.commit().await?;
         tracing::info!(event = "party_location.corrected", actor = %actor(context), location_id = %stored.location.id(), outcome = "success");
         Ok(stored.into())
@@ -762,8 +783,20 @@ where
         command: SetPartyLocationLifecycleCommand,
     ) -> Result<PartyLocationView, PartyLocationError> {
         let privileged = privileged(context, &self.admin, true).await?;
+        let intent = CommandIntent::new(
+            context,
+            "SET_PARTY_LOCATION_LIFECYCLE",
+            format!("{}:{}", command.party_id, command.expected.id),
+            None,
+            serde_json::json!({"id":command.expected.id,"revision":command.expected.revision,"lifecycle":command.lifecycle.as_str()}),
+        );
         let mut tx = self.uow.begin().await?;
         authorize(context, privileged, &self.access, &mut tx, command.party_id).await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         let mut stored = load(&self.locations, &mut tx, command.party_id, command.expected).await?;
         if stored.location.set_lifecycle(command.lifecycle).changed() {
             stored = self
@@ -773,6 +806,12 @@ where
                 .await?;
             sync_resolution(&self.locations, &mut tx, &stored).await?;
         }
+        retry::complete(
+            &mut tx,
+            intent.as_ref(),
+            &PartyLocationView::from(stored.clone()),
+        )
+        .await?;
         tx.commit().await?;
         tracing::info!(event = "party_location.lifecycle_changed", actor = %actor(context), location_id = %stored.location.id(), lifecycle = command.lifecycle.as_str(), outcome = "success");
         Ok(stored.into())
@@ -813,8 +852,20 @@ where
         if !privileged(context, &self.admin, true).await? {
             return Err(PartyLocationError::Forbidden);
         }
+        let intent = CommandIntent::new(
+            context,
+            "SET_PARTY_LOCATION_MANAGER",
+            format!("{}:{}", command.party_id, command.user_id),
+            None,
+            serde_json::json!({"party_id":command.party_id,"user_id":command.user_id,"granted":command.granted}),
+        );
         let mut tx = self.uow.begin().await?;
         authorize(context, true, &self.access, &mut tx, command.party_id).await?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
         self.access
             .in_transaction(&mut tx)
             .set_management_grant(
@@ -824,6 +875,7 @@ where
                 &actor(context),
             )
             .await?;
+        retry::complete(&mut tx, intent.as_ref(), &()).await?;
         tx.commit().await?;
         tracing::info!(event = "party_location.management_grant_changed", actor = %actor(context), party_id = %command.party_id, user_id = %command.user_id, granted = command.granted, outcome = "success");
         Ok(())

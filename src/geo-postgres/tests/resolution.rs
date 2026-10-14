@@ -34,6 +34,7 @@ const SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 const PROFILE: &str = "TEST_V1";
 fn context() -> OperationContext {
     OperationContext {
+        command_key: None,
         principal: Principal::Service("geo-test".into()),
         request_id: "test".into(),
         correlation_id: "test".into(),

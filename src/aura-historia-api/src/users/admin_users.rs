@@ -276,7 +276,8 @@ pub async fn patch_admin_user(
     Path(raw_user_id): Path<String>,
     body: String,
 ) -> Response {
-    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(state.authenticator.as_ref(), &headers).await
+    {
         Ok(v) => v,
         Err(r) => return no_store(*r),
     };
@@ -396,7 +397,8 @@ pub async fn delete_admin_user(
     headers: HeaderMap,
     Path(raw_user_id): Path<String>,
 ) -> Response {
-    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match crate::auth::command_context(state.authenticator.as_ref(), &headers).await
+    {
         Ok(v) => v,
         Err(r) => return *r,
     };

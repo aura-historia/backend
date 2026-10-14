@@ -4,6 +4,7 @@ use crate::ports::{
 };
 use crate::tier_policy::active_watchlist_quota;
 use application::error::{BoxError, box_error};
+use application::idempotency::{self as retry, CommandIntent};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -36,6 +37,8 @@ pub struct WatchProductListingResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum WatchProductListingError {
+    #[error(transparent)]
+    Receipt(#[from] application::idempotency::CommandReceiptError),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -125,10 +128,24 @@ where
     ) -> Result<WatchProductListingResult, WatchProductListingError> {
         authorize_watch(context, command.user_id)?;
 
+        let intent = CommandIntent::new(
+            context,
+            "WATCH_PRODUCT_LISTING",
+            command.user_id.to_string(),
+            Some(command.user_id),
+            serde_json::json!({"user_id":command.user_id,"product_listing_id":command.product_listing_id,"notifications":command.notifications}),
+        );
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 WatchProductListingError::BeginTransactionFailed(Box::new(source))
             })?;
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit().await.map_err(|source| {
+                WatchProductListingError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(result);
+        }
+
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
@@ -185,6 +202,8 @@ where
             .insert(&entry)
             .await?
             .into_value();
+        let result = WatchProductListingResult { entry };
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await.map_err(|source| {
             WatchProductListingError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -196,7 +215,7 @@ where
             product_listing_id = %command.product_listing_id,
             outcome = "success",
         );
-        Ok(WatchProductListingResult { entry })
+        Ok(result)
     }
 }
 
@@ -722,6 +741,7 @@ mod tests {
 
     fn context_for_user(user_id: UserId) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
@@ -733,6 +753,7 @@ mod tests {
         capabilities: BTreeSet<CredentialCapability>,
     ) -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::DelegatedUser {
                 user_id,
                 capabilities,

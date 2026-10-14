@@ -709,6 +709,7 @@ mod tests {
 
     fn performance_operation_context() -> OperationContext {
         OperationContext {
+            command_key: None,
             principal: Principal::Anonymous,
             request_id: RequestId::new("performance-request"),
             correlation_id: CorrelationId::new("performance-correlation"),
@@ -910,6 +911,7 @@ mod tests {
         )
         .execute(
             &OperationContext {
+                command_key: None,
                 principal: Principal::Anonymous,
                 request_id: RequestId::new("request"),
                 correlation_id: CorrelationId::new("correlation"),

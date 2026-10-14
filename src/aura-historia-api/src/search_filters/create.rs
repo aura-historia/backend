@@ -18,6 +18,10 @@ pub(super) async fn create_search_filter(
         Ok(value) => value,
         Err(response) => return *response,
     };
+    let idempotency_key = match crate::idempotency::optional_key(&headers) {
+        Ok(key) => key,
+        Err(error) => return error.into_response(),
+    };
     let data: CreateSearchFilterData = match super::util::parse_json(&body) {
         Ok(value) => value,
         Err(response) => return response,
@@ -28,11 +32,12 @@ pub(super) async fn create_search_filter(
         Ok(search) => search,
         Err(error) => return error.into_response(),
     };
-    match state
+    let mut response = match state
         .create_search_filter
         .execute(
             &context,
             CreateSearchFilterCommand {
+                idempotency_key: idempotency_key.clone(),
                 user_id,
                 name: data.name,
                 notifications: data.notifications,
@@ -68,5 +73,11 @@ pub(super) async fn create_search_filter(
             response
         }
         Err(error) => ApiError::from(error).into_response(),
-    }
+    };
+    crate::idempotency::echo_key(&mut response, idempotency_key.as_ref());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response
 }

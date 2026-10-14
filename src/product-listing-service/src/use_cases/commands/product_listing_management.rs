@@ -13,6 +13,7 @@ use crate::{
     },
     use_cases::admin_product_listing_error::AdminProductListingError,
 };
+use application::idempotency::{self as retry, CommandIntent, CommandOutcome};
 use application::{
     error::box_error,
     operation_context::OperationContext,
@@ -23,6 +24,7 @@ use listing_source_core::ListingSourceId;
 use product_listing_core::{
     listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
 };
+use serde_json::{Value, json};
 
 /// Internal transaction machinery. Each inbound use case authorizes before calling it.
 pub(crate) struct ProductListingManagementMutation<U, R, E, V> {
@@ -74,6 +76,19 @@ where
         audit_event: &'static str,
     ) -> Result<AdminProductListingMutationResult, AdminProductListingError> {
         let action_name = action.name();
+        let (operation, patch) = match &action {
+            Action::Update(p) => ("UPDATE_PRODUCT_LISTING", patch_value(p)),
+            Action::Withdraw => ("WITHDRAW_PRODUCT_LISTING", Value::Null),
+            Action::Restore => ("RESTORE_PRODUCT_LISTING", Value::Null),
+        };
+        // Protected and administrator aliases share the listing operation after current authority.
+        let intent = CommandIntent::new(
+            context,
+            operation,
+            id.to_string(),
+            None,
+            json!({"product_listing_id":id,"expected_version":expected_version.into_inner(),"patch":patch}),
+        );
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             AdminProductListingError::BeginTransactionFailed(box_error(source))
         })?;
@@ -87,6 +102,12 @@ where
         .ok_or(AdminProductListingError::NotFound)?;
         if listing_source_id.is_some_and(|source| loaded.value.listing_source_id() != source) {
             return Err(AdminProductListingError::NotFound);
+        }
+        if let Some(result) = retry::replay(&mut tx, intent.as_ref()).await? {
+            tx.commit()
+                .await
+                .map_err(|e| AdminProductListingError::CommitTransactionFailed(box_error(e)))?;
+            return Ok(result);
         }
         if loaded.version != expected_version {
             return Err(AdminProductListingError::ConcurrencyConflict);
@@ -140,6 +161,12 @@ where
                 source: box_error(source),
             },
         })?;
+        let result = AdminProductListingMutationResult {
+            product_listing_id: id,
+            expected_version: persisted.version,
+            outcome: persisted.outcome,
+        };
+        retry::complete(&mut tx, intent.as_ref(), &result).await?;
         tx.commit().await.map_err(|source| {
             AdminProductListingError::CommitTransactionFailed(box_error(source))
         })?;
@@ -188,4 +215,45 @@ impl From<ProductListingRepositoryError> for AdminProductListingError {
             },
         }
     }
+}
+
+// V1 outcome contains only identity, committed storage revision and change classification.
+impl CommandOutcome for AdminProductListingMutationResult {
+    fn encode(&self) -> Result<Value, application::error::BoxError> {
+        Ok(
+            json!({"product_listing_id":self.product_listing_id,"version":self.expected_version.into_inner(),"changed":self.outcome.changed()}),
+        )
+    }
+    fn decode(v: Value) -> Result<Self, application::error::BoxError> {
+        Ok(Self {
+            product_listing_id: retry::field(&v, "product_listing_id")?,
+            expected_version: ProductListingStorageVersion::try_from(retry::field::<u64>(
+                &v, "version",
+            )?)?,
+            outcome: if retry::field(&v, "changed")? {
+                domain_primitives::change_outcome::ChangeOutcome::Changed
+            } else {
+                domain_primitives::change_outcome::ChangeOutcome::Unchanged
+            },
+        })
+    }
+}
+fn patch_value(p: &super::update_product_listing::UpdateProductListingCommand) -> Value {
+    use super::update_product_listing::UpdateProductListingCommand;
+    let UpdateProductListingCommand {
+        price,
+        price_estimate_min,
+        price_estimate_max,
+        availability,
+        url,
+        images,
+        auction,
+    } = p;
+    let money = |v: &money::Price| json!({"amount":u64::from(v.monetary_amount),"currency":v.currency.as_str()});
+    json!({"price":retry::patch(price,|v|match v {product_listing_core::product_listing_price::ProductListingPrice::OnRequest=>json!({"kind":"ON_REQUEST"}),product_listing_core::product_listing_price::ProductListingPrice::Monetary(p)=>json!({"kind":"MONETARY","value":money(p)})}),
+ "price_estimate_min":retry::patch(price_estimate_min,money),"price_estimate_max":retry::patch(price_estimate_max,money),
+ "availability":retry::patch(availability,|v|json!(v.as_str())),"url":retry::patch(url,|v|json!(v)),
+ // Image order selects the primary image and is significant.
+ "images":retry::patch(images,|v|json!(v.iter().map(|i|i.url()).collect::<Vec<_>>())),
+ "auction":retry::patch(auction,|v|json!({"auction_id":retry::patch(&v.auction_id,|v|json!(v)),"lot_number":retry::patch(&v.lot_number,|v|json!(v.as_str())),"catalogue_position":retry::patch(&v.catalogue_position,|v|json!(v.value())),"bidding_opens":retry::patch(&v.bidding_opens,|v|json!(v.unix_timestamp_nanos().to_string())),"scheduled_closes":retry::patch(&v.scheduled_closes,|v|json!(v.unix_timestamp_nanos().to_string())),"reported_closed_at":retry::patch(&v.reported_closed_at,|v|json!(v.unix_timestamp_nanos().to_string()))}))})
 }

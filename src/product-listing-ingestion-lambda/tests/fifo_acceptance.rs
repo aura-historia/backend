@@ -200,6 +200,7 @@ async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
     let result = admission
         .execute(
             &OperationContext {
+                command_key: None,
                 principal: Principal::System,
                 request_id: RequestId::new("fifo-acceptance-request"),
                 correlation_id: CorrelationId::new("fifo-acceptance-correlation"),

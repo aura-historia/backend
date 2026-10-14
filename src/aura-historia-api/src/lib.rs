@@ -5,6 +5,7 @@ pub mod auth;
 pub mod billing;
 pub mod error;
 mod geographic_search;
+mod idempotency;
 pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
@@ -1756,31 +1757,40 @@ async fn app_state_from_config_and_pool(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let billing_state = BillingState::new(
-        Arc::new(CreateBillingCheckoutSessionHandler::new(
-            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
-            AssociateUserStripeCustomerIdHandler::new(
-                unit_of_work.clone(),
-                SqlxUserRepositoryFactory::new(),
-            ),
-            stripe_billing.clone(),
-            stripe_billing.clone(),
-            billing_prices.clone(),
-        )),
-        Arc::new(CreateBillingPortalSessionHandler::new(
-            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
-            stripe_billing.clone(),
-        )),
-        Arc::new(CreateBillingManagementSessionHandler::new(
-            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
-            AssociateUserStripeCustomerIdHandler::new(
-                unit_of_work.clone(),
-                SqlxUserRepositoryFactory::new(),
-            ),
-            stripe_billing.clone(),
-            stripe_billing.clone(),
-            stripe_billing,
-            billing_prices,
-        )),
+        Arc::new(
+            CreateBillingCheckoutSessionHandler::new(
+                GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+                AssociateUserStripeCustomerIdHandler::new(
+                    unit_of_work.clone(),
+                    SqlxUserRepositoryFactory::new(),
+                ),
+                stripe_billing.clone(),
+                stripe_billing.clone(),
+                billing_prices.clone(),
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
+        Arc::new(
+            CreateBillingPortalSessionHandler::new(
+                GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+                stripe_billing.clone(),
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
+        Arc::new(
+            CreateBillingManagementSessionHandler::new(
+                GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+                AssociateUserStripeCustomerIdHandler::new(
+                    unit_of_work.clone(),
+                    SqlxUserRepositoryFactory::new(),
+                ),
+                stripe_billing.clone(),
+                stripe_billing.clone(),
+                stripe_billing,
+                billing_prices,
+            )
+            .with_operations(unit_of_work.clone()),
+        ),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let partner_management_reader = SqlxAdminProductListingReader::new(pool.clone());
@@ -2027,6 +2037,7 @@ async fn app_state_from_config_and_pool(
             Arc::clone(&embeddings),
             SqlxSearchFilterQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
+            search_filter_postgres::SqlxSearchFilterCreateReceiptsFactory,
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),

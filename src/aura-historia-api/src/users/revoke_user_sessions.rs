@@ -1,5 +1,5 @@
 use super::util::{no_store, parse_user_id};
-use crate::auth::protected_context;
+use crate::auth::command_context;
 use crate::error::ApiError;
 use crate::state::UsersState;
 use axum::extract::{Path, State};
@@ -12,7 +12,7 @@ pub async fn revoke_user_sessions(
     headers: HeaderMap,
     Path(raw_user_id): Path<String>,
 ) -> Response {
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };
@@ -119,7 +119,7 @@ mod tests {
         headers: HeaderMap,
         Path(raw_user_id): Path<String>,
     ) -> Response {
-        let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+        let (context, _) = match command_context(state.authenticator.as_ref(), &headers).await {
             Ok(value) => value,
             Err(response) => return no_store(*response),
         };
