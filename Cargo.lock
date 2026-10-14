@@ -7784,6 +7784,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shipping-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "geo",
+ "listing-source-core",
+ "money",
+ "party-core",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

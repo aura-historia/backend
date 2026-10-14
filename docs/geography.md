@@ -4,7 +4,7 @@ This guide owns geographic meaning, evidence, provider rights and privacy. Exact
 shapes belong in [OpenAPI](swagger.yaml); schema and codecs belong in migrations and
 adapters. [Event flow](events/flow.md#geography-dependency-invalidation) owns propagation;
 the [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns activation,
-rebuild and recovery. Shipping owns destination eligibility and delivery assessment.
+rebuild and recovery. [Shipping](shipping.md) owns destination eligibility and delivery assessment.
 
 ## Assertions and evidence
 
