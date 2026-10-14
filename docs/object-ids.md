@@ -58,6 +58,7 @@ PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uui
 
 These persisted fields deliberately retain **canonical lowercase hyphenated UUID text**, not public TypeID serde:
 
+- Shipping storage terms: explicit Party/PartyLocation actor and site references.
 - PartyLocation creation receipts: result site/Party IDs and optional relocated site ID.
 - Private geographic resolution inputs: the cache-scope owner UUID.
 - Partnership application proposal `listing_source_id`.

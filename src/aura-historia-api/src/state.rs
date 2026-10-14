@@ -137,6 +137,7 @@ impl ReadinessCheck for AlwaysReady {
 
 #[derive(Clone)]
 pub struct AppState {
+    pub(crate) shipping: Option<crate::shipping::ShippingState>,
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
@@ -172,9 +173,15 @@ impl Default for AppState {
 }
 
 impl AppState {
+    pub fn with_shipping(mut self, state: crate::shipping::ShippingState) -> Self {
+        self.shipping = Some(state);
+        self
+    }
+
     pub fn new() -> Self {
         Self {
             readiness: Arc::new(AlwaysReady),
+            shipping: None,
             product_listings: None,
             partner_product_listings: None,
             partner_product_listing_management: None,

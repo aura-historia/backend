@@ -45,6 +45,83 @@ and supplied inputs. A service must resolve fresh authoritative dependencies whe
 current assessment. The domain does not depend on ProductListing aggregates or implement
 cross-context orchestration.
 
+## Authorized profile management and persistence
+
+Protected management uses `listing-sources:read/write` for delegated credentials.
+An unsuspended administrator, or current member of the operator Party's active
+Partnership with the exact source grant, may operate. Trusted internal principals
+use the same service boundary. Party → source → user/grant → shipping state/location
+locks hold current authority and compatible location ownership through commit.
+The existing narrow source/location access contract supplies these decisions.
+Explicit dispatch/collection references assert shipping applicability; they confer
+no PartyLocation editing authority or verified fulfillment meaning. Confidential
+origins remain asserted protected terms and never create public PartyLocations.
+Management detail and evidence never automatically publish collection addresses.
+
+[OpenAPI](swagger.yaml) owns the source-scoped profile list/detail, create, complete
+content/evidence replacement, retirement/restoration and default assign/clear routes.
+Profile `managementRevision` protects every command, including no-ops, independently
+of `termsRevision`. Content/lifecycle changes advance both; evidence-only correction
+advances management state without changing normalized terms. Default revision 1
+means never assigned; changes retain advancing rows even after clear. Assignment
+and repeated assignment require current active, same-source profiles and eligible
+referenced locations. Retirement and clear remain possible when a location retires.
+Equal valid commands produce no state/history/signal changes. Signed PostgreSQL
+revision exhaustion rejects changes atomically while allowing valid no-ops.
+Retired profiles require restoration before content or evidence correction.
+
+Creation identity is `(ListingSource, caller, creationKey)`, with one user identity
+across Cognito and delegated credentials. Keys contain 1–128 visible ASCII bytes.
+Retries compare original validated content and evidence, even after later edits;
+matching retries return current state without effects and conflicting retries fail.
+Every retry revalidates current source authority. Receipt identity survives source
+removal, so deletion cannot make an executed creation key reusable.
+
+PostgreSQL stores native UUID keys and adapter-owned `SHIP_TERMS_V1` terms. Every
+schema field, including nullable assertions, is explicit; unknown fields/versions,
+invalid codes, bounds, references and constructor failures reject persisted state.
+Source-owned class/variant codes are interpreted only within the profile's immutable
+source. Lists read at most 100 summaries using UUID keysets; detail loads one bounded
+terms value. Readers never hydrate dependent listings or return evidence. Both API
+results and errors use `no-store`.
+
+Normalized current terms, protected revision history and provenance have separate
+storage. Evidence contains at most 32 validated assertion/reference pairs, without
+buyer addresses, provider payloads or credentials. References are inert links:
+writes never fetch them and they never establish caller authority. Complete
+replacement corrects the current evidence set; prior evidence remains in protected
+immutable history. Profile retirement/source deletion retain profile history,
+creation receipts, signals and revision fences without TTL for traceability and
+later recovery. Authorized erasure must explicitly remove protected site/evidence
+content under an operational maintenance procedure while preserving address-free
+identity/revision fences; ordinary profile commands cannot rewrite historical facts.
+
+A source deletion clears and advances its shipping default in the deletion transaction
+and retains a `SOURCE_DELETED` fence, including a source never assigned a default.
+An exhausted default fence rejects deletion atomically. Profiles retain original source identity and
+lose their live source reference; they are unavailable/ineligible. A default retained
+after profile retirement continues to identify that retired profile. Missing or retired
+explicit references never select another profile. Neither retirement nor source
+removal changes a merchant's advertised no-shipping assertion.
+
+## Immutable management change signals
+
+Profile state/history/evidence and one minimal `shipping_changes` signal commit
+atomically for each changed management revision. Default assignment, clear and source
+delete similarly commit with a signal. Signal schema version 1 contains native source
+and subject UUIDs, subject kind (`PROFILE` or `SOURCE_DEFAULT`), management/default
+revision, profile terms revision when applicable, change kind, actor and recorded time.
+Kinds are `CREATED`, `REPLACED`, `RETIRED`, `RESTORED`, `EVIDENCE_CORRECTED`,
+`DEFAULT_ASSIGNED`, `DEFAULT_CLEARED`, and `SOURCE_DELETED`. The immutable identity is
+`(subject_kind, subject_id, revision)`; default subject identity is its source.
+Signals contain no terms, evidence, addresses or dependent listing IDs.
+
+Profile/source and location/profile indexes retain reverse references for later bounded
+fan-out. Management performs no dependent listing rewrite or provider/projection call.
+These signals establish durable invalidation input; [event flow](events/flow.md) owns
+activation and downstream routing. Later consumers reread current authoritative
+state, preserve source deletion fences and tolerate duplicate/out-of-order signals.
+
 ## Independent assertions
 
 Eligibility is absent or `OFFERED`, `NOT_OFFERED`, or `SUBJECT_TO_CONFIRMATION`. Pricing is

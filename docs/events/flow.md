@@ -26,6 +26,15 @@ success may confirm a transaction or queue custody; neither implies search visib
 or external delivery. PostgreSQL remains authoritative. DMS start and router activation
 require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
 
+## Shipping management signals
+
+[Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable
+profile/default signals, retained deletion fences and protected history. Only the
+minimal address-free signal is eligible for future invalidation delivery; terms,
+evidence and creation receipts remain outside ordinary CDC. Profile management commits
+signals locally and performs no synchronous fan-out. Shipping fan-out routing and
+consumers are not activated by profile management.
+
 ## ProductListing write flow
 
 - Partner writes commit canonical state and at most one semantic event atomically.

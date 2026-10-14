@@ -20,6 +20,7 @@ mod product_listing_fields;
 mod product_listing_management;
 pub mod product_listings;
 pub mod search_filters;
+pub mod shipping;
 pub mod state;
 pub mod transport;
 pub mod users;
@@ -994,6 +995,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(addresses),
         );
     }
+    if let Some(shipping) = state.shipping {
+        routes = routes.merge(
+            Router::new()
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles", get(shipping::list).post(shipping::create))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", get(shipping::get).put(shipping::replace).delete(shipping::retire))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", axum::routing::post(shipping::restore))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-default", get(shipping::get_default).put(shipping::assign_default).delete(shipping::clear_default))
+                .layer(axum::middleware::map_response(parties::locations::no_store_response))
+                .with_state(shipping),
+        );
+    }
     if let Some(defaults) = state.source_location_defaults {
         routes = routes.merge(
             Router::new()
@@ -1899,6 +1911,68 @@ async fn app_state_from_config_and_pool(
         SqlxSourceLocationAccessFactory,
     };
     use listing_source_service::use_cases::location_default::*;
+    let shipping_state = shipping::ShippingState {
+        create: Arc::new(
+            shipping_service::use_cases::CreateShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        replace: Arc::new(
+            shipping_service::use_cases::ReplaceShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        retire: Arc::new(
+            shipping_service::use_cases::RetireShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        restore: Arc::new(
+            shipping_service::use_cases::RestoreShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        assign_default: Arc::new(
+            shipping_service::use_cases::AssignShippingDefaultHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        clear_default: Arc::new(
+            shipping_service::use_cases::ClearShippingDefaultHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        get: Arc::new(shipping_service::use_cases::GetShippingProfileHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::SqlxShippingReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        list: Arc::new(
+            shipping_service::use_cases::ListShippingProfilesHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingReaderFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        get_default: Arc::new(shipping_service::use_cases::GetShippingDefaultHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::SqlxShippingReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let source_location_defaults_state = state::SourceLocationDefaultsState {
         assign: Arc::new(AssignLocationDefaultHandler::new(
             unit_of_work.clone(),
@@ -2184,6 +2258,7 @@ async fn app_state_from_config_and_pool(
         ))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
+        .with_shipping(shipping_state)
         .with_source_location_defaults(source_location_defaults_state)
         .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)

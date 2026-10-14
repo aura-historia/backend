@@ -126,6 +126,21 @@ pub(crate) const ACCESS_TOKEN_NOT_FOUND: ApiErrorCode = ApiErrorCode("ACCESS_TOK
 pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
+pub(crate) const SHIPPING_PROFILE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("SHIPPING_PROFILE_NOT_FOUND");
+pub(crate) const SHIPPING_LOCATION_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("SHIPPING_LOCATION_NOT_FOUND");
+pub(crate) const SHIPPING_REFERENCE_INELIGIBLE: ApiErrorCode =
+    ApiErrorCode("SHIPPING_REFERENCE_INELIGIBLE");
+pub(crate) const SHIPPING_STALE_REVISION: ApiErrorCode = ApiErrorCode("SHIPPING_STALE_REVISION");
+pub(crate) const SHIPPING_CREATION_KEY_CONFLICT: ApiErrorCode =
+    ApiErrorCode("SHIPPING_CREATION_KEY_CONFLICT");
+pub(crate) const SHIPPING_REVISION_EXHAUSTED: ApiErrorCode =
+    ApiErrorCode("SHIPPING_REVISION_EXHAUSTED");
+pub(crate) const SHIPPING_PROFILE_RETIRED: ApiErrorCode = ApiErrorCode("SHIPPING_PROFILE_RETIRED");
+pub(crate) const SHIPPING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("SHIPPING_TEMPORARILY_UNAVAILABLE");
+pub(crate) const SHIPPING_STORAGE_ERROR: ApiErrorCode = ApiErrorCode("SHIPPING_STORAGE_ERROR");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
