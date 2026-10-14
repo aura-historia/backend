@@ -92,10 +92,11 @@ by ordinary writes. Geographic content and evidence must not enter diagnostic lo
 
 ### Retry, revision and persistence guarantees
 
-Creation idempotency is scoped to Party, trusted caller and key. Completed semantics and
-original result commit together; a matching retry replays the original result even after
-later edits. Changed semantics conflict; address equality never establishes identity.
-Receipts do not expire.
+Ordinary creation always assigns a new identity, including for equal content. These
+interactive management operations are explicit [keyless retry exceptions](command-retries.md).
+Relocation still retires the old location and creates its replacement atomically under the
+old expected revision. Repeating a committed relocation with that revision conflicts and
+creates no second replacement.
 
 Protected mutations require the current CAS revision, including no-ops. Changed state
 advances it once; identical current-revision commands emit no write or signal. Geography,
@@ -275,11 +276,10 @@ projection lag; geography events do not directly match saved filters.
 
 ## Private user address books and browsing destinations (#2005)
 
-A UserAddress is a named editable bookmark with a server-generated identity. Creation keys
-are owner-scoped; matching retries return the same entry's current view, while changed
-creation content or a deleted entry conflicts. Distinct keys permit equal-address bookmarks.
-Only private hashes retain creation semantics; deletion erases the content fingerprint and
-keeps the key/ID fence until account erasure. Replacements/deletion require current CAS;
+A UserAddress is a named editable bookmark with a server-generated identity. Each ordinary
+create assigns a new ID; equal content can represent distinct bookmarks. Creation follows
+the [keyless retry exceptions](command-retries.md). Deletion retains an ID tombstone until
+account erasure, independently of creation. Replacements/deletion require current CAS;
 label changes do not repeat resolution. Protected views expose status, eligible derived
 geography and attribution, with batched resolution for lists.
 

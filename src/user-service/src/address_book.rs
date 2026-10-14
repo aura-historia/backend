@@ -8,7 +8,6 @@ use application::{
 };
 use geo::{DerivedGeography, GeographicDescription, SubmittedGeography};
 use geo_service::{geocoding::GeocodingRequest, resolution::*};
-use sha2::{Digest, Sha256};
 use user_core::{user_address::*, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
@@ -77,35 +76,6 @@ fn valid_version(version: u64) -> Result<(), AddressBookError> {
 pub struct StoredUserAddress {
     pub address: UserAddress,
     pub version: u64,
-}
-/// Private retry metadata; a missing fingerprint is a deleted creation receipt.
-pub struct UserAddressCreationReceipt {
-    pub id: UserAddressId,
-    pub fingerprint: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct UserAddressIdempotencyKey(String);
-impl UserAddressIdempotencyKey {
-    pub fn new(value: String) -> Result<Self, AddressBookError> {
-        if value.is_empty()
-            || value.len() > 128
-            || !value
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c))
-        {
-            return Err(AddressBookError::InvalidInput);
-        }
-        Ok(Self(value))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-impl std::fmt::Debug for UserAddressIdempotencyKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("UserAddressIdempotencyKey(<redacted>)")
-    }
 }
 #[derive(Clone)]
 pub struct UserAddressView {
@@ -220,11 +190,6 @@ pub trait AddressBookAccess: Send {
 }
 #[async_trait::async_trait]
 pub trait UserAddressRepository: Send {
-    async fn find_creation(
-        &mut self,
-        owner: UserId,
-        key: &UserAddressIdempotencyKey,
-    ) -> Result<Option<UserAddressCreationReceipt>, AddressBookError>;
     async fn find(
         &mut self,
         owner: UserId,
@@ -233,8 +198,6 @@ pub trait UserAddressRepository: Send {
     async fn insert(
         &mut self,
         address: &UserAddress,
-        key: &UserAddressIdempotencyKey,
-        fingerprint: &str,
     ) -> Result<StoredUserAddress, AddressBookError>;
     async fn update(
         &mut self,
@@ -276,38 +239,8 @@ pub trait AddressBookFactory<Tx>: Send + Sync {
     fn reader<'a>(&'a self, tx: &'a mut Tx) -> impl UserAddressReader + 'a;
 }
 pub struct CreateUserAddress {
-    pub idempotency_key: UserAddressIdempotencyKey,
     pub label: UserAddressLabel,
     pub geography: GeographicDescription,
-}
-
-fn creation_fingerprint(
-    owner: UserId,
-    command: &CreateUserAddress,
-) -> Result<String, AddressBookError> {
-    let description = &command.geography;
-    let address = description
-        .address_text()
-        .ok_or(AddressBookError::InvalidInput)?;
-    let mut hash = Sha256::new();
-    for field in [
-        "USER_ADDRESS_CREATE_V1",
-        &owner.to_string(),
-        command.label.as_str(),
-        description.reference_release().as_str(),
-        address.as_str(),
-        description.country().map(|c| c.alpha2()).unwrap_or(""),
-        description.subdivision().map(|s| s.as_str()).unwrap_or(""),
-        description.postal_code().map(|p| p.as_str()).unwrap_or(""),
-    ] {
-        hash.update((field.len() as u64).to_be_bytes());
-        hash.update(field.as_bytes());
-    }
-    Ok(hash
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
 }
 pub struct UpdateUserAddress {
     pub id: UserAddressId,
@@ -491,33 +424,16 @@ where
         c: CreateUserAddress,
     ) -> Result<UserAddressView, AddressBookError> {
         let (owner, mut tx) = self.begin(ctx, true).await?;
-        let fingerprint = creation_fingerprint(owner, &c)?;
-        let id = if let Some(receipt) = self
-            .addresses
-            .repository(&mut tx)
-            .find_creation(owner, &c.idempotency_key)
-            .await?
-        {
-            if receipt.fingerprint.as_deref() != Some(fingerprint.as_str()) {
-                return Err(AddressBookError::Conflict);
-            }
-            receipt.id
-        } else {
-            let address = UserAddress::create(UserAddressId::new(), owner, c.label, c.geography)?;
-            let stored = self
-                .addresses
-                .repository(&mut tx)
-                .insert(&address, &c.idempotency_key, &fingerprint)
-                .await?;
-            self.resolutions
-                .resolutions(&mut tx)
-                .bind(
-                    &input(&stored.address)?,
-                    binding(&stored.address, stored.version)?,
-                )
-                .await?;
-            stored.address.id()
-        };
+        let address = UserAddress::create(UserAddressId::new(), owner, c.label, c.geography)?;
+        let stored = self.addresses.repository(&mut tx).insert(&address).await?;
+        self.resolutions
+            .resolutions(&mut tx)
+            .bind(
+                &input(&stored.address)?,
+                binding(&stored.address, stored.version)?,
+            )
+            .await?;
+        let id = stored.address.id();
         let view = self.view(&mut tx, owner, id).await?;
         tx.commit().await?;
         Ok(view)
@@ -692,63 +608,5 @@ where
             resolution_status,
             attribution,
         })
-    }
-}
-
-#[cfg(test)]
-mod creation_tests {
-    use super::*;
-    fn command(key: &str, label: &str, text: &str) -> CreateUserAddress {
-        CreateUserAddress {
-            idempotency_key: UserAddressIdempotencyKey::new(key.into()).unwrap(),
-            label: UserAddressLabel::new(label.into()).unwrap(),
-            geography: GeographicDescription::new(
-                Some(geo::AddressText::new(text).unwrap()),
-                None,
-                None,
-                None,
-            )
-            .unwrap()
-            .unwrap(),
-        }
-    }
-    #[test]
-    fn creation_keys_are_bounded_opaque_values_and_redacted() {
-        for invalid in [
-            "".to_owned(),
-            " ".into(),
-            "bad/key".into(),
-            "é".into(),
-            "a".repeat(129),
-        ] {
-            assert!(UserAddressIdempotencyKey::new(invalid).is_err());
-        }
-        let key = UserAddressIdempotencyKey::new("command-123_.:".into()).unwrap();
-        assert_eq!("command-123_.:", key.as_str());
-        assert!(!format!("{key:?}").contains("command-123"));
-        assert!(UserAddressIdempotencyKey::new("a".repeat(128)).is_ok());
-    }
-    #[test]
-    fn creation_fingerprints_preserve_exact_original_semantics_and_owner_scope() {
-        let owner = UserId::new();
-        let original = command("original", "Home", "Straße 12\n東京都");
-        let expected = creation_fingerprint(owner, &original).unwrap();
-        assert_eq!(64, expected.len());
-        assert_eq!(
-            expected,
-            creation_fingerprint(owner, &command("another-key", "Home", "Straße 12\n東京都"))
-                .unwrap()
-        );
-        for changed in [
-            command("original", "Renamed", "Straße 12\n東京都"),
-            command("original", "Home", "Straße 12\r\n東京都"),
-            command("original", "Home", "Straße 12\n東京都 "),
-        ] {
-            assert_ne!(expected, creation_fingerprint(owner, &changed).unwrap());
-        }
-        assert_ne!(
-            expected,
-            creation_fingerprint(UserId::new(), &original).unwrap()
-        );
     }
 }

@@ -27,7 +27,8 @@ Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhoo
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
 and Axum response CORS must retain approved origins, required authorization/provider
 headers and `Idempotency-Key` admission/exposure. CORS is not authorization; do not
-relax raw-body limits or application checks to fix an edge integration.
+relax raw-body limits or application checks to fix an edge integration. Header forwarding
+does not opt an operation into replay; preserve the [keyless creation exceptions](command-retries.md).
 
 ## Front-door controls
 

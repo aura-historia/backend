@@ -171,8 +171,6 @@ impl TryFrom<EvidenceData> for LocationEvidence {
         .map_err(invalid)
     }
 }
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ContentData {
     label: String,
     roles: Vec<String>,
@@ -188,77 +186,6 @@ impl From<&PartyLocationContent> for ContentData {
             position: c.position.map(Into::into),
         }
     }
-}
-impl TryFrom<ContentData> for PartyLocationContent {
-    type Error = PartyLocationError;
-    fn try_from(c: ContentData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            label: label(c.label)?,
-            roles: roles(c.roles)?,
-            geography: geography(c.geography)?,
-            position: c
-                .position
-                .map(SpatialPosition::try_from)
-                .transpose()
-                .map_err(invalid)?,
-        })
-    }
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SnapshotData {
-    id: Uuid,
-    party_id: Uuid,
-    content: ContentData,
-    lifecycle: String,
-    revision: u64,
-    input_revision: u64,
-    evidence: Option<EvidenceData>,
-    #[serde(with = "time::serde::rfc3339")]
-    created: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    updated: OffsetDateTime,
-}
-impl From<&StoredPartyLocation> for SnapshotData {
-    fn from(s: &StoredPartyLocation) -> Self {
-        Self {
-            id: s.location.id().into_uuid(),
-            party_id: s.location.party_id().into_uuid(),
-            content: s.location.content().into(),
-            lifecycle: s.location.lifecycle().as_str().to_owned(),
-            revision: s.revision.into_inner(),
-            input_revision: s.location.input_revision().into_inner(),
-            evidence: s.evidence.as_ref().map(Into::into),
-            created: s.created,
-            updated: s.updated,
-        }
-    }
-}
-impl TryFrom<SnapshotData> for StoredPartyLocation {
-    type Error = PartyLocationError;
-    fn try_from(s: SnapshotData) -> Result<Self, Self::Error> {
-        if s.revision > i64::MAX as u64 || s.input_revision > s.revision {
-            return Err(corrupt());
-        }
-        Ok(Self {
-            location: PartyLocation::rehydrate(
-                PartyLocationId::try_from(s.id).map_err(invalid)?,
-                PartyId::try_from(s.party_id).map_err(invalid)?,
-                s.content.try_into()?,
-                PartyLocationLifecycle::from_code(&s.lifecycle).ok_or_else(corrupt)?,
-                PartyLocationInputRevision::try_from(s.input_revision).map_err(invalid)?,
-            ),
-            revision: PartyLocationRevision::try_from(s.revision).map_err(invalid)?,
-            evidence: s.evidence.map(TryInto::try_into).transpose()?,
-            created: s.created,
-            updated: s.updated,
-        })
-    }
-}
-fn command_data(c: &CreatePartyLocationCommand) -> Result<serde_json::Value, PartyLocationError> {
-    Ok(
-        serde_json::json!({"content": encode(&ContentData::from(&c.content))?, "evidence": c.evidence.as_ref().map(EvidenceData::from), "relocates": c.relocates.map(|e| serde_json::json!({"id": e.id.into_uuid(), "revision": e.revision.into_inner()}))}),
-    )
 }
 #[derive(FromRow)]
 struct LocationRow {
@@ -278,23 +205,41 @@ struct LocationRow {
 impl TryFrom<LocationRow> for StoredPartyLocation {
     type Error = PartyLocationError;
     fn try_from(r: LocationRow) -> Result<Self, Self::Error> {
-        SnapshotData {
-            id: r.party_location_id,
-            party_id: r.party_id,
-            content: ContentData {
-                label: r.label,
-                roles: r.roles,
-                geography: r.geography.map(decode).transpose()?,
-                position: r.position.map(decode).transpose()?,
-            },
-            lifecycle: r.lifecycle,
-            revision: u64::try_from(r.revision).map_err(invalid)?,
-            input_revision: u64::try_from(r.input_revision).map_err(invalid)?,
-            evidence: r.evidence.map(decode).transpose()?,
+        let revision = PartyLocationRevision::try_from(r.revision).map_err(invalid)?;
+        let input_revision =
+            PartyLocationInputRevision::try_from(r.input_revision).map_err(invalid)?;
+        if input_revision.into_inner() > revision.into_inner() {
+            return Err(corrupt());
+        }
+        Ok(Self {
+            location: PartyLocation::rehydrate(
+                PartyLocationId::try_from(r.party_location_id).map_err(invalid)?,
+                PartyId::try_from(r.party_id).map_err(invalid)?,
+                PartyLocationContent {
+                    label: label(r.label)?,
+                    roles: roles(r.roles)?,
+                    geography: geography(r.geography.map(decode).transpose()?)?,
+                    position: r
+                        .position
+                        .map(decode::<SpatialPositionData>)
+                        .transpose()?
+                        .map(SpatialPosition::try_from)
+                        .transpose()
+                        .map_err(invalid)?,
+                },
+                PartyLocationLifecycle::from_code(&r.lifecycle).ok_or_else(corrupt)?,
+                input_revision,
+            ),
+            revision,
+            evidence: r
+                .evidence
+                .map(decode::<EvidenceData>)
+                .transpose()?
+                .map(LocationEvidence::try_from)
+                .transpose()?,
             created: r.created,
             updated: r.updated,
-        }
-        .try_into()
+        })
     }
 }
 const COLUMNS: &str = "party_location_id, party_id, label, roles, geography, position, lifecycle, revision, input_revision, evidence, created, updated";
@@ -407,34 +352,6 @@ impl LocationRepository<'_> {
 }
 #[async_trait::async_trait]
 impl PartyLocationRepository for LocationRepository<'_> {
-    async fn replay_create(
-        &mut self,
-        actor: &str,
-        command: &CreatePartyLocationCommand,
-    ) -> Result<Option<StoredPartyLocation>, PartyLocationError> {
-        let receipt = sqlx::query_as::<_, (serde_json::Value, serde_json::Value)>("SELECT command, result FROM party_location_create_receipts WHERE party_id = $1 AND actor = $2 AND idempotency_key = $3").bind(command.party_id.into_uuid()).bind(actor).bind(command.idempotency_key.as_str()).fetch_optional(&mut *self.connection).await.map_err(sql_error)?;
-        receipt
-            .map(|(c, result)| {
-                if c != command_data(command)? {
-                    return Err(PartyLocationError::IdempotencyConflict);
-                }
-                let result: StoredPartyLocation = decode::<SnapshotData>(result)?.try_into()?;
-                if result.location.party_id() != command.party_id {
-                    return Err(corrupt());
-                }
-                Ok(result)
-            })
-            .transpose()
-    }
-    async fn record_create(
-        &mut self,
-        actor: &str,
-        command: &CreatePartyLocationCommand,
-        result: &StoredPartyLocation,
-    ) -> Result<(), PartyLocationError> {
-        sqlx::query("INSERT INTO party_location_create_receipts(party_id,actor,idempotency_key,command,result) VALUES ($1,$2,$3,$4,$5)").bind(command.party_id.into_uuid()).bind(actor).bind(command.idempotency_key.as_str()).bind(command_data(command)?).bind(encode(&SnapshotData::from(result))?).execute(&mut *self.connection).await.map_err(sql_error)?;
-        Ok(())
-    }
     async fn find_for_update(
         &mut self,
         party_id: PartyId,

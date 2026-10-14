@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-14 — Keyless address and Party-location creation (#2078)
+
+- `POST /api/v1/me/addresses` and `POST /api/v1/parties/{party_id}/locations` accept creation without `Idempotency-Key`. Legacy headers are ignored, including invalid/repeated values, and are not echoed. Each accepted ordinary create assigns a new ID, even for equal content; keys provide no deduplication or result recovery.
+- Automatic creation retries can produce duplicates. After an ambiguous timeout, refresh current state and reconcile before creating again; address/label equality cannot conclusively identify the original request.
+- Relocation atomically retires the old location and creates its replacement using the old expected revision. Repeating a committed relocation with that revision returns `409` without another replacement.
+
 ## 2026-10-13 — Saved-search matching across tiers (#2040)
 
 - Active ordinary and enhanced saved searches discover matches in scheduled runs. Each run evaluates the first up to 50 eligible candidates independently; rejected candidates do not stop discovery. Matching remains bounded and subject to projection lag.
