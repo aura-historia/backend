@@ -65,6 +65,7 @@ struct ProductListingChangedHistoryData {
     rename_all_fields = "camelCase"
 )]
 enum ProductListingHistoryChangeData {
+    DeliveryChanged,
     MainPriceChanged {
         previous: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
         current: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
@@ -210,6 +211,7 @@ impl From<ProductListingDiscoveryHistory> for ProductListingDiscoveryHistoryData
 impl From<ProductListingHistoryChange> for ProductListingHistoryChangeData {
     fn from(value: ProductListingHistoryChange) -> Self {
         match value {
+            ProductListingHistoryChange::DeliveryChanged => Self::DeliveryChanged,
             ProductListingHistoryChange::MainPriceChanged { previous, current } => {
                 Self::MainPriceChanged {
                     previous: previous.map(Into::into),

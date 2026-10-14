@@ -283,6 +283,9 @@ fn history_kind(
                 changes.push(history_change);
             }
 
+            if changed.delivery().is_some() {
+                changes.push(ProductListingHistoryChange::DeliveryChanged);
+            }
             ProductListingHistoryChanges::try_from(changes)
                 .map(ProductListingHistoryEntryKind::Changed)
                 .map_err(|error| {

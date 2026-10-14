@@ -138,6 +138,13 @@ including when they retain the same resolution identity. Unchanged binding repla
 
 Jobs use schema version **2** and typed application IDs; version 1 is rejected.
 ProductListing event payloads have their own version, independent of the job envelope.
+Domain events containing delivery use version 2 with a required `delivery` discovery
+assertion or complete previous/current change; version 1 remains strict and readable.
+The CDC router validates the versioned configuration and emits existing compact event jobs.
+Delivery-only changes project the listing without triggering price/availability watchlist
+notifications or image embedding. Protected delivery terms never enter ordinary jobs or
+public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
+retain their exact version 1 codecs, semantic fingerprints and retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
 credentials, signatures and signed request headers still never enter it.

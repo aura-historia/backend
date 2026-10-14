@@ -63,6 +63,17 @@ pub(crate) enum ProductListingEventCodecError {
     },
 }
 
+pub(crate) fn schema_version(payload: &ProductListingEventPayload) -> i16 {
+    if match payload {
+        ProductListingEventPayload::Discovered(v) => v.delivery().is_some(),
+        ProductListingEventPayload::Changed(v) => v.delivery().is_some(),
+    } {
+        2
+    } else {
+        1
+    }
+}
+
 pub(crate) fn encode(
     payload: &ProductListingEventPayload,
 ) -> Result<Value, ProductListingEventCodecError> {
@@ -109,22 +120,49 @@ fn decode_domain_payload_with_group(
             event_group: event_group.to_owned(),
         });
     }
-    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
+    if !matches!(schema_version, 1 | 2) {
         return Err(ProductListingEventCodecError::UnsupportedSchemaVersion {
             event_type: event_type.to_owned(),
             schema_version,
         });
     }
 
+    let mut shape = payload.clone();
+    if schema_version == 2 {
+        let object = shape
+            .as_object_mut()
+            .ok_or_else(|| invalid_field("payload", "expected object"))?;
+        let delivery = object.remove("delivery").ok_or_else(|| {
+            ProductListingEventCodecError::MissingField {
+                field: "delivery".into(),
+            }
+        })?;
+        if delivery.is_null() {
+            return Err(invalid_field("delivery", "v2 delivery must be present"));
+        }
+        if event_kind == ProductListingEventType::Changed {
+            let change = delivery
+                .as_object()
+                .ok_or_else(|| invalid_field("delivery", "expected transition"))?;
+            if change.len() != 2
+                || !change.contains_key("previous")
+                || !change.contains_key("current")
+            {
+                return Err(invalid_field("delivery", "invalid transition"));
+            }
+        }
+    }
     match event_kind {
         ProductListingEventType::Discovered => {
-            validate_discovered_shape(payload)?;
+            validate_discovered_shape(&shape)?;
             serde_json::from_value::<DiscoveredDto>(payload.clone())
                 .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })
                 .and_then(TryInto::try_into)
         }
         ProductListingEventType::Changed => {
-            validate_changed_shape(payload)?;
+            if schema_version == 1 || shape.as_object().is_none_or(|v| !v.is_empty()) {
+                validate_changed_shape(&shape)?;
+            }
             serde_json::from_value::<ChangedDto>(payload.clone())
                 .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })
                 .and_then(ChangedDto::try_into_payload)
@@ -308,6 +346,8 @@ struct DiscoveredDto {
     url: String,
     image_count: u64,
     auction: Option<AuctionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delivery: Option<Value>,
 }
 
 impl TryFrom<&ProductListingDiscovered> for DiscoveredDto {
@@ -315,6 +355,14 @@ impl TryFrom<&ProductListingDiscovered> for DiscoveredDto {
 
     fn try_from(value: &ProductListingDiscovered) -> Result<Self, Self::Error> {
         Ok(Self {
+            delivery: value
+                .delivery()
+                .map(crate::delivery_codec::encode)
+                .transpose()
+                .map_err(|source| ProductListingEventCodecError::InvalidField {
+                    field: "delivery",
+                    source,
+                })?,
             listing_source_id: value.listing_source_id().as_uuid().to_string(),
             source_listing_id: value.source_listing_id().as_ref().to_owned(),
             title: value.title().map(LocalizedTextDto::from),
@@ -348,6 +396,14 @@ impl TryFrom<DiscoveredDto> for ProductListingEventPayload {
         let auction = value.auction.map(TryInto::try_into).transpose()?.flatten();
 
         ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
+            delivery: value
+                .delivery
+                .map(crate::delivery_codec::decode)
+                .transpose()
+                .map_err(|source| ProductListingEventCodecError::InvalidField {
+                    field: "delivery",
+                    source,
+                })?,
             listing_source_id,
             source_listing_id,
             title,
@@ -379,6 +435,8 @@ struct ChangedDto {
     lifecycle: Option<LifecycleChangeDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sale_observation: Option<SaleObservationChangeDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delivery: Option<ValueChangeDto<Option<Value>>>,
 }
 
 impl TryFrom<&ProductListingChanged> for ChangedDto {
@@ -400,6 +458,31 @@ impl TryFrom<&ProductListingChanged> for ChangedDto {
                 .transpose()?,
         };
         let changed = Self {
+            delivery: value
+                .delivery()
+                .map(|v| {
+                    Ok::<_, ProductListingEventCodecError>(ValueChangeDto {
+                        previous: v
+                            .previous()
+                            .as_ref()
+                            .map(crate::delivery_codec::encode)
+                            .transpose()
+                            .map_err(|source| ProductListingEventCodecError::InvalidField {
+                                field: "delivery",
+                                source,
+                            })?,
+                        current: v
+                            .current()
+                            .as_ref()
+                            .map(crate::delivery_codec::encode)
+                            .transpose()
+                            .map_err(|source| ProductListingEventCodecError::InvalidField {
+                                field: "delivery",
+                                source,
+                            })?,
+                    })
+                })
+                .transpose()?,
             pricing: (!pricing.is_empty()).then_some(pricing),
             availability: value.availability().map(availability_change_dto),
             url: value.url().map(url_change_dto),
@@ -470,6 +553,27 @@ impl ChangedDto {
             .transpose()?;
 
         ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+            delivery: self
+                .delivery
+                .map(|v| {
+                    Ok::<_, ProductListingEventCodecError>((
+                        v.previous
+                            .map(crate::delivery_codec::decode)
+                            .transpose()
+                            .map_err(|source| ProductListingEventCodecError::InvalidField {
+                                field: "delivery",
+                                source,
+                            })?,
+                        v.current
+                            .map(crate::delivery_codec::decode)
+                            .transpose()
+                            .map_err(|source| ProductListingEventCodecError::InvalidField {
+                                field: "delivery",
+                                source,
+                            })?,
+                    ))
+                })
+                .transpose()?,
             price: pricing.as_ref().and_then(|value| value.price),
             price_estimate_min: pricing.as_ref().and_then(|value| value.price_estimate_min),
             price_estimate_max: pricing.as_ref().and_then(|value| value.price_estimate_max),
@@ -484,7 +588,8 @@ impl ChangedDto {
     }
 
     fn is_empty(&self) -> bool {
-        self.pricing.is_none()
+        self.delivery.is_none()
+            && self.pricing.is_none()
             && self.availability.is_none()
             && self.url.is_none()
             && self.images.is_none()
@@ -1561,6 +1666,7 @@ mod tests {
         let observation =
             ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fxrate_core::FxRateId::new());
         let payload = changed_payload(RehydratedProductListingChanged {
+            delivery: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
@@ -1956,6 +2062,7 @@ mod tests {
 
     fn discovered_payload() -> ProductListingEventPayload {
         ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
+            delivery: None,
             listing_source_id: ListingSourceId::try_from(storage_uuid(
                 "01900000-0000-7000-8000-000000000001",
             ))
@@ -1991,6 +2098,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("FX rate ID: {error}"));
         let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fx_rate_id);
         changed_payload(RehydratedProductListingChanged {
+            delivery: None,
             price: Some((None, Some(ProductListingPrice::from(price(20))))),
             price_estimate_min: Some((None, Some(price(15)))),
             price_estimate_max: Some((None, Some(price(25)))),
@@ -2030,6 +2138,7 @@ mod tests {
 
     fn withdrawal_payload() -> ProductListingEventPayload {
         changed_payload(RehydratedProductListingChanged {
+            delivery: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
@@ -2056,5 +2165,67 @@ mod tests {
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
+    }
+    #[test]
+    fn delivery_v2_roundtrip_retains_strict_historical_v1_and_rejects_corruption() {
+        use product_listing_core::delivery::ListingDelivery;
+        let delivery = ListingDelivery::inherited(ListingSourceId::new());
+        let payload = changed_payload(RehydratedProductListingChanged {
+            delivery: Some((None, Some(delivery))),
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            availability: None,
+            url: None,
+            images: None,
+            auction: None,
+            lifecycle: None,
+            sale_observation: None,
+        });
+        let wire = encode(&payload).unwrap();
+        assert_eq!(2, schema_version(&payload));
+        assert_eq!(
+            payload,
+            decode("PRODUCT_LISTING_CHANGED", 2, &wire).unwrap()
+        );
+        assert!(decode("PRODUCT_LISTING_CHANGED", 1, &wire).is_err());
+        let historical = discovered_payload();
+        let historical_wire = encode(&historical).unwrap();
+        assert_eq!(1, schema_version(&historical));
+        assert_eq!(
+            historical,
+            decode("PRODUCT_LISTING_DISCOVERED", 1, &historical_wire).unwrap()
+        );
+        assert!(decode("PRODUCT_LISTING_DISCOVERED", 2, &historical_wire).is_err());
+        for field in ["previous", "current"] {
+            let mut corrupt = wire.clone();
+            corrupt["delivery"].as_object_mut().unwrap().remove(field);
+            assert!(decode("PRODUCT_LISTING_CHANGED", 2, &corrupt).is_err());
+        }
+        for field in [
+            "schema",
+            "source_id",
+            "integration",
+            "selection",
+            "rate_inputs",
+            "shipping",
+            "collection",
+        ] {
+            let mut corrupt = wire.clone();
+            corrupt["delivery"]["current"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert!(
+                decode("PRODUCT_LISTING_CHANGED", 2, &corrupt).is_err(),
+                "{field}"
+            );
+        }
+        let mut equal = wire.clone();
+        equal["delivery"]["previous"] = equal["delivery"]["current"].clone();
+        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &equal).is_err());
+        let mut future = wire;
+        future["delivery"]["current"]["schema"] = json!("LISTING_DELIVERY_V2");
+        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &future).is_err());
     }
 }

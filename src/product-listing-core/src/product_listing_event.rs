@@ -1,3 +1,4 @@
+use crate::delivery::ListingDelivery;
 use crate::description::Description;
 use crate::listing_availability::ListingAvailability;
 use crate::product_listing::{
@@ -45,6 +46,13 @@ impl ProductListingEventPayload {
     pub fn rehydrate_discovered(
         state: RehydratedProductListingDiscovered,
     ) -> Result<Self, RehydrateProductListingEventError> {
+        if state
+            .delivery
+            .as_ref()
+            .is_some_and(|d| d.source_id() != state.listing_source_id)
+        {
+            return Err(RehydrateProductListingEventError::DeliverySourceMismatch);
+        }
         Ok(Self::Discovered(ProductListingDiscovered {
             listing_source_id: state.listing_source_id,
             source_listing_id: state.source_listing_id,
@@ -55,6 +63,7 @@ impl ProductListingEventPayload {
             url: state.url,
             image_count: state.image_count,
             auction: ProductListingAuction::normalize(state.auction),
+            delivery: state.delivery.map(Box::new),
         }))
     }
 
@@ -63,7 +72,13 @@ impl ProductListingEventPayload {
     pub fn rehydrate_changed(
         state: RehydratedProductListingChanged,
     ) -> Result<Self, RehydrateProductListingEventError> {
+        if let Some((Some(previous), Some(current))) = &state.delivery
+            && previous.source_id() != current.source_id()
+        {
+            return Err(RehydrateProductListingEventError::DeliverySourceMismatch);
+        }
         let changed = ProductListingChanged {
+            delivery: value_change(state.delivery, "delivery")?.map(Box::new),
             price: value_change(state.price, "price")?,
             price_estimate_min: value_change(state.price_estimate_min, "price estimate minimum")?,
             price_estimate_max: value_change(state.price_estimate_max, "price estimate maximum")?,
@@ -127,6 +142,7 @@ pub struct RehydratedProductListingDiscovered {
     pub url: Url,
     pub image_count: ProductListingImageCount,
     pub auction: Option<ProductListingAuction>,
+    pub delivery: Option<ListingDelivery>,
 }
 
 /// Adapter inputs for rebuilding an immutable changed payload.
@@ -145,6 +161,7 @@ pub struct RehydratedProductListingChanged {
         Option<ListingSaleObservation>,
         Option<ListingSaleObservation>,
     )>,
+    pub delivery: Option<(Option<ListingDelivery>, Option<ListingDelivery>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -181,6 +198,8 @@ impl TryFrom<usize> for ProductListingImageCount {
 pub enum RehydrateProductListingEventError {
     #[error("changed ProductListing event payload is empty")]
     EmptyChanged,
+    #[error("event delivery source mismatch")]
+    DeliverySourceMismatch,
     #[error("ProductListing event {field} has equal previous and current values")]
     EqualValues { field: &'static str },
 
@@ -203,9 +222,14 @@ pub struct ProductListingDiscovered {
     url: Url,
     image_count: ProductListingImageCount,
     auction: Option<ProductListingAuction>,
+    delivery: Option<Box<ListingDelivery>>,
 }
 
 impl ProductListingDiscovered {
+    pub fn delivery(&self) -> Option<&ListingDelivery> {
+        self.delivery.as_deref()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         listing_source_id: ListingSourceId,
@@ -217,6 +241,7 @@ impl ProductListingDiscovered {
         url: Url,
         image_count: ProductListingImageCount,
         auction: Option<ProductListingAuction>,
+        delivery: Option<ListingDelivery>,
     ) -> Self {
         Self {
             listing_source_id,
@@ -228,6 +253,7 @@ impl ProductListingDiscovered {
             url,
             image_count,
             auction: ProductListingAuction::normalize(auction),
+            delivery: delivery.map(Box::new),
         }
     }
 
@@ -323,11 +349,13 @@ pub struct ProductListingChanged {
     auction: Option<Box<ValueChange<Option<ProductListingAuction>>>>,
     lifecycle: Option<ProductListingLifecycleChange>,
     sale_observation: Option<ValueChange<Option<ListingSaleObservation>>>,
+    delivery: Option<Box<ValueChange<Option<ListingDelivery>>>>,
 }
 
 impl ProductListingChanged {
     pub(crate) const fn empty() -> Self {
         Self {
+            delivery: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
@@ -340,6 +368,18 @@ impl ProductListingChanged {
         }
     }
 
+    pub fn delivery(&self) -> Option<&ValueChange<Option<ListingDelivery>>> {
+        self.delivery.as_deref()
+    }
+    pub(crate) fn change_delivery(
+        &mut self,
+        previous: Option<ListingDelivery>,
+        current: Option<ListingDelivery>,
+    ) {
+        let mut change = self.delivery.take().map(|v| *v);
+        coalesce_value_change(&mut change, previous, current);
+        self.delivery = change.map(Box::new);
+    }
     pub(crate) fn change_price(
         &mut self,
         previous: Option<ProductListingPrice>,
@@ -446,7 +486,8 @@ impl ProductListingChanged {
     }
 
     pub(crate) const fn is_empty(&self) -> bool {
-        self.price.is_none()
+        self.delivery.is_none()
+            && self.price.is_none()
             && self.price_estimate_min.is_none()
             && self.price_estimate_max.is_none()
             && self.availability.is_none()
@@ -623,6 +664,7 @@ mod tests {
         assert_eq!(
             Err(RehydrateProductListingEventError::SaleObservationCorrectionUnsupported),
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
@@ -643,6 +685,7 @@ mod tests {
         assert_eq!(
             Err(RehydrateProductListingEventError::EqualValues { field: "price" }),
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: Some((
                     Some(ProductListingPrice::from(price)),
                     Some(ProductListingPrice::from(price)),
@@ -663,6 +706,7 @@ mod tests {
     fn should_rehydrate_on_request_price_change() {
         let payload =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: Some((Some(ProductListingPrice::OnRequest), None)),
                 price_estimate_min: None,
                 price_estimate_max: None,
@@ -688,6 +732,7 @@ mod tests {
     fn should_reject_lifecycle_availability_composites_that_violate_final_state() {
         let withdrawn =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
@@ -707,6 +752,7 @@ mod tests {
 
         let restored =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
@@ -739,6 +785,7 @@ mod tests {
         ] {
             assert!(
                 ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                    delivery: None,
                     price: None,
                     price_estimate_min: None,
                     price_estimate_max: None,
@@ -758,6 +805,7 @@ mod tests {
     fn should_reject_empty_rehydrated_changed_payload() {
         let result =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                delivery: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,

@@ -519,6 +519,7 @@ mod tests {
         sale_observation: Option<ListingSaleObservation>,
     ) -> Result<ProductListing, Box<dyn std::error::Error>> {
         Ok(ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: ProductListingId::new(),
             title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

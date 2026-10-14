@@ -1,4 +1,4 @@
-//! Shared SHIP_TERMS_V1 JSON protocol. References use the consuming adapter's codec.
+//! Shared shipping terms and listing delivery JSON protocols. References use adapter codecs.
 //! Nullable assertions must be present; reconstruction uses domain constructors.
 use application::error::{BoxError, box_error};
 use geo::{
@@ -801,3 +801,5 @@ mod tests {
         }
     }
 }
+
+pub mod listing_delivery;

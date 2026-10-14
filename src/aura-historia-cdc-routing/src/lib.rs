@@ -1,4 +1,5 @@
 //! Transport-independent CDC route policy, validation and compact job construction.
+mod delivery;
 use geo_service::resolution::ResolutionId;
 use std::collections::BTreeMap;
 
@@ -243,10 +244,33 @@ fn product_event_routing_facts(
         .get("payload")
         .ok_or(CdcRouteError::MissingColumn("payload"))?;
 
-    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
+    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION
+        && !(schema_version == 2
+            && event_group == "DOMAIN"
+            && matches!(
+                event_type.as_str(),
+                "PRODUCT_LISTING_DISCOVERED" | "PRODUCT_LISTING_CHANGED"
+            ))
+    {
         return Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version });
     }
 
+    let mut legacy_shape = payload.clone();
+    let delivery_changed = schema_version == 2 && event_type == "PRODUCT_LISTING_CHANGED";
+    if schema_version == 2 {
+        let delivery = legacy_shape
+            .as_object_mut()
+            .ok_or(CdcRouteError::InvalidProductListingEventPayload)?
+            .remove("delivery")
+            .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
+        delivery::validate(&delivery, delivery_changed)?;
+        if event_type == "PRODUCT_LISTING_DISCOVERED"
+            && delivery.get("source_id") != payload.get("listingSourceId")
+        {
+            return Err(CdcRouteError::InvalidProductListingEventPayload);
+        }
+    }
+    let payload = &legacy_shape;
     let event_kind = match (event_type.as_str(), event_group.as_str()) {
         ("PRODUCT_LISTING_DISCOVERED", "DOMAIN") => {
             validate_discovered_payload(payload)?;
@@ -254,7 +278,11 @@ fn product_event_routing_facts(
         }
         ("PRODUCT_LISTING_CHANGED", "DOMAIN") => {
             let (has_main_price_change, has_availability_change, has_image_change) =
-                validate_changed_payload(payload)?;
+                if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
+                    (false, false, false)
+                } else {
+                    validate_changed_payload(payload)?
+                };
             return Ok(ProductListingEventRoutingFacts {
                 event_id,
                 product_listing_id,
@@ -1674,6 +1702,35 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn delivery_v2_projects_without_price_notifications_or_private_job_content() {
+        let config = product_listing_core::delivery::ListingDelivery::inherited(
+            "ls_01h455vb4pex5vy7enb1p677v1".parse().unwrap(),
+        );
+        let current = shipping_json::listing_delivery::encode::<
+            crate::delivery::StoredDeliveryReferences,
+        >(&config)
+        .unwrap();
+        let row = serde_json::json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":2,"payload":{"delivery":{"previous":null,"current":current}}});
+        let jobs = route_change(&change("product_listing_events", "insert", row.clone())).unwrap();
+        assert_eq!(
+            vec![WorkerQueue::ProductListingOpenSearch],
+            jobs.iter().map(|j| j.target_queue).collect::<Vec<_>>()
+        );
+        for job in jobs {
+            let body = aura_historia_jobs::wire::encode(&job).unwrap();
+            assert!(!body.contains("LISTING_DELIVERY") && !body.contains("selection"));
+        }
+        let mut v1 = row.clone();
+        v1["event_type_schema_version"] = serde_json::json!(1);
+        assert!(route_change(&change("product_listing_events", "insert", v1)).is_err());
+        let mut corrupt = row;
+        corrupt["payload"]["delivery"]
+            .as_object_mut()
+            .unwrap()
+            .remove("previous");
+        assert!(route_change(&change("product_listing_events", "insert", corrupt)).is_err());
     }
 }
 

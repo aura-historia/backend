@@ -2,6 +2,15 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-14 — Listing delivery assignments and overrides (#2063)
+
+- Added protected source-keyed delivery inspection and revision-checked PATCH, plus
+  asynchronous single-command submission with the existing Idempotency-Key contract.
+- Supports explicit/default/inline/suppressed selection, scoped rate inputs and complete
+  shipping/collection overrides. Unresolved provider assignment never implies inheritance.
+- Public listing history adds address-free `DELIVERY_CHANGED`; delivery changes retain the
+  listing lifecycle and unrelated canonical facts.
+
 ## 2026-10-14 — Source shipping profile management (#2062)
 
 - Added protected source-scoped shipping profile list/detail, idempotent creation, complete content/evidence replacement, retirement/restoration, and explicit default assign/clear routes. Terms are advertised arrangements, never quotes. `shp_` TypeIDs retain source ownership; creation does not select a default.

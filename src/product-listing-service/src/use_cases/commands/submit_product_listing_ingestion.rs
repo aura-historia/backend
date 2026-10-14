@@ -355,6 +355,13 @@ fn validate_intent(
             }
         }
         ProductListingIngestionIntent::Withdraw(_) => {}
+        ProductListingIngestionIntent::ChangeDelivery(c) => {
+            if let application::patch_field::PatchField::Set(p) = &c.delivery
+                && p.apply(c.product_key.listing_source_id, None).is_err()
+            {
+                return Err(ProductListingIngestionRejectionReason::InvalidDeliveryPatch);
+            }
+        }
         ProductListingIngestionIntent::CaptureRaw(command) => {
             validate_source_record_key_value(&command.source_record_key).map_err(|error| {
                 match error {

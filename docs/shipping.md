@@ -107,6 +107,35 @@ after profile retirement continues to identify that retired profile. Missing or 
 explicit references never select another profile. Neither retirement nor source
 removal changes a merchant's advertised no-shipping assertion.
 
+## Listing configuration persistence and integration scope
+
+[ProductListing](product-listing.md#listing-delivery-assertions) owns canonical item writes,
+optimistic revisions and semantic events. Configuration is stored with its listing in
+`LISTING_DELIVERY_V1`; source/profile references use native UUIDs in storage and TypeIDs
+in transport. Every field, including nullable selection and rate inputs, is required;
+invalid references, unknown fields/versions and constructor failures fail closed.
+Whole shipping and collection components use the existing strict terms protocol.
+
+Source-authored profiles and provider profiles have distinct integration scopes. Provider
+scope is the exact enabled method/domain for the source. Shopify uses its configured
+shop domain; WooCommerce requires an explicitly configured shipping integration domain,
+never the source presentation URL. Provider acquisition/configuration owns that binding.
+Profile selection must match that scope as well as immutable source ownership. Source management creates source-authored
+profiles; provider acquisition must explicitly bind provider profiles before selecting them.
+Opaque class/variant identities inherit this scope; edits cannot change the scope while
+retaining old facts. A provider assignment without a reliable selection keeps inheritance
+blocked. Clearing it never silently assigns a source default. Provider synchronization and
+binding acquisition remain owned by the evidence/synchronization contract.
+
+Listing writes validate current active profiles and compatible explicit PartyLocations,
+including equal commands using absent default configuration, under the existing source/grant locks. Whole-configuration
+clear remains available after dependencies become invalid; provider clear retains the
+old integration with no selection, inputs or overrides. Replaced/cleared location
+blocks do not borrow or validate discarded inherited sites. Reverse profile/source indexes
+support bounded invalidation; shared profile management performs no listing rewrites.
+Only protected reads expose item configuration. Public history and ordinary downstream
+jobs contain a delivery-change notice or identities, without site assertions.
+
 ## Immutable management change signals
 
 Profile state/history/evidence and one minimal `shipping_changes` signal commit

@@ -21,3 +21,5 @@ pub mod process_shopify_product_listing;
 
 pub mod partner_product_listings;
 pub(crate) mod product_listing_management;
+
+pub mod change_product_listing_delivery;

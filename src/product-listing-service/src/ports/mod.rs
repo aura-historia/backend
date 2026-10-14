@@ -177,3 +177,5 @@ pub use watchlist_notification_recipient_reader::{
 };
 
 pub mod shopify_product_decoder;
+
+pub mod product_listing_delivery;
