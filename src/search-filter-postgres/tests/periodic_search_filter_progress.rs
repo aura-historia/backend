@@ -22,6 +22,58 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn logical_run_rejects_filter_snapshot_identity_mismatches() {
+    use search_filter_service::ports::{
+        PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReadError,
+        PeriodicSearchFilterCandidateReader,
+    };
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let filter = seed_filter(&unit, &pool, "run-identity@example.test").await;
+    let mut tx = begin(&unit).await;
+    let end = SqlxPeriodicSearchFilterProgressFactory
+        .in_transaction(&mut tx)
+        .begin_run(OffsetDateTime::now_utc() + Duration::seconds(1))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let reader = search_filter_postgres::SqlxPeriodicSearchFilterCandidateReader::new(pool.clone());
+    for field in ["user_id", "user_search_filter_id"] {
+        let original: serde_json::Value = sqlx::query_scalar(
+            "SELECT snapshot FROM search_filter_matching_run_filters WHERE window_end = $1 AND user_search_filter_id = $2",
+        ).bind(end).bind(filter.id().as_uuid()).fetch_one(&pool).await.unwrap();
+        let mut corrupt = original.clone();
+        corrupt[field] = serde_json::json!(uuid::Uuid::now_v7());
+        sqlx::query("UPDATE search_filter_matching_run_filters SET snapshot = $3 WHERE window_end = $1 AND user_search_filter_id = $2")
+            .bind(end).bind(filter.id().as_uuid()).bind(corrupt).execute(&pool).await.unwrap();
+        assert!(matches!(
+            reader
+                .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+                    after: None,
+                    page_size: 100,
+                    eligible_at_or_before: end,
+                })
+                .await,
+            Err(PeriodicSearchFilterCandidateReadError::InvalidPersistedState { .. })
+        ));
+        sqlx::query("UPDATE search_filter_matching_run_filters SET snapshot = $3 WHERE window_end = $1 AND user_search_filter_id = $2")
+            .bind(end).bind(filter.id().as_uuid()).bind(original).execute(&pool).await.unwrap();
+    }
+    assert_eq!(
+        1,
+        reader
+            .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+                after: None,
+                page_size: 100,
+                eligible_at_or_before: end,
+            })
+            .await
+            .unwrap()
+            .len()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn logical_run_freezes_filters_resumes_after_crash_and_does_not_repeat_completed_users() {
     use search_filter_postgres::SqlxPeriodicSearchFilterCandidateReader;
     use search_filter_service::ports::{

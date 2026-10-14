@@ -40,6 +40,10 @@ ALTER TABLE search_filter_matches ADD COLUMN notification_selection_complete boo
 ALTER TABLE search_filter_matches ADD COLUMN notification_recovery_after timestamptz NOT NULL DEFAULT now();
 CREATE INDEX search_filter_match_pending_selection ON search_filter_matches(notification_recovery_after, created, origin_event_id, user_search_filter_id, product_listing_id)
     WHERE matching_run_end IS NOT NULL AND NOT notification_selection_complete;
+-- Immediate finalization probes one user/run after every selection. Keep this
+-- lookup independent of the size of other users' pending recovery backlog.
+CREATE INDEX search_filter_match_pending_group ON search_filter_matches(matching_run_end, user_id)
+    WHERE matching_run_end IS NOT NULL AND NOT notification_selection_complete;
 
 -- Membership snapshots outlive deletion of an in-app notification. The match key
 -- is retained as the notification fence; a finalized group cannot gain members.

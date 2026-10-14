@@ -23,6 +23,8 @@ impl SqlxPeriodicSearchFilterCandidateReader {
 
 #[derive(Debug, FromRow)]
 struct PeriodicCandidateRow {
+    member_filter_id: uuid::Uuid,
+    member_user_id: uuid::Uuid,
     user_search_filter_id: uuid::Uuid,
     user_id: uuid::Uuid,
     name: String,
@@ -50,21 +52,23 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
         sqlx::query_as::<_, PeriodicCandidateRow>(
             r#"
             WITH candidates AS (
-                SELECT f.*, COALESCE(p.matched_through, f.created) AS matched_through
+                SELECT f.*, COALESCE(p.matched_through, f.created) AS matched_through,
+                       f.user_search_filter_id AS member_filter_id, f.user_id AS member_user_id
                 FROM search_filters f LEFT JOIN search_filter_periodic_match_state p USING(user_search_filter_id)
                 WHERE NOT EXISTS (SELECT 1 FROM search_filter_matching_runs WHERE window_end = $1)
                     AND f.state = 'ACTIVE' AND f.created <= $1 AND COALESCE(p.matched_through, f.created) < $1
                 UNION ALL
-                SELECT f.*, (r.snapshot->>'matched_through')::timestamptz AS matched_through
+                SELECT f.*, (r.snapshot->>'matched_through')::timestamptz AS matched_through,
+                       r.user_search_filter_id AS member_filter_id, r.user_id AS member_user_id
                 FROM search_filter_matching_run_filters r
                 CROSS JOIN LATERAL jsonb_populate_record(NULL::search_filters, r.snapshot) f
                 WHERE r.window_end = $1 AND NOT r.terminal
                     AND EXISTS (SELECT 1 FROM search_filter_matching_runs run WHERE run.window_end = $1 AND run.status = 'RUNNING')
             )
-            SELECT user_search_filter_id, user_id, name, state, search, embedding, matching_evidence_policy, created, matched_through, version
+            SELECT member_filter_id, member_user_id, user_search_filter_id, user_id, name, state, search, embedding, matching_evidence_policy, created, matched_through, version
             FROM candidates
-            WHERE ($2::uuid IS NULL OR user_search_filter_id > $2)
-            ORDER BY user_search_filter_id ASC
+            WHERE ($2::uuid IS NULL OR member_filter_id > $2)
+            ORDER BY member_filter_id ASC
             LIMIT $3
         "#,
         )
@@ -80,6 +84,15 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
         )?
         .into_iter()
         .map(|row| {
+            if row.member_filter_id != row.user_search_filter_id
+                || row.member_user_id != row.user_id
+            {
+                return Err(PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                    source: box_error(std::io::Error::other(
+                        "periodic matching filter snapshot identity mismatch",
+                    )),
+                });
+            }
             let search = product_search_from_json(row.search).map_err(|source| {
                 PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
                     source: box_error(source),

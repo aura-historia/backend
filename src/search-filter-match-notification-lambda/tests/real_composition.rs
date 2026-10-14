@@ -20,6 +20,44 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn concurrent_replay_observes_committed_selection_before_creating_notifications() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        seed_run_match(&pool, user, filter, listing, origin, end).await?;
+        terminal_filter(&pool, end, filter).await?;
+
+        // An earlier selection holds the authoritative user lock. Its terminal
+        // decision must be observed by a replay waiting for that same lock.
+        let mut selection = pool.begin().await?;
+        sqlx::query("SELECT user_id FROM users WHERE user_id = $1 FOR UPDATE")
+            .bind(user.as_uuid()).fetch_one(&mut *selection).await?;
+        sqlx::query("UPDATE search_filter_matches SET notification_selection_complete = true WHERE user_id = $1")
+            .bind(user.as_uuid()).execute(&mut *selection).await?;
+        let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *selection).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        let job = job_body(user, filter, listing, origin)?;
+        let replay = tokio::spawn(async move {
+            handler(event("concurrent-replay", job), generator.as_ref()).await
+        });
+        wait_for_blocked(&pool, blocker, 1).await?;
+        selection.commit().await?;
+        assert!(failure_ids(replay.await??).is_empty());
+        assert_eq!(0, notification_count(&pool, user, filter, origin).await?);
+        assert_eq!(0, digest_delivery_count(&pool, user).await?);
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_groups WHERE user_id = $1 AND finalized_at IS NULL")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(0, pending);
+        Ok(())
+    }.await;
+    assert!(result.is_ok(), "concurrent terminal selection: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn last_notification_selection_enqueues_digest_without_hourly_maintenance() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;

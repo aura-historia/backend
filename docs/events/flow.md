@@ -259,7 +259,9 @@ run deadline. A user's group can finish independently of other users' failed fil
 
 New matches carry their run identity at insertion. The existing CDC generator still
 selects each match under the authoritative user-tier lock and unchanged monthly
-ranking (distinct origin events, creation time and event identity). Email grouping
+ranking (distinct origin events, creation time and event identity). Selection reads
+its completion fence after acquiring that lock, including suppression and replay,
+so concurrent attempts cannot reverse a committed terminal decision. Email grouping
 and cross-filter display deduplication do not change that quota unit. Per-filter
 matches, feedback and per-match in-app notifications retain their existing behavior.
 Notification creation, eligible email membership snapshots and selection completion

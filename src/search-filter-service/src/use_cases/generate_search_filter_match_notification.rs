@@ -202,6 +202,16 @@ where
             }
         })?;
 
+        // Serialize every selection outcome, including suppression and replay,
+        // before reading its completion fence. Reading before this lock can use
+        // stale state after another attempt commits while this one waits.
+        let tier = self
+            .tier_entitlements
+            .in_transaction(&mut tx)
+            .lock_user_tier(command.user_id)
+            .await
+            .map_err(tier_entitlements_error)?;
+
         let match_source = self
             .matches
             .in_transaction(&mut tx)
@@ -261,12 +271,6 @@ where
             .await
             .map_err(content_assessment_read_error)?;
 
-        let tier = self
-            .tier_entitlements
-            .in_transaction(&mut tx)
-            .lock_user_tier(match_source.user_id)
-            .await
-            .map_err(tier_entitlements_error)?;
         let Some(tier) = tier else {
             self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
