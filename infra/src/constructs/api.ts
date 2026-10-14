@@ -387,11 +387,25 @@ export class BackendHttpApi extends Construct {
       "/api/v1/product-listings",
       "/api/v1/product-listings/*",
     ];
+    const uncachedApiBehavior = {
+      allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+      cachedMethods: ["GET", "HEAD", "OPTIONS"],
+      cachePolicyId: CLOUDFRONT_CACHING_DISABLED_POLICY_ID,
+      compress: true,
+      originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
+      targetOriginId: originId,
+      viewerProtocolPolicy: "redirect-to-https",
+    };
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
       distributionConfig: {
         aliases: props.config.apiCloudFrontAliases,
         cacheBehaviors: [
+          // Match private POST assessments before the discovery wildcard, which only allows reads.
+          ...[
+            "/api/v1/product-listings/delivery-assessments",
+            "/api/v1/product-listings/*/delivery-assessment",
+          ].map((pathPattern) => ({ ...uncachedApiBehavior, pathPattern })),
           ...selectiveReadPathPatterns.map((pathPattern) => ({
             allowedMethods: ["GET", "HEAD", "OPTIONS"],
             cachedMethods: ["GET", "HEAD"],
@@ -404,15 +418,9 @@ export class BackendHttpApi extends Construct {
             viewerProtocolPolicy: "redirect-to-https",
           })),
           {
-            allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
-            cachedMethods: ["GET", "HEAD", "OPTIONS"],
             // Keep every other API route uncached; auth and authorization remain application-owned.
-            cachePolicyId: CLOUDFRONT_CACHING_DISABLED_POLICY_ID,
-            compress: true,
-            originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
+            ...uncachedApiBehavior,
             pathPattern: "/api/*",
-            targetOriginId: originId,
-            viewerProtocolPolicy: "redirect-to-https",
           },
         ],
         comment: `${props.stageName} api`,

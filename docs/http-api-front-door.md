@@ -67,7 +67,9 @@ forwarded but not keyed: never add cookie-dependent data to a shared representat
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
 Only reviewed discovery path behaviors use this policy; generic `/api/*` and default
-behaviors use `CachingDisabled`. Wildcard expansion requires route/cache review and
+behaviors use `CachingDisabled`. Private delivery-assessment behaviors precede the
+product-listing discovery wildcard, permit POST and use `CachingDisabled`.
+Wildcard expansion requires route/cache review and
 tests. Do not add token-derived keys, cookie partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
