@@ -65,7 +65,7 @@ pub(crate) async fn command_response(
         None
     };
     let mut response = next.run(request).await;
-    if opted {
+    if let Some(key) = key.as_ref() {
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
@@ -73,7 +73,7 @@ pub(crate) async fn command_response(
         if response.status() != axum::http::StatusCode::UNAUTHORIZED
             && response.status() != axum::http::StatusCode::FORBIDDEN
         {
-            echo_key(&mut response, key.as_ref());
+            echo_key(&mut response, Some(key));
         }
     }
     response
@@ -91,6 +91,46 @@ fn route_matches(pattern: &str, path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn command_metadata_preserves_keyless_cache_headers() {
+        use axum::{Router, body::Body, http::Request, middleware, routing::post};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/api/v1/me/search-filters",
+                post(|| async { ([(axum::http::header::CACHE_CONTROL, "no-store")], "ok") }),
+            )
+            .layer(middleware::from_fn(command_response));
+
+        for key in [None, Some("retry-123")] {
+            let mut request = Request::post("/api/v1/me/search-filters");
+            if let Some(key) = key {
+                request = request.header(KEY_HEADER, key);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                if key.is_some() {
+                    "private, no-store"
+                } else {
+                    "no-store"
+                },
+                response.headers()[axum::http::header::CACHE_CONTROL]
+            );
+            assert_eq!(
+                key,
+                response
+                    .headers()
+                    .get(KEY_HEADER)
+                    .map(|value| value.to_str().unwrap())
+            );
+        }
+    }
 
     #[test]
     fn optional_header_preserves_legacy_clients_and_rejects_ambiguous_values() {

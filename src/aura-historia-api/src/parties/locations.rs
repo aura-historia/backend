@@ -890,7 +890,11 @@ mod route_tests {
                 .unwrap();
             assert_eq!(status, response.status(), "{method} {path}");
             assert_eq!(
-                "no-store",
+                if matches!(method, "PATCH" | "PUT") {
+                    "private, no-store"
+                } else {
+                    "no-store"
+                },
                 response.headers().get(header::CACHE_CONTROL).unwrap()
             );
             if status == StatusCode::CREATED {
