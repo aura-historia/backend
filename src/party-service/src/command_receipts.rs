@@ -37,7 +37,9 @@ impl application::idempotency::CommandOutcome
     }
     fn decode(v: serde_json::Value) -> Result<Self, BoxError> {
         use application::idempotency as r;
-        use party_core::party_location::*;
+        use party_core::party_location::{
+            PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
+        };
         Ok(Self {
             id: r::field(&v, "id")?,
             party_id: r::field(&v, "party_id")?,

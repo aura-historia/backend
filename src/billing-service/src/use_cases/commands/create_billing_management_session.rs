@@ -164,8 +164,7 @@ where
                 &self.checkout_sessions,
                 &self.portal_sessions,
             )
-            .await
-            .map_err(CreateBillingManagementSessionError::from)?;
+            .await?;
             return Ok(BillingSessionResult { url });
         }
 

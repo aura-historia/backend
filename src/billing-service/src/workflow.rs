@@ -1,5 +1,9 @@
 //! V1 billing operation state. No provider I/O runs inside a database transaction.
-use crate::ports::*;
+use crate::ports::{
+    CheckoutRedirects, CreateStripeCheckoutSessionRequest, CreateStripeCustomerRequest,
+    CreateStripePortalSessionRequest, StripeBillingError, StripeCheckoutSessionCreator,
+    StripeCustomerCreator, StripePortalSessionCreator,
+};
 use crate::use_cases::commands::create_billing_checkout_session::{
     BillingCycle, BillingPlan, BillingPriceIds, billing_service_context, user_name,
 };
@@ -51,6 +55,18 @@ struct StateV1 {
     associated: bool,
     url: Option<Url>,
     url_deadline: Option<i64>,
+}
+impl StateV1 {
+    fn completed_url(self) -> Result<Url, WorkflowError> {
+        if self
+            .url_deadline
+            .is_none_or(|deadline| deadline <= time::OffsetDateTime::now_utc().unix_timestamp())
+        {
+            return Err(CommandReceiptError::ResultUnavailable.into());
+        }
+        self.url
+            .ok_or_else(|| invalid(static_error("missing completed billing URL")))
+    }
 }
 fn invalid(e: impl Into<application::error::BoxError>) -> WorkflowError {
     CommandReceiptError::InvalidPersistedState(e.into()).into()
@@ -164,15 +180,7 @@ where
         return Err(WorkflowError::ExistingCustomer);
     }
     if completed {
-        if state
-            .url_deadline
-            .is_none_or(|deadline| deadline <= time::OffsetDateTime::now_utc().unix_timestamp())
-        {
-            return Err(CommandReceiptError::ResultUnavailable.into());
-        }
-        return state
-            .url
-            .ok_or_else(|| invalid(static_error("missing completed billing URL")));
+        return state.completed_url();
     }
     // Provider API v1 keys may be pruned after 24h. Never retry ambiguous work beyond 23h.
     if time::OffsetDateTime::now_utc() - admitted_at >= time::Duration::hours(23) {
@@ -335,15 +343,7 @@ pub(crate) async fn portal<P: StripePortalSessionCreator>(
         return Err(WorkflowError::MissingCustomer);
     }
     if operation.completed {
-        if state
-            .url_deadline
-            .is_none_or(|d| d <= time::OffsetDateTime::now_utc().unix_timestamp())
-        {
-            return Err(CommandReceiptError::ResultUnavailable.into());
-        }
-        return state
-            .url
-            .ok_or_else(|| invalid(static_error("missing portal URL")));
+        return state.completed_url();
     }
     if time::OffsetDateTime::now_utc() - operation.admitted_at >= time::Duration::hours(23) {
         return Err(CommandReceiptError::ResultUnavailable.into());

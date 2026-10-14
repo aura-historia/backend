@@ -117,9 +117,8 @@ where
                     application::error::static_error("billing operations unavailable"),
                 )
             })?;
-            let url = crate::workflow::portal(context, user, operations, &self.portal_sessions)
-                .await
-                .map_err(CreateBillingPortalSessionError::from)?;
+            let url =
+                crate::workflow::portal(context, user, operations, &self.portal_sessions).await?;
             return Ok(CreateBillingPortalSessionResult { url });
         }
 

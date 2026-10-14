@@ -1,5 +1,8 @@
 use crate::{
-    ports::*,
+    ports::{
+        ListingIngestionConfiguration, ListingIngestionConfigurationUpdate,
+        ListingSourceIngestionConfigurations, UpdateListingSourceIngestionConfigurations,
+    },
     use_cases::commands::{
         create_listing_source::{CreateListingSourceResult, ListingSourceOperator},
         update_listing_source::UpdateListingSourceResult,
@@ -87,7 +90,9 @@ pub fn configuration_fingerprint(value: &ListingIngestionConfiguration) -> Vec<u
         .to_vec()
 }
 use crate::use_cases::location_default::{LocationDefaultView, SelectedLocationEligibility};
-use listing_source_core::location_default::*;
+use listing_source_core::location_default::{
+    SourceLocationAssignment, SourceLocationEvidence, SourceLocationMeaning,
+};
 pub(crate) fn evidence_value(v: &SourceLocationEvidence) -> Value {
     json!({"reference":v.reference(),"scope":v.scope().as_str()})
 }

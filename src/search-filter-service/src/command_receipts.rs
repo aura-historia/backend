@@ -10,7 +10,7 @@ use application::{
     idempotency::{self as retry, CommandOutcome},
 };
 use auction_core::AuctionId;
-use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::{object_id::ObjectIdError, query::range_query::RangeQuery};
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
@@ -18,434 +18,218 @@ use product_listing_core::{
     listing_orderability::ListingOrderability,
     product_listing_id::ProductListingId,
     product_listing_search::{
-        EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
-        ProductListingSearch,
+        EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
     },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashSet, error::Error, fmt};
+use std::{collections::HashSet, hash::Hash};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-#[derive(Debug)]
-pub(crate) enum ProductListingSearchJsonMappingError {
-    Geography(geo::data::discovery_data::InvalidGeographicQueryData),
-    Serialize(serde_json::Error),
-    Deserialize(serde_json::Error),
-    FormatTimestamp(time::error::Format),
-    ParseTimestamp(time::error::Parse),
-    EnhancedSearchDescription(EnhancedSearchDescriptionError),
-    ObjectId(domain_primitives::object_id::ObjectIdError),
+
+// Receipt-owned V1 payload. Keep its existing JSON shape independent of PostgreSQL row mapping.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    geography: Option<geo::data::discovery_data::GeographicQueryData>,
+    language: String,
+    currency: String,
+    product_listing_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
+    enhanced_search_description: Option<String>,
+    exclude_product_listing_id_query: HashSet<String>,
+    listing_source_id_query: HashSet<String>,
+    exclude_listing_source_id_query: HashSet<String>,
+    auction_id_query: HashSet<String>,
+    price_query: Option<RangeQuery<u64>>,
+    availability_query: Option<AvailabilitySnapshot>,
+    created_query: Option<TimeRangeSnapshot>,
+    updated_query: Option<TimeRangeSnapshot>,
+    lot_bidding_opens_query: Option<TimeRangeSnapshot>,
+    lot_scheduled_closes_query: Option<TimeRangeSnapshot>,
 }
 
-impl fmt::Display for ProductListingSearchJsonMappingError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Geography(_) => formatter.write_str("invalid geographic predicate"),
-            Self::Serialize(_) => {
-                formatter.write_str("search filter product search JSON serialization failed")
-            }
-            Self::Deserialize(_) => {
-                formatter.write_str("persisted search filter product search JSON is invalid")
-            }
-            Self::FormatTimestamp(_) => {
-                formatter.write_str("search filter product search timestamp formatting failed")
-            }
-            Self::ParseTimestamp(_) => {
-                formatter.write_str("search filter product search timestamp is invalid")
-            }
-            Self::EnhancedSearchDescription(_) => {
-                formatter.write_str("persisted enhanced search description is invalid")
-            }
-            Self::ObjectId(_) => {
-                formatter.write_str("persisted product search object ID is invalid")
-            }
-        }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AvailabilitySnapshot {
+    availability: HashSet<String>,
+    orderability: HashSet<String>,
+    include_unspecified: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimeRangeSnapshot {
+    min: Option<String>,
+    max: Option<String>,
+}
+
+impl TimeRangeSnapshot {
+    fn encode(range: RangeQuery<OffsetDateTime>) -> Result<Self, BoxError> {
+        Ok(Self {
+            min: range.min.map(|v| v.format(&Rfc3339)).transpose()?,
+            max: range.max.map(|v| v.format(&Rfc3339)).transpose()?,
+        })
+    }
+
+    fn decode(self) -> Result<RangeQuery<OffsetDateTime>, BoxError> {
+        Ok(RangeQuery {
+            min: self
+                .min
+                .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
+                .transpose()?,
+            max: self
+                .max
+                .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
+                .transpose()?,
+        })
     }
 }
 
-impl Error for ProductListingSearchJsonMappingError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Geography(source) => Some(source),
-            Self::Serialize(source) | Self::Deserialize(source) => Some(source),
-            Self::FormatTimestamp(source) => Some(source),
-            Self::ParseTimestamp(source) => Some(source),
-            Self::EnhancedSearchDescription(source) => Some(source),
-            Self::ObjectId(source) => Some(source),
-        }
-    }
+fn code<T>(value: &str, parse: fn(&str) -> Option<T>) -> Result<T, BoxError> {
+    parse(value).ok_or_else(|| static_error("invalid search receipt code"))
 }
 
-fn serialize_code<T, S>(
-    value: &T,
-    serializer: S,
-    code: fn(T) -> &'static str,
-) -> Result<S::Ok, S::Error>
-where
-    T: Copy,
-    S: serde::Serializer,
-{
-    serializer.serialize_str(code(*value))
-}
-
-fn deserialize_code<'de, T, D>(deserializer: D, parse: fn(&str) -> Option<T>) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = String::deserialize(deserializer)?;
-    parse(&value).ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
-}
-
-fn serialize_set_code<T, S>(
-    values: &HashSet<T>,
-    serializer: S,
-    code: fn(T) -> &'static str,
-) -> Result<S::Ok, S::Error>
-where
-    T: Copy + Eq + std::hash::Hash,
-    S: serde::Serializer,
-{
-    serializer.collect_seq(values.iter().map(|value| code(*value)))
-}
-
-fn deserialize_set_code<'de, T, D>(
-    deserializer: D,
+fn codes<T: Eq + Hash>(
+    values: HashSet<String>,
     parse: fn(&str) -> Option<T>,
-) -> Result<HashSet<T>, D::Error>
-where
-    T: Eq + std::hash::Hash,
-    D: serde::Deserializer<'de>,
-{
-    Vec::<String>::deserialize(deserializer)?
+) -> Result<HashSet<T>, BoxError> {
+    values.into_iter().map(|v| code(&v, parse)).collect()
+}
+
+fn object_ids<T: Eq + Hash>(
+    values: HashSet<String>,
+    parse: fn(uuid::Uuid) -> Result<T, ObjectIdError>,
+) -> Result<HashSet<T>, BoxError> {
+    values
         .into_iter()
         .map(|value| {
-            parse(&value)
-                .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            let id = uuid::Uuid::parse_str(&value)?;
+            if id.to_string() != value {
+                return Err(static_error(
+                    "receipt UUID must use canonical hyphenated lowercase text",
+                ));
+            }
+            Ok(parse(id)?)
         })
         .collect()
 }
 
-mod language {
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, Language::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, Language::from_code)
-    }
-}
-
-mod currency {
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, Currency::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Currency, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, Currency::from_code)
-    }
-}
-
-mod canonical_uuid_set {
-    use super::*;
-
-    pub(crate) fn serialize<S>(
-        values: &HashSet<uuid::Uuid>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_seq(values.iter().map(uuid::Uuid::to_string))
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<uuid::Uuid>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Vec::<String>::deserialize(deserializer)?
-            .into_iter()
-            .map(|value| {
-                let uuid = uuid::Uuid::parse_str(&value).map_err(serde::de::Error::custom)?;
-                if uuid.to_string() != value {
-                    return Err(serde::de::Error::custom(
-                        "persisted UUID must use canonical hyphenated lowercase text",
-                    ));
-                }
-                Ok(uuid)
-            })
-            .collect()
-    }
-}
-
-mod listing_availability {
-    use super::*;
-
-    pub(crate) fn serialize<S>(
-        values: &HashSet<ListingAvailability>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_set_code(values, serializer, ListingAvailability::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<HashSet<ListingAvailability>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_set_code(deserializer, ListingAvailability::from_code)
-    }
-}
-
-mod listing_orderability {
-    use super::*;
-
-    pub(crate) fn serialize<S>(
-        values: &HashSet<ListingOrderability>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_set_code(values, serializer, ListingOrderability::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<HashSet<ListingOrderability>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_set_code(deserializer, ListingOrderability::from_code)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProductListingSearchJson {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    geography: Option<geo::data::discovery_data::GeographicQueryData>,
-    #[serde(with = "language")]
-    language: Language,
-    #[serde(with = "currency")]
-    currency: Currency,
-    product_listing_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
-    enhanced_search_description: Option<String>,
-    #[serde(with = "canonical_uuid_set")]
-    exclude_product_listing_id_query: HashSet<uuid::Uuid>,
-    #[serde(with = "canonical_uuid_set")]
-    listing_source_id_query: HashSet<uuid::Uuid>,
-    #[serde(with = "canonical_uuid_set")]
-    exclude_listing_source_id_query: HashSet<uuid::Uuid>,
-    #[serde(with = "canonical_uuid_set")]
-    auction_id_query: HashSet<uuid::Uuid>,
-    price_query: Option<RangeQuery<u64>>,
-    availability_query: Option<ListingAvailabilityQueryJson>,
-    created_query: Option<TimeRangeJson>,
-    updated_query: Option<TimeRangeJson>,
-    lot_bidding_opens_query: Option<TimeRangeJson>,
-    lot_scheduled_closes_query: Option<TimeRangeJson>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListingAvailabilityQueryJson {
-    #[serde(with = "listing_availability")]
-    availability: HashSet<ListingAvailability>,
-    #[serde(with = "listing_orderability")]
-    orderability: HashSet<ListingOrderability>,
-    include_unspecified: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TimeRangeJson {
-    min: Option<String>,
-    max: Option<String>,
-}
-impl TryFrom<RangeQuery<OffsetDateTime>> for TimeRangeJson {
-    type Error = ProductListingSearchJsonMappingError;
-    fn try_from(v: RangeQuery<OffsetDateTime>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            min: v
-                .min
-                .map(|v| v.format(&Rfc3339))
-                .transpose()
-                .map_err(ProductListingSearchJsonMappingError::FormatTimestamp)?,
-            max: v
-                .max
-                .map(|v| v.format(&Rfc3339))
-                .transpose()
-                .map_err(ProductListingSearchJsonMappingError::FormatTimestamp)?,
-        })
-    }
-}
-impl TryFrom<TimeRangeJson> for RangeQuery<OffsetDateTime> {
-    type Error = ProductListingSearchJsonMappingError;
-    fn try_from(v: TimeRangeJson) -> Result<Self, Self::Error> {
-        Ok(Self {
-            min: v
-                .min
-                .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
-                .transpose()
-                .map_err(ProductListingSearchJsonMappingError::ParseTimestamp)?,
-            max: v
-                .max
-                .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
-                .transpose()
-                .map_err(ProductListingSearchJsonMappingError::ParseTimestamp)?,
-        })
-    }
-}
-impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
-    type Error = ProductListingSearchJsonMappingError;
-
-    fn try_from(v: &ProductListingSearch) -> Result<Self, Self::Error> {
-        Ok(Self {
-            geography: v.geography.as_ref().map(Into::into),
-            language: v.language,
-            currency: v.currency,
-            product_listing_query: v.product_listing_query.clone(),
-            enhanced_search_description: v
-                .enhanced_search_description
-                .as_ref()
-                .map(ToString::to_string),
-            exclude_product_listing_id_query: v
-                .exclude_product_listing_id_query
-                .iter()
-                .copied()
-                .map(ProductListingId::into_uuid)
-                .collect(),
-            listing_source_id_query: v
-                .listing_source_id_query
-                .iter()
-                .copied()
-                .map(|id| id.into_uuid())
-                .collect(),
-            exclude_listing_source_id_query: v
-                .exclude_listing_source_id_query
-                .iter()
-                .copied()
-                .map(|id| id.into_uuid())
-                .collect(),
-            auction_id_query: v
-                .auction_id_query
-                .iter()
-                .copied()
-                .map(AuctionId::into_uuid)
-                .collect(),
-            price_query: v.price_query.map(|v| v.map(u64::from)),
-            availability_query: v.availability_query.as_ref().map(|query| {
-                ListingAvailabilityQueryJson {
-                    availability: query.any_of.iter().copied().collect(),
-                    orderability: query.orderability.iter().copied().collect(),
-                    include_unspecified: query.include_unspecified,
-                }
-            }),
-            created_query: v.created_query.map(TimeRangeJson::try_from).transpose()?,
-            updated_query: v.updated_query.map(TimeRangeJson::try_from).transpose()?,
-            lot_bidding_opens_query: v
-                .lot_bidding_opens_query
-                .map(TimeRangeJson::try_from)
-                .transpose()?,
-            lot_scheduled_closes_query: v
-                .lot_scheduled_closes_query
-                .map(TimeRangeJson::try_from)
-                .transpose()?,
-        })
-    }
-}
-pub(crate) fn product_search_from_json(
-    v: serde_json::Value,
-) -> Result<ProductListingSearch, ProductListingSearchJsonMappingError> {
-    let j: ProductListingSearchJson =
-        serde_json::from_value(v).map_err(ProductListingSearchJsonMappingError::Deserialize)?;
-    let search = ProductListingSearch {
-        geography: j
-            .geography
-            .map(TryInto::try_into)
-            .transpose()
-            .map_err(ProductListingSearchJsonMappingError::Geography)?,
-        language: j.language,
-        currency: j.currency,
-        product_listing_query: j.product_listing_query,
-        enhanced_search_description: j
+fn product_search_to_json(search: &ProductListingSearch) -> Result<Value, BoxError> {
+    let snapshot = SearchSnapshot {
+        geography: search.geography.as_ref().map(Into::into),
+        language: search.language.as_str().to_owned(),
+        currency: search.currency.as_str().to_owned(),
+        product_listing_query: search.product_listing_query.clone(),
+        enhanced_search_description: search
             .enhanced_search_description
-            .map(EnhancedSearchDescription::try_from)
-            .transpose()
-            .map_err(ProductListingSearchJsonMappingError::EnhancedSearchDescription)?,
-        exclude_product_listing_id_query: j
+            .as_ref()
+            .map(ToString::to_string),
+        exclude_product_listing_id_query: search
             .exclude_product_listing_id_query
-            .into_iter()
-            .map(ProductListingId::try_from)
-            .collect::<Result<HashSet<_>, _>>()
-            .map_err(ProductListingSearchJsonMappingError::ObjectId)?
-            .into(),
-        listing_source_id_query: j
+            .iter()
+            .map(|id| id.as_uuid().to_string())
+            .collect(),
+        listing_source_id_query: search
             .listing_source_id_query
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<HashSet<_>, _>>()
-            .map_err(ProductListingSearchJsonMappingError::ObjectId)?
-            .into(),
-        exclude_listing_source_id_query: j
+            .iter()
+            .map(|id| id.as_uuid().to_string())
+            .collect(),
+        exclude_listing_source_id_query: search
             .exclude_listing_source_id_query
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<HashSet<_>, _>>()
-            .map_err(ProductListingSearchJsonMappingError::ObjectId)?
-            .into(),
-        auction_id_query: j
+            .iter()
+            .map(|id| id.as_uuid().to_string())
+            .collect(),
+        auction_id_query: search
             .auction_id_query
-            .into_iter()
-            .map(AuctionId::try_from)
-            .collect::<Result<HashSet<_>, _>>()
-            .map_err(ProductListingSearchJsonMappingError::ObjectId)?
-            .into(),
-        price_query: j.price_query.map(|v| v.map(Into::into)),
-        availability_query: j.availability_query.map(|query| ListingAvailabilityQuery {
-            any_of: query.availability.into(),
-            orderability: query.orderability.into(),
-            include_unspecified: query.include_unspecified,
-        }),
-        created_query: j.created_query.map(TryInto::try_into).transpose()?,
-        updated_query: j.updated_query.map(TryInto::try_into).transpose()?,
-        lot_bidding_opens_query: j
-            .lot_bidding_opens_query
-            .map(TryInto::try_into)
+            .iter()
+            .map(|id| id.as_uuid().to_string())
+            .collect(),
+        price_query: search.price_query.map(|range| range.map(u64::from)),
+        availability_query: search
+            .availability_query
+            .as_ref()
+            .map(|query| AvailabilitySnapshot {
+                availability: query.any_of.iter().map(|v| v.as_str().to_owned()).collect(),
+                orderability: query
+                    .orderability
+                    .iter()
+                    .map(|v| v.as_str().to_owned())
+                    .collect(),
+                include_unspecified: query.include_unspecified,
+            }),
+        created_query: search
+            .created_query
+            .map(TimeRangeSnapshot::encode)
             .transpose()?,
-        lot_scheduled_closes_query: j
+        updated_query: search
+            .updated_query
+            .map(TimeRangeSnapshot::encode)
+            .transpose()?,
+        lot_bidding_opens_query: search
+            .lot_bidding_opens_query
+            .map(TimeRangeSnapshot::encode)
+            .transpose()?,
+        lot_scheduled_closes_query: search
             .lot_scheduled_closes_query
-            .map(TryInto::try_into)
+            .map(TimeRangeSnapshot::encode)
             .transpose()?,
     };
-
-    Ok(search)
+    Ok(serde_json::to_value(snapshot)?)
 }
-pub(crate) fn product_search_to_json(
-    v: &ProductListingSearch,
-) -> Result<serde_json::Value, ProductListingSearchJsonMappingError> {
-    serde_json::to_value(ProductListingSearchJson::try_from(v)?)
-        .map_err(ProductListingSearchJsonMappingError::Serialize)
+
+fn product_search_from_json(value: Value) -> Result<ProductListingSearch, BoxError> {
+    let snapshot: SearchSnapshot = serde_json::from_value(value)?;
+    let availability_query = snapshot
+        .availability_query
+        .map(|query| {
+            Ok::<_, BoxError>(ListingAvailabilityQuery {
+                any_of: codes(query.availability, ListingAvailability::from_code)?.into(),
+                orderability: codes(query.orderability, ListingOrderability::from_code)?.into(),
+                include_unspecified: query.include_unspecified,
+            })
+        })
+        .transpose()?;
+    Ok(ProductListingSearch {
+        geography: snapshot.geography.map(TryInto::try_into).transpose()?,
+        language: code(&snapshot.language, Language::from_code)?,
+        currency: code(&snapshot.currency, Currency::from_code)?,
+        product_listing_query: snapshot.product_listing_query,
+        enhanced_search_description: snapshot
+            .enhanced_search_description
+            .map(EnhancedSearchDescription::try_from)
+            .transpose()?,
+        exclude_product_listing_id_query: object_ids(
+            snapshot.exclude_product_listing_id_query,
+            ProductListingId::try_from,
+        )?
+        .into(),
+        listing_source_id_query: object_ids(snapshot.listing_source_id_query, TryFrom::try_from)?
+            .into(),
+        exclude_listing_source_id_query: object_ids(
+            snapshot.exclude_listing_source_id_query,
+            TryFrom::try_from,
+        )?
+        .into(),
+        auction_id_query: object_ids(snapshot.auction_id_query, AuctionId::try_from)?.into(),
+        price_query: snapshot.price_query.map(|range| range.map(Into::into)),
+        availability_query,
+        created_query: snapshot
+            .created_query
+            .map(TimeRangeSnapshot::decode)
+            .transpose()?,
+        updated_query: snapshot
+            .updated_query
+            .map(TimeRangeSnapshot::decode)
+            .transpose()?,
+        lot_bidding_opens_query: snapshot
+            .lot_bidding_opens_query
+            .map(TimeRangeSnapshot::decode)
+            .transpose()?,
+        lot_scheduled_closes_query: snapshot
+            .lot_scheduled_closes_query
+            .map(TimeRangeSnapshot::decode)
+            .transpose()?,
+    })
 }
 
 impl CommandOutcome for SearchFilterView {
@@ -565,4 +349,116 @@ pub(crate) fn update_intent(command: &crate::use_cases::UpdateOwnedSearchFilterC
     leaf!(lot_bidding_opens_query);
     leaf!(lot_scheduled_closes_query);
     json!({"user_id":command.user_id,"search_filter_id":command.search_filter_id,"name":retry::patch(&command.name,|v|json!(v.as_ref())),"notifications":retry::patch(&command.notifications,|v|json!(v)),"state":retry::patch(&command.state,|v|json!(v.as_str())),"search":search})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{product_search_from_json, product_search_to_json};
+    use serde_json::{Value, json};
+
+    fn snapshot() -> Value {
+        let id = "01890a5d-ac96-774b-bf9d-d5587833efb5";
+        json!({
+            "language": "en",
+            "currency": "EUR",
+            "product_listing_query": ["desk", "chair"],
+            "enhanced_search_description": "antique furniture",
+            "exclude_product_listing_id_query": [id],
+            "listing_source_id_query": [id],
+            "exclude_listing_source_id_query": [id],
+            "auction_id_query": [id],
+            "price_query": {"min": 100},
+            "availability_query": {
+                "availability": ["IN_STOCK"],
+                "orderability": ["ORDERABLE_NOW"],
+                "include_unspecified": true
+            },
+            "created_query": {"min": "1970-01-01T00:00:00Z", "max": null},
+            "updated_query": {"min": null, "max": "2026-10-14T11:00:00Z"},
+            "lot_bidding_opens_query": {"min": null, "max": null},
+            "lot_scheduled_closes_query": null
+        })
+    }
+
+    #[test]
+    fn search_snapshot_preserves_the_v1_receipt_format() {
+        let original = snapshot();
+        let search = product_search_from_json(original.clone()).unwrap();
+        assert_eq!(original, product_search_to_json(&search).unwrap());
+
+        let empty = product_listing_core::product_listing_search::ProductListingSearch::new(
+            localization::Language::De,
+            money::Currency::Usd,
+        );
+        assert_eq!(
+            empty,
+            product_search_from_json(product_search_to_json(&empty).unwrap()).unwrap()
+        );
+
+        let mut with_geography = search;
+        with_geography.geography = Some(
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(geo::GeoPoint::new(48., 11.).unwrap()),
+                Some(geo::Distance::new(1., geo::DistanceUnit::Kilometers).unwrap()),
+                geo::core::discovery::ProximityMode::Strict,
+                None,
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            with_geography,
+            product_search_from_json(product_search_to_json(&with_geography).unwrap()).unwrap()
+        );
+    }
+
+    #[test]
+    fn search_snapshot_rejects_invalid_or_noncanonical_state() {
+        for (pointer, invalid) in [
+            ("/language", json!("EN")),
+            ("/currency", json!("eur")),
+            ("/product_listing_query", json!([""])),
+            ("/enhanced_search_description", json!(" ")),
+            ("/availability_query/availability", json!(["in_stock"])),
+            ("/availability_query/orderability", json!(["UNKNOWN"])),
+            ("/created_query/min", json!("not-a-time")),
+            ("/updated_query/max", json!("not-a-time")),
+            ("/lot_bidding_opens_query/min", json!("not-a-time")),
+        ] {
+            let mut value = snapshot();
+            *value.pointer_mut(pointer).unwrap() = invalid;
+            assert!(product_search_from_json(value).is_err(), "{pointer}");
+        }
+        for field in [
+            "exclude_product_listing_id_query",
+            "listing_source_id_query",
+            "exclude_listing_source_id_query",
+            "auction_id_query",
+        ] {
+            for invalid in [
+                "not-a-uuid",
+                "01890A5D-AC96-774B-BF9D-D5587833EFB5",
+                "01890a5dac96774bbf9dd5587833efb5",
+                "00000000-0000-0000-0000-000000000000",
+            ] {
+                let mut value = snapshot();
+                value[field] = json!([invalid]);
+                assert!(
+                    product_search_from_json(value).is_err(),
+                    "{field}: {invalid}"
+                );
+            }
+        }
+        let mut value = snapshot();
+        value["unexpected"] = json!(true);
+        assert!(product_search_from_json(value).is_err());
+        let mut value = snapshot();
+        value["created_query"]["unexpected"] = json!(true);
+        assert!(product_search_from_json(value).is_err());
+        let mut value = snapshot();
+        value.as_object_mut().unwrap().remove("language");
+        assert!(product_search_from_json(value).is_err());
+    }
 }

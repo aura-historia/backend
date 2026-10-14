@@ -1,20 +1,34 @@
-use crate::use_cases::commands::approve_partnership_application::*;
-use crate::use_cases::commands::dissolve_partnership::*;
-use crate::use_cases::commands::grant_partnership_listing_source::*;
-use crate::use_cases::commands::grant_partnership_membership::*;
-use crate::use_cases::commands::mark_partnership_application_in_review::*;
-use crate::use_cases::commands::reject_partnership_application::*;
-use crate::use_cases::commands::revoke_partnership_listing_source::*;
-use crate::use_cases::commands::revoke_partnership_membership::*;
-use crate::use_cases::commands::submit_partnership_application::*;
-use crate::use_cases::commands::withdraw_partnership_application::*;
+use crate::use_cases::commands::approve_partnership_application::ApprovePartnershipApplicationResult;
+use crate::use_cases::commands::dissolve_partnership::{
+    DissolvePartnershipOutcome, DissolvePartnershipResult,
+};
+use crate::use_cases::commands::grant_partnership_listing_source::{
+    GrantPartnershipListingSourceOutcome, GrantPartnershipListingSourceResult,
+};
+use crate::use_cases::commands::grant_partnership_membership::{
+    GrantPartnershipMembershipOutcome, GrantPartnershipMembershipResult,
+};
+use crate::use_cases::commands::mark_partnership_application_in_review::MarkPartnershipApplicationInReviewResult;
+use crate::use_cases::commands::reject_partnership_application::RejectPartnershipApplicationResult;
+use crate::use_cases::commands::revoke_partnership_listing_source::{
+    RevokePartnershipListingSourceOutcome, RevokePartnershipListingSourceResult,
+};
+use crate::use_cases::commands::revoke_partnership_membership::{
+    RevokePartnershipMembershipOutcome, RevokePartnershipMembershipResult,
+};
+use crate::use_cases::commands::submit_partnership_application::SubmitPartnershipApplicationResult;
+use crate::use_cases::commands::withdraw_partnership_application::WithdrawPartnershipApplicationResult;
 use application::{
     error::{BoxError, box_error, static_error},
     idempotency::{CommandOutcome, field},
 };
 use listing_source_core::{ListingSourceName, ListingSourcePresentation};
 use partnership_core::{
-    partnership_application::*, partnership_application_state::PartnershipApplicationState,
+    partnership_application::{
+        PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
+        ProposedListingSource, ProposedParty, RehydratedPartnershipApplicationState,
+    },
+    partnership_application_state::PartnershipApplicationState,
 };
 use party_core::{party::PartyContact, party_name::PartyName};
 use serde_json::{Value, json};

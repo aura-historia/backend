@@ -192,8 +192,7 @@ where
                 &self.checkout_sessions,
                 &crate::workflow::Unused,
             )
-            .await
-            .map_err(CreateBillingCheckoutSessionError::from)?;
+            .await?;
             return Ok(BillingSessionResult { url });
         }
 
