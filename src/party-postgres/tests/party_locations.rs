@@ -270,12 +270,11 @@ async fn party(pool: &PgPool) -> PartyId {
     tx.commit().await.unwrap();
     p.id()
 }
-fn command(party_id: PartyId, key: &str) -> CreatePartyLocationCommand {
+fn command(party_id: PartyId, label: &str) -> CreatePartyLocationCommand {
     CreatePartyLocationCommand {
         party_id,
-        idempotency_key: PartyLocationIdempotencyKey::new(key.to_owned()).unwrap(),
         content: PartyLocationContent {
-            label: PartyLocationLabel::new("Test warehouse".to_owned()).unwrap(),
+            label: PartyLocationLabel::new(label.to_owned()).unwrap(),
             roles: BTreeSet::from([PartyLocationRole::Warehouse]),
             geography: GeographicDescription::new(
                 Some(AddressText::new("  123 Private Street\nBerlin  ".to_owned()).unwrap()),
@@ -330,33 +329,30 @@ async fn signals(pool: &PgPool, id: PartyLocationId) -> i64 {
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-async fn concurrent_create_retries_converge_and_replay_original_result() {
+async fn concurrent_equal_creates_have_distinct_ids_and_signals() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
     let ctx = trusted();
-    let c = command(party, "retry-key");
+    let c = command(party, "Equal site");
     let h1 = create(&pool);
     let h2 = create(&pool);
     let (a, b) = tokio::join!(h1.execute(&ctx, c.clone()), h2.execute(&ctx, c.clone()));
     let a = a.unwrap();
-    assert_eq!(a, b.unwrap());
+    let b = b.unwrap();
+    assert_ne!(a.id, b.id);
+    assert_eq!(a.label, b.label);
+    assert_eq!(a.geography, b.geography);
+    assert_eq!(1, signals(&pool, b.id).await);
     assert_eq!(1, signals(&pool, a.id).await);
     let mut changed = correction(party, &a);
     changed.label = PatchField::Set(PartyLocationLabel::new("Corrected label".to_owned()).unwrap());
     let updated = update(&pool).execute(&ctx, changed).await.unwrap();
     assert_eq!(2, updated.revision.into_inner());
-    assert_eq!(a, create(&pool).execute(&ctx, c.clone()).await.unwrap());
-    let mut conflict = c;
-    conflict.content.label = PartyLocationLabel::new("Changed site".to_owned()).unwrap();
-    assert!(matches!(
-        create(&pool).execute(&ctx, conflict).await,
-        Err(PartyLocationError::IdempotencyConflict)
-    ));
-    let other = create(&pool)
-        .execute(&ctx, command(party, "independent-site"))
-        .await
-        .unwrap();
-    assert_ne!(a.id, other.id);
+    let later = create(&pool).execute(&ctx, c).await.unwrap();
+    assert_ne!(a.id, later.id);
+    assert_eq!(PartyLocationRevision::INITIAL, later.revision);
+    assert_ne!(updated.label, later.label);
+    assert_eq!(1, signals(&pool, later.id).await);
     let page = list(&pool)
         .execute(
             &ctx,
@@ -383,7 +379,63 @@ async fn concurrent_create_retries_converge_and_replay_original_result() {
         .unwrap();
     assert_eq!(1, second.items.len());
     assert_ne!(page.items[0].id, second.items[0].id);
-    assert!(second.next.is_none());
+    assert!(second.next.is_some());
+    let third = list(&pool)
+        .execute(
+            &ctx,
+            ListPartyLocationsRequest {
+                party_id: party,
+                after: second.next,
+                limit: 1,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, third.items.len());
+    assert!(third.next.is_none());
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn concurrent_relocations_create_one_replacement_and_conflict_on_the_old_revision() {
+    let pool = get_postgres_client().await;
+    let party = party(&pool).await;
+    let ctx = trusted();
+    let old = create(&pool)
+        .execute(&ctx, command(party, "Old site"))
+        .await
+        .unwrap();
+    let mut relocation = command(party, "Replacement");
+    relocation.relocates = Some(expected(&old));
+    let h1 = create(&pool);
+    let h2 = create(&pool);
+    let (a, b) = tokio::join!(
+        h1.execute(&ctx, relocation.clone()),
+        h2.execute(&ctx, relocation)
+    );
+    let replacement = match (a, b) {
+        (Ok(v), Err(PartyLocationError::ConcurrencyConflict))
+        | (Err(PartyLocationError::ConcurrencyConflict), Ok(v)) => v,
+        result => panic!("unexpected relocation outcomes: {result:?}"),
+    };
+    assert_ne!(old.id, replacement.id);
+    let page = list(&pool)
+        .execute(
+            &ctx,
+            ListPartyLocationsRequest {
+                party_id: party,
+                after: None,
+                limit: 100,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(2, page.items.len());
+    let retired = page.items.iter().find(|v| v.id == old.id).unwrap();
+    assert_eq!(PartyLocationLifecycle::Retired, retired.lifecycle);
+    assert_eq!(2, retired.revision.into_inner());
+    assert_eq!(PartyLocationLifecycle::Active, replacement.lifecycle);
+    assert_eq!(2, signals(&pool, old.id).await);
+    assert_eq!(1, signals(&pool, replacement.id).await);
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
@@ -428,10 +480,19 @@ async fn correction_noops_lifecycle_and_relocation_are_distinct() {
         .await
         .unwrap();
     assert_ne!(a.id, moved.id);
+    assert!(matches!(
+        create(&pool).execute(&ctx, relocation).await,
+        Err(PartyLocationError::ConcurrencyConflict)
+    ));
     assert_eq!(
-        moved,
-        create(&pool).execute(&ctx, relocation).await.unwrap()
+        2,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM party_locations WHERE party_id=$1")
+            .bind(party.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap()
     );
+    assert_eq!(1, signals(&pool, moved.id).await);
     let retired = get(&pool)
         .execute(
             &ctx,
@@ -932,7 +993,7 @@ async fn required_patch_fields_reject_clear_and_role_replacement_preserves_geogr
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn invalid_stored_and_receipt_object_ids_fail_closed() {
+async fn invalid_stored_object_ids_fail_closed() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
     let ctx = trusted();
@@ -957,16 +1018,6 @@ async fn invalid_stored_and_receipt_object_ids_fail_closed() {
                 },
             )
             .await,
-        Err(PartyLocationError::InvalidPersistedState { .. })
-    ));
-    sqlx::query("UPDATE party_location_create_receipts SET result=jsonb_set(result,'{id}',to_jsonb($1::text)) WHERE party_id=$2")
-        .bind(uuid::Uuid::nil().to_string())
-        .bind(party.into_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(matches!(
-        create(&pool).execute(&ctx, c).await,
         Err(PartyLocationError::InvalidPersistedState { .. })
     ));
     assert_eq!(1, signals(&pool, v.id).await);
@@ -1018,7 +1069,7 @@ async fn exhausted_revisions_allow_noops_and_reject_changes_without_signals() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_receipt_failure() {
+async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_resolution_failure() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
     let ctx = trusted();
@@ -1026,15 +1077,19 @@ async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_receipt_fa
         .execute(&ctx, command(party, "before-failure"))
         .await
         .unwrap();
-    sqlx::query("ALTER TABLE party_location_create_receipts ADD CONSTRAINT test_receipt_failure CHECK (idempotency_key <> 'force-receipt-failure')").execute(&pool).await.unwrap();
-    let mut relocation = command(party, "force-receipt-failure");
-    relocation.relocates = Some(expected(&old));
-    let result = create(&pool).execute(&ctx, relocation).await;
-    sqlx::query("ALTER TABLE party_location_create_receipts DROP CONSTRAINT test_receipt_failure")
+    let mut relocation = command(party, "failed-replacement");
+    relocation.content.position = None;
+    // Retirement and the new site/signal are written before resolution binding fails.
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(&pool)
         .await
         .unwrap();
-    assert!(matches!(result, Err(PartyLocationError::Internal { .. })));
+    relocation.relocates = Some(expected(&old));
+    let result = create(&pool).execute(&ctx, relocation).await;
+    assert!(matches!(
+        result,
+        Err(PartyLocationError::InvalidPersistedState { .. })
+    ));
     assert_eq!(
         old,
         get(&pool)

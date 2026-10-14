@@ -43,6 +43,6 @@ describe.each(STAGES)("%s durable geographic resolution", (stage) => {
     const task = Object.values(data.findResources("AWS::DMS::ReplicationTask"))[0];
     const tables = JSON.parse(task.Properties.TableMappings).rules.filter((r: Record<string, string>) => r["rule-type"] === "selection").map((r: Record<string, Record<string, string>>) => r["object-locator"]["table-name"]);
     expect(tables).toContain("geo_resolution_wakeups");
-    for (const privateTable of ["geo_resolutions", "geo_resolution_bindings", "geo_resolution_provider_controls", "party_locations", "party_location_create_receipts"]) { expect(tables).not.toContain(privateTable); }
+    for (const privateTable of ["geo_resolutions", "geo_resolution_bindings", "geo_resolution_provider_controls", "party_locations"]) { expect(tables).not.toContain(privateTable); }
   });
 });

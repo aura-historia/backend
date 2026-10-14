@@ -38,6 +38,16 @@ engine availability, backups, retention/removal policies, quotas and cost before
 execution; dev resources may be destructive on deletion. Retained resources still
 require ownership and recovery planning.
 
+### Removing geography creation receipts
+
+The [receipt cleanup migration](../migrations/20261014120000_remove_geography_creation_receipts.sql)
+requires the keyless address/Party-location runtime to be deployed first. That runtime
+works with both schemas. After foundation preparation and compatibility review, run the
+manual Deploy workflow at the same ref with `scope=all` against the current schema. Drain invocations of
+receipt-dependent versions, then invoke Migrate at the deployed initialization SHA to
+apply cleanup. After cleanup, rollback targets must also support the keyless schema.
+Address ID tombstones, identity guards and private-resolution erasure/fences remain required.
+
 ## Deployment inputs
 
 [`deploy.yml`](../.github/workflows/deploy.yml) and the versioned

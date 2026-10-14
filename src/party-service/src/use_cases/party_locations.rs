@@ -89,34 +89,9 @@ impl std::fmt::Debug for LocationEvidence {
         f.write_str("LocationEvidence(<redacted>)")
     }
 }
-#[derive(Clone, PartialEq, Eq)]
-pub struct PartyLocationIdempotencyKey(String);
-impl PartyLocationIdempotencyKey {
-    pub fn new(value: String) -> Result<Self, PartyLocationError> {
-        if value.is_empty()
-            || value.len() > 128
-            || !value
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c))
-        {
-            return Err(PartyLocationError::InvalidInput);
-        }
-        Ok(Self(value))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-impl std::fmt::Debug for PartyLocationIdempotencyKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PartyLocationIdempotencyKey(<redacted>)")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreatePartyLocationCommand {
     pub party_id: PartyId,
-    pub idempotency_key: PartyLocationIdempotencyKey,
     pub content: PartyLocationContent,
     pub evidence: Option<LocationEvidence>,
     /// Explicit relocation, never inferred from address equality or a label edit.
@@ -223,8 +198,6 @@ pub enum PartyLocationError {
     ConcurrencyConflict,
     #[error("location revision exhausted")]
     RevisionExhausted,
-    #[error("idempotency key reused with different command semantics")]
-    IdempotencyConflict,
     #[error("invalid location input")]
     InvalidInput,
     #[error("invalid location transition")]
@@ -611,15 +584,6 @@ where
         let mut tx = self.uow.begin().await?;
         authorize(context, privileged, &self.access, &mut tx, command.party_id).await?;
         let actor = actor(context);
-        let replay = self
-            .locations
-            .in_transaction(&mut tx)
-            .replay_create(&actor, &command)
-            .await?;
-        if let Some(result) = replay {
-            tx.commit().await?;
-            return Ok(result.into());
-        }
         if let Some(expected) = command.relocates {
             let mut old = load(&self.locations, &mut tx, command.party_id, expected).await?;
             if !old.location.eligible_for_assignment() {
@@ -633,21 +597,14 @@ where
                 .await?;
             sync_resolution(&self.locations, &mut tx, &retired).await?;
         }
-        let location = PartyLocation::create(
-            PartyLocationId::new(),
-            command.party_id,
-            command.content.clone(),
-        );
+        let location =
+            PartyLocation::create(PartyLocationId::new(), command.party_id, command.content);
         let result = self
             .locations
             .in_transaction(&mut tx)
             .insert(&location, command.evidence.as_ref(), &actor)
             .await?;
         sync_resolution(&self.locations, &mut tx, &result).await?;
-        self.locations
-            .in_transaction(&mut tx)
-            .record_create(&actor, &command, &result)
-            .await?;
         tx.commit().await?;
         tracing::info!(event = "party_location.created", actor = %actor, location_id = %location.id(), outcome = "success");
         Ok(result.into())

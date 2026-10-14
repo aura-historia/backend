@@ -37,7 +37,7 @@ use party_service::use_cases::party_locations::{
     CreatePartyLocationCommand, CreatePartyLocationHandler, CreatePartyLocationUseCase,
     GetPartyLocationHandler, GetPartyLocationRequest, GetPartyLocationUseCase,
     ListPartyLocationsHandler, ListPartyLocationsRequest, ListPartyLocationsUseCase,
-    PartyLocationError, PartyLocationIdempotencyKey,
+    PartyLocationError,
 };
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use serde_json::json;
@@ -339,8 +339,6 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
             &partner,
             CreatePartyLocationCommand {
                 party_id,
-                idempotency_key: PartyLocationIdempotencyKey::new("approved-partner".to_owned())
-                    .unwrap(),
                 content: PartyLocationContent {
                     label: PartyLocationLabel::new("Private warehouse".to_owned()).unwrap(),
                     roles: BTreeSet::new(),
