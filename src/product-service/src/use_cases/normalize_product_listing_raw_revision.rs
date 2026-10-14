@@ -996,6 +996,7 @@ mod tests {
         )?
         .ok_or_else(|| std::io::Error::other("auction facts should be present"))?;
         let listing = ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: product_listing_id,
             title_slug_id:
                 product_listing_core::product_listing_slug_id::ProductListingSlugId::raw(

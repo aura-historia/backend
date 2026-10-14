@@ -74,6 +74,11 @@ Crawler `validation_summary.schema_matrix` is the exception to storage UUID text
 
 Raw source payload, normalization context and provenance remain opaque evidence. Store Aura identities in dedicated native UUID columns unless a JSON field is explicitly documented above.
 
+Listing delivery storage/event JSON uses native UUIDs for source, profile, Party and
+PartyLocation references; its public and ingestion codecs require canonical TypeIDs.
+Opaque provider class/variant codes remain case-sensitive strings within the source and
+explicit integration method/domain scope, never Aura taxonomy identities.
+
 ## External identity and exclusions
 
 Cognito `sub` is an opaque provider identity, not `UserId`. Persist the verified `(issuer, subject)` separately and resolve it to an independently generated `usr_` UUIDv7. Session revocation uses that stored provider identity; never derive a subject from `UserId`.

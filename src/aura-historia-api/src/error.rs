@@ -1236,6 +1236,7 @@ impl From<CreateProductListingError> for ApiError {
             }
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | CreateProductListingError::PersistenceFailed
+            | CreateProductListingError::InvalidDeliveryPersisted { .. }
             | CreateProductListingError::EventAppenderFailed { .. }
             | CreateProductListingError::BeginTransactionFailed(_)
             | CreateProductListingError::CommitTransactionFailed(_) => {
@@ -1289,6 +1290,7 @@ impl From<UpdateProductListingError> for ApiError {
             }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
+            | UpdateProductListingError::InvalidDeliveryPersisted { .. }
             | UpdateProductListingError::EventAppenderFailed { .. }
             | UpdateProductListingError::BeginTransactionFailed(_)
             | UpdateProductListingError::CommitTransactionFailed(_) => {
@@ -1322,6 +1324,7 @@ impl From<WithdrawProductListingError> for ApiError {
                 .with_detail("ProductListing was not found."),
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | WithdrawProductListingError::PersistenceFailed
+            | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
             | WithdrawProductListingError::EventAppenderFailed { .. }
             | WithdrawProductListingError::BeginTransactionFailed(_)
             | WithdrawProductListingError::CommitTransactionFailed(_) => {
@@ -1509,6 +1512,7 @@ impl From<UpsertProductListingError> for ApiError {
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
             | UpsertProductListingError::PersistenceFailed
+            | UpsertProductListingError::InvalidDeliveryPersisted { .. }
             | UpsertProductListingError::EventAppenderFailed { .. }
             | UpsertProductListingError::BeginTransactionFailed(_)
             | UpsertProductListingError::CommitTransactionFailed(_) => {

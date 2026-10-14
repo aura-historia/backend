@@ -40,6 +40,7 @@ pub struct ProductListing {
     url: Url,
     images: IndexSet<ProductListingImage>,
     auction: Option<ProductListingAuction>,
+    delivery: Option<crate::delivery::ListingDelivery>,
     pending_event_payload: Option<ProductListingEventPayload>,
     pending_image_baseline: Option<IndexSet<ProductListingImage>>,
 }
@@ -75,6 +76,7 @@ pub struct RehydratedProductListingState {
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
     pub auction: Option<ProductListingAuction>,
+    pub delivery: Option<crate::delivery::ListingDelivery>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -128,6 +130,8 @@ impl ListingSaleObservation {
 pub enum RehydrateProductListingError {
     #[error("product listing title slug is invalid")]
     InvalidTitleSlugId,
+    #[error("delivery configuration belongs to another source")]
+    DeliverySourceMismatch,
     #[error("withdrawn listing has availability")]
     WithdrawnListingHasAvailability,
     #[error("product listing image count exceeds u64")]
@@ -150,6 +154,8 @@ pub enum ChangeProductListingError {
     ImageCountOverflow,
     #[error("initial discovery cannot contain a lifecycle change")]
     InitialDiscoveryLifecycleChange,
+    #[error("delivery configuration belongs to another source")]
+    DeliverySourceMismatch,
     #[error("a different pending sale observation transition already exists")]
     ConflictingPendingObservation,
 }
@@ -177,6 +183,7 @@ impl ProductListing {
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
         let auction = ProductListingAuction::normalize(input.auction);
         let mut listing = Self::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: input.id,
             title_slug_id: input.title_slug_id,
             listing_source_id: input.listing_source_id,
@@ -206,7 +213,17 @@ impl ProductListing {
         if state.lifecycle == ListingLifecycle::Withdrawn && state.availability.is_some() {
             return Err(RehydrateProductListingError::WithdrawnListingHasAvailability);
         }
+        if state
+            .delivery
+            .as_ref()
+            .is_some_and(|v| v.source_id() != state.listing_source_id)
+        {
+            return Err(RehydrateProductListingError::DeliverySourceMismatch);
+        }
         Ok(Self {
+            delivery: state.delivery.filter(|v| {
+                v != &crate::delivery::ListingDelivery::inherited(state.listing_source_id)
+            }),
             id: state.id,
             title_slug_id: state.title_slug_id,
             listing_source_id: state.listing_source_id,
@@ -448,6 +465,45 @@ impl ProductListing {
         Ok(ChangeOutcome::Changed)
     }
 
+    pub fn delivery(&self) -> Option<&crate::delivery::ListingDelivery> {
+        self.delivery.as_ref()
+    }
+
+    pub fn set_delivery(
+        &mut self,
+        delivery: crate::delivery::ListingDelivery,
+    ) -> Result<ChangeOutcome, ChangeProductListingError> {
+        self.replace_delivery(Some(delivery))
+    }
+    pub fn clear_delivery(&mut self) -> Result<ChangeOutcome, ChangeProductListingError> {
+        self.replace_delivery(
+            self.delivery
+                .as_ref()
+                .and_then(crate::delivery::ListingDelivery::cleared),
+        )
+    }
+    pub fn replace_delivery(
+        &mut self,
+        delivery: Option<crate::delivery::ListingDelivery>,
+    ) -> Result<ChangeOutcome, ChangeProductListingError> {
+        self.ensure_active_mutation()?;
+        if delivery
+            .as_ref()
+            .is_some_and(|v| v.source_id() != self.listing_source_id)
+        {
+            return Err(ChangeProductListingError::DeliverySourceMismatch);
+        }
+        let delivery = delivery
+            .filter(|v| v != &crate::delivery::ListingDelivery::inherited(self.listing_source_id));
+        if self.delivery == delivery {
+            return Ok(ChangeOutcome::Unchanged);
+        }
+        let previous = self.delivery.clone();
+        self.delivery = delivery.clone();
+        self.coalesce_pending_change(|changed| changed.change_delivery(previous, delivery))?;
+        Ok(ChangeOutcome::Changed)
+    }
+
     pub fn take_pending_event_payload(&mut self) -> Option<ProductListingEventPayload> {
         self.pending_image_baseline = None;
         self.pending_event_payload.take()
@@ -534,6 +590,7 @@ impl ProductListing {
             self.url.clone(),
             ProductListingImageCount::try_from(self.images.len())?,
             self.auction.clone(),
+            self.delivery.clone(),
         ))
     }
 
@@ -590,6 +647,7 @@ mod tests {
     fn rehydrated() -> ProductListing {
         let source = input();
         ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: source.id,
             title_slug_id: source.title_slug_id,
             listing_source_id: source.listing_source_id,
@@ -861,6 +919,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("URL: {error}")),
         ));
         let mut listing = ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: source.id,
             title_slug_id: source.title_slug_id,
             listing_source_id: source.listing_source_id,
@@ -980,6 +1039,7 @@ mod tests {
 
         let withdrawn = input();
         let mut restored = ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: withdrawn.id,
             title_slug_id: withdrawn.title_slug_id,
             listing_source_id: withdrawn.listing_source_id,
@@ -1054,6 +1114,7 @@ mod tests {
 
         let source = input();
         let mut listing = ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: None,
             id: source.id,
             title_slug_id: source.title_slug_id,
             listing_source_id: source.listing_source_id,
@@ -1209,5 +1270,77 @@ mod tests {
             listing.replace_pricing(ProductListingPricing::default())
         );
         assert_eq!(None, listing.take_pending_event_payload());
+    }
+    #[test]
+    fn delivery_changes_coalesce_without_editing_unrelated_facts_or_restoring_listings() {
+        use crate::delivery::{DeliveryIntegration, ListingDelivery};
+        use shipping_core::{
+            inputs::ListingRateInputs,
+            selection::{ComponentOverride, DeliveryOverrides, ProfileSelection},
+            terms::ShippingPolicy,
+        };
+        let mut listing = rehydrated();
+        let before = listing.clone();
+        assert_eq!(
+            ChangeOutcome::Unchanged,
+            listing
+                .replace_delivery(Some(ListingDelivery::inherited(
+                    listing.listing_source_id()
+                )))
+                .unwrap()
+        );
+        assert!(listing.take_pending_event_payload().is_none());
+        let delivery = ListingDelivery::new(
+            listing.listing_source_id(),
+            DeliveryIntegration::Source,
+            Some(ProfileSelection::InheritSourceDefault),
+            ListingRateInputs::default(),
+            DeliveryOverrides {
+                shipping: ComponentOverride::Replace(ShippingPolicy::Prohibited),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ChangeOutcome::Changed,
+            listing.replace_delivery(Some(delivery.clone())).unwrap()
+        );
+        assert_eq!(before.pricing(), listing.pricing());
+        assert_eq!(before.auction(), listing.auction());
+        assert_eq!(before.images(), listing.images());
+        assert_eq!(before.title(), listing.title());
+        assert_eq!(before.url(), listing.url());
+        assert_eq!(before.availability(), listing.availability());
+        let event = listing.take_pending_event_payload().unwrap();
+        let ProductListingEventPayload::Changed(change) = event else {
+            panic!("changed")
+        };
+        assert!(change.delivery().is_some());
+        assert!(
+            change.price().is_none() && change.auction().is_none() && change.lifecycle().is_none()
+        );
+        assert_eq!(
+            ChangeOutcome::Unchanged,
+            listing.replace_delivery(Some(delivery.clone())).unwrap()
+        );
+        assert!(listing.take_pending_event_payload().is_none());
+        listing.replace_delivery(None).unwrap();
+        listing.replace_delivery(Some(delivery.clone())).unwrap();
+        assert!(listing.take_pending_event_payload().is_none());
+        listing.withdraw().unwrap();
+        listing.take_pending_event_payload();
+        assert_eq!(
+            Err(ChangeProductListingError::ListingWithdrawn),
+            listing.replace_delivery(None)
+        );
+        assert_eq!(ListingLifecycle::Withdrawn, listing.lifecycle());
+        assert!(listing.take_pending_event_payload().is_none());
+        let foreign = ListingDelivery::inherited(listing_source_core::ListingSourceId::new());
+        let mut active = before;
+        assert_eq!(
+            Err(ChangeProductListingError::DeliverySourceMismatch),
+            active.replace_delivery(Some(foreign))
+        );
+        assert!(active.delivery().is_none());
     }
 }

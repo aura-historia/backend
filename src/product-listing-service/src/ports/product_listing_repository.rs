@@ -95,6 +95,11 @@ pub enum ProductListingRepositoryError {
 
     #[error("persisted aggregate state is invalid")]
     InvalidAggregateStatePersisted,
+    #[error("invalid persisted listing delivery configuration")]
+    InvalidDeliveryPersisted {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
@@ -134,4 +139,32 @@ pub trait ProductListingRepository: Send {
 
 pub trait ProductListingRepositoryFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ProductListingRepository + 'tx;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::use_cases::{
+        CreateProductListingError, UpdateProductListingError, UpsertProductListingError,
+        WithdrawProductListingError,
+    };
+    use application::error::box_error;
+
+    #[test]
+    fn ordinary_listing_commands_preserve_delivery_corruption_causes() {
+        let invalid = || ProductListingRepositoryError::InvalidDeliveryPersisted {
+            source: box_error(std::io::Error::other("synthetic delivery corruption")),
+        };
+        let errors = [
+            box_error(CreateProductListingError::from(invalid())),
+            box_error(UpdateProductListingError::from(invalid())),
+            box_error(UpsertProductListingError::from(invalid())),
+            box_error(WithdrawProductListingError::from(invalid())),
+        ];
+        for error in errors {
+            let cause = error.source().unwrap();
+            assert!(cause.is::<std::io::Error>());
+            assert_eq!("synthetic delivery corruption", cause.to_string());
+        }
+    }
 }

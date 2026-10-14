@@ -20,6 +20,7 @@ pub enum ProductListingIngestionOperation {
     Upsert,
     Withdraw,
     CaptureRaw,
+    ChangeDelivery,
 }
 
 impl ProductListingIngestionOperation {
@@ -30,6 +31,7 @@ impl ProductListingIngestionOperation {
             Self::Upsert => "UPSERT",
             Self::Withdraw => "WITHDRAW",
             Self::CaptureRaw => "CAPTURE_RAW",
+            Self::ChangeDelivery => "CHANGE_DELIVERY",
         }
     }
 }
@@ -45,6 +47,7 @@ pub enum ProductListingIngestionIntent {
     Upsert(UpsertProductListingCommand),
     Withdraw(ProductListingKey),
     CaptureRaw(CaptureProductListingRawObservationCommand),
+    ChangeDelivery(crate::use_cases::ChangeProductListingDeliveryCommand),
 }
 
 impl ProductListingIngestionIntent {
@@ -55,6 +58,7 @@ impl ProductListingIngestionIntent {
             Self::Upsert(_) => ProductListingIngestionOperation::Upsert,
             Self::Withdraw(_) => ProductListingIngestionOperation::Withdraw,
             Self::CaptureRaw(_) => ProductListingIngestionOperation::CaptureRaw,
+            Self::ChangeDelivery(_) => ProductListingIngestionOperation::ChangeDelivery,
         }
     }
 
@@ -66,6 +70,7 @@ impl ProductListingIngestionIntent {
             }
             Self::Upsert(command) => command.listing_source_id,
             Self::CaptureRaw(command) => command.listing_source_id,
+            Self::ChangeDelivery(command) => command.product_key.listing_source_id,
         }
     }
 
@@ -77,6 +82,7 @@ impl ProductListingIngestionIntent {
             }
             Self::Upsert(command) => Some(&command.source_listing_id),
             Self::CaptureRaw(_) => None,
+            Self::ChangeDelivery(command) => Some(&command.product_key.source_listing_id),
         }
     }
 }
@@ -282,6 +288,7 @@ pub struct ProductListingIngestionMessage {
 pub enum ProductListingIngestionRejectionReason {
     ListingSourceMismatch,
     InvalidAuctionPatch,
+    InvalidDeliveryPatch,
     UrlCannotBeCleared,
     SourceRecordKeyTooLong {
         len: usize,

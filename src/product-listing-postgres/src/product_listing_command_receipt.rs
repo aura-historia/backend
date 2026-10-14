@@ -128,6 +128,7 @@ fn decode_receipt(
         "UPSERT" => ProductListingIngestionOperation::Upsert,
         "WITHDRAW" => ProductListingIngestionOperation::Withdraw,
         "CAPTURE_RAW" => ProductListingIngestionOperation::CaptureRaw,
+        "CHANGE_DELIVERY" => ProductListingIngestionOperation::ChangeDelivery,
         _ => return Err(Invalid),
     };
     let completion_code = match row.completion_code.as_str() {

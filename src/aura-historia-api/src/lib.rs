@@ -995,6 +995,24 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(addresses),
         );
     }
+    if let Some(delivery) = state.product_listing_delivery {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery",
+                    get(partner_product_listings::delivery::get)
+                        .patch(partner_product_listings::delivery::change),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async",
+                    axum::routing::post(partner_product_listings::delivery::submit),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(delivery),
+        );
+    }
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
@@ -1818,7 +1836,10 @@ async fn app_state_from_config_and_pool(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
-        submit_product_listing_ingestion,
+        Arc::clone(&submit_product_listing_ingestion)
+            as Arc<
+                dyn product_listing_service::use_cases::SubmitPartnerProductListingIngestionUseCase,
+            >,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let partner_product_listings_state = PartnerProductListingsState::new(
@@ -1911,6 +1932,26 @@ async fn app_state_from_config_and_pool(
         SqlxSourceLocationAccessFactory,
     };
     use listing_source_service::use_cases::location_default::*;
+    let product_listing_delivery_state =
+        partner_product_listings::delivery::ProductListingDeliveryState {
+            change: Arc::new(
+                product_listing_service::use_cases::ChangeProductListingDeliveryHandler::new(
+                    unit_of_work.clone(),
+                    SqlxProductListingRepositoryFactory,
+                    SqlxProductListingEventAppenderFactory,
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+                ),
+            ),
+            get: Arc::new(
+                product_listing_service::use_cases::GetProductListingDeliveryHandler::new(
+                    unit_of_work.clone(),
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReaderFactory,
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+                ),
+            ),
+            submit: submit_product_listing_ingestion,
+            authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        };
     let shipping_state = shipping::ShippingState {
         create: Arc::new(
             shipping_service::use_cases::CreateShippingProfileHandler::new(
@@ -2259,6 +2300,7 @@ async fn app_state_from_config_and_pool(
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
         .with_shipping(shipping_state)
+        .with_product_listing_delivery(product_listing_delivery_state)
         .with_source_location_defaults(source_location_defaults_state)
         .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)

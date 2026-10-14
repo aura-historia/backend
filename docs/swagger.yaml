@@ -17159,6 +17159,247 @@ paths:
             schema:
               $ref: '#/components/schemas/ClearShippingDefaultData'
 
+  /api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery:
+    parameters:
+    - name: listing_source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+    - name: source_listing_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    get:
+      operationId: getProductListingDelivery
+      tags: [ProductListings]
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: >-
+        Protected delivery configuration. Requires product-listings:read credential scope
+        and current administrator or active operator Partnership source authority. Responses and errors
+        are no-store. Returns retained configuration for active or withdrawn listings, without
+        resolving effective delivery or revalidating current profile/location eligibility.
+      responses:
+        '200':
+          description: Current protected delivery configuration.
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListingDeliveryViewData'
+        '400':
+          description: Invalid delivery command or references (BAD_BODY_VALUE).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing capability or source authority (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source or source-local listing missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale listing version, withdrawn listing or missing/retired/foreign delivery reference.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or operation failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Transaction or capability unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    patch:
+      operationId: changeProductListingDelivery
+      tags: [ProductListings]
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: >-
+        Revision-checked delivery command. Requires product-listings:write credential scope
+        and current administrator or active operator Partnership source authority. Responses and errors
+        are no-store. Commands never create or restore listings. Current references are validated at
+        execution. SET/UNCHANGED/CLEAR and coherent whole-policy replacement preserve unrelated facts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductListingDeliveryCommandData'
+      responses:
+        '200':
+          description: Committed delivery command result.
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListingDeliveryResultData'
+        '400':
+          description: Invalid delivery command or references (BAD_BODY_VALUE).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing capability or source authority (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source or source-local listing missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale listing version, withdrawn listing or missing/retired/foreign delivery reference.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or operation failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Transaction or capability unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async:
+    parameters:
+    - name: listing_source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+    - name: source_listing_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    post:
+      operationId: submitProductListingDelivery
+      tags: [ProductListings]
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: >-
+        Asynchronous delivery admission. Requires product-listings:write credential scope
+        for delegated credentials. Admission validates the typed command and confirms FIFO custody.
+        Execution rechecks current administrator or active operator Partnership source authority,
+        the original expectedVersion, active listing and current references. Responses and errors
+        are no-store. Retry unchanged content with the returned Idempotency-Key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductListingDeliveryCommandData'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Retry with unchanged content and key. Accepted means FIFO admission only; execution checks the original expectedVersion.
+      responses:
+        '202':
+          description: Confirmed admission report; not canonical completion.
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncProductListingBatchReport'
+        '400':
+          description: Invalid command/header problem, or rejected typed admission report.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncProductListingBatchReport'
+        '401':
+          description: Authentication required (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing capability or source authority (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Delivery command exceeds the FIFO message limit; no confirmed acceptance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncProductListingBatchReport'
+        '500':
+          description: Internal admission problem, or nonretryable enqueue failure report.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncProductListingBatchReport'
+        '503':
+          description: Publisher unavailable problem, or retryable failed/unconfirmed admission report.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncProductListingBatchReport'
 components:
   securitySchemes:
     BearerAuth:
@@ -17298,6 +17539,209 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
   schemas:
+    ProductListingDeliveryCommandData:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, delivery]
+      properties:
+        expectedVersion: {type: integer, minimum: 1, maximum: 9223372036854775807}
+        delivery:
+          oneOf:
+          - $ref: '#/components/schemas/ListingDeliveryEmptyPatchData'
+          - type: object
+            additionalProperties: false
+            required: [state, value]
+            properties:
+              state: {type: string, enum: [SET]}
+              value:
+                $ref: '#/components/schemas/ListingDeliveryPatchData'
+    ListingDeliveryEmptyPatchData:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state: {type: string, enum: [UNCHANGED, CLEAR]}
+    ListingDeliveryIntegrationData:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [kind]
+        properties:
+          kind: {type: string, enum: [SOURCE]}
+      - type: object
+        additionalProperties: false
+        required: [kind, method, domain]
+        properties:
+          kind: {type: string, enum: [PROVIDER]}
+          method: {type: string, enum: [SHOPIFY, WOOCOMMERCE]}
+          domain: {type: string, minLength: 1, maxLength: 253, description: Canonical lowercase source integration domain; noncanonical encodings are rejected.}
+    ListingDeliverySelectionData:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [kind]
+        properties:
+          kind: {type: string, enum: [INHERIT_SOURCE_DEFAULT, SUPPRESS_INHERITANCE]}
+      - type: object
+        additionalProperties: false
+        required: [kind, profile_id]
+        properties:
+          kind: {type: string, enum: [EXPLICIT]}
+          profile_id:
+            type: string
+            pattern: '^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+      - type: object
+        additionalProperties: false
+        required: [kind, terms]
+        properties:
+          kind: {type: string, enum: [INLINE]}
+          terms:
+            $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
+    ListingDeliveryRateInputsData:
+      type: object
+      additionalProperties: false
+      required: [classes, variants]
+      properties:
+        classes:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [codes, completeness]
+          properties:
+            codes:
+              type: array
+              maxItems: 64
+              uniqueItems: true
+              items: {type: string, minLength: 1, maxLength: 128}
+            completeness: {type: string, enum: [PARTIAL, COMPLETE]}
+        variants:
+          type: array
+          nullable: true
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 128}
+    ListingDeliveryInheritOrClearData:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [INHERIT, CLEAR]}
+    ListingDeliveryConfigurationData:
+      type: object
+      additionalProperties: false
+      required: [schema, source_id, integration, selection, rate_inputs, shipping, collection]
+      properties:
+        schema: {type: string, enum: [LISTING_DELIVERY_V1]}
+        source_id:
+          type: string
+          pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        selection:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ListingDeliverySelectionData'
+        rate_inputs:
+          $ref: '#/components/schemas/ListingDeliveryRateInputsData'
+        shipping:
+          $ref: '#/components/schemas/ListingDeliveryShippingOverrideData'
+        collection:
+          $ref: '#/components/schemas/ListingDeliveryCollectionOverrideData'
+    ProductListingDeliveryViewData:
+      type: object
+      required: [productListingId, expectedVersion, delivery]
+      properties:
+        productListingId:
+          type: string
+          pattern: '^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+        expectedVersion: {type: integer, minimum: 1}
+        delivery:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ListingDeliveryConfigurationData'
+    ProductListingDeliveryResultData:
+      type: object
+      required: [productListingId, expectedVersion, outcome]
+      properties:
+        productListingId:
+          type: string
+          pattern: '^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$'
+        expectedVersion: {type: integer, minimum: 1}
+        outcome: {type: string, enum: [CHANGED, UNCHANGED]}
+    ProductListingDeliveryHistoryChangeData:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type: {type: string, enum: [DELIVERY_CHANGED]}
+    ListingDeliveryShippingOverrideData:
+      oneOf:
+      - $ref: '#/components/schemas/ListingDeliveryInheritOrClearData'
+      - type: object
+        additionalProperties: false
+        required: [kind, value]
+        properties:
+          kind: {type: string, enum: [REPLACE]}
+          value:
+            $ref: '#/components/schemas/ShippingPolicyData'
+    ListingDeliveryCollectionOverrideData:
+      oneOf:
+      - $ref: '#/components/schemas/ListingDeliveryInheritOrClearData'
+      - type: object
+        additionalProperties: false
+        required: [kind, value]
+        properties:
+          kind: {type: string, enum: [REPLACE]}
+          value:
+            $ref: '#/components/schemas/ShippingCollectionData'
+    ListingDeliveryPatchData:
+      type: object
+      additionalProperties: false
+      required: [integration, selection, rateInputs, shipping, collection]
+      properties:
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        selection:
+          oneOf:
+          - $ref: '#/components/schemas/ListingDeliveryEmptyPatchData'
+          - type: object
+            additionalProperties: false
+            required: [state, value]
+            properties:
+              state: {type: string, enum: [SET]}
+              value:
+                $ref: '#/components/schemas/ListingDeliverySelectionData'
+        rateInputs:
+          oneOf:
+          - $ref: '#/components/schemas/ListingDeliveryEmptyPatchData'
+          - type: object
+            additionalProperties: false
+            required: [state, value]
+            properties:
+              state: {type: string, enum: [SET]}
+              value:
+                $ref: '#/components/schemas/ListingDeliveryRateInputsData'
+        shipping:
+          oneOf:
+          - $ref: '#/components/schemas/ListingDeliveryEmptyPatchData'
+          - type: object
+            additionalProperties: false
+            required: [state, value]
+            properties:
+              state: {type: string, enum: [SET]}
+              value:
+                $ref: '#/components/schemas/ListingDeliveryShippingOverrideData'
+        collection:
+          oneOf:
+          - $ref: '#/components/schemas/ListingDeliveryEmptyPatchData'
+          - type: object
+            additionalProperties: false
+            required: [state, value]
+            properties:
+              state: {type: string, enum: [SET]}
+              value:
+                $ref: '#/components/schemas/ListingDeliveryCollectionOverrideData'
     ShippingCurrencyCode:
       type: string
       enum:
@@ -19627,11 +20071,12 @@ components:
         changes:
           type: array
           minItems: 1
-          description: "Deterministic semantic-change order: main price, minimum estimate, maximum estimate, availability, URL, images, auction, lifecycle, sale observation."
+          description: "Deterministic semantic-change order: main price, minimum estimate, maximum estimate, availability, URL, images, auction, lifecycle, sale observation, delivery."
           items:
             $ref: "#/components/schemas/ProductListingHistoryChangeData"
     ProductListingHistoryChangeData:
       oneOf:
+        - $ref: "#/components/schemas/ProductListingDeliveryHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingMainPriceHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingPriceHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingAvailabilityHistoryChangeData"

@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-json = { workspace = true }
+shipping-core = { workspace = true }
+party-core = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
 aws-sdk-sqs = { workspace = true }

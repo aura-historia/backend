@@ -51,6 +51,39 @@ Query exact values OR together; orderability expands to these values. Supplying 
 
 Absence is state, not a write instruction. Patches distinguish `Unchanged`, `Clear` and `Set`; clearing an asserted price or availability is an ordinary semantic change. `LISTED`, `UNKNOWN`, `REMOVED` and `SOLD` are not listing availability codes.
 
+## Listing delivery assertions
+
+Delivery selection, scoped rate inputs and item overrides belong to the ProductListing
+consistency boundary. [Advertised delivery](shipping.md) owns their vocabulary and
+assessment rules. The protected source-keyed delivery read/command and async admission
+routes are defined in [OpenAPI](swagger.yaml); ordinary listing writes retain this state.
+Delivery commands require an active listing and its current positive `expectedVersion`.
+Current source authority, integration identity, profiles and referenced locations are
+validated in the same transaction. Stale commands, including semantic no-ops, conflict.
+They never create/restore listings or edit identity, text, pricing, images or Auction facts.
+
+A missing configuration means source-authored default inheritance. A retained provider
+configuration with no selection means unresolved assignment and evaluates without an
+inherited policy; failed or uninitialized lookup must retain that state. Integration
+scope is source-authored or the explicit provider method/domain belonging to this source.
+Class/variant codes are opaque within that scope. Changing integration requires deliberate
+replacement after assertion removal, never relabeling retained facts. No Aura taxonomy or
+first-priced variant establishes shipping membership.
+
+Commands distinguish `UNCHANGED`, `SET` and `CLEAR`. Whole-configuration clear returns
+source-authored listings to default inheritance; provider clear retains its integration
+with unresolved selection. Selection clear removes the reliable assignment; explicit
+`SUPPRESS_INHERITANCE` deliberately suppresses it; selecting `INHERIT_SOURCE_DEFAULT`
+unsuppresses it. Component clear removes its effective assertion; setting `INHERIT`
+removes an item override. `REPLACE` replaces one entire shipping or collection policy.
+A partial collection replacement supplies no missing address from the prior block.
+A shipping prohibition suppresses every shipping offer while independent applicable
+collection survives. Stored rate inputs never copy a computed profile amount.
+
+Canonical delivery changes coalesce into the ordinary semantic listing event. Public
+history reports only `DELIVERY_CHANGED`, without protected terms or sites. Shared profile
+changes emit their own shipping signal and never invent a listing semantic revision.
+
 ## Sale observation
 
 `ListingSaleObservation` is complete or absent: `observed_at` records when Aura first observed explicit sold evidence, and `fx_rate_id` pins the snapshot used to value the last advertised source price. It is not proof of a completed transaction or its amount.
@@ -121,6 +154,7 @@ Later accepted ingestion can overwrite eligible management corrections, and upse
 | `UPSERT` | Create, update or explicitly restore. |
 | `WITHDRAW` | Retain the listing and its history. |
 | `CAPTURE_RAW` | Store source evidence; separate normalization may later change canonical state. |
+| `CHANGE_DELIVERY` | Revision-checked delivery-only update of an existing active listing. |
 
 Admission awaits publication; it does not write canonical state or fall back to detached work. Partner intake requires a user, with `ProductListingsWrite` for delegated credentials; internal intake accepts only trusted service/system callers without a partnership prerequisite. Intake validates input, actor/scope and envelope, not current database eligibility. Execution checks current source grants, referenced entities, lifecycle and business conflicts. Provider authentication remains at its boundary; credentials never enter messages.
 

@@ -31,15 +31,20 @@ const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(35);
 pub fn compose_ingestion_use_case(
     pool: sqlx::PgPool,
 ) -> Arc<dyn ProcessProductListingIngestionUseCase> {
-    Arc::new(ProcessProductListingIngestionHandler::new(
-        SqlxUnitOfWork::new(pool),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-        SqlxProductListingRawCaptureWriterFactory::new(),
-        SqlxProductListingCommandReceiptStoreFactory::new(),
-    ))
+    Arc::new(
+        ProcessProductListingIngestionHandler::new(
+            SqlxUnitOfWork::new(pool),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
+            SqlxAuctionReferenceValidatorFactory::new(),
+            SqlxProductListingRawCaptureWriterFactory::new(),
+            SqlxProductListingCommandReceiptStoreFactory::new(),
+        )
+        .with_delivery_references(
+            product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+        ),
+    )
 }
 
 pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationBudget {

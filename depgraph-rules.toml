@@ -5,7 +5,7 @@ domain-primitives = ["slug"]
 localization = []
 money = []
 shipping-service = ["application", "domain-primitives", "listing-source-core", "listing-source-service", "party-core", "shipping-core"]
-shipping-json = ["application", "geo", "listing-source-core", "money", "party-core", "shipping-core"]
+shipping-json = ["application", "geo", "listing-source-core", "money", "party-core", "shipping-core", "product-listing-core"]
 shipping-postgres = ["shipping-json", "application", "listing-source-core", "party-core", "platform-postgres", "shipping-core", "shipping-service"]
 shipping-core = ["domain-primitives", "geo", "listing-source-core", "money", "party-core"]
 platform-observability = []
@@ -22,7 +22,7 @@ geo-amazon-location = ["application", "geo", "geo-service", "localization"]
 
 test-api-macros = []
 aura-historia-jobs = ["domain-primitives", "notification-core", "product-listing-core", "search-filter-core", "user-core", "geo-service", "product-listing-service"]
-aura-historia-cdc-routing = ["aura-historia-jobs", "domain-primitives", "fxrate-core", "localization", "money", "notification-core", "product-listing-core", "search-filter-core", "user-core", "geo-service", "product-listing-service"]
+aura-historia-cdc-routing = ["aura-historia-jobs", "domain-primitives", "fxrate-core", "localization", "money", "notification-core", "product-listing-core", "search-filter-core", "user-core", "geo-service", "product-listing-service", "application", "shipping-core", "shipping-json", "listing-source-core", "party-core"]
 platform-worker-queue-contract = ["aura-historia-jobs"]
 cdc-router-lambda = ["aura-historia-cdc-routing", "aura-historia-jobs", "platform-worker-queue-contract", "domain-primitives", "fxrate-core", "localization", "money", "notification-core", "platform-observability", "product-listing-core", "search-filter-core", "user-core"]
 product-listing-opensearch-lambda = ["aura-historia-jobs", "fxrate-postgres", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-opensearch", "product-listing-postgres", "product-listing-service"]
@@ -66,9 +66,9 @@ fxrate-lambda = ["application", "platform-lambda-bootstrap", "platform-observabi
 backend-cleanup-lambda = ["application", "geo-postgres", "geo-service", "oauth-postgres", "oauth-service", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-postgres", "user-service", "product-listing-service", "product-listing-postgres"]
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
-product-listing-core = ["geo", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros"]
+product-listing-core = ["geo", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros", "shipping-core"]
 product-listing-normalization = ["lingua", "localization", "money", "product-listing-core", "regex", "serde", "serde_json", "sha2", "strum", "strum_macros", "time", "url"]
-product-listing-ingestion-sqs = ["application", "async-trait", "aws-sdk-sqs", "indexmap", "listing-source-core", "localization", "money", "product-listing-core", "product-listing-normalization", "product-listing-service", "serde", "serde_json", "sha2", "thiserror", "time", "tokio", "url", "user-core"]
+product-listing-ingestion-sqs = ["application", "async-trait", "aws-sdk-sqs", "indexmap", "listing-source-core", "localization", "money", "product-listing-core", "product-listing-normalization", "product-listing-service", "serde", "serde_json", "sha2", "thiserror", "time", "tokio", "url", "user-core", "shipping-json", "shipping-core", "party-core"]
 product-service = ["application", "domain-primitives", "indexmap", "listing-source-core", "product-listing-core", "product-listing-normalization", "product-listing-service"]
 
 user-service = ["geo-service", "application", "domain-primitives", "geo", "localization", "money", "user-core"]
@@ -78,7 +78,7 @@ crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "user-core"]
 
 oauth-service = ["application", "credential-core", "domain-primitives", "oauth-core", "serde", "user-core", "user-service"]
-product-listing-service = ["application", "auction-core", "auction-service", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "listing-source-core", "listing-source-service", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-normalization", "search-filter-core", "sha2", "strum", "strum_macros", "user-core", "user-service", "geo", "geo-service", "party-core", "partnership-service"]
+product-listing-service = ["application", "auction-core", "auction-service", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "listing-source-core", "listing-source-service", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-normalization", "search-filter-core", "sha2", "strum", "strum_macros", "user-core", "user-service", "geo", "geo-service", "party-core", "partnership-service", "shipping-core"]
 woocommerce-service = ["application", "listing-source-core", "listing-source-service", "product-listing-normalization", "product-listing-service"]
 search-filter-core = ["domain-primitives", "fxrate-core", "product-listing-core", "user-core"]
 
@@ -96,7 +96,7 @@ notification-email-aws = ["application", "domain-primitives", "localization", "m
 notification-postgres = ["application", "domain-primitives", "listing-source-core", "localization", "money", "notification-core", "notification-email", "notification-service", "party-core", "partnership-core", "platform-postgres", "product-listing-core", "search-filter-core", "user-core"]
 oauth-postgres = ["application", "credential-core", "domain-primitives", "oauth-core", "oauth-service", "platform-postgres", "user-core"]
 product-listing-opensearch = ["application", "auction-core", "domain-primitives", "fxrate-core", "geo", "listing-source-core", "localization", "money", "platform-opensearch", "product-listing-core", "product-listing-service", "party-core"]
-product-listing-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-service", "product-service", "search-filter-core", "user-core", "user-service", "geo", "geo-service", "party-core"]
+product-listing-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-service", "product-service", "search-filter-core", "user-core", "user-service", "geo", "geo-service", "party-core", "shipping-json", "shipping-core", "listing-source-service", "listing-source-postgres"]
 product-listing-translation-llm = ["application", "large-language-model", "localization", "product-listing-core", "product-listing-service"]
 
 search-filter-service = ["application", "auction-core", "classifier-model", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "listing-source-core", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "user-core", "user-service"]

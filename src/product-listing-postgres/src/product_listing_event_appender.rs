@@ -5,7 +5,7 @@ use product_listing_service::ports::product_listing_event_appender::{
 };
 use sqlx::PgConnection;
 
-use crate::product_listing_event_codec::{self, PRODUCT_LISTING_EVENT_SCHEMA_VERSION};
+use crate::product_listing_event_codec;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductListingEventAppenderFactory;
@@ -56,7 +56,7 @@ impl ProductListingEventAppender for SqlxProductListingEventAppender<'_> {
         .bind(event.aggregate_id.as_uuid())
         .bind(event.payload.event_type().as_str())
         .bind("DOMAIN")
-        .bind(PRODUCT_LISTING_EVENT_SCHEMA_VERSION)
+        .bind(product_listing_event_codec::schema_version(&event.payload))
         .bind(
             product_listing_event_codec::encode(&event.payload).map_err(|error| {
                 ProductListingEventAppendError::PayloadSerializationFailed {
