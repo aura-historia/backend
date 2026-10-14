@@ -224,7 +224,7 @@ the embedding; restore the intended query afterward). The update use case repair
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 
-With concurrency eight, a 50-candidate filter may require seven request waves per attempt;
+In singleton mode, concurrency eight gives up to seven request waves for 50 candidates;
 image fetching adds bounded preparation time. The two-hour run deadline also bounds expanded
 Free/Pro coverage: monitor selected/attempted counts, failed filters and timeout outcomes for
 saturation. Candidate/scan caps are successful bounded discovery, not exhaustive coverage.
@@ -242,6 +242,63 @@ Match INSERTs normally wake generation through CDC/router/notification workers;
 [digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
 and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
 must not blindly resend historical mail or replace recovery of legacy notification jobs.
+
+### Saved-search batching quality gate
+
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–32).
+The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
+text requests for one filter; the planner may use smaller groups. Image-bearing batching
+is disabled. Keep 1 until a human-reviewed multilingual antiques/art benchmark establishes
+acceptable precision/recall, decision and score disagreement, neighbor interference,
+response integrity, latency, token consumption, actual cost savings and recovery rates
+under the intended acceptance threshold. Transport tests and singleton outputs do not
+establish semantic quality or cost savings.
+
+Attach the reviewed dataset revision, benchmark report, reconciled costs and accepted
+quality thresholds for the configured model to the release/issue before increasing the
+deployment setting. Every image-containing request remains a singleton regardless
+of this setting.
+
+The opt-in [benchmark runner](../src/search-filter-service/src/product_match_evaluator/batching/benchmark.rs)
+evaluates identical evidence as singletons, shared requests and reversed neighboring
+candidates. Normal tests skip provider access. Use a dedicated test account/token,
+never deployed service credentials. Supply the benchmark-only credential variables
+`AURA_BENCH_CLOUDFLARE_ACCOUNT_ID` and `AURA_BENCH_CLOUDFLARE_API_TOKEN` through the
+test environment without printing them. Run:
+
+```sh
+AURA_BENCH_ALLOW_PROVIDER=1 \
+AURA_BENCH_FIXTURES=/path/to/reviewed-fixtures.json \
+AURA_BENCH_REPORT=/path/to/benchmark-report.json \
+cargo test --locked -p search-filter-service --lib -- --ignored --exact product_match_evaluator::batching::benchmark::saved_search_batch_quality_benchmark
+```
+
+The fixture manifest contains `label_provenance: "human-reviewed"`, `reviewed_by`,
+`dataset_revision`, `should_show_threshold`, `batch_candidates`, optional `classifier_model`
+(default `clef-flash`, must match the deployment), the verified current
+`input_usd_per_million_tokens`, and `groups`. Each group is one filter selection with
+canonical ISO `language`, `base_queries`, optional `enhanced_description`, write-resolved
+`evidence_policy` and 2–50 `cases`. Each case has a unique opaque `id`, nullable
+`title`/`description`, a `human_match` boolean and coverage `tags`. Supply text in its
+persisted normalized form; the runner rejects any constructor normalization or truncation
+that would change reviewed evidence. The runner requires
+at least three languages, twenty positives and twenty negatives, mixed labels in each
+group, and the coverage tags defined in its fixture validator. Review the actual evidence
+for easy/hard positives/negatives, absent descriptions/images, long instructions,
+contradictory/injected neighbors and both antiques and art; tags alone are not review.
+
+Reports contain opaque IDs/scores and aggregate metrics, including the number of actual
+shared provider requests, without instructions or listing text. Fixtures must produce at
+least one shared request within provider budgets. Unresolved work is counted separately
+and contributes no achieved recall. Invalid
+envelopes and unresolved questions expose mapping/omission failures; plausible misassociated
+scores require human review. Token-priced cost is reported only when every invocation
+has usage; it is not invoice reconciliation. Optionally supply `AURA_BENCH_RECONCILED_COSTS`
+with a JSON file containing nonnegative `singleton`, `batched`, `batched_reversed` actual
+USD costs and a non-sensitive `reference` to billing evidence. Failed-attempt charges
+must be included. Provider variability can affect reverse-order disagreement, so repeat
+the controlled benchmark when reviewing interference. Approval remains a human release
+decision; the runner never turns batching on.
 
 ## Notification recovery limits
 

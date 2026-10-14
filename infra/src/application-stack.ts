@@ -355,6 +355,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
       imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
       classifierModel: parameters.searchFilterClassifierModel,
+      batchCandidates: parameters.searchFilterMatchBatchCandidates,
       shouldShowThresholdBps: parameters.searchFilterMatchShouldShowThresholdBps,
     });
     new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {

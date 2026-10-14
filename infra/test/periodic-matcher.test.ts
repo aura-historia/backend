@@ -115,6 +115,10 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(template.toJSON().Parameters.PeriodicMatcherImageDigest.Default).toBeUndefined();
     expect(template.toJSON().Parameters.PeriodicMatcherEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
     const classifierConfig = stageConfig(stage).searchFilterClassifier;
+    expect(template.toJSON().Parameters.SearchFilterMatchBatchCandidates).toMatchObject({
+      Default: 1,
+      AllowedValues: Array.from({ length: 32 }, (_, index) => String(index + 1)),
+    });
     expect(template.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
       Default: classifierConfig.model,
       AllowedValues: ["clef-flash", "clef"],
@@ -145,6 +149,7 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
       PERIODIC_MATCH_EVALUATION_LIMIT: "50",
       PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100",
       PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY: "8",
+      PERIODIC_MATCH_BATCH_CANDIDATES: { Ref: "SearchFilterMatchBatchCandidates" },
       PERIODIC_MATCH_MAX_RUN_SECONDS: "7200",
       CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
       CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },

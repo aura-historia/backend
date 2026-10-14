@@ -206,7 +206,7 @@ of classifier scores. Current authoritative event checks fence obsolete projecti
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
 and skips existing matches, withdrawn listings and missing/stale sources before selecting
 the first up to 50 eligible listings. Every selected semantic candidate receives its own
-request; negative decisions never stop evaluation or refill slots. Bounded retries reuse
+validated decision; negative decisions never stop evaluation or refill slots. Bounded retries reuse
 the same selected identities. This is bounded best-effort discovery: exhaustion, candidate
 cap and scan cap are reported separately. Advancing a window does not prove catalogue
 coverage; the unselected tail has no guaranteed later opportunity.
@@ -219,6 +219,25 @@ cannot establish authenticity, provenance, authorship or age without supporting 
 (default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
 `hard_conflict` remains diagnostic-only. Text-only, one-image and four-image requests may
 have different score behavior and require separate evaluation fixtures.
+
+Text candidates from one saved filter may share one model request with a single canonical
+intent/policy and separately delimited evidence. Request-local candidate/question IDs map
+back to the application's frozen listing/event references; response order never supplies
+identity. Provider-advertised question, conservative text/context and encoded-payload budgets
+split requests before truncation, with additional shared-request headroom. No user criteria
+or listing evidence are shortened to fit. Image-bearing evaluations retain singleton
+requests, including the full permitted four-image selection; missing source images can
+yield text-only requests, but fetched-image degradation never repacks a request.
+
+Missing/malformed/out-of-range answers leave their candidate unresolved. Independently
+complete answers survive only a trustworthy envelope; duplicate/unknown IDs invalidate
+its mapping. Unresolved shared members receive at most one singleton recovery per attempt;
+timeouts and rate limits use the existing bounded filter retry/backoff instead of immediate
+fan-out. Both phases share the concurrency bound. Singleton and shared prompts have distinct
+evaluator versions; future score reuse must honor that compatibility boundary and batch only
+unresolved members of the original selection. Version aliases require an explicit quality
+decision. [The quality gate](../durable-worker-runbook.md#saved-search-batching-quality-gate)
+controls activation and fallback.
 
 Image selection is primary-first, URL-deduplicated and policy-bounded. Free never fetches
 images. Absent source media is normal; fetching/format/size failures degrade to the remaining
