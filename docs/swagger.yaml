@@ -3061,6 +3061,252 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
+  /api/v1/product-listings/{productListingId}/delivery-assessment:
+    post:
+      summary: Assess current delivery for one listing
+      operationId: assessListingDelivery
+      tags:
+      - ProductListings
+      description: Buyer-specific advertised delivery, using current PostgreSQL terms and location eligibility.
+        Optional authentication; missing destination uses the owned preference for authenticated users,
+        while explicit NONE overrides it. Invalid credentials never downgrade to anonymous. All success
+        and error responses are private, no-store. Missing necessary facts produce explained incomplete
+        results; eligibility and price knowledge are independent.
+      security:
+      - {}
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessListingDeliveryRequest'
+      responses:
+        '200':
+          description: Assessment of current advertised terms. No geocoder, carrier, provider rate call
+            or public persistence.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryAssessmentResponse'
+        '400':
+          description: Invalid input, object identity, constructor, zero count, duplicate identity or batch
+            over 20 (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Supplied credentials invalid, or authentication required for ADDRESS/PREFERENCE (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user suspended/deleted or delegated user scope absent (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Active listing absent/withdrawn, or owned saved address absent/deleted/foreign (PRODUCT_LISTING_NOT_FOUND
+            or USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Address/resolution changed during snapshot resolution (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted shipping/address/geographic state (SHIPPING_STORAGE_ERROR or ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Database/transaction/resolution read unavailable (SHIPPING_TEMPORARILY_UNAVAILABLE
+            or ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - $ref: '#/components/parameters/ProductListingIdPath'
+  /api/v1/product-listings/delivery-assessments:
+    post:
+      summary: Assess current delivery for up to 20 listings
+      operationId: assessListingDeliveries
+      tags:
+      - ProductListings
+      description: Buyer-specific advertised delivery, using current PostgreSQL terms and location eligibility.
+        Optional authentication; missing destination uses the owned preference for authenticated users,
+        while explicit NONE overrides it. Invalid credentials never downgrade to anonymous. All success
+        and error responses are private, no-store. Missing necessary facts produce explained incomplete
+        results; eligibility and price knowledge are independent.
+      security:
+      - {}
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessDeliveryBatchRequest'
+      responses:
+        '200':
+          description: Assessment of current advertised terms. No geocoder, carrier, provider rate call
+            or public persistence.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryAssessmentResponse'
+        '400':
+          description: Invalid input, object identity, constructor, zero count, duplicate identity or batch
+            over 20 (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Supplied credentials invalid, or authentication required for ADDRESS/PREFERENCE (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user suspended/deleted or delegated user scope absent (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Active listing absent/withdrawn, or owned saved address absent/deleted/foreign (PRODUCT_LISTING_NOT_FOUND
+            or USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Address/resolution changed during snapshot resolution (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted shipping/address/geographic state (SHIPPING_STORAGE_ERROR or ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Database/transaction/resolution read unavailable (SHIPPING_TEMPORARILY_UNAVAILABLE
+            or ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - private, no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
   /api/v1/product-listings/{productListingId}/history:
     get:
       summary: Get ProductListing history
@@ -17539,6 +17785,627 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
   schemas:
+    DeliveryAssessmentDestinationNone:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - NONE
+    DeliveryAssessmentDestinationGeographic:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - GEOGRAPHIC
+        country:
+          type: string
+          pattern: ^[A-Z]{2}$
+          nullable: true
+        subdivision:
+          type: string
+          nullable: true
+        postalCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+      description: At least one geographic assertion is required. Constructors validate current ISO codes
+        and country/subdivision compatibility. No street text or geocoding.
+    DeliveryAssessmentDestinationAddress:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - addressId
+      properties:
+        kind:
+          type: string
+          enum:
+          - ADDRESS
+        addressId:
+          $ref: '#/components/schemas/UserAddressId'
+    DeliveryAssessmentDestinationPreference:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - PREFERENCE
+    DeliveryAssessmentDestination:
+      oneOf:
+      - $ref: '#/components/schemas/DeliveryAssessmentDestinationNone'
+      - $ref: '#/components/schemas/DeliveryAssessmentDestinationGeographic'
+      - $ref: '#/components/schemas/DeliveryAssessmentDestinationAddress'
+      - $ref: '#/components/schemas/DeliveryAssessmentDestinationPreference'
+      description: Omitted/null selects the current owned preference for a user and no destination for anonymous
+        callers. NONE overrides preference. ADDRESS/PREFERENCE require an unsuspended owner; delegated credentials
+        need users:read. A foreign/deleted address fails without fallback.
+    DeliveryAssessmentVariant:
+      type: object
+      additionalProperties: false
+      required:
+      - listingSourceId
+      - code
+      properties:
+        listingSourceId:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+    DeliveryAssessmentInput:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        lots:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        shipments:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        sellerOrders:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        selectedVariant:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentVariant'
+          nullable: true
+        itemValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        lotValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        shipmentValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        sellerOrderValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+      description: Optional independent positive counts and exact-currency qualifying values. No default quantity,
+        count substitution, FX, variant selection or subtotal inference. Null leaves a fact absent.
+    DeliveryAssessmentInputSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - quantity
+      - lots
+      - shipments
+      - sellerOrders
+      - selectedVariant
+      - itemValue
+      - lotValue
+      - shipmentValue
+      - sellerOrderValue
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        lots:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        shipments:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        sellerOrders:
+          type: integer
+          minimum: 1
+          maximum: 18446744073709551615
+          nullable: true
+        selectedVariant:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentVariant'
+          nullable: true
+        itemValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        lotValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        shipmentValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+        sellerOrderValue:
+          allOf:
+          - $ref: '#/components/schemas/ShippingMoneyData'
+          nullable: true
+    AssessListingDeliveryRequest:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        destination:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentDestination'
+          nullable: true
+        input:
+          $ref: '#/components/schemas/DeliveryAssessmentInput'
+    AssessDeliveryBatchItem:
+      type: object
+      additionalProperties: false
+      required:
+      - productListingId
+      properties:
+        productListingId:
+          type: string
+          pattern: ^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        input:
+          $ref: '#/components/schemas/DeliveryAssessmentInput'
+    AssessDeliveryBatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - listings
+      properties:
+        destination:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentDestination'
+          nullable: true
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssessDeliveryBatchItem'
+          minItems: 1
+          maxItems: 20
+      description: Listing identities must be unique. One common destination; results preserve request order.
+        Any missing/withdrawn listing or invalid private reference fails the complete request.
+    DeliveryAssessmentGeography:
+      type: object
+      additionalProperties: false
+      required:
+      - referenceRelease
+      - country
+      - subdivision
+      - postalCode
+      properties:
+        referenceRelease:
+          type: string
+          enum:
+          - iso-codes-4.20.1
+        country:
+          type: string
+          pattern: ^[A-Z]{2}$
+          nullable: true
+        subdivision:
+          type: string
+          nullable: true
+        postalCode:
+          type: string
+          nullable: true
+    DeliveryAssessmentAttribution:
+      type: object
+      additionalProperties: false
+      required: [provider, attributionUrl]
+      properties:
+        provider: {type: string}
+        attributionUrl: {type: string}
+    DeliveryAssessmentDestinationSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - submitted
+      - derived
+      - effective
+      - attribution
+      properties:
+        submitted:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
+          nullable: true
+        derived:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
+          nullable: true
+        effective:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
+          nullable: true
+        attribution:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentAttribution'
+          nullable: true
+      description: Transient value snapshot with submitted facts separate from permitted unexpired derived
+        evidence. Submitted facts take precedence; conflicting derived country, subdivision, postcode or reference
+        release cannot fill missing facts. No bookmark IDs, street text, coordinates or provider evidence;
+        no snapshot is stored by this endpoint.
+    DeliveryAssertionEvidence:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - verifiedAt
+      - freshUntil
+      - expiresAt
+      properties:
+        status:
+          type: string
+          enum:
+          - FRESH
+          - STALE
+          - EXPIRED
+        verifiedAt:
+          type: string
+          format: date-time
+        freshUntil:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      description: Age never resets on a failed recrawl, unrelated edit, evidence-only correction or lifecycle
+        change. STALE remains usable until expiry. EXPIRED cannot establish a current definite assertion.
+        Manual continuing assertions have no implicit deadline; FRESH does not claim recent acquisition.
+    DeliveryAssessmentProfileBasis:
+      type: object
+      additionalProperties: false
+      required:
+      - shippingProfileId
+      - termsRevision
+      - managementRevision
+      - lifecycle
+      - evidence
+      properties:
+        shippingProfileId:
+          type: string
+          pattern: ^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        termsRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        managementRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        lifecycle:
+          type: string
+          enum:
+          - ACTIVE
+          - RETIRED
+        evidence:
+          $ref: '#/components/schemas/DeliveryAssertionEvidence'
+    DeliveryAssessmentReason:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          enum:
+          - MISSING_INPUT
+          - NO_SOURCE_DEFAULT
+          - PROFILE_ABSENT
+          - PROFILE_RETIRED
+          - SOURCE_MISMATCH
+          - AMBIGUOUS_DEPENDENCY
+          - LOCATION_ABSENT
+          - LOCATION_RETIRED
+          - REFERENCE_RELEASE_MISMATCH
+          - UNRESOLVED_AREA
+          - UNSUPPORTED_POSTAL_SHAPE
+          - COUNTRY_MISMATCH
+          - SUBDIVISION_MISMATCH
+          - POSTAL_MISMATCH
+          - CLASS_MISMATCH
+          - INCOMPLETE_CLASS_MEMBERSHIP
+          - VARIANT_MISMATCH
+          - VARIANT_UNAVAILABLE
+          - MIXED_VARIANT_APPLICABILITY
+          - QUANTITY_OUTSIDE_RANGE
+          - QUALIFYING_THRESHOLD_NOT_MET
+          - CURRENCY_MISMATCH
+          - EXCLUDED
+          - EARLIER_ZONE_UNDETERMINED
+          - INCOMPLETE_COVERAGE
+          - OUTSIDE_COMPLETE_COVERAGE
+          - NO_APPLICABLE_SERVICE
+          - NO_SHIPPING_ASSERTION
+          - NO_COLLECTION_ASSERTION
+          - NO_ELIGIBILITY_ASSERTION
+          - SUPPRESSED_INHERITANCE
+          - ASSERTION_CLEARED
+          - SHIPPING_PROHIBITED
+          - SHIPPING_DEPENDENCY_REPLACED
+          - SHIPPING_DEPENDENCY_UNDETERMINED
+          - UNKNOWN_CHARGE_BASIS
+          - NO_CURRENCY_ASSERTION
+          - PRICE_ON_REQUEST
+          - EXTERNALLY_CALCULATED_PRICE
+          - ARITHMETIC_OVERFLOW
+        input:
+          type: string
+          enum:
+          - DESTINATION
+          - DESTINATION_COUNTRY
+          - DESTINATION_SUBDIVISION
+          - POSTAL_CODE
+          - ORIGIN_COUNTRY
+          - QUANTITY
+          - LOTS
+          - SHIPMENTS
+          - SELLER_ORDERS
+          - VARIANT
+          - CLASS_MEMBERSHIP
+          - QUALIFYING_AMOUNT
+        scope:
+          type: string
+          enum:
+          - ITEM
+          - LOT
+          - SHIPMENT
+          - SELLER_ORDER
+        index:
+          type: integer
+          minimum: 0
+      description: MISSING_INPUT includes input, plus scope for QUALIFYING_AMOUNT. EARLIER_ZONE_UNDETERMINED
+        includes index. Other codes include no additional fields or private dependency text.
+    DeliveryAssessmentCharge:
+      oneOf:
+      - $ref: '#/components/schemas/ShippingPriceDataFixed'
+      - $ref: '#/components/schemas/ShippingPriceDataFrom'
+      - $ref: '#/components/schemas/ShippingPriceDataEstimatedRange'
+      description: Arithmetic advertised charge for its explicit basis and count; never a quote or landed
+        cost. Null when unavailable, inapplicable or necessary count/currency/basis is absent.
+    DeliveryAssessmentOption:
+      type: object
+      additionalProperties: false
+      required:
+      - service
+      - applicability
+      - eligibility
+      - charge
+      - reasons
+      properties:
+        service:
+          $ref: '#/components/schemas/ShippingServiceData'
+        applicability:
+          type: string
+          enum:
+          - MATCH
+          - NO_MATCH
+          - UNDETERMINED
+        eligibility:
+          type: string
+          enum:
+          - OFFERED
+          - NOT_OFFERED
+          - SUBJECT_TO_CONFIRMATION
+          nullable: true
+        charge:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentCharge'
+          nullable: true
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryAssessmentReason'
+      description: Each option retains advertised price knowledge, service identity/features/roles, charge
+        basis/components and known handling/transit/total durations independently of assessed eligibility
+        and charge.
+    DeliveryAssessmentCollection:
+      type: object
+      additionalProperties: false
+      required:
+      - eligibility
+      - applicability
+      - reasons
+      properties:
+        eligibility:
+          type: string
+          enum:
+          - OFFERED
+          - NOT_OFFERED
+          - SUBJECT_TO_CONFIRMATION
+          nullable: true
+        applicability:
+          type: string
+          enum:
+          - MATCH
+          - NO_MATCH
+          - UNDETERMINED
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryAssessmentReason'
+      description: Independent collection can remain offered when shipping is prohibited. Arrangement/windows
+        are in terms.collection; site is always null pending explicit permitted disclosure.
+    DeliveryAssessmentLocationRevision:
+      type: object
+      additionalProperties: false
+      required:
+      - partyLocationId
+      - revision
+      - resolutionGeneration
+      properties:
+        partyLocationId:
+          $ref: '#/components/schemas/PartyLocationId'
+        revision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        resolutionGeneration:
+          type: integer
+          minimum: 1
+          nullable: true
+    ListingDeliveryAssessment:
+      type: object
+      additionalProperties: false
+      required:
+      - productListingId
+      - listingSourceId
+      - listingRevision
+      - sourceRevision
+      - defaultRevision
+      - profile
+      - listingEvidence
+      - evaluatedAt
+      - eligibility
+      - selectedZone
+      - options
+      - reasons
+      - notices
+      - terms
+      - collection
+      - locationRevisions
+      - input
+      - bindingQuote
+      - completeLandedCost
+      properties:
+        productListingId:
+          type: string
+          pattern: ^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        listingSourceId:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        listingRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        sourceRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        defaultRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+          nullable: true
+        profile:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
+          nullable: true
+        listingEvidence:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssertionEvidence'
+          nullable: true
+        evaluatedAt:
+          type: string
+          format: date-time
+        eligibility:
+          type: string
+          enum:
+          - OFFERED
+          - NOT_OFFERED
+          - SUBJECT_TO_CONFIRMATION
+          nullable: true
+        selectedZone:
+          type: integer
+          minimum: 0
+          nullable: true
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryAssessmentOption'
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryAssessmentReason'
+        notices:
+          type: array
+          items:
+            type: string
+            enum:
+            - ASSIGNMENT_UNRESOLVED
+            - LISTING_EVIDENCE_EXPIRED
+            - INTEGRATION_MISMATCH
+            - PROFILE_INTEGRATION_MISMATCH
+            - PROFILE_EVIDENCE_EXPIRED
+        terms:
+          $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
+        collection:
+          $ref: '#/components/schemas/DeliveryAssessmentCollection'
+        locationRevisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryAssessmentLocationRevision'
+        input:
+          $ref: '#/components/schemas/DeliveryAssessmentInputSnapshot'
+        bindingQuote:
+          type: boolean
+          enum:
+          - false
+        completeLandedCost:
+          type: boolean
+          enum:
+          - false
+      description: Current authoritative assessment. selectedZone is the zero-based matched rule in the sanitized
+        effective terms snapshot, with ordered zones/exclusions/applicability retained for explanation. terms.shipping.coverage.dispatch_origin
+        and terms.collection.site are always null. No public address disclosure or cheapest-price claim. Revisions
+        describe the evaluation basis; they are not mutation preconditions for this endpoint.
+    DeliveryAssessmentResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - destination
+      - items
+      properties:
+        destination:
+          $ref: '#/components/schemas/DeliveryAssessmentDestinationSnapshot'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListingDeliveryAssessment'
+          minItems: 1
+          maxItems: 20
     ProductListingDeliveryCommandData:
       type: object
       additionalProperties: false

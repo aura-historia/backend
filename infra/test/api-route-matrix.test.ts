@@ -176,11 +176,31 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(151);
+    expect(catalog).toHaveLength(153);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
+  });
+
+  test("exposes delivery assessments as public POST operations with optional bearer authentication", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/delivery-assessment") ||
+      route.path.endsWith("/delivery-assessments"));
+    expect(routes.map((route) => route.path).sort()).toEqual([
+      "/api/v1/product-listings/delivery-assessments",
+      "/api/v1/product-listings/{product_listing_id}/delivery-assessment",
+    ]);
+    for (const route of routes) {
+      expect(route.method).toBe("POST");
+      expect(route.lambda).toBe("auraHistoriaApi");
+      expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
+      expect(route.policy).toEqual({
+        bearer: "OPTIONAL",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+    }
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {

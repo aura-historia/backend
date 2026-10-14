@@ -140,6 +140,7 @@ pub struct AppState {
     pub(crate) product_listing_delivery:
         Option<crate::partner_product_listings::delivery::ProductListingDeliveryState>,
     pub(crate) shipping: Option<crate::shipping::ShippingState>,
+    pub(crate) shipping_assessments: Option<crate::shipping::assessment::AssessmentState>,
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
@@ -186,11 +187,19 @@ impl AppState {
         self.shipping = Some(state);
         self
     }
+    pub fn with_shipping_assessments(
+        mut self,
+        state: crate::shipping::assessment::AssessmentState,
+    ) -> Self {
+        self.shipping_assessments = Some(state);
+        self
+    }
 
     pub fn new() -> Self {
         Self {
             readiness: Arc::new(AlwaysReady),
             shipping: None,
+            shipping_assessments: None,
             product_listing_delivery: None,
             product_listings: None,
             partner_product_listings: None,

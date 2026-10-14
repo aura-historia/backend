@@ -1013,6 +1013,23 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(delivery),
         );
     }
+    if let Some(assessments) = state.shipping_assessments {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/product-listings/delivery-assessments",
+                    axum::routing::post(shipping::assessment::batch),
+                )
+                .route(
+                    "/api/v1/product-listings/{productListingId}/delivery-assessment",
+                    axum::routing::post(shipping::assessment::detail),
+                )
+                .layer(axum::middleware::map_response(|response| async {
+                    transport::cache::private_no_store(response)
+                }))
+                .with_state(assessments),
+        );
+    }
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
@@ -2268,10 +2285,18 @@ async fn app_state_from_config_and_pool(
     ));
     let user_addresses_state = state::UserAddressesState {
         commands: address_book.clone(),
-        queries: address_book,
+        queries: address_book.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
+        .with_shipping_assessments(shipping::assessment::AssessmentState {
+            assess: Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::assessment::SqlxAssessmentReaderFactory,
+                address_book,
+            )),
+            authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        })
         .with_admin_product_listings(state::AdminProductListingsState::new(
             Arc::new(get_admin_product_listing),
             Arc::new(search_admin_product_listings),

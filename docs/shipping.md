@@ -154,6 +154,56 @@ These signals establish durable invalidation input; [event flow](events/flow.md)
 activation and downstream routing. Later consumers reread current authoritative
 state, preserve source deletion fences and tolerate duplicate/out-of-order signals.
 
+## Current buyer assessments
+
+[OpenAPI](swagger.yaml) owns the detail and batch POST contracts. Shipping service
+resolves one transient destination, then evaluates at most 20 distinct active listings
+in request order. Listing/source revisions, defaults, selected profiles and explicit
+location facts come from one repeatable, read-only PostgreSQL snapshot. Profile and
+location reads are shared across the batch; OpenSearch and listing-geography projections
+do not determine current eligibility. A dispatch country's submitted assertions take
+precedence over permitted, unexpired derived evidence with matching current input/revision
+guards; the response records any used resolution generation without disclosing the site.
+Missing or withdrawn listings fail the request.
+Current user status is checked even when the caller supplies explicit geography or none.
+
+Anonymous geographic input uses validated country/subdivision/postal assertions directly.
+An omitted destination uses the authenticated owner's browsing preference, or no destination
+for anonymous callers. Explicit `NONE` overrides that preference. Saved-address and explicit
+preference requests use the address-book ownership, current user, delegated `users:read`,
+resolution permission and evidence-expiry checks. Foreign/deleted references fail without
+fallback. The captured values distinguish submitted from permitted derived facts, retain
+submitted precedence and omit street text, points and bookmark identity. Derived facts fill
+gaps only when shared country, subdivision and postal assertions and reference releases agree. They remain
+explainable after address-book edits and retain required derived-evidence attribution;
+these request snapshots are never persisted by assessment.
+
+Each service option keeps its applicability, eligibility, advertised price knowledge,
+charge basis/components and known timing independently. Missing quantities or other
+necessary facts produce reasons without inventing charges or cheapest-price claims.
+The response includes selected rule order, sanitized effective terms, input values,
+dependency revisions and evaluation time. A fixed advertised amount is neither a binding
+quote nor a complete landed cost. No provider, geocoder, carrier or live-rate request occurs.
+
+Assertion verification time is independent of management/update time. Source-authored
+continuing assertions have no implicit deadline; `FRESH` means they have not crossed an
+explicit freshness deadline, not that they were recently recrawled. An acquisition owner
+may retain explicit freshness and expiry deadlines. `STALE` preserves the old verification
+time and remains usable until expiry; `EXPIRED` cannot support a current definite assertion.
+Expired profile evidence removes inherited components while still permitting independently
+current item overrides. Expired item configuration cannot authorize selection, rate facts
+or overrides. Retired profiles are withdrawn dependencies, with no fallback. Failed recrawls,
+evidence-only corrections, no-ops, lifecycle changes and unrelated edits neither erase a
+reliable assertion nor renew its verification time. Changing normalized terms verifies
+the replacement; a listing configuration change verifies its new whole configuration.
+Provider acquisition must preserve its own observation time and reviewed deadlines.
+
+All success and error responses use `private, no-store`. Destination values, private
+bookmark identities, address text, postal codes, points, hashes and raw evidence never
+enter diagnostics or public storage. Dispatch and collection sites are omitted from
+response terms: a PartyLocation reference establishes applicability, not permission to
+publish its management address. Exact public pickup disclosure needs an explicit contract.
+
 ## Independent assertions
 
 Eligibility is absent or `OFFERED`, `NOT_OFFERED`, or `SUBJECT_TO_CONFIRMATION`. Pricing is
@@ -183,7 +233,8 @@ an active PartyLocation or supplies one whole partial geographic/position assert
 Business/warehouse roles and advertised inventory do not establish either use. An inline
 street-only assertion never borrows a country from another site. Object provenance and
 object dimensions establish neither dispatch origin nor packed dimensions. A country rule
-needs no origin; domestic comparison requires a usable origin country from the explicitly
+needs no origin country; an explicitly referenced dispatch site must still be current
+and eligible. Domestic comparison requires a usable origin country from the explicitly
 selected origin. Referenced collection sites must remain active for offered collection.
 
 ## Coverage and conservative assessment

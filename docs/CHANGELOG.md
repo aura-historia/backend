@@ -2,6 +2,21 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-14 — Current delivery assessments (#2064)
+
+- Added `POST /api/v1/product-listings/{productListingId}/delivery-assessment` and
+  `POST /api/v1/product-listings/delivery-assessments` for up to 20 distinct active listings.
+  Results use current PostgreSQL terms, independently assess service eligibility and price,
+  and include collection, restrictions, rule/revision basis, evidence age and evaluation time.
+- Accepts anonymous country/subdivision/postal input, an owned saved address, browsing
+  preference or explicit none. Omission uses an authenticated owner's preference; none
+  overrides it. Address/preference reads require delegated `users:read`; foreign/deleted
+  addresses fail without fallback, and suspended users cannot assess.
+- Success and errors are `private, no-store`. Destination snapshots omit street text,
+  coordinates and bookmark identity; origin/pickup addresses and raw evidence are withheld.
+  Stale evidence retains its age; expired evidence and retired locations cannot establish
+  current definite availability. Advertised charges are neither quotes nor landed costs.
+
 ## 2026-10-14 — Listing delivery assignments and overrides (#2063)
 
 - Added protected source-keyed delivery inspection and revision-checked PATCH, plus

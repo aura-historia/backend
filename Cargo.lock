@@ -7838,10 +7838,14 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "listing-source-core",
  "listing-source-postgres",
  "party-core",
  "platform-postgres",
+ "product-listing-core",
  "serde",
  "serde_json",
  "serial_test",
@@ -7850,7 +7854,9 @@ dependencies = [
  "shipping-service",
  "sqlx",
  "test-api",
+ "time",
  "tokio",
+ "user-core",
  "uuid",
 ]
 
@@ -7862,13 +7868,19 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
+ "geo",
  "listing-source-core",
  "listing-source-service",
  "party-core",
+ "product-listing-core",
  "serde",
  "shipping-core",
  "thiserror 2.0.21",
+ "time",
+ "tokio",
  "tracing",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

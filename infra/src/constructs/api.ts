@@ -100,6 +100,8 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}/history", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}/similar", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}/delivery-assessment", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/delivery-assessments", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/newsletter-subscriptions", ["PUT"]),

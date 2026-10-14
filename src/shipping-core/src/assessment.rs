@@ -615,6 +615,11 @@ fn assess_coverage(
     input: &AssessmentInput,
     locations: &[PartyLocation],
 ) -> CoverageAssessment {
+    if let Some(site @ DeliverySite::PartyLocation(_)) = coverage.dispatch_origin()
+        && let Err(reason) = site_geography(site, locations)
+    {
+        return (None, None, Vec::new(), vec![reason]);
+    }
     match evaluate_applicability(coverage.applicability(), facts, input) {
         PredicateResult::Match => {}
         result => return (None, None, Vec::new(), result.reasons().to_vec()),
