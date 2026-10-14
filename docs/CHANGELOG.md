@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-14 — Source shipping profile management (#2062)
+
+- Added protected source-scoped shipping profile list/detail, idempotent creation, complete content/evidence replacement, retirement/restoration, and explicit default assign/clear routes. Terms are advertised arrangements, never quotes. `shp_` TypeIDs retain source ownership; creation does not select a default.
+- Current unsuspended administrators and active operator Partnership members with the exact source grant may manage profiles. Delegated reads/writes require `listing-sources:read/write`. All responses/errors are `no-store`; summary lists are bounded to 100 and omit terms/evidence. Details omit protected evidence.
+- Commands require current management/default revisions, including no-ops. Evidence correction has an independent management revision; terms/lifecycle changes advance terms revision. Clear retains a revision tombstone. Retired/missing references stay traceable and ineligible without fallback; retirement is distinct from an explicit shipping prohibition.
+- Retired profiles require restoration before content/evidence corrections; unknown attributed Party references return `PARTY_NOT_FOUND`.
+
 ## 2026-10-13 — Saved-search matching across tiers (#2040)
 
 - Active ordinary and enhanced saved searches discover matches in scheduled runs. Each run evaluates the first up to 50 eligible candidates independently; rejected candidates do not stop discovery. Matching remains bounded and subject to projection lag.
