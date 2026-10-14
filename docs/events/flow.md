@@ -217,8 +217,8 @@ untrusted evidence. Missing evidence proves neither satisfaction nor contradicti
 cannot establish authenticity, provenance, authorship or age without supporting evidence.
 `should_show >= SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS / 10000` accepts an alert
 (default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
-`hard_conflict` remains diagnostic-only. Text-only, one-image and four-image requests may
-have different score behavior and require separate evaluation fixtures.
+Every listing has exactly one `should_show` question. Text-only, one-image and four-image
+requests may have different score behavior and require separate evaluation fixtures.
 
 Text candidates from one saved filter may share one model request with a single canonical
 intent/policy and separately delimited evidence. Request-local candidate/question IDs map

@@ -68,8 +68,11 @@ struct Fixture {
 }
 
 struct Scored {
-    scores: Option<(f64, f64)>,
+    score: Option<f64>,
+    label: bool,
     fallback: bool,
+    requested_image_count: usize,
+    sent_image_count: Option<usize>,
 }
 
 fn required_text<'a>(value: &'a Value, name: &str) -> &'a str {
@@ -108,10 +111,27 @@ fn fixture_product(
         );
         product.descriptions.insert(language, description);
     }
+    if let Some(images) = case.get("image_urls") {
+        let images = images.as_array().expect("fixture image URLs");
+        assert!(images.len() <= 4, "at most four reviewed images");
+        for image in images {
+            let url = url::Url::parse(image.as_str().expect("image URL string"))
+                .expect("valid image URL");
+            assert!(
+                product.images.insert(
+                    product_listing_core::product_listing_image::ProductListingImage::new(url)
+                ),
+                "unique reviewed images"
+            );
+        }
+    }
     product
 }
 
 fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
+    // The initial schema comparison can use the existing hard cases. The larger
+    // multilingual coverage gate applies before evaluating shared requests.
+    let batching = manifest["batch_candidates"].as_u64() != Some(1);
     assert_eq!(
         Some("human-reviewed"),
         manifest["label_provenance"].as_str()
@@ -158,7 +178,7 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
         assert!(search.enhanced_search_description.is_none() || policy.permits_enhanced_intent());
         let cases = group["cases"].as_array().expect("labelled cases");
         assert!(
-            (2..=50).contains(&cases.len()),
+            ((if batching { 2 } else { 1 })..=50).contains(&cases.len()),
             "each group is one frozen search selection"
         );
         let mut group_positive = false;
@@ -183,6 +203,10 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
                 tags.insert(tag.as_str().expect("tag string").to_owned());
             }
             let product = fixture_product(case, language);
+            assert!(
+                product.images.len() <= policy.image_limit(),
+                "reviewed images must fit the evidence policy"
+            );
             let mut request = product_match_request(&product, &search, policy);
             request.correlation_id = Some(format!("benchmark:{id}"));
             group_fixtures.push(Fixture {
@@ -192,10 +216,17 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
             });
         }
         assert!(
-            group_positive && group_negative,
+            !batching || (group_positive && group_negative),
             "neighbor groups must mix positive and negative evidence"
         );
         groups.push(group_fixtures);
+    }
+    assert!(
+        positives > 0 && negatives > 0,
+        "human positives and negatives required"
+    );
+    if !batching {
+        return groups;
     }
     assert!(
         languages.len() >= 3 && positives >= 20 && negatives >= 20,
@@ -219,6 +250,31 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
     groups
 }
 
+// This schema is confined to the manual comparison; it is never live matching input.
+fn baseline_request(mut request: ClassificationRequest) -> ClassificationRequest {
+    request.state["evaluation_context"]["hard_conflict_is_diagnostic_only"] = true.into();
+    request.questions.insert(0, classifier_model::BinaryClassificationQuestion {
+        id: super::super::question_id("hard_conflict"),
+        instructions: "Is there clear evidence that this listing contradicts a non-negotiable requirement stated by the user? Missing evidence alone is not a contradiction.".to_owned(),
+    });
+    request
+}
+
+fn measured_score(response: &ClassificationResponse, baseline: bool) -> Option<f64> {
+    let mut response = response.clone();
+    if baseline
+        && response
+            .answers
+            .remove(&super::super::question_id("hard_conflict"))
+            .is_none()
+    {
+        return None;
+    }
+    match_scores(&response)
+        .ok()
+        .map(classifier_model::Probability::get)
+}
+
 async fn measure<M: ClassifierModel>(
     model: &MeasuredModel<M>,
     groups: &[Vec<Fixture>],
@@ -227,6 +283,31 @@ async fn measure<M: ClassifierModel>(
     threshold: f64,
     token_price: f64,
 ) -> (Value, BTreeMap<String, Scored>) {
+    measure_schema(
+        model,
+        groups,
+        batch_size,
+        reverse,
+        threshold,
+        token_price,
+        false,
+    )
+    .await
+}
+
+async fn measure_schema<M: ClassifierModel>(
+    model: &MeasuredModel<M>,
+    groups: &[Vec<Fixture>],
+    batch_size: usize,
+    reverse: bool,
+    threshold: f64,
+    token_price: f64,
+    baseline: bool,
+) -> (Value, BTreeMap<String, Scored>) {
+    assert!(
+        !baseline || batch_size == 1,
+        "baseline comparison uses singleton requests"
+    );
     model.observations.lock().unwrap().clear();
     let started = Instant::now();
     let mut scores = BTreeMap::new();
@@ -237,7 +318,16 @@ async fn measure<M: ClassifierModel>(
         if reverse {
             order.reverse();
         }
-        let requests = order.iter().map(|f| f.request.clone()).collect::<Vec<_>>();
+        let requests = order
+            .iter()
+            .map(|f| {
+                if baseline {
+                    baseline_request(f.request.clone())
+                } else {
+                    f.request.clone()
+                }
+            })
+            .collect::<Vec<_>>();
         let size = NonZeroUsize::new(batch_size).unwrap();
         let plan = plan_requests(&requests, model.request_limits(), size);
         planned_count += plan.len();
@@ -252,12 +342,23 @@ async fn measure<M: ClassifierModel>(
             scores.insert(
                 fixture.id.clone(),
                 Scored {
-                    scores: result
+                    score: result
                         .result
                         .as_ref()
                         .ok()
-                        .and_then(|response| match_scores(response).ok())
-                        .map(|(hard, show)| (hard.get(), show.get())),
+                        // A/B quality comparisons require the complete reviewed evidence.
+                        .filter(|response| {
+                            response.diagnostics.sent_image_count
+                                == fixture.request.image_urls.len()
+                        })
+                        .and_then(|response| measured_score(response, baseline)),
+                    label: fixture.label,
+                    requested_image_count: fixture.request.image_urls.len(),
+                    sent_image_count: result
+                        .result
+                        .as_ref()
+                        .ok()
+                        .map(|response| response.diagnostics.sent_image_count),
                     fallback: result.prompt_version == super::super::MATCH_PROMPT_VERSION
                         && !initial_singletons.contains(&fixture.id),
                 },
@@ -271,8 +372,8 @@ async fn measure<M: ClassifierModel>(
     let mut unresolved = 0;
     let mut unresolved_positive = 0;
     for fixture in groups.iter().flatten() {
-        match scores[&fixture.id].scores {
-            Some((_, show)) => match (fixture.label, show >= threshold) {
+        match scores[&fixture.id].score {
+            Some(show) => match (fixture.label, show >= threshold) {
                 (true, true) => tp += 1,
                 (false, true) => fp += 1,
                 (false, false) => tn += 1,
@@ -317,7 +418,11 @@ async fn measure<M: ClassifierModel>(
         "known_output_tokens": observations.iter().filter_map(|o| o.output_tokens).sum::<u64>(),
         "unknown_output_token_requests": observations.iter().filter(|o| o.output_tokens.is_none()).count(),
         "token_priced_cost_usd": if unknown_token_requests == 0 { Some(known_tokens as f64 * token_price / 1_000_000.0) } else { None },
-        "scores": scores.iter().map(|(id, s)| json!({"id": id, "hard_conflict": s.scores.map(|s| s.0), "should_show": s.scores.map(|s| s.1)})).collect::<Vec<_>>()
+        "valid_response_rate": ratio(observations.iter().filter(|o| !o.failed && o.unresolved_questions == 0).count(), observations.len()),
+        "incomplete_response_rate": ratio(observations.iter().filter(|o| !o.failed && o.unresolved_questions > 0).count(), observations.len()),
+        "invalid_response_rate": ratio(observations.iter().filter(|o| o.invalid_envelope).count(), observations.len()),
+        "incomplete_evidence_candidates": scores.values().filter(|s| s.sent_image_count.is_some_and(|count| count != s.requested_image_count)).count(),
+        "scores": scores.iter().map(|(id, s)| json!({"id": id, "human_match": s.label, "should_show": s.score, "decision": s.score.map(|score| score >= threshold), "requested_image_count": s.requested_image_count, "sent_image_count": s.sent_image_count})).collect::<Vec<_>>()
     });
     (report, scores)
 }
@@ -334,23 +439,34 @@ fn compare(
     let mut compared = 0;
     let mut disagreement = 0;
     let mut show_delta = 0.0;
-    let mut hard_delta = 0.0;
+    let mut flips = Vec::new();
+    let mut evidence_disagreement = Vec::new();
     let mut max_show_delta: f64 = 0.0;
     for (id, left) in left {
-        if let (Some((left_hard, left_show)), Some((right_hard, right_show))) =
-            (left.scores, right[id].scores)
-        {
+        let right = &right[id];
+        assert_eq!(left.label, right.label, "identical human labels");
+        if left.sent_image_count != right.sent_image_count {
+            evidence_disagreement.push(id);
+        }
+        if let (Some(left_show), Some(right_show)) = (left.score, right.score) {
             compared += 1;
             disagreement += usize::from((left_show >= threshold) != (right_show >= threshold));
             let delta = (left_show - right_show).abs();
             show_delta += delta;
-            hard_delta += (left_hard - right_hard).abs();
+            if (left_show >= threshold) != (right_show >= threshold) {
+                flips.push(
+                    json!({"id": id, "human_match": left.label, "left_should_show": left_show,
+                    "right_should_show": right_show, "left_decision": left_show >= threshold,
+                    "right_decision": right_show >= threshold,
+                    "left_correct_right_wrong": (left_show >= threshold) == left.label}),
+                );
+            }
             max_show_delta = max_show_delta.max(delta);
         }
     }
     json!({"compared_candidates": compared, "decision_disagreement": ratio(disagreement, compared),
         "should_show_mean_absolute_delta": (compared > 0).then(|| show_delta / compared as f64),
-        "hard_conflict_mean_absolute_delta": (compared > 0).then(|| hard_delta / compared as f64),
+        "decision_flips": flips, "image_evidence_disagreement": evidence_disagreement,
         "should_show_max_absolute_delta": max_show_delta})
 }
 
@@ -370,11 +486,11 @@ async fn saved_search_batch_quality_benchmark() {
     let groups = fixtures(&manifest);
     let threshold = manifest["should_show_threshold"]
         .as_f64()
-        .filter(|v| (0.0..=1.0).contains(v))
-        .expect("acceptance threshold");
+        .filter(|v| *v == 0.5)
+        .expect("unchanged inclusive 0.5 comparison threshold");
     let batch_size = manifest["batch_candidates"]
         .as_u64()
-        .filter(|v| (2..=32).contains(v))
+        .filter(|v| (1..=50).contains(v))
         .expect("batch size") as usize;
     let token_price = manifest["input_usd_per_million_tokens"]
         .as_f64()
@@ -399,44 +515,61 @@ async fn saved_search_batch_quality_benchmark() {
         observations: Mutex::default(),
     };
     assert!(
-        groups.iter().any(|group| {
-            let requests = group
+        batch_size == 1
+            || groups.iter().any(|group| {
+                let requests = group
+                    .iter()
+                    .map(|fixture| fixture.request.clone())
+                    .collect::<Vec<_>>();
+                plan_requests(
+                    &requests,
+                    model.request_limits(),
+                    NonZeroUsize::new(batch_size).unwrap(),
+                )
                 .iter()
-                .map(|fixture| fixture.request.clone())
-                .collect::<Vec<_>>();
-            plan_requests(
-                &requests,
-                model.request_limits(),
-                NonZeroUsize::new(batch_size).unwrap(),
-            )
-            .iter()
-            .any(|plan| plan.candidates.len() > 1)
-        }),
+                .any(|plan| plan.candidates.len() > 1)
+            }),
         "benchmark fixtures must exercise shared requests within provider budgets"
     );
+    let (baseline, baseline_scores) =
+        measure_schema(&model, &groups, 1, false, threshold, token_price, true).await;
     let (singleton, singleton_scores) =
         measure(&model, &groups, 1, false, threshold, token_price).await;
-    let (batched, batched_scores) =
-        measure(&model, &groups, batch_size, false, threshold, token_price).await;
-    let (reversed, reversed_scores) =
-        measure(&model, &groups, batch_size, true, threshold, token_price).await;
     let mut report = json!({
         "dataset_revision": manifest["dataset_revision"], "model": configured_model.as_str(),
         "singleton_prompt_version": super::super::MATCH_PROMPT_VERSION,
         "batch_prompt_version": BATCH_PROMPT_VERSION,
         "evidence_policy_version": MatchingEvidencePolicy::VERSION,
         "should_show_threshold": threshold, "batch_candidates": batch_size,
-        "singleton": singleton, "batched": batched, "batched_reversed": reversed,
-        "singleton_comparison": compare(&singleton_scores, &batched_scores, threshold),
-        "neighbor_order_interference": compare(&batched_scores, &reversed_scores, threshold),
-        "rollout_gate": "PENDING_HUMAN_REVIEW_AND_RECONCILED_COSTS"
+        "baseline_two_questions": baseline, "singleton": singleton,
+        "schema_comparison": compare(&baseline_scores, &singleton_scores, threshold),
+        "rollout_gate": if batch_size == 1 { "PENDING_HUMAN_SCHEMA_REVIEW" } else { "PENDING_HUMAN_REVIEW_AND_RECONCILED_COSTS" }
     });
+    if batch_size > 1 {
+        let (batched, batched_scores) =
+            measure(&model, &groups, batch_size, false, threshold, token_price).await;
+        let (reversed, reversed_scores) =
+            measure(&model, &groups, batch_size, true, threshold, token_price).await;
+        report["batched"] = batched;
+        report["batched_reversed"] = reversed;
+        report["singleton_comparison"] = compare(&singleton_scores, &batched_scores, threshold);
+        report["neighbor_order_interference"] =
+            compare(&batched_scores, &reversed_scores, threshold);
+    }
     // Actual invoiced costs cannot be inferred from successful-response usage alone.
     if let Ok(costs_path) = std::env::var("AURA_BENCH_RECONCILED_COSTS") {
         let costs: Value =
             serde_json::from_slice(&std::fs::read(costs_path).expect("cost reconciliation file"))
                 .expect("cost JSON");
-        for mode in ["singleton", "batched", "batched_reversed"] {
+        for mode in [
+            "baseline_two_questions",
+            "singleton",
+            "batched",
+            "batched_reversed",
+        ] {
+            if report.get(mode).is_none() {
+                continue;
+            }
             report[mode]["actual_cost_usd"] = costs[mode]
                 .as_f64()
                 .filter(|v| v.is_finite() && *v >= 0.0)
@@ -480,22 +613,31 @@ fn fixture_evidence_rejects_normalization_and_truncation_before_provider_access(
 #[test]
 fn comparison_reports_disagreement_without_treating_unresolved_scores_as_negatives() {
     let score = |v| Scored {
-        scores: v,
+        score: v,
+        label: false,
         fallback: false,
+        requested_image_count: 0,
+        sent_image_count: Some(0),
     };
     let left = BTreeMap::from([
-        ("positive".into(), score(Some((0.1, 0.8)))),
-        ("negative".into(), score(Some((0.9, 0.2)))),
+        ("positive".into(), score(Some(0.8))),
+        ("negative".into(), score(Some(0.2))),
         ("missing".into(), score(None)),
     ]);
     let right = BTreeMap::from([
-        ("positive".into(), score(Some((0.2, 0.7)))),
-        ("negative".into(), score(Some((0.8, 0.6)))),
-        ("missing".into(), score(Some((0.1, 0.9)))),
+        ("positive".into(), score(Some(0.7))),
+        ("negative".into(), score(Some(0.6))),
+        ("missing".into(), score(Some(0.9))),
     ]);
     let compared = compare(&left, &right, 0.5);
     assert_eq!(2, compared["compared_candidates"]);
     assert_eq!(0.5, compared["decision_disagreement"]);
+    assert_eq!(1, compared["decision_flips"].as_array().unwrap().len());
+    assert_eq!("negative", compared["decision_flips"][0]["id"]);
+    assert_eq!(
+        true,
+        compared["decision_flips"][0]["left_correct_right_wrong"]
+    );
     assert!(
         (compared["should_show_mean_absolute_delta"]
             .as_f64()
@@ -504,6 +646,62 @@ fn comparison_reports_disagreement_without_treating_unresolved_scores_as_negativ
             .abs()
             < 1e-12
     );
+}
+
+#[test]
+fn baseline_restores_only_the_old_question_and_diagnostic_metadata() {
+    let groups = fixtures(&offline_manifest());
+    let mut proposed = groups[0][0].request.clone();
+    proposed.image_urls = (0..4)
+        .map(|index| url::Url::parse(&format!("https://example.test/{index}.jpg")).unwrap())
+        .collect();
+    let mut baseline = baseline_request(proposed.clone());
+    assert_eq!(2, baseline.questions.len());
+    assert_eq!("hard_conflict", baseline.questions[0].id.as_str());
+    assert_eq!(proposed.questions[0], baseline.questions[1]);
+    assert_eq!(
+        true,
+        baseline.state["evaluation_context"]["hard_conflict_is_diagnostic_only"]
+    );
+    baseline.questions.remove(0);
+    baseline.state["evaluation_context"]
+        .as_object_mut()
+        .unwrap()
+        .remove("hard_conflict_is_diagnostic_only");
+    assert_eq!(proposed, baseline);
+    let show = super::super::question_id("should_show");
+    let hard = super::super::question_id("hard_conflict");
+    let mut response = ClassificationResponse {
+        answers: BTreeMap::from([(show, classifier_model::Probability::new(0.5).unwrap())]),
+        usage: Default::default(),
+        diagnostics: Default::default(),
+    };
+    assert_eq!(Some(0.5), measured_score(&response, false));
+    assert_eq!(None, measured_score(&response, true));
+    response
+        .answers
+        .insert(hard, classifier_model::Probability::new(0.95).unwrap());
+    assert_eq!(Some(0.5), measured_score(&response, true));
+    assert_eq!(None, measured_score(&response, false));
+}
+
+#[test]
+fn fixture_images_preserve_reviewed_evidence_and_policy_limits() {
+    let mut manifest = offline_manifest();
+    for (index, count) in [(0, 0), (1, 1), (2, 4)] {
+        manifest["groups"][0]["cases"][index]["image_urls"] = json!(
+            (0..count)
+                .map(|image| format!("https://example.test/{index}-{image}.jpg"))
+                .collect::<Vec<_>>()
+        );
+    }
+    let groups = fixtures(&manifest);
+    for (index, count) in [(0, 0), (1, 1), (2, 4)] {
+        assert_eq!(count, groups[0][index].request.image_urls.len());
+    }
+    manifest["groups"][0]["evidence_policy"] = "TEXT_AND_ONE_IMAGE".into();
+    manifest["groups"][0]["enhanced_description"] = Value::Null;
+    assert!(std::panic::catch_unwind(|| fixtures(&manifest)).is_err());
 }
 
 // Synthetic data exercises the runner contract without claiming reviewed model quality.
@@ -541,7 +739,7 @@ fn offline_manifest() -> Value {
         .collect::<Vec<_>>();
     json!({
         "label_provenance": "human-reviewed", "reviewed_by": "synthetic-test-only",
-        "dataset_revision": "offline-contract-test", "groups": groups
+        "dataset_revision": "offline-contract-test", "batch_candidates": 4, "groups": groups
     })
 }
 
@@ -626,6 +824,43 @@ fn fixture_manifest_rejects_untrustworthy_labels_identity_policy_and_coverage() 
     }
 }
 
+#[tokio::test]
+async fn initial_schema_comparison_accepts_hard_cases_and_preserves_the_batch_gate() {
+    let mut manifest = offline_manifest();
+    let cases = manifest["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| group["cases"].as_array().unwrap().iter().cloned())
+        .take(30)
+        .collect::<Vec<_>>();
+    let mut group = manifest["groups"][0].clone();
+    group["cases"] = cases.into();
+    group["enhanced_description"] = Value::Null;
+    group["evidence_policy"] = "TEXT_ONLY".into();
+    for case in group["cases"].as_array_mut().unwrap() {
+        case["tags"] = json!([]);
+    }
+    manifest["groups"] = json!([group]);
+    manifest["batch_candidates"] = 1.into();
+    let groups = fixtures(&manifest);
+    let model = MeasuredModel {
+        model: OfflineModel(OfflineMode::Complete),
+        observations: Mutex::default(),
+    };
+    let (baseline, left) = measure_schema(&model, &groups, 1, false, 0.5, 2.0, true).await;
+    let (proposed, right) = measure(&model, &groups, 1, false, 0.5, 2.0).await;
+    for report in [&baseline, &proposed] {
+        assert_eq!(30, report["candidates"]);
+        assert_eq!(30, report["provider_requests"]);
+        assert_eq!(0, report["shared_provider_requests"]);
+        assert_eq!(0, report["fallback_requests"]);
+    }
+    assert_eq!(30, compare(&left, &right, 0.5)["compared_candidates"]);
+    manifest["batch_candidates"] = 2.into();
+    assert!(std::panic::catch_unwind(|| fixtures(&manifest)).is_err());
+}
+
 #[derive(Clone, Copy)]
 enum OfflineMode {
     Complete,
@@ -634,6 +869,8 @@ enum OfflineMode {
     InvalidEnvelope,
     UnknownUsage,
     Flipped,
+    SchemaShift,
+    DegradedImages,
 }
 
 struct OfflineModel(OfflineMode);
@@ -673,7 +910,12 @@ impl ClassifierModel for OfflineModel {
                 &request.state["candidate"]
             };
             let positive = evidence["title"].as_str().unwrap().starts_with("Positive")
-                ^ matches!(self.0, OfflineMode::Flipped);
+                ^ matches!(self.0, OfflineMode::Flipped)
+                ^ (matches!(self.0, OfflineMode::SchemaShift)
+                    && request
+                        .questions
+                        .iter()
+                        .all(|question| question.id.as_str() != "hard_conflict"));
             answers.insert(
                 question.id.clone(),
                 classifier_model::Probability::new(if positive { 0.9 } else { 0.1 }).unwrap(),
@@ -685,9 +927,69 @@ impl ClassifierModel for OfflineModel {
                 input_tokens: (!matches!(self.0, OfflineMode::UnknownUsage)).then_some(100),
                 output_tokens: None,
             },
-            diagnostics: Default::default(),
+            diagnostics: classifier_model::ClassificationDiagnostics {
+                sent_image_count: if matches!(self.0, OfflineMode::DegradedImages) {
+                    request.image_urls.len().saturating_sub(1)
+                } else {
+                    request.image_urls.len()
+                },
+                ..Default::default()
+            },
         })
     }
+}
+
+#[tokio::test]
+async fn comparison_keeps_degraded_reviewed_image_evidence_unresolved() {
+    let mut manifest = offline_manifest();
+    for index in 0..2 {
+        manifest["groups"][0]["cases"][index]["image_urls"] =
+            json!([format!("https://example.test/{index}.jpg")]);
+    }
+    let groups = fixtures(&manifest);
+    let model = MeasuredModel {
+        model: OfflineModel(OfflineMode::DegradedImages),
+        observations: Mutex::default(),
+    };
+    let (baseline, left) = measure_schema(&model, &groups, 1, false, 0.5, 2.0, true).await;
+    let (proposed, right) = measure(&model, &groups, 1, false, 0.5, 2.0).await;
+    for report in [&baseline, &proposed] {
+        assert_eq!(2, report["incomplete_evidence_candidates"]);
+        assert_eq!(2, report["unresolved_candidates"]);
+        assert_eq!(0, report["false_positive"]);
+        assert_eq!(0, report["false_negative"]);
+    }
+    assert_eq!(40, compare(&left, &right, 0.5)["compared_candidates"]);
+}
+
+#[tokio::test]
+async fn schema_comparison_reports_every_human_label_regression_and_separate_usage() {
+    let groups = fixtures(&offline_manifest());
+    let model = MeasuredModel {
+        model: OfflineModel(OfflineMode::SchemaShift),
+        observations: Mutex::default(),
+    };
+    let (baseline, left) = measure_schema(&model, &groups, 1, false, 0.5, 2.0, true).await;
+    let (proposed, right) = measure(&model, &groups, 1, false, 0.5, 2.0).await;
+    assert_eq!(21, baseline["true_positive"]);
+    assert_eq!(21, baseline["true_negative"]);
+    assert_eq!(21, proposed["false_positive"]);
+    assert_eq!(21, proposed["false_negative"]);
+    for report in [&baseline, &proposed] {
+        assert_eq!(42, report["provider_requests"]);
+        assert_eq!(4200, report["known_input_tokens"]);
+        assert_eq!(1.0, report["valid_response_rate"]);
+        assert_eq!(42, report["scores"].as_array().unwrap().len());
+    }
+    let comparison = compare(&left, &right, 0.5);
+    let flips = comparison["decision_flips"].as_array().unwrap();
+    assert_eq!(42, flips.len());
+    assert!(
+        flips
+            .iter()
+            .all(|flip| flip["left_correct_right_wrong"] == true)
+    );
+    assert_eq!(1.0, comparison["decision_disagreement"]);
 }
 
 #[tokio::test]

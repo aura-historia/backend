@@ -44,8 +44,8 @@ export function applicationParameters(
   const searchFilterMatchBatchCandidates = new cdk.CfnParameter(scope, "SearchFilterMatchBatchCandidates", {
     type: "Number",
     default: 1,
-    allowedValues: Array.from({ length: 32 }, (_, index) => String(index + 1)),
-    description: "Maximum text candidates per shared classifier request. One is singleton mode; enable larger values only after the labelled quality/cost gate.",
+    allowedValues: Array.from({ length: 50 }, (_, index) => String(index + 1)),
+    description: "Maximum text candidates per shared classifier request (1–50); provider budgets may require smaller groups. One is singleton mode; enable larger values only after the labelled quality/cost gate.",
   }).valueAsString;
   const cdcRouterActivation = cdcRouterCondition(scope);
 

@@ -304,7 +304,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q, D>
         digests: D,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
-        if policy.classification_batch_candidates.get() > 32
+        if policy.classification_batch_candidates.get() > 50
             || policy.evaluation_limit.get() > 50
             || policy.hybrid_scan_limit.get() > 100
             || policy.evaluation_limit > policy.hybrid_scan_limit
@@ -2390,16 +2390,10 @@ mod tests {
 
     fn decision(accepted: bool) -> Result<ClassificationResponse, ClassificationError> {
         Ok(ClassificationResponse {
-            answers: std::collections::BTreeMap::from([
-                (
-                    classifier_model::QuestionId::new("should_show").unwrap(),
-                    Probability::new(if accepted { 0.75 } else { 0.1 }).unwrap(),
-                ),
-                (
-                    classifier_model::QuestionId::new("hard_conflict").unwrap(),
-                    Probability::new(0.95).unwrap(),
-                ),
-            ]),
+            answers: std::collections::BTreeMap::from([(
+                classifier_model::QuestionId::new("should_show").unwrap(),
+                Probability::new(if accepted { 0.75 } else { 0.1 }).unwrap(),
+            )]),
             usage: Default::default(),
             diagnostics: Default::default(),
         })
@@ -2425,7 +2419,7 @@ mod tests {
 
     #[tokio::test]
     async fn all_fifty_are_evaluated_regardless_of_rejection_prefix_and_no_tail_is_chased() {
-        for batch_size in [1, 32] {
+        for batch_size in [1, 32, 50] {
             for rejected_prefix in [10, 49, 50] {
                 let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
                     matched_through: OffsetDateTime::UNIX_EPOCH,
@@ -2458,7 +2452,7 @@ mod tests {
                 assert_eq!(50 - rejected_prefix, report.matches_inserted);
                 assert_eq!(1, report.filters_candidate_cap);
                 let state = state.lock().unwrap();
-                assert_eq!(if batch_size == 1 { 50 } else { 2 }, state.evaluator_calls);
+                assert_eq!(50_usize.div_ceil(batch_size), state.evaluator_calls);
                 assert!(
                     state
                         .evaluator_requests
@@ -2483,65 +2477,68 @@ mod tests {
 
     #[tokio::test]
     async fn batch_timeout_keeps_frozen_selection_and_retry_does_not_duplicate_matches() {
-        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
-            matched_through: OffsetDateTime::UNIX_EPOCH,
-        });
-        let refs = seed_candidates(&state, 51);
-        // First request succeeds for 32 candidates; the second request times out.
-        state.lock().unwrap().evaluator_results = (0..33)
-            .map(|index| {
-                if index == 32 {
-                    Err(ClassificationError::Timeout)
-                } else {
-                    decision(true)
-                }
-            })
-            .collect();
-        let mut handler = full_budget_handler(state.clone());
-        handler.policy.classification_batch_candidates = NonZeroUsize::new(32).unwrap();
-        let filter = ordinary_filter();
-        let window = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
-        let mut selected = None;
-        let mut first = FilterAttemptReport::default();
-        assert_eq!(
-            FilterOutcome::Retryable,
-            handler
-                .process_filter(&filter, &test_snapshot(), window, &mut selected, &mut first)
-                .await
-                .unwrap()
-        );
-        assert_eq!(Some(refs[..50].to_vec()), selected);
-        assert_eq!(32, first.matches_inserted);
-        assert_eq!(18, first.retryable_evaluation_failures);
-        assert_eq!(0, first.candidates_rejected);
-        assert_eq!(0, state.lock().unwrap().checkpoints);
-        state.lock().unwrap().evaluator_results = (0..50).map(|_| decision(true)).collect();
-        let mut second = FilterAttemptReport::default();
-        assert_eq!(
-            FilterOutcome::Completed,
-            handler
-                .process_filter(
-                    &filter,
-                    &test_snapshot(),
-                    window,
-                    &mut selected,
-                    &mut second
-                )
-                .await
-                .unwrap()
-        );
-        assert_eq!(Some(refs[..50].to_vec()), selected);
-        assert_eq!(18, second.matches_inserted);
-        assert_eq!(32, second.matches_duplicate);
-        let state = state.lock().unwrap();
-        assert_eq!(50, state.persisted.len());
-        assert!(
-            state
-                .persisted
-                .iter()
-                .all(|m| m.product_listing_id != refs[50].product_listing_id)
-        );
-        assert_eq!(1, state.checkpoints);
+        for batch_size in [32, 50] {
+            let successful = if batch_size == 32 { 32 } else { 0 };
+            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                matched_through: OffsetDateTime::UNIX_EPOCH,
+            });
+            let refs = seed_candidates(&state, 51);
+            // Exercise a split batch and a timeout of the complete fifty-member batch.
+            state.lock().unwrap().evaluator_results = (0..successful + 1)
+                .map(|index| {
+                    if index == successful {
+                        Err(ClassificationError::Timeout)
+                    } else {
+                        decision(true)
+                    }
+                })
+                .collect();
+            let mut handler = full_budget_handler(state.clone());
+            handler.policy.classification_batch_candidates = NonZeroUsize::new(batch_size).unwrap();
+            let filter = ordinary_filter();
+            let window = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+            let mut selected = None;
+            let mut first = FilterAttemptReport::default();
+            assert_eq!(
+                FilterOutcome::Retryable,
+                handler
+                    .process_filter(&filter, &test_snapshot(), window, &mut selected, &mut first)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(Some(refs[..50].to_vec()), selected);
+            assert_eq!(successful, first.matches_inserted);
+            assert_eq!(50 - successful, first.retryable_evaluation_failures);
+            assert_eq!(0, first.candidates_rejected);
+            assert_eq!(0, state.lock().unwrap().checkpoints);
+            state.lock().unwrap().evaluator_results = (0..50).map(|_| decision(true)).collect();
+            let mut second = FilterAttemptReport::default();
+            assert_eq!(
+                FilterOutcome::Completed,
+                handler
+                    .process_filter(
+                        &filter,
+                        &test_snapshot(),
+                        window,
+                        &mut selected,
+                        &mut second
+                    )
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(Some(refs[..50].to_vec()), selected);
+            assert_eq!(50 - successful, second.matches_inserted);
+            assert_eq!(successful, second.matches_duplicate);
+            let state = state.lock().unwrap();
+            assert_eq!(50, state.persisted.len());
+            assert!(
+                state
+                    .persisted
+                    .iter()
+                    .all(|m| m.product_listing_id != refs[50].product_listing_id)
+            );
+            assert_eq!(1, state.checkpoints);
+        }
     }
 
     #[tokio::test]
