@@ -31,6 +31,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
+/// Retry cooldown applied to URLs whose scrape failed on schema generation, review or
+/// LLM-budget outcomes rather than on transport, so the next pass does not re-spend
+/// LLM budget on the same ListingSource.
+const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+
 /// Context for scraping a domain's candidates.
 struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
@@ -965,8 +970,8 @@ async fn persist_non_http_failure(
             | ScraperError::PendingSchemaReview { .. }
     ) || is_schema_generation_validation_failure(error);
     if has_retry_cooldown {
-        let next_retry_at =
-            time::OffsetDateTime::now_utc() + time::Duration::seconds((30 * 60) as i64);
+        let next_retry_at = time::OffsetDateTime::now_utc()
+            + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
         persist_url_failure(
             ctx,
             FetchFailureRequest {
@@ -3163,10 +3168,13 @@ mod tests {
                       status_code,
                       next_retry_at,
                       expected_raw_input_sha256| {
+                    let cooldown =
+                        time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
                     *received_url == url
                         && kind == "SchemaClassificationRejected"
                         && status_code.is_none()
-                        && *next_retry_at > before
+                        && *next_retry_at >= before + cooldown
+                        && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
                         && expected_raw_input_sha256.is_none()
                 },
             )
