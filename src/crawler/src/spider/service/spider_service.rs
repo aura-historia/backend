@@ -457,7 +457,8 @@ impl SpiderServiceImpl {
         }
 
         let diagnostics = diagnostics_rx.await.unwrap_or_default();
-        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
+        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
+        {
             return Err(error);
         }
 
@@ -481,11 +482,19 @@ impl SpiderServiceImpl {
         self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
             .await;
 
+        // Coverage losses on a healthy crawl are only visible here.
         info!(
             total_crawled = state.total_crawled,
             product_urls_count = state.products_found,
             product_pattern_known = product_pattern.is_some(),
             classification_done = state.classification_done,
+            pages_received = diagnostics.pages_received,
+            rejected_host = diagnostics.rejected_host,
+            rejected_blacklist = diagnostics.rejected_blacklist,
+            rejected_duplicate = diagnostics.rejected_duplicate,
+            robots_blocked = diagnostics.robots_blocked,
+            lagged = diagnostics.lagged,
+            initial_anti_bot = ?diagnostics.initial_anti_bot,
             "Crawl completed successfully"
         );
 
@@ -1158,7 +1167,7 @@ mod service_tests {
 fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
-    diagnostics: CrawlDiagnostics,
+    diagnostics: &CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
     if total_links > 1 {
         return None;
@@ -1171,6 +1180,6 @@ fn crawl_failure_error(
         crawl_root_url: crawl_root_url.to_string(),
         kind,
         total_links,
-        diagnostics: Box::new(diagnostics),
+        diagnostics: Box::new(diagnostics.clone()),
     })
 }
