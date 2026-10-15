@@ -68,8 +68,8 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
         raw_capture,
     } = profile;
 
-    let review_required = crawler_review_required();
-    let url_pattern_review_required = crawler_review_url_pattern_required();
+    let review_required = env_flag("CRAWLER_REVIEW_REQUIRED");
+    let url_pattern_review_required = env_flag("CRAWLER_REVIEW_URL_PATTERN_REQUIRED");
     let review_repo = CrawlerReviewRepository::new(pool.clone());
 
     // Wire scraper + spider dependencies. Provider and model choices stay here; crawler services
@@ -246,14 +246,9 @@ fn llm_governor(vertex_ai_models: &CrawlerVertexAiModels) -> Arc<CrawlerLlmGover
     llm_governor
 }
 
-fn crawler_review_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_REQUIRED")
-        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
-        .unwrap_or(false)
-}
-
-fn crawler_review_url_pattern_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+/// Reads a boolean review-gate switch; unset or unrecognized values keep the gate off.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
