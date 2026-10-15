@@ -1,0 +1,43 @@
+{
+  "paintingBefore": {
+    "schema": "EFFECTIVE_SHIPPING_V1",
+    "collection": "OFFERED",
+    "shipping_prohibited": false,
+    "conditional": true,
+    "country_offers": [
+      {
+        "country": "DE",
+        "zone": 0,
+        "service": 0,
+        "per_item_price": {
+          "amount": 8000,
+          "currency": "EUR"
+        }
+      }
+    ]
+  },
+  "paintingAfter": {
+    "schema": "EFFECTIVE_SHIPPING_V1",
+    "collection": "OFFERED",
+    "shipping_prohibited": false,
+    "conditional": true,
+    "country_offers": [
+      {
+        "country": "DE",
+        "zone": 0,
+        "service": 0,
+        "per_item_price": {
+          "amount": 9500,
+          "currency": "EUR"
+        }
+      }
+    ]
+  },
+  "cabinet": {
+    "schema": "EFFECTIVE_SHIPPING_V1",
+    "collection": "OFFERED",
+    "shipping_prohibited": true,
+    "conditional": false,
+    "country_offers": []
+  }
+}

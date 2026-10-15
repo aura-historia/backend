@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-service = { workspace = true }
 product-listing-service = { workspace = true }
 geo-service = { workspace = true }
 domain-primitives = { workspace = true }

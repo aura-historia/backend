@@ -59,3 +59,5 @@ pub(crate) fn validate_text(value: &str, max_bytes: usize) -> Result<(), Invalid
     }
     Ok(())
 }
+
+pub mod discovery;

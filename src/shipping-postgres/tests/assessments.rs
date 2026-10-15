@@ -1,108 +1,14 @@
 use application::transaction::{Transaction, UnitOfWork};
-use listing_source_core::ListingSourceId;
-use party_core::party_id::PartyId;
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::{delivery::ListingDelivery, product_listing_id::ProductListingId};
-use shipping_core::{
-    fixtures::gallery_terms,
-    profile::ShippingProfileId,
-    selection::{ComponentOverride, DeliveryOverrides, ProfileSelection},
-    terms::ShippingPolicy,
-};
+use product_listing_core::product_listing_id::ProductListingId;
+use shipping_core::fixtures::gallery_terms;
 use shipping_postgres::assessment::SqlxAssessmentReaderFactory;
 use shipping_service::assessment::*;
-use sqlx::PgPool;
-use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;
-const SCHEMA: Postgres = Postgres::new("migrations");
-struct References;
-impl shipping_json::ShippingTermsReferenceCodec for References {
-    fn decode_party(v: &str) -> Result<PartyId, application::error::BoxError> {
-        Ok(PartyId::try_from(v.parse::<uuid::Uuid>()?)?)
-    }
-    fn encode_party(v: PartyId) -> String {
-        v.into_uuid().to_string()
-    }
-    fn decode_location(
-        v: &str,
-    ) -> Result<party_core::party_location_id::PartyLocationId, application::error::BoxError> {
-        Ok(party_core::party_location_id::PartyLocationId::try_from(
-            v.parse::<uuid::Uuid>()?,
-        )?)
-    }
-    fn encode_location(v: party_core::party_location_id::PartyLocationId) -> String {
-        v.into_uuid().to_string()
-    }
-}
-impl shipping_json::listing_delivery::DeliveryReferenceCodec for References {
-    fn decode_source(v: &str) -> Result<ListingSourceId, application::error::BoxError> {
-        Ok(ListingSourceId::try_from(v.parse::<uuid::Uuid>()?)?)
-    }
-    fn encode_source(v: ListingSourceId) -> String {
-        v.into_uuid().to_string()
-    }
-    fn decode_profile(v: &str) -> Result<ShippingProfileId, application::error::BoxError> {
-        Ok(ShippingProfileId::try_from(v.parse::<uuid::Uuid>()?)?)
-    }
-    fn encode_profile(v: ShippingProfileId) -> String {
-        v.into_uuid().to_string()
-    }
-}
-async fn seed(p: &PgPool) -> (ListingSourceId, ShippingProfileId, Vec<ProductListingId>) {
-    let source = ListingSourceId::new();
-    let owner = PartyId::new();
-    let profile = ShippingProfileId::new();
-    sqlx::query("INSERT INTO parties(party_id,party_slug_id,name)VALUES($1,$2,'Gallery')")
-        .bind(owner.into_uuid())
-        .bind(format!("gallery-{}", owner.as_uuid().simple()))
-        .execute(p)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id)VALUES($1,$2,'Gallery',$3)").bind(source.into_uuid()).bind(format!("source-{}",source.as_uuid().simple())).bind(owner.into_uuid()).execute(p).await.unwrap();
-    sqlx::query("INSERT INTO shipping_profiles(shipping_profile_id,listing_source_id,current_source_id,management_revision,terms_revision,lifecycle,name,terms)VALUES($1,$2,$2,1,1,'ACTIVE','Gallery',$3)").bind(profile.into_uuid()).bind(source.into_uuid()).bind(shipping_json::encode::<References>(&gallery_terms(8000)).unwrap()).execute(p).await.unwrap();
-    sqlx::query("INSERT INTO shipping_source_defaults(listing_source_id,current_source_id,shipping_profile_id,revision)VALUES($1,$1,$2,2)").bind(source.into_uuid()).bind(profile.into_uuid()).execute(p).await.unwrap();
-    let mut ids = Vec::new();
-    for cabinet in [false, true] {
-        let id = ProductListingId::new();
-        let event = uuid::Uuid::new_v4();
-        let delivery = if cabinet {
-            Some(
-                shipping_json::listing_delivery::encode::<References>(
-                    &ListingDelivery::new(
-                        source,
-                        Default::default(),
-                        Some(ProfileSelection::InheritSourceDefault),
-                        Default::default(),
-                        DeliveryOverrides {
-                            shipping: ComponentOverride::Replace(ShippingPolicy::Prohibited),
-                            collection: Default::default(),
-                        },
-                    )
-                    .unwrap(),
-                )
-                .unwrap(),
-            )
-        } else {
-            None
-        };
-        let mut listing_tx = p.begin().await.unwrap();
-        sqlx::query("INSERT INTO product_listings(product_listing_id,product_listing_title_slug_id,current_event_id,content_source_event_id,embedding_source_event_id,listing_source_id,source_listing_id,lifecycle,url,delivery_configuration)VALUES($1,$2,$3,$3,$3,$4,$2,'ACTIVE','https://example.test/item',$5)").bind(id.into_uuid()).bind(format!("item-{}-abcdef",id.as_uuid().simple())).bind(event).bind(source.into_uuid()).bind(delivery).execute(&mut *listing_tx).await.unwrap();
-        sqlx::query("INSERT INTO product_listing_events(event_id,product_listing_id,event_type,event_group,event_type_schema_version,payload,event_time)VALUES($1,$2,'PRODUCT_LISTING_DISCOVERED','DOMAIN',1,$3,now())").bind(event).bind(id.into_uuid()).bind(serde_json::json!({"listingSourceId":source.into_uuid().to_string(),"sourceListingId":format!("item-{}-abcdef",id.as_uuid().simple()),"title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/item","imageCount":0,"auction":null})).execute(&mut *listing_tx).await.unwrap();
-        listing_tx.commit().await.unwrap();
-        ids.push(id);
-    }
-    (source, profile, ids)
-}
-async fn read(p: &PgPool, ids: &[ProductListingId]) -> AssessmentDependencies {
-    let mut tx = SqlxUnitOfWork::new(p.clone()).begin().await.unwrap();
-    let deps = SqlxAssessmentReaderFactory
-        .in_transaction(&mut tx)
-        .snapshot(ids, None)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-    deps
-}
+
+mod support;
+use support::*;
 #[aura_integration_test(services=[SCHEMA])]
 async fn shared_current_dependencies_and_verification_are_independent_of_unrelated_writes() {
     let p = get_postgres_client().await;
@@ -377,8 +283,65 @@ async fn dispatch_uses_only_current_permitted_derived_country_without_projection
         Some(work.generation),
         deps.locations[0].resolution_generation
     );
+    async fn project(pool: &sqlx::PgPool) {
+        use shipping_service::projection::{
+            ProjectListingShippingHandler, ProjectListingShippingUseCase,
+        };
+        for _ in 0..50 {
+            ProjectListingShippingHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                shipping_postgres::projection::SqlxShippingProjectionStoreFactory,
+            )
+            .execute(None, 100)
+            .await
+            .unwrap();
+            let pending: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE pending)",
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if !pending {
+                return;
+            }
+        }
+        panic!("shipping did not converge");
+    }
+    project(&p).await;
+    let summary: serde_json::Value = sqlx::query_scalar(
+        "SELECT summary FROM product_listing_shipping WHERE product_listing_id=$1",
+    )
+    .bind(ids[0].into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    assert_eq!("DE", summary["country_offers"][0]["country"]);
+    let refs:i64=sqlx::query_scalar("SELECT count(*) FROM product_listing_shipping_dependencies WHERE product_listing_id=$1 AND dependency_kind='RESOLUTION'").bind(ids[0].into_uuid()).fetch_one(&p).await.unwrap();
+    assert_eq!(1, refs);
     sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='SHIPPING_ORIGIN_TEST'").execute(&p).await.unwrap();
     let deps = read(&p, &ids).await;
     assert!(deps.locations[0].location.content().geography.is_none());
     assert!(deps.locations[0].resolution_generation.is_none());
+    project(&p).await;
+    let summary: serde_json::Value = sqlx::query_scalar(
+        "SELECT summary FROM product_listing_shipping WHERE product_listing_id=$1",
+    )
+    .bind(ids[0].into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    assert!(summary["country_offers"].as_array().unwrap().is_empty());
+    assert_eq!(true, summary["conditional"]);
+    let basis: serde_json::Value = sqlx::query_scalar(
+        "SELECT dependency FROM product_listing_shipping WHERE product_listing_id=$1",
+    )
+    .bind(ids[0].into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    assert!(
+        !basis
+            .to_string()
+            .contains("Synthetic unresolved dispatch site")
+    );
 }

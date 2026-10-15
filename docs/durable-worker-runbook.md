@@ -321,3 +321,37 @@ acknowledgment means OpenSearch accepted the write or external versioning fenced
 Search visibility follows the normal refresh cycle; no persisted acknowledgment claims
 search visibility. Queries continue during catch-up; repair/replay stalled geography and product
 projectors to propagate retirement, applicability and evidence removal.
+
+## Listing shipping recovery
+
+[Shipping discovery](shipping.md#effective-shipping-discovery-projection) owns the summary
+and read consistency contract. Apply the shipping migration with compatible mapping,
+router, published shipping consumer, complete product projector and cleanup runtime under
+the existing schema-dependent release procedure. DMS selects only compact shipping
+wake-ups; verify the retained source/DLQ pair, scoped database access, partial batch failures
+and the worker's bounded concurrency. The worker has no provider or OpenSearch permission.
+
+Inspect safe dependency/work identities, generation, cursor, pending age, lease deadline,
+due expiry and downstream queue lag. Profile/default journals and reverse dependencies
+retain current invalidation basis; never copy terms, addresses, buyer inputs or raw evidence
+into replay messages or diagnostics. An active lease is incomplete. Superseded/expired
+checkpoints roll back the whole page, and retries reread current authority. Unknown storage
+or event schema is a repairable failure, never an empty permissive policy.
+
+Hourly cleanup enqueues bounded due listing expiries, creates fresh wake-ups for runnable
+pending work and drains a page. It preserves traversal progress and pending age, fences
+old claims and makes no provider calls. Additional approved bounded cleanup invocations
+can accelerate a backlog. Verify actual shipping completion, product-projector completion
+and search refresh independently; a successful Lambda invocation is insufficient. Transport
+and provider outages have no fixed catch-up bound. PostgreSQL listing reads enforce current
+eligibility while indexed membership/counts/order continue with normal projection lag.
+
+For a rebuild, enqueue source UUIDs in bounded keyset pages using
+`SELECT enqueue_listing_shipping('SOURCE', $1)` in the operational transaction. New listings
+and assignments independently establish listing work, including IDs behind a source cursor.
+Workers can rebuild from committed records alone without provider calls or import staging.
+After derived work drains, replay current complete ProductListing events into the isolated
+index generation under the existing writer-fencing procedure: equal derived summaries
+produce no enrichment and cannot themselves populate an empty index. Preserve projection
+versions, source deletion fences and content-free deletion tombstones. Validate the strict
+nested mapping and current source fences before activating the replacement index.

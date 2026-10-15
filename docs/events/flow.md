@@ -26,14 +26,27 @@ success may confirm a transaction or queue custody; neither implies search visib
 or external delivery. PostgreSQL remains authoritative. DMS start and router activation
 require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
 
-## Shipping management signals
+## Shipping dependency invalidation
 
 [Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable
-profile/default signals, retained deletion fences and protected history. Only the
-minimal address-free signal is eligible for future invalidation delivery; terms,
-evidence and creation receipts remain outside ordinary CDC. Profile management commits
-signals locally and performs no synchronous fan-out. Shipping fan-out routing and
-consumers are not activated by profile management.
+profile/default signals and retained deletion fences. Their inserts atomically establish
+coalesced shipping work. Listing assignment/observation validity, current source connection,
+explicit location and resolution rights/expiry changes also invalidate current summaries;
+no whole-import completion barrier or provider-payload interpretation is involved.
+Only `listing_shipping_wakeups` participates in CDC: exact native work UUID and decimal-string
+generation. Private terms, evidence, reverse indexes, checkpoints and original journals
+remain outside DMS. Schema-2 `LISTING_SHIPPING` jobs carry typed `swork_` identity and a
+positive generation; duplicate/out-of-order jobs reread current work instead of frozen policy.
+
+Pages of at most 100 listings commit summary/reverse-dependency changes and their fenced
+checkpoint together. Equal public summaries emit nothing. Changed summaries append
+schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `{}`, advancing the existing listing
+projection fence/current-event pointer without changing canonical revision or timestamps.
+Only the complete product projector consumes that enrichment; it triggers no watchlist,
+embedding, matching or enrichment loop. Unknown event schemas/payloads fail routing.
+Continuation wake-ups commit with progress; active leases, lost claims and uncertain
+commits retain retry custody. Cleanup recovers due expiry and missed transport in bounded
+batches; [shipping recovery](../durable-worker-runbook.md#listing-shipping-recovery) owns operations.
 
 ## ProductListing write flow
 
@@ -100,6 +113,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
+| `listing_shipping_wakeups` | INSERT | Effective listing shipping worker |
 
 Product event fanout:
 
@@ -107,7 +121,7 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond product projector; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
@@ -168,6 +182,7 @@ commit/effect do not. SQS transport IDs are not business idempotency keys.
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
 | Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
+| Effective shipping | Reread current dependencies; commit a bounded page, safe summary, reverse dependencies and the same unexpired generation/lease checkpoint together. |
 | Geographic resolution | Reserve a bounded, database-budgeted claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Negative outcomes have reconsideration deadlines; provider/configuration failures retain failure custody. |
 
 ProductListing projections use externally versioned, content-free

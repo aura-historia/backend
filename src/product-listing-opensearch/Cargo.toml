@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-core = { workspace = true }
+shipping-json = { workspace = true }
 geo = { workspace = true, features = ["opensearch"] }
 party-core = { workspace = true }
 domain-primitives = { workspace = true }
@@ -31,9 +33,22 @@ url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+shipping-core = { workspace = true, features = ["test-data"] }
+embedding = { workspace = true }
+fxrate-postgres = { workspace = true }
+geo-postgres = { workspace = true }
+platform-postgres = { workspace = true }
+product-listing-postgres = { workspace = true }
+shipping-postgres = { workspace = true }
+shipping-service = { workspace = true }
+sqlx = { workspace = true }
+user-core = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
+
 rstest = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["opensearch"] }
+test-api = { workspace = true, features = ["opensearch", "postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]

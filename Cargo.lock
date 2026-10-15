@@ -393,6 +393,7 @@ dependencies = [
  "serde_json",
  "shipping-core",
  "shipping-json",
+ "shipping-service",
  "thiserror 2.0.21",
  "time",
  "tracing",
@@ -413,6 +414,7 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
+ "shipping-service",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
@@ -1269,6 +1271,8 @@ dependencies = [
  "product-listing-postgres",
  "product-listing-service",
  "serde_json",
+ "shipping-postgres",
+ "shipping-service",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4615,6 +4619,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "listing-shipping-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "shipping-postgres",
+ "shipping-service",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "listing-source-core"
 version = "0.1.0"
 dependencies = [
@@ -6317,8 +6341,11 @@ dependencies = [
  "async-trait",
  "auction-core",
  "domain-primitives",
+ "embedding",
  "fxrate-core",
+ "fxrate-postgres",
  "geo",
+ "geo-postgres",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
@@ -6326,13 +6353,20 @@ dependencies = [
  "opensearch",
  "party-core",
  "platform-opensearch",
+ "platform-postgres",
  "product-listing-core",
+ "product-listing-postgres",
  "product-listing-service",
  "rstest",
  "serde",
  "serde_fields",
  "serde_json",
  "serial_test",
+ "shipping-core",
+ "shipping-json",
+ "shipping-postgres",
+ "shipping-service",
+ "sqlx",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
@@ -6341,6 +6375,9 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-core",
+ "user-postgres",
+ "user-service",
  "uuid",
 ]
 
@@ -7839,6 +7876,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "domain-primitives",
  "geo",
  "geo-postgres",
  "geo-service",
@@ -7857,6 +7895,7 @@ dependencies = [
  "test-api",
  "time",
  "tokio",
+ "tracing",
  "user-core",
  "uuid",
 ]
@@ -7882,6 +7921,7 @@ dependencies = [
  "tracing",
  "user-core",
  "user-service",
+ "uuid",
 ]
 
 [[package]]

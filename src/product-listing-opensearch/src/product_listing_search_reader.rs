@@ -990,6 +990,7 @@ mod tests {
             event_id: EventId::new(),
             business_geography: None,
             inventory_geography: None,
+            shipping: None,
             auction_id: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

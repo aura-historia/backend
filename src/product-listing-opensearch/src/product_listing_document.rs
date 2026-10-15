@@ -286,6 +286,8 @@ pub(crate) enum ProductListingDocumentValidationError {
     PartialSaleProjection,
     #[error("product geographic projection is invalid")]
     InvalidGeography,
+    #[error("invalid effective shipping projection")]
+    InvalidShipping,
     #[error("sale prices must contain either all or none of the expanded currencies")]
     PartialExpandedSalePrices,
     #[error("product sale prices require sale projection metadata")]
@@ -355,6 +357,8 @@ impl From<&product_listing_service::geography::GeographicDimension>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDocument {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) shipping: Option<crate::shipping_document::ShippingDocument>,
     pub(crate) product_listing_id: ProductListingId,
     pub(crate) product_listing_title_slug_id: ProductListingSlugId,
     pub(crate) listing_source_id: ListingSourceId,
@@ -428,6 +432,9 @@ impl ProductListingDocument {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ProductListingDocumentValidationError> {
+        if self.shipping.as_ref().is_some_and(|s| !s.validate()) {
+            return Err(ProductListingDocumentValidationError::InvalidShipping);
+        }
         for d in [&self.business_geography, &self.inventory_geography]
             .into_iter()
             .flatten()
@@ -541,6 +548,7 @@ mod tests {
             event_id: EventId::new(),
             business_geography: None,
             inventory_geography: None,
+            shipping: None,
             auction_id: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

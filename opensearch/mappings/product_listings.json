@@ -5,6 +5,51 @@
     },
     "mappings": {
         "properties": {
+            "shipping": {
+                "type": "object",
+                "dynamic": "strict",
+                "properties": {
+                    "policy": {
+                        "type": "keyword"
+                    },
+                    "collection": {
+                        "type": "keyword"
+                    },
+                    "shippingProhibited": {
+                        "type": "boolean"
+                    },
+                    "conditional": {
+                        "type": "boolean"
+                    },
+                    "countryOffers": {
+                        "type": "nested",
+                        "dynamic": "strict",
+                        "properties": {
+                            "country": {
+                                "type": "keyword"
+                            },
+                            "zone": {
+                                "type": "short"
+                            },
+                            "service": {
+                                "type": "short"
+                            },
+                            "perItemPrice": {
+                                "type": "object",
+                                "dynamic": "strict",
+                                "properties": {
+                                    "amount": {
+                                        "type": "unsigned_long"
+                                    },
+                                    "currency": {
+                                        "type": "keyword"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "businessGeography": {
                 "type": "object",
                 "dynamic": "strict",

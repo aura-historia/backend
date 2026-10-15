@@ -20,5 +20,6 @@
   "marketing-consent-sync-lambda",
   "geo-resolution-lambda",
   "listing-geography-lambda",
+  "listing-shipping-lambda",
   "cdc-router-lambda"
 ]

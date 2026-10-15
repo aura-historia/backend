@@ -55,6 +55,7 @@ members = [
     "src/geo-postgres",
     "src/geo-resolution-lambda",
     "src/listing-geography-lambda",
+    "src/listing-shipping-lambda",
     "src/geo-amazon-location",
     "src/search-filter-core",
     "src/search-filter-service",

@@ -35,10 +35,11 @@ pub enum WorkerQueue {
     MarketingConsentSync,
     GeoResolution,
     ListingGeography,
+    ListingShipping,
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::WatchlistNotification,
@@ -50,6 +51,7 @@ impl WorkerQueue {
         Self::MarketingConsentSync,
         Self::GeoResolution,
         Self::ListingGeography,
+        Self::ListingShipping,
     ];
 
     pub fn scope(self) -> Option<WorkerScope> {
@@ -89,11 +91,17 @@ pub enum DomainJobPayload {
     MarketingConsentSyncIntentCreated(MarketingConsentSyncIntentCreatedJob),
     GeoResolution(GeoResolutionJob),
     ListingGeography(ListingGeographyJob),
+    ListingShipping(ListingShippingJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListingGeographyJob {
     pub work_id: product_listing_service::geography::GeographyWorkId,
+    pub generation: u64,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListingShippingJob {
+    pub work_id: shipping_service::projection::ShippingWorkId,
     pub generation: u64,
 }
 
@@ -171,6 +179,7 @@ impl DomainJob {
             }
             DomainJobPayload::UserTierChanged(_) => false,
             DomainJobPayload::ListingGeography(_) => scope == WorkerScope::ListingGeography,
+            DomainJobPayload::ListingShipping(_) => scope == WorkerScope::ListingShipping,
             DomainJobPayload::GeoResolution(_) => scope == WorkerScope::GeoResolution,
         };
         let keys_match = match &self.payload {
@@ -202,6 +211,15 @@ impl DomainJobPayload {
                 (
                     format!("listing-geography:{}:{}", job.work_id, job.generation),
                     format!("listing-geography:{}", job.work_id),
+                )
+            }
+            Self::ListingShipping(job) => {
+                if job.generation == 0 || job.generation > i64::MAX as u64 {
+                    return Err(InvalidJob);
+                }
+                (
+                    format!("listing-shipping:{}:{}", job.work_id, job.generation),
+                    format!("listing-shipping:{}", job.work_id),
                 )
             }
             Self::GeoResolution(job) => {

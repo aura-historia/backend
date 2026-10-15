@@ -53,6 +53,7 @@ struct SourceRow {
     current_event_id: uuid::Uuid,
     projection_version: i64,
     effective_geography: Option<serde_json::Value>,
+    effective_shipping: Option<serde_json::Value>,
     product_listing_id: uuid::Uuid,
     product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
@@ -189,6 +190,10 @@ impl ProductListingSearchFilterMatchSourceReader
             .iter()
             .map(|reference| reference.event_id.into_uuid())
             .collect::<Vec<_>>();
+        // Lock before the complete join: after waiting on a shipping/geography writer,
+        // a fresh READ COMMITTED statement must see its summary AND projection fence.
+        sqlx::query("SELECT product_listing_id FROM product_listings WHERE product_listing_id=ANY($1) ORDER BY product_listing_id FOR SHARE")
+            .bind(&product_listing_ids).fetch_all(&mut *self.connection).await.map_err(SourceQuerySqlxError)?;
         let rows = sqlx::query_as::<_, SourceRow>(
             r#"
             WITH requested_events AS (
@@ -205,6 +210,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.current_event_id,
                 product.projection_version,
                 geography.geography AS effective_geography,
+                shipping.summary AS effective_shipping,
                 product.product_listing_id,
                 product.product_listing_title_slug_id,
                 listing_source.listing_source_id,
@@ -246,6 +252,7 @@ impl ProductListingSearchFilterMatchSourceReader
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
 
+            LEFT JOIN product_listing_shipping shipping ON shipping.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_geographies geography ON geography.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
@@ -370,6 +377,13 @@ fn source_from_rows(
         current_event_id: try_from_uuid(row.current_event_id, "current event ID")
             .map_err(SourceRowMappingError::with_source)?,
         projection_version: row.projection_version,
+        shipping: row
+            .effective_shipping
+            .clone()
+            .map(shipping_json::discovery::decode)
+            .transpose()
+            .map_err(|source| SourceRowMappingError { source })?
+            .unwrap_or_default(),
         geography: row
             .effective_geography
             .clone()
@@ -666,6 +680,9 @@ fn event_kind_from_row(
         product_listing_event_codec::ProductListingPersistedEvent::Embedded
         | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
             ProductListingSearchFilterMatchSourceEventKind::Enrichment
+        }
+        product_listing_event_codec::ProductListingPersistedEvent::ShippingUpdated => {
+            ProductListingSearchFilterMatchSourceEventKind::Shipping
         }
         product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
             ProductListingSearchFilterMatchSourceEventKind::Geography

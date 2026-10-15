@@ -1,3 +1,5 @@
+pub const EVALUATOR_POLICY: &str = "SHIPPING_ASSESSMENT_V1";
+
 use crate::{
     coverage::{
         CoverageCompleteness, DeliveryArea, PostalForm, ShippingCoverage, german_postal_shape,

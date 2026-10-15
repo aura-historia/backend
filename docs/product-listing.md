@@ -105,7 +105,10 @@ Creation emits `PRODUCT_LISTING_DISCOVERED`. A later committed semantic revision
 
 Enrichment is separate from aggregate changes and public domain history.
 [Effective geography](geography.md#effective-listing-geography-2003) is a bounded derived
-read model; it never copies authoritative source addresses into the aggregate. Persisted event decoding is strict; delivery and projection rules belong to [event flow](events/flow.md).
+read model; it never copies authoritative source addresses into the aggregate.
+[Effective shipping discovery](shipping.md#effective-shipping-discovery-projection) similarly
+keeps shared policy and buyer assessments outside the aggregate and uses the complete projector.
+Persisted event decoding is strict; delivery and projection rules belong to [event flow](events/flow.md).
 
 ## Application, API, and search contracts
 

@@ -534,6 +534,7 @@ mod tests {
             current_event_id: event_id,
             projection_version: 41,
             geography: Default::default(),
+            shipping: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

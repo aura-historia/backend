@@ -21,6 +21,8 @@ tracing = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
 
+uuid = { workspace = true }
+
 [dev-dependencies]
 shipping-core = { workspace = true, features = ["test-data"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

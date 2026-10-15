@@ -23,6 +23,7 @@ pub enum ProductListingSearchFilterMatchSourceEventKind {
     Domain,
     Enrichment,
     Geography,
+    Shipping,
     Ignored,
 }
 
@@ -46,6 +47,7 @@ pub struct ProductListingSearchFilterMatchSource {
     /// Monotonic authoritative version for external OpenSearch writes.
     pub projection_version: i64,
     pub geography: crate::geography::EffectiveListingGeography,
+    pub shipping: shipping_core::discovery::EffectiveShipping,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub source: ListingSourceSummary,

@@ -211,6 +211,50 @@ enter diagnostics or public storage. Dispatch and collection sites are omitted f
 response terms: a PartyLocation reference establishes applicability, not permission to
 publish its management address. Exact public pickup disclosure needs an explicit contract.
 
+## Effective shipping discovery projection
+
+PostgreSQL delivery assertions, defaults, profiles and current integration/evidence
+eligibility remain authoritative. The rebuildable discovery summary uses the same
+current-dependency evaluation as listing reads. It stores independent collection
+eligibility, explicit global shipping prohibition, a conditional/unsupported flag,
+and bounded whole-country service offers. Fixed per-item prices use the currency's
+minor units. Ordered zone/service coordinates preserve alternatives without copying
+policy, private sites, provider vocabulary or buyer assessments. Missing offers never
+imply prohibition. Postal exclusions, uncertain earlier zones, missing variants/origins
+and required purchase inputs cannot produce unconditional offers. Country, service,
+currency and price predicates must share one nested offer record.
+
+Committed profile/default signals, listing assignments and observation deadlines,
+source integration changes, explicit location lifecycle/input and permitted resolution
+changes atomically invalidate durable work. Reverse dependencies and independent
+listing work prevent cursor advancement from missing concurrent assignments. Workers
+reread current records in bounded pages; generation/lease fences and checkpoints commit
+with summary/dependency writes. A changed summary appends the registered shipping
+enrichment event and advances only the listing's existing projection fence/current-event
+pointer. Equal summaries refresh dependencies silently. Profiles never rewrite canonical
+listing aggregates or manufacture listing-change events.
+
+The complete ProductListing projector replaces the entire externally versioned search
+document. Shipping performs no independent partial index update. Existing deletion
+tombstones and query exclusion remain in force. Discovery predicates, counts, membership
+and order can lag current shipping dependencies. All returned `item.shipping` and
+permitted `userState.shipping` still come from the existing batched PostgreSQL read path,
+including search/similar responses. Enrichment preserves page membership and order; it
+never post-filters/refills pages or performs per-hit hydration. On an origin read before
+catch-up, a hit can therefore advertise a new rate while matching an older indexed rate.
+The existing bounded anonymous response cache can also delay an origin read; authenticated
+responses remain `no-store` and anonymous TTLs remain capped at evidence deadlines.
+
+Normal catch-up follows committed invalidation → bounded shipping pages → enrichment
+CDC → complete product projection → OpenSearch refresh. It has no global query gate or
+strong consistency claim. The hourly cleanup requeues runnable lost deliveries and due
+evidence deadlines in bounded batches, and drains a page without provider calls. Backlogs
+can require multiple cleanup runs; an outage has no fixed catch-up deadline. Current
+PostgreSQL reads enforce expiry immediately. [Event flow](events/flow.md#shipping-dependency-invalidation)
+and the [recovery runbook](durable-worker-runbook.md#listing-shipping-recovery) own delivery,
+failure custody and rebuild operations. Literal storage/projection/index fixtures and
+transaction/race checks live in the shipping and product projection test suites.
+
 ## Independent assertions
 
 Eligibility is absent or `OFFERED`, `NOT_OFFERED`, or `SUBJECT_TO_CONFIRMATION`. Pricing is

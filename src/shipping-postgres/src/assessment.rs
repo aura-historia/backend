@@ -22,10 +22,25 @@ use uuid::Uuid;
 
 #[derive(Clone, Copy, Default)]
 pub struct SqlxAssessmentReaderFactory;
-struct Reader<'a>(&'a mut PgConnection);
+struct Reader<'a> {
+    connection: &'a mut PgConnection,
+    read_only: bool,
+}
 impl AssessmentReaderFactory<SqlxTransaction> for SqlxAssessmentReaderFactory {
     fn in_transaction<'a>(&'a self, tx: &'a mut SqlxTransaction) -> impl AssessmentReader + 'a {
-        Reader(tx.connection())
+        Reader {
+            connection: tx.connection(),
+            read_only: true,
+        }
+    }
+}
+impl SqlxAssessmentReaderFactory {
+    /// Projection pages hold owner/source/listing locks and retain resolution dependency locks.
+    pub(crate) fn projection_reader(connection: &mut PgConnection) -> impl AssessmentReader + '_ {
+        Reader {
+            connection,
+            read_only: false,
+        }
     }
 }
 fn invalid(source: impl std::error::Error + Send + Sync + 'static) -> AssessmentError {
@@ -121,12 +136,14 @@ impl AssessmentReader for Reader<'_> {
             return Err(AssessmentError::InvalidInput);
         }
         // First operation in this service-owned read transaction, before the snapshot is taken.
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-            .execute(&mut *self.0)
-            .await
-            .map_err(storage)?;
+        if self.read_only {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                .execute(&mut *self.connection)
+                .await
+                .map_err(storage)?;
+        }
         let at: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *self.0)
+            .fetch_one(&mut *self.connection)
             .await
             .map_err(storage)?;
         if let Some(user) = user {
@@ -134,7 +151,7 @@ impl AssessmentReader for Reader<'_> {
                 "SELECT EXISTS(SELECT 1 FROM users WHERE user_id=$1 AND NOT suspended)",
             )
             .bind(user.into_uuid())
-            .fetch_one(&mut *self.0)
+            .fetch_one(&mut *self.connection)
             .await
             .map_err(storage)?;
             if !active {
@@ -150,7 +167,7 @@ impl AssessmentReader for Reader<'_> {
             LEFT JOIN listing_source_shopify_ingestion_configurations sh USING(listing_source_id)
             LEFT JOIN listing_source_woocommerce_ingestion_configurations w USING(listing_source_id)
             WHERE l.product_listing_id=ANY($1)
-        "#).bind(ids.iter().map(|i| i.into_uuid()).collect::<Vec<_>>()).fetch_all(&mut *self.0).await.map_err(storage)?;
+        "#).bind(ids.iter().map(|i| i.into_uuid()).collect::<Vec<_>>()).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut listings = Vec::new();
         for row in rows {
             match row.lifecycle.as_str() {
@@ -212,7 +229,11 @@ impl AssessmentReader for Reader<'_> {
             });
         }
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
-        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT listing_source_id,shipping_profile_id,revision,source_deleted FROM shipping_source_defaults WHERE listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
+        if !self.read_only {
+            sqlx::query("SELECT listing_source_id FROM shipping_source_defaults WHERE listing_source_id=ANY($1) ORDER BY listing_source_id FOR SHARE")
+                .bind(&sources).fetch_all(&mut *self.connection).await.map_err(storage)?;
+        }
+        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT listing_source_id,shipping_profile_id,revision,source_deleted FROM shipping_source_defaults WHERE listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut defaults = Vec::new();
         for (source, id, rev, deleted) in default_rows {
             if deleted || rev < 2 {
@@ -244,11 +265,15 @@ impl AssessmentReader for Reader<'_> {
                 profile_ids.push(id.into_uuid());
             }
         }
+        if !self.read_only {
+            sqlx::query("SELECT shipping_profile_id FROM shipping_profiles WHERE shipping_profile_id=ANY($1) ORDER BY shipping_profile_id FOR SHARE")
+                .bind(&profile_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
+        }
         let rows = sqlx::query_as::<_, ProfileRow>(r#"
             SELECT shipping_profile_id,listing_source_id,management_revision,terms_revision,lifecycle,name,attributed_party_id,terms,
                 integration_method,integration_domain,verified_at,fresh_until,expires_at
             FROM shipping_profiles WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2)
-        "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
+        "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut profiles = Vec::new();
         for row in rows {
             let view = row.profile.view().map_err(invalid)?;
@@ -297,7 +322,11 @@ impl AssessmentReader for Reader<'_> {
                 }
             }
         }
-        let rows = sqlx::query_as::<_, LocationRow>("SELECT party_location_id,party_id,geography,lifecycle,revision,input_revision FROM party_locations WHERE party_location_id=ANY($1)").bind(&location_ids).fetch_all(&mut *self.0).await.map_err(storage)?;
+        if !self.read_only {
+            sqlx::query("SELECT party_location_id FROM party_locations WHERE party_location_id=ANY($1) ORDER BY party_location_id FOR SHARE")
+                .bind(&location_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
+        }
+        let rows = sqlx::query_as::<_, LocationRow>("SELECT party_location_id,party_id,geography,lifecycle,revision,input_revision FROM party_locations WHERE party_location_id=ANY($1)").bind(&location_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let subjects = rows
             .iter()
             .map(|r| {
@@ -305,10 +334,21 @@ impl AssessmentReader for Reader<'_> {
                     .map_err(invalid)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let resolutions = geo_postgres::SqlxResolutionRepositoryFactory::snapshot_reader(self.0)
-            .inspect_many(&subjects)
-            .await
+        // Two explicit sites per listing still fit a constant number of bounded reads.
+        let mut resolutions = Vec::with_capacity(subjects.len());
+        for subjects in subjects.chunks(100) {
+            let batch = if self.read_only {
+                geo_postgres::SqlxResolutionRepositoryFactory::snapshot_reader(self.connection)
+                    .inspect_many(subjects)
+                    .await
+            } else {
+                geo_postgres::SqlxResolutionRepositoryFactory::on_connection(self.connection)
+                    .inspect_many(subjects)
+                    .await
+            }
             .map_err(resolution_error)?;
+            resolutions.extend(batch);
+        }
         if resolutions.len() != rows.len() {
             return Err(corrupt());
         }
@@ -394,6 +434,9 @@ impl AssessmentReader for Reader<'_> {
                 ),
                 revision: rev,
                 resolution_generation,
+                resolution_id: resolution.as_ref().map(|r| r.work.id.into_uuid()),
+                resolution_valid_until: resolution_generation
+                    .and_then(|_| resolved.and_then(|r| r.valid_until)),
             });
         }
         Ok(AssessmentDependencies {

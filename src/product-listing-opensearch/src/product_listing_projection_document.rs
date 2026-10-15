@@ -16,6 +16,8 @@ use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ProductListingProjectionDocumentError {
+    #[error("invalid effective shipping summary")]
+    InvalidShippingSummary,
     #[error("sale valuation is missing its immutable FX snapshot")]
     MissingSaleSnapshot,
     #[error("active product source must not receive a sale FX snapshot")]
@@ -48,6 +50,9 @@ pub(crate) fn product_listing_document(
     product: &ProductListingSearchFilterMatchSource,
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<ProductListingDocument, ProductListingProjectionDocumentError> {
+    if !shipping_core::discovery::validate(&product.shipping) {
+        return Err(ProductListingProjectionDocumentError::InvalidShippingSummary);
+    }
     let (sale_prices, sale_observation_fx_rate_id, sale_observed_at) =
         sale_projection(product, sale_snapshot)?;
     let (title, language) = selected_title(product);
@@ -60,6 +65,7 @@ pub(crate) fn product_listing_document(
         event_id: product.current_event_id,
         business_geography: product.geography.business.as_ref().map(Into::into),
         inventory_geography: product.geography.inventory.as_ref().map(Into::into),
+        shipping: Some((&product.shipping).into()),
         auction_id: product
             .auction
             .as_ref()
@@ -269,6 +275,7 @@ mod tests {
             current_event_id: event_id,
             projection_version: 1,
             geography: Default::default(),
+            shipping: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("blue-vase-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

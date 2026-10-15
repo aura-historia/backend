@@ -244,6 +244,7 @@ pub(super) fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
         current_event_id: event_id,
         projection_version: 1,
         geography: Default::default(),
+        shipping: Default::default(),
         event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
         product_listing_id: ProductListingId::new(),
@@ -315,5 +316,144 @@ async fn geography_replacement_fences_old_points_and_preserves_country_only_quer
     assert!(
         result.is_ok(),
         "geo external fence and country discovery: {result:?}"
+    );
+}
+
+#[aura_integration_test(services=[TestOpenSearch()])]
+async fn shipping_nested_rates_and_complete_replacements_preserve_price_geography_and_removal() {
+    let result: TestResult = async {
+        use shipping_core::discovery::{CountryOffer, EffectiveShipping};
+        let client = get_opensearch_client().await.clone();
+        let writer = OpenSearchProductListingSearchProjection::new(client.clone());
+        let mut product = source()?;
+        let price = |amount: u64| Some(money::Price::new(amount.into(), Currency::Eur));
+        product.shipping = EffectiveShipping {
+            collection: Some(shipping_core::terms::ShippingEligibility::Offered),
+            shipping_prohibited: false,
+            conditional: false,
+            country_offers: vec![
+                CountryOffer {
+                    country: geo::CountryCode::DEU,
+                    zone: 0,
+                    service: 0,
+                    per_item_price: price(8000_u64),
+                },
+                CountryOffer {
+                    country: geo::CountryCode::FRA,
+                    zone: 1,
+                    service: 0,
+                    per_item_price: price(1000_u64),
+                },
+            ],
+        };
+        writer.upsert(&product, None).await?;
+        refresh_index(DEFAULT_INDEX).await;
+        for (country, max, count) in [
+            (geo::CountryCode::DEU, 2000, 0),
+            (geo::CountryCode::DEU, 8000, 1),
+            (geo::CountryCode::FRA, 2000, 1),
+        ] {
+            let query =
+                crate::shipping_query::country_offer_query(country, Some((Currency::Eur, max)));
+            let result: Value = client
+                .search(opensearch::SearchParts::Index(&[DEFAULT_INDEX]))
+                .body(json!({"query":query}))
+                .send()
+                .await?
+                .error_for_status_code()?
+                .json()
+                .await?;
+            assert_eq!(count, result["hits"]["total"]["value"]);
+        }
+        // Strict mapping rejects unexpected private policy and provider payload fields.
+        let mut bad = serde_json::to_value(product_listing_document(&product, None)?)?;
+        bad["shipping"]["privateEvidence"] = json!("disallowed");
+        assert_eq!(
+            StatusCode::BAD_REQUEST,
+            client
+                .index(IndexParts::IndexId(DEFAULT_INDEX, "invalid-shipping"))
+                .body(bad)
+                .send()
+                .await?
+                .status_code()
+        );
+        let mut paused = PausedWrite::new(client.clone()).await?;
+        let old_writer = OpenSearchProductListingSearchProjection::new(paused.client.clone());
+        let old = product.clone();
+        let delayed = tokio::spawn(async move { old_writer.upsert(&old, None).await });
+        paused.wait_until_received().await?;
+        product.projection_version += 1;
+        product.shipping.country_offers[0].per_item_price = price(9500);
+        product.pricing.price = Some(money::Price::new(12345_u64.into(), Currency::Eur).into());
+        product.geography.business =
+            Some(product_listing_service::geography::GeographicDimension {
+                location_id: party_core::party_location_id::PartyLocationId::new(),
+                reference_release: geo::reference::ReferenceRelease::CURRENT,
+                country: Some(geo::CountryCode::DEU),
+                subdivision: None,
+                position: None,
+            });
+        writer.upsert(&product, None).await?;
+        assert_eq!(StatusCode::CONFLICT, paused.resume().await?);
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Stale,
+            delayed.await??
+        );
+        let document: Value = client
+            .get(GetParts::IndexId(
+                DEFAULT_INDEX,
+                &product.product_listing_id.to_string(),
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(
+            9500,
+            document["_source"]["shipping"]["countryOffers"][0]["perItemPrice"]["amount"]
+        );
+        assert_eq!(12345, document["_source"]["sourcePrice"]["amount"]);
+        assert_eq!("DE", document["_source"]["businessGeography"]["country"]);
+        let stale = product.clone();
+        product.projection_version += 1;
+        product.shipping = Default::default();
+        writer.upsert(&product, None).await?;
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Stale,
+            writer.upsert(&stale, None).await?
+        );
+        let document: Value = client
+            .get(GetParts::IndexId(
+                DEFAULT_INDEX,
+                &product.product_listing_id.to_string(),
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(json!([]), document["_source"]["shipping"]["countryOffers"]);
+        writer
+            .delete(product.product_listing_id, product.projection_version + 1)
+            .await?;
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Stale,
+            writer.upsert(&stale, None).await?
+        );
+        let document: Value = client
+            .get(GetParts::IndexId(
+                DEFAULT_INDEX,
+                &product.product_listing_id.to_string(),
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(2, document["_source"].as_object().unwrap().len());
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "shipping strict nested mapping and external fences: {result:?}"
     );
 }

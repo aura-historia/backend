@@ -122,6 +122,8 @@ pub struct LocationDependency {
     pub location: PartyLocation,
     pub revision: u64,
     pub resolution_generation: Option<u64>,
+    pub resolution_valid_until: Option<OffsetDateTime>,
+    pub resolution_id: Option<uuid::Uuid>,
 }
 pub struct AssessmentDependencies {
     pub evaluated_at: OffsetDateTime,
@@ -335,117 +337,118 @@ where
             else {
                 continue;
             };
-            let default = dependencies
-                .defaults
-                .iter()
-                .find(|d| d.selection.source_id() == listing.source_id);
-            let mut notices = Vec::new();
-            if listing.delivery.selection().is_none() {
-                notices.push("ASSIGNMENT_UNRESOLVED");
-            }
-            let listing_expired = listing
-                .evidence
-                .is_some_and(|e| e.status(dependencies.evaluated_at) == EvidenceStatus::Expired);
-            let configuration = if listing_expired || !listing.integration_current {
-                notices.push(if listing_expired {
-                    "LISTING_EVIDENCE_EXPIRED"
-                } else {
-                    "INTEGRATION_MISMATCH"
-                });
-                ListingDeliveryConfiguration::new(
-                    listing.source_id,
-                    ProfileSelection::SuppressInheritance,
-                    Default::default(),
-                    Default::default(),
-                )
-                .expect("empty configuration")
-            } else {
-                listing.delivery.configuration()
-            };
-            let profile_id = match configuration.selection() {
-                ProfileSelection::Explicit(id) => Some(*id),
-                ProfileSelection::InheritSourceDefault => {
-                    default.and_then(|d| d.selection.profile_id())
-                }
-                _ => None,
-            };
-            let profile = profile_id
-                .and_then(|id| dependencies.profiles.iter().find(|p| p.profile.id() == id));
-            let profiles: Vec<_> = profile
-                .into_iter()
-                .filter(|p| {
-                    if p.integration != *listing.delivery.integration() {
-                        notices.push("PROFILE_INTEGRATION_MISMATCH");
-                        false
-                    } else if p.evidence.status(dependencies.evaluated_at)
-                        == EvidenceStatus::Expired
-                    {
-                        notices.push("PROFILE_EVIDENCE_EXPIRED");
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .map(|p| p.profile.clone())
-                .collect();
-            let effective = EffectiveDeliveryTerms::resolve(
-                &configuration,
-                default.map(|d| &d.selection),
-                &profiles,
-            );
-            let referenced = referenced_locations(effective.terms());
-            let locations: Vec<_> = dependencies
-                .locations
-                .iter()
-                .filter(|l| {
-                    referenced.contains(&l.location.id())
-                        && l.location.party_id() == listing.operator_id
-                })
-                .map(|l| l.location.clone())
-                .collect();
             request.input.destination = destination.effective.clone();
-            let assessment = effective.assess(&request.input, &locations);
-            items.push(ListingAssessmentView {
-                listing_id: listing.id,
-                source_id: listing.source_id,
-                listing_revision: listing.revision,
-                source_revision: listing.source_revision,
-                default_revision: matches!(
-                    configuration.selection(),
-                    ProfileSelection::InheritSourceDefault
-                )
-                .then(|| default.map_or(1, |d| d.revision)),
-                profile: profile.map(|p| ProfileAssessmentBasis {
-                    id: p.profile.id(),
-                    terms_revision: p.profile.revision().into_inner(),
-                    management_revision: p.management_revision,
-                    lifecycle: p.profile.lifecycle(),
-                    evidence: p.evidence,
-                }),
-                listing_evidence: listing.evidence,
-                evaluated_at: dependencies.evaluated_at,
-                input: request.input,
-                generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
-                effective,
-                assessment,
-                location_revisions: dependencies
-                    .locations
-                    .iter()
-                    .filter(|l| {
-                        referenced.contains(&l.location.id())
-                            && l.location.party_id() == listing.operator_id
-                    })
-                    .map(|l| LocationAssessmentBasis {
-                        id: l.location.id(),
-                        revision: l.revision,
-                        resolution_generation: l.resolution_generation,
-                    })
-                    .collect(),
-                notices,
-            });
+            items.push(assess_listing(&dependencies, listing, request.input));
         }
         tx.commit().await?;
         Ok(DeliveryAssessmentView { destination, items })
+    }
+}
+/// Shared current-dependency evaluation for browsing and rebuildable discovery.
+/// Callers supply a coherent snapshot; this function performs no I/O.
+pub fn assess_listing(
+    dependencies: &AssessmentDependencies,
+    listing: &ListingDependency,
+    input: AssessmentInput,
+) -> ListingAssessmentView {
+    let default = dependencies
+        .defaults
+        .iter()
+        .find(|d| d.selection.source_id() == listing.source_id);
+    let mut notices = Vec::new();
+    if listing.delivery.selection().is_none() {
+        notices.push("ASSIGNMENT_UNRESOLVED");
+    }
+    let listing_expired = listing
+        .evidence
+        .is_some_and(|e| e.status(dependencies.evaluated_at) == EvidenceStatus::Expired);
+    let configuration = if listing_expired || !listing.integration_current {
+        notices.push(if listing_expired {
+            "LISTING_EVIDENCE_EXPIRED"
+        } else {
+            "INTEGRATION_MISMATCH"
+        });
+        ListingDeliveryConfiguration::new(
+            listing.source_id,
+            ProfileSelection::SuppressInheritance,
+            Default::default(),
+            Default::default(),
+        )
+        .expect("empty configuration")
+    } else {
+        listing.delivery.configuration()
+    };
+    let profile_id = match configuration.selection() {
+        ProfileSelection::Explicit(id) => Some(*id),
+        ProfileSelection::InheritSourceDefault => default.and_then(|d| d.selection.profile_id()),
+        _ => None,
+    };
+    let profile =
+        profile_id.and_then(|id| dependencies.profiles.iter().find(|p| p.profile.id() == id));
+    let profiles: Vec<_> = profile
+        .into_iter()
+        .filter(|p| {
+            if p.integration != *listing.delivery.integration() {
+                notices.push("PROFILE_INTEGRATION_MISMATCH");
+                false
+            } else if p.evidence.status(dependencies.evaluated_at) == EvidenceStatus::Expired {
+                notices.push("PROFILE_EVIDENCE_EXPIRED");
+                false
+            } else {
+                true
+            }
+        })
+        .map(|p| p.profile.clone())
+        .collect();
+    let effective =
+        EffectiveDeliveryTerms::resolve(&configuration, default.map(|d| &d.selection), &profiles);
+    let referenced = referenced_locations(effective.terms());
+    let locations: Vec<_> = dependencies
+        .locations
+        .iter()
+        .filter(|l| {
+            referenced.contains(&l.location.id()) && l.location.party_id() == listing.operator_id
+        })
+        .map(|l| l.location.clone())
+        .collect();
+    let assessment = effective.assess(&input, &locations);
+    ListingAssessmentView {
+        listing_id: listing.id,
+        source_id: listing.source_id,
+        listing_revision: listing.revision,
+        source_revision: listing.source_revision,
+        default_revision: matches!(
+            configuration.selection(),
+            ProfileSelection::InheritSourceDefault
+        )
+        .then(|| default.map_or(1, |d| d.revision)),
+        profile: profile.map(|p| ProfileAssessmentBasis {
+            id: p.profile.id(),
+            terms_revision: p.profile.revision().into_inner(),
+            management_revision: p.management_revision,
+            lifecycle: p.profile.lifecycle(),
+            evidence: p.evidence,
+        }),
+        listing_evidence: listing.evidence,
+        evaluated_at: dependencies.evaluated_at,
+        input,
+        generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
+        effective,
+        assessment,
+        location_revisions: dependencies
+            .locations
+            .iter()
+            .filter(|l| {
+                referenced.contains(&l.location.id())
+                    && l.location.party_id() == listing.operator_id
+            })
+            .map(|l| LocationAssessmentBasis {
+                id: l.location.id(),
+                revision: l.revision,
+                resolution_generation: l.resolution_generation,
+            })
+            .collect(),
+        notices,
     }
 }
 /// Only explicitly selected sites are dependencies; business/inventory geography is irrelevant.
@@ -935,6 +938,8 @@ mod tests {
             ),
             revision: 1,
             resolution_generation: None,
+            resolution_valid_until: None,
+            resolution_id: None,
         });
         let request = request(
             &deps,

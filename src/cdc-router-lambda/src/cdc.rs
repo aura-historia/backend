@@ -235,6 +235,7 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                                 "marketing_email_consent_sync_intents"
                                     | "geo_resolution_wakeups"
                                     | "listing_geography_wakeups"
+                                    | "listing_shipping_wakeups"
                             )
                         ) =>
                     {
@@ -445,6 +446,7 @@ fn classify_dms_table_operation(
         (CdcTable::ProductListingEvents, CdcOperation::Insert)
         | (CdcTable::GeoResolutionWakeups, CdcOperation::Insert)
         | (CdcTable::ListingGeographyWakeups, CdcOperation::Insert)
+        | (CdcTable::ListingShippingWakeups, CdcOperation::Insert)
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
         | (CdcTable::NotificationDeliveries, CdcOperation::Insert)
@@ -454,6 +456,7 @@ fn classify_dms_table_operation(
         (CdcTable::ProductListingEvents, _)
         | (CdcTable::GeoResolutionWakeups, _)
         | (CdcTable::ListingGeographyWakeups, _)
+        | (CdcTable::ListingShippingWakeups, _)
         | (CdcTable::ProductListingRawRevisions, _)
         | (CdcTable::SearchFilterMatches, _)
         | (CdcTable::NotificationDeliveries, _)
@@ -468,6 +471,7 @@ fn dms_table_is_selected(table: &str) -> bool {
         CdcTable::ProductListingEvents
             | CdcTable::GeoResolutionWakeups
             | CdcTable::ListingGeographyWakeups
+            | CdcTable::ListingShippingWakeups
             | CdcTable::ProductListingRawRevisions
             | CdcTable::SearchFilterMatches
             | CdcTable::NotificationDeliveries
@@ -504,7 +508,9 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
             DmsKinesisRecordClassification::Noop
                 if matches!(
                     change.table.as_str(),
-                    "geo_resolution_wakeups" | "listing_geography_wakeups"
+                    "geo_resolution_wakeups"
+                        | "listing_geography_wakeups"
+                        | "listing_shipping_wakeups"
                 ) =>
             {
                 let id_field = if change.table == "geo_resolution_wakeups" {
@@ -545,6 +551,9 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
             ("listing_geography_wakeups", CdcOperation::Insert) => {
                 ["work_id", "generation"].as_slice()
             }
+            ("listing_shipping_wakeups", CdcOperation::Insert) => {
+                ["work_id", "generation"].as_slice()
+            }
             ("product_listing_events", CdcOperation::Insert) => [
                 "event_id",
                 "product_listing_id",
@@ -582,12 +591,15 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         if change.table == "marketing_email_consent_sync_intents"
             || change.table == "geo_resolution_wakeups"
             || change.table == "listing_geography_wakeups"
+            || change.table == "listing_shipping_wakeups"
         {
             require_exact_dms_columns(row, required_columns)?;
         }
         match change.table.as_str() {
             "geo_resolution_wakeups" => validate_geography_wakeup(row, "resolution_id")?,
-            "listing_geography_wakeups" => validate_geography_wakeup(row, "work_id")?,
+            "listing_geography_wakeups" | "listing_shipping_wakeups" => {
+                validate_geography_wakeup(row, "work_id")?
+            }
             "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
 
             _ => {}
@@ -773,6 +785,48 @@ mod tests {
             "control": {"table-def": {}},
             "metadata": {"record-type": "control", "operation": "create-table",
                 "schema-name": "public", "table-name": "listing_geography_wakeups"}
+        });
+        assert!(published_jobs(&control.to_string()).is_empty());
+    }
+
+    #[test]
+    fn listing_shipping_dms_regression_validates_and_routes_all_operations() {
+        let (router, _) = fanout();
+        let fixture = include_str!("../tests/fixtures/dms-kinesis/listing-shipping-insert.json");
+        let first = published_jobs(fixture);
+        assert_eq!(first, published_jobs(fixture));
+        assert_eq!(1, first.len());
+        assert_eq!("listing-shipping", first[0]["scope"]);
+        assert_eq!(i64::MAX, first[0]["payload"]["generation"]);
+        assert_eq!(2, first[0]["payload"].as_object().unwrap().len());
+        for operation in ["insert", "update", "delete"] {
+            let mut record: Value = serde_json::from_str(fixture).unwrap();
+            record["metadata"]["operation"] = json!(operation);
+            if operation != "insert" {
+                assert!(published_jobs(&record.to_string()).is_empty());
+            }
+            for (field, invalid) in [
+                ("address", json!("private address")),
+                ("generation", json!("0")),
+                ("generation", json!("01")),
+                ("generation", json!("9223372036854775808")),
+                ("generation", json!(1)),
+                ("work_id", json!("01900000-0000-4000-8000-000000000008")),
+                ("work_id", json!("not-a-uuid")),
+            ] {
+                let mut poison = record.clone();
+                poison["data"][field] = invalid;
+                assert!(
+                    router
+                        .prepare_dms_kinesis_record(poison.to_string().as_bytes())
+                        .is_err()
+                );
+            }
+        }
+        let control = json!({
+            "control": {"table-def": {}},
+            "metadata": {"record-type": "control", "operation": "create-table",
+                "schema-name": "public", "table-name": "listing_shipping_wakeups"}
         });
         assert!(published_jobs(&control.to_string()).is_empty());
     }

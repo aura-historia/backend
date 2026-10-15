@@ -188,6 +188,7 @@ pub(crate) enum ProductListingPersistedEvent {
     Embedded,
     TranslatedTitles,
     GeographyUpdated,
+    ShippingUpdated,
 }
 
 pub(crate) fn decode_persisted(
@@ -203,7 +204,8 @@ pub(crate) fn decode_persisted(
                 "PRODUCT_LISTING_CHANGED" => ProductListingEventType::Changed,
                 "ENRICHMENT_EMBEDDED"
                 | "ENRICHMENT_TRANSLATED_TITLES"
-                | "ENRICHMENT_GEOGRAPHY_UPDATED" => {
+                | "ENRICHMENT_GEOGRAPHY_UPDATED"
+                | "ENRICHMENT_SHIPPING_UPDATED" => {
                     return Err(ProductListingEventCodecError::IncompatibleEventGroup {
                         event_type: event_type.to_owned(),
                         event_group: event_group.to_owned(),
@@ -238,6 +240,14 @@ pub(crate) fn decode_persisted(
                     }
                     Ok(ProductListingPersistedEvent::GeographyUpdated)
                 }
+                "ENRICHMENT_SHIPPING_UPDATED" => {
+                    if payload != &serde_json::json!({}) {
+                        return Err(ProductListingEventCodecError::UnsupportedEventType {
+                            event_type: event_type.to_owned(),
+                        });
+                    }
+                    Ok(ProductListingPersistedEvent::ShippingUpdated)
+                }
                 "ENRICHMENT_EMBEDDED" => {
                     decode_embedded_enrichment(payload)?;
                     Ok(ProductListingPersistedEvent::Embedded)
@@ -265,6 +275,7 @@ pub(crate) fn decode_persisted(
                     | "ENRICHMENT_EMBEDDED"
                     | "ENRICHMENT_TRANSLATED_TITLES"
                     | "ENRICHMENT_GEOGRAPHY_UPDATED"
+                    | "ENRICHMENT_SHIPPING_UPDATED"
             ) {
                 Err(ProductListingEventCodecError::IncompatibleEventGroup {
                     event_type: event_type.to_owned(),
