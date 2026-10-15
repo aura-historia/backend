@@ -12,6 +12,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - New observations can refresh unchanged terms without a semantic listing change.
   Imported component/default deadlines cap anonymous caching through validityDeadline;
   expiry/disconnect preserve independent manual overrides. See [shipping](shipping.md).
+- Shipping enum schemas preserve nullable assertions in generated clients.
 
 ## 2026-10-15 — Shipping on listing responses (#2064)
 

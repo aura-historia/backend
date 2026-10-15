@@ -18088,6 +18088,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         charge:
           allOf:
@@ -18113,6 +18114,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         applicability:
           type: string
@@ -18190,7 +18192,7 @@ components:
         evaluatedAt: {type: string, format: date-time}
         eligibility:
           type: string
-          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION]
+          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION, null]
           nullable: true
         selectedZone:
           type: integer
@@ -18663,6 +18665,7 @@ components:
           enum:
           - CALENDAR
           - BUSINESS
+          - null
           nullable: true
         trigger:
           type: string
@@ -18672,6 +18675,7 @@ components:
           - PAYMENT
           - DISPATCH
           - READY_FOR_COLLECTION
+          - null
           nullable: true
       description: Ordered duration bounds; handling, transit and total are independent assertions.
     ShippingLeadTimesData:
@@ -18861,6 +18865,7 @@ components:
           - PER_LOT
           - PER_SHIPMENT
           - PER_SELLER_ORDER
+          - null
           nullable: true
         qualifying_scope:
           type: string
@@ -18869,6 +18874,7 @@ components:
           - LOT
           - SHIPMENT
           - SELLER_ORDER
+          - null
           nullable: true
         components:
           type: object
@@ -18904,6 +18910,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         rate:
           allOf:
@@ -19371,6 +19378,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         site:
           allOf:
@@ -19618,6 +19626,7 @@ components:
           - ACTIVE
           - RETIRED
           - MISSING
+          - null
           nullable: true
       description: Initial absent state has revision 1. Clear retains an advancing revision tombstone; retirement
         retains the selected identity and ineligible status. No implicit fallback.
