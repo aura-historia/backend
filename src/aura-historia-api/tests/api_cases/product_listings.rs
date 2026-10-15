@@ -513,7 +513,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (id_status, id_body) = json_response(id_response).await;
+    let (id_status, mut id_body) = json_response(id_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
         id_status,
@@ -530,13 +530,26 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (slug_status, slug_body) = json_response(slug_response).await;
+    let (slug_status, mut slug_body) = json_response(slug_response).await;
 
     assert_eq!(
         reqwest::StatusCode::OK,
         slug_status,
         "response body: {slug_body}"
     );
+    // Each lookup evaluates current shipping in its own snapshot.
+    for body in [&mut id_body, &mut slug_body] {
+        let evaluated_at = body["item"]["shipping"]
+            .as_object_mut()
+            .unwrap()
+            .remove("evaluatedAt")
+            .unwrap();
+        OffsetDateTime::parse(
+            evaluated_at.as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+    }
     assert_eq!(id_body, slug_body);
     assert_eq!(
         Some("public, max-age=0, s-maxage=120, stale-if-error=0".to_owned()),
