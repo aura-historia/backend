@@ -20,6 +20,18 @@ Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enab
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
+### Squashed migration baseline
+
+Crawler migrations start from one squashed baseline, [`20260101000000_initial_schema.sql`](../../src/crawler/migrations/20260101000000_initial_schema.sql). Add schema changes as new migrations and never edit an applied one. SQLx checksums the exact file bytes, so [`.gitattributes`](../../.gitattributes) keeps migrations LF on every platform.
+
+A database that recorded the pre-squash chain (through `20261015120000`) already has the baseline schema, but `server` and the `dev` binaries refuse its ledger at startup. Adopt each such database once:
+
+1. Stop every crawler process that uses the database. A database that has not recorded the complete pre-squash chain must first be brought up to it by a pre-squash build.
+2. Run [`adopt-squashed-baseline.sql`](../../src/crawler/scripts/adopt-squashed-baseline.sql) with `psql` as the database owner. It rewrites only the SQLx ledger, accepts pre-squash checksums from LF or CRLF checkouts, keeps later migrations recorded, and aborts unchanged on any other ledger. Re-running it is a no-op.
+3. Start a binary built from the squashed migrations.
+
+For local databases, `db-reset` is the alternative when their data is disposable. Otherwise run the script through the compose service, for example `docker compose -f src/crawler/docker-compose.yml exec -T postgres psql -U postgres -d crawler_demo < src/crawler/scripts/adopt-squashed-baseline.sql`.
+
 The crawler scheduler is deployed as a single process. Its spider and scraper workers may process many domains concurrently, while process-local per-component domain locks plus URL and ListingSource locks coordinate work inside that process. Spider and scraper may work on the same domain concurrently, each bounded by its own per-domain throttle. Different domains remain concurrent; multi-process or horizontally scaled scheduler coordination is outside the current design.
 
 ## Local database

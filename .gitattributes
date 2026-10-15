@@ -1,0 +1,2 @@
+# SQLx checksums the exact migration bytes; keep them identical on every platform.
+src/crawler/migrations/*.sql text eol=lf
