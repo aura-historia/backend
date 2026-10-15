@@ -1,0 +1,3580 @@
+{
+  "baseline_two_questions": {
+    "candidates": 100,
+    "elapsed_millis": 9401,
+    "failed_requests": 0,
+    "fallback_candidates": 0,
+    "fallback_requests": 0,
+    "false_negative": 4,
+    "false_positive": 0,
+    "incomplete_evidence_candidates": 0,
+    "incomplete_response_rate": 0.0,
+    "invalid_response_envelopes": 0,
+    "invalid_response_rate": 0.0,
+    "known_input_tokens": 62816,
+    "known_output_tokens": 0,
+    "largest_request_candidates": 1,
+    "planned_requests": 100,
+    "precision": 1.0,
+    "provider_requests": 100,
+    "recall_including_unresolved": 0.92,
+    "request_candidate_counts": {
+      "1": 100
+    },
+    "request_p50_millis": 384,
+    "request_p95_millis": 1077,
+    "scores": [
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8642
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7831
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8193
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8355
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8602
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8457
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8637
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "de-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2649
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8029
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8164
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0836
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1401
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1827
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1154
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2434
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2268
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1244
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0906
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0909
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0987
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7379
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8588
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8444
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8487
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8477
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8767
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8882
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7009
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7629
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7598
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.856
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8964
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8801
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8877
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9114
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8916
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9059
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7557
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5994
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8017
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-021",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8305
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-022",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8416
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-023",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8791
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-024",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8288
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-025",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8892
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-026",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.127
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-027",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1548
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-028",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1452
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-029",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0938
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-030",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1796
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-031",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1413
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-032",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1573
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-033",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1283
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-034",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3197
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-035",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1055
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-036",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2637
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-037",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.086
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-038",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.126
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-039",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1088
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-040",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1022
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-041",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3085
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-042",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1082
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-043",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2847
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-044",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1772
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-045",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1897
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-046",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1905
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-047",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1171
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-048",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1811
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-049",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.105
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-050",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0966
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8971
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9146
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8506
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8582
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8447
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1559
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1018
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1549
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1549
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.14
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8751
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8352
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "fr-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4515
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8459
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8216
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "fr-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4438
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "fr-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3357
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7389
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7766
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8333
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0735
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0774
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1339
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1554
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.114
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1687
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1481
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1038
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1455
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1439
+      }
+    ],
+    "shared_provider_requests": 0,
+    "token_priced_cost_usd": 0.002387008,
+    "true_negative": 50,
+    "true_positive": 46,
+    "unknown_output_token_requests": 0,
+    "unknown_token_requests": 0,
+    "unresolved_candidates": 0,
+    "unresolved_questions": 0,
+    "valid_response_rate": 1.0
+  },
+  "batch_candidates": 50,
+  "batch_prompt_version": "saved-search-match-batch-v1",
+  "batched": {
+    "candidates": 100,
+    "elapsed_millis": 4330,
+    "failed_requests": 0,
+    "fallback_candidates": 0,
+    "fallback_requests": 0,
+    "false_negative": 8,
+    "false_positive": 1,
+    "incomplete_evidence_candidates": 0,
+    "incomplete_response_rate": 0.0,
+    "invalid_response_envelopes": 0,
+    "invalid_response_rate": 0.0,
+    "known_input_tokens": 21278,
+    "known_output_tokens": 0,
+    "largest_request_candidates": 38,
+    "planned_requests": 5,
+    "precision": 0.9767441860465116,
+    "provider_requests": 5,
+    "recall_including_unresolved": 0.84,
+    "request_candidate_counts": {
+      "10": 1,
+      "12": 1,
+      "20": 2,
+      "38": 1
+    },
+    "request_p50_millis": 929,
+    "request_p95_millis": 1694,
+    "scores": [
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8564
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.887
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8942
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8316
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8379
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8448
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8226
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "de-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4751
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8788
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8106
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0211
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1607
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0383
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1282
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1314
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.059
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0241
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0117
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0336
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.047
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7409
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8252
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8754
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8088
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8412
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8521
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8572
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8106
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5751
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6987
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2749
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7248
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5878
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6003
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1641
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4457
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4769
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8281
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5995
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3849
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-021",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8512
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-022",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8335
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-023",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3135
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-024",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8064
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-025",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6605
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-026",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0593
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-027",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0755
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-028",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0403
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-029",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0548
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-030",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0817
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-031",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0219
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-032",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0481
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-033",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0422
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-034",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0517
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-035",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0187
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-036",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0892
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-037",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0174
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-038",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1433
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-039",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1006
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-040",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0388
+      },
+      {
+        "decision": true,
+        "expected_match": false,
+        "id": "en-041",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6492
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-042",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0424
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-043",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0513
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-044",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0337
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-045",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0395
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-046",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1498
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-047",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.15
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-048",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0854
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-049",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0345
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-050",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0889
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5889
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7059
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6439
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6016
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "es-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3196
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0212
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0096
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0128
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0203
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0791
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8886
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8894
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8479
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9111
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8921
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7194
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5737
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7798
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.846
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8513
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.044
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0226
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0484
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.071
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0103
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0976
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.07
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0715
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1323
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0238
+      }
+    ],
+    "shared_provider_requests": 5,
+    "token_priced_cost_usd": 0.000808564,
+    "true_negative": 49,
+    "true_positive": 42,
+    "unknown_output_token_requests": 0,
+    "unknown_token_requests": 0,
+    "unresolved_candidates": 0,
+    "unresolved_questions": 0,
+    "valid_response_rate": 1.0
+  },
+  "batched_reversed": {
+    "candidates": 100,
+    "elapsed_millis": 5135,
+    "failed_requests": 0,
+    "fallback_candidates": 0,
+    "fallback_requests": 0,
+    "false_negative": 7,
+    "false_positive": 2,
+    "incomplete_evidence_candidates": 0,
+    "incomplete_response_rate": 0.0,
+    "invalid_response_envelopes": 0,
+    "invalid_response_rate": 0.0,
+    "known_input_tokens": 21278,
+    "known_output_tokens": 0,
+    "largest_request_candidates": 38,
+    "planned_requests": 5,
+    "precision": 0.9555555555555556,
+    "provider_requests": 5,
+    "recall_including_unresolved": 0.86,
+    "request_candidate_counts": {
+      "10": 1,
+      "12": 1,
+      "20": 2,
+      "38": 1
+    },
+    "request_p50_millis": 1014,
+    "request_p95_millis": 1953,
+    "scores": [
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8837
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8706
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8743
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8834
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8898
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8827
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9019
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5482
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9006
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8897
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0754
+      },
+      {
+        "decision": true,
+        "expected_match": false,
+        "id": "de-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8509
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3105
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1882
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3395
+      },
+      {
+        "decision": true,
+        "expected_match": false,
+        "id": "de-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8227
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.199
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0183
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0525
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0961
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9007
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8855
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.908
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8227
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6402
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6369
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.906
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8361
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7603
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5175
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2191
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2265
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6471
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2594
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2312
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6222
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6103
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7495
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.855
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.58
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-021",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8564
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-022",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8391
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "en-023",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3243
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-024",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.838
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-025",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5128
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-026",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1793
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-027",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2972
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-028",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.125
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-029",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1934
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-030",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0561
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-031",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0255
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-032",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1572
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-033",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1261
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-034",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-035",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0549
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-036",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1327
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-037",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0865
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-038",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1215
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-039",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1063
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-040",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0664
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-041",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2546
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-042",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0257
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-043",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1133
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-044",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0398
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-045",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0837
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-046",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.05
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-047",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0792
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-048",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.053
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-049",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1227
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-050",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1035
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8057
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "es-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1371
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.894
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7678
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "es-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4226
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1024
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0293
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0857
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1034
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0945
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8823
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8772
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8053
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8748
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8964
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5027
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.723
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8676
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8674
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8945
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1214
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0351
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0968
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1285
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0855
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3429
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0936
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1473
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2429
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1612
+      }
+    ],
+    "shared_provider_requests": 5,
+    "token_priced_cost_usd": 0.000808564,
+    "true_negative": 48,
+    "true_positive": 43,
+    "unknown_output_token_requests": 0,
+    "unknown_token_requests": 0,
+    "unresolved_candidates": 0,
+    "unresolved_questions": 0,
+    "valid_response_rate": 1.0
+  },
+  "dataset_revision": "synthetic-text-v1-2026-10-15",
+  "evidence_policy_version": "matching-evidence-v1",
+  "human_reviewed": false,
+  "input_usd_per_million_tokens": 0.038,
+  "label_provenance": "agent-authored",
+  "model": "clef-flash",
+  "neighbor_order_interference": {
+    "compared_candidates": 100,
+    "decision_disagreement": 0.1,
+    "decision_flips": [
+      {
+        "expected_match": true,
+        "id": "de-008",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.4751,
+        "right_decision": true,
+        "right_should_show": 0.5482
+      },
+      {
+        "expected_match": false,
+        "id": "de-012",
+        "left_correct_right_wrong": true,
+        "left_decision": false,
+        "left_should_show": 0.1607,
+        "right_decision": true,
+        "right_should_show": 0.8509
+      },
+      {
+        "expected_match": false,
+        "id": "de-016",
+        "left_correct_right_wrong": true,
+        "left_decision": false,
+        "left_should_show": 0.059,
+        "right_decision": true,
+        "right_should_show": 0.8227
+      },
+      {
+        "expected_match": true,
+        "id": "en-012",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.7248,
+        "right_decision": false,
+        "right_should_show": 0.2265
+      },
+      {
+        "expected_match": true,
+        "id": "en-014",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.6003,
+        "right_decision": false,
+        "right_should_show": 0.2594
+      },
+      {
+        "expected_match": true,
+        "id": "en-016",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.4457,
+        "right_decision": true,
+        "right_should_show": 0.6222
+      },
+      {
+        "expected_match": true,
+        "id": "en-017",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.4769,
+        "right_decision": true,
+        "right_should_show": 0.6103
+      },
+      {
+        "expected_match": true,
+        "id": "en-020",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.3849,
+        "right_decision": true,
+        "right_should_show": 0.58
+      },
+      {
+        "expected_match": false,
+        "id": "en-041",
+        "left_correct_right_wrong": false,
+        "left_decision": true,
+        "left_should_show": 0.6492,
+        "right_decision": false,
+        "right_should_show": 0.2546
+      },
+      {
+        "expected_match": true,
+        "id": "es-002",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.7059,
+        "right_decision": false,
+        "right_should_show": 0.1371
+      }
+    ],
+    "image_evidence_disagreement": [],
+    "should_show_max_absolute_delta": 0.7637,
+    "should_show_mean_absolute_delta": 0.11071199999999996
+  },
+  "pricing_source": "https://developers.cloudflare.com/workers-ai/models/clef-flash/",
+  "rollout_gate": "INELIGIBLE_AGENT_AUTHORED_LABELS",
+  "schema_comparison": {
+    "compared_candidates": 100,
+    "decision_disagreement": 0.01,
+    "decision_flips": [
+      {
+        "expected_match": true,
+        "id": "fr-003",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.4515,
+        "right_decision": true,
+        "right_should_show": 0.6138
+      }
+    ],
+    "image_evidence_disagreement": [],
+    "should_show_max_absolute_delta": 0.1623,
+    "should_show_mean_absolute_delta": 0.043748999999999996
+  },
+  "should_show_threshold": 0.5,
+  "singleton": {
+    "candidates": 100,
+    "elapsed_millis": 11741,
+    "failed_requests": 0,
+    "fallback_candidates": 0,
+    "fallback_requests": 0,
+    "false_negative": 3,
+    "false_positive": 0,
+    "incomplete_evidence_candidates": 0,
+    "incomplete_response_rate": 0.0,
+    "invalid_response_envelopes": 0,
+    "invalid_response_rate": 0.0,
+    "known_input_tokens": 51316,
+    "known_output_tokens": 0,
+    "largest_request_candidates": 1,
+    "planned_requests": 100,
+    "precision": 1.0,
+    "provider_requests": 100,
+    "recall_including_unresolved": 0.94,
+    "request_candidate_counts": {
+      "1": 100
+    },
+    "request_p50_millis": 330,
+    "request_p95_millis": 1804,
+    "scores": [
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9116
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8012
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7619
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8577
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8909
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8632
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8661
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "de-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2769
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8354
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "de-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8356
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0427
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0666
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1242
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0545
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1682
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.159
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0666
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0468
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0452
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "de-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0708
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7922
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8438
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.848
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8644
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8598
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9083
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8963
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7483
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.7974
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8062
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8869
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8859
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8906
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9024
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.91
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8971
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8766
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.791
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.5855
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.672
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-021",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8342
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-022",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8383
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-023",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8716
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-024",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.877
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "en-025",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8754
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-026",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.052
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-027",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0606
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-028",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0612
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-029",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.061
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-030",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1355
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-031",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0866
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-032",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0649
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-033",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0856
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-034",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3029
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-035",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.102
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-036",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.128
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-037",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0445
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-038",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0602
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-039",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0582
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-040",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0726
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-041",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1664
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-042",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0536
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-043",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1844
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-044",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1453
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-045",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.2366
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-046",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0938
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-047",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0685
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-048",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1334
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-049",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0782
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "en-050",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0624
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9126
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.9049
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8718
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.851
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "es-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8246
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0912
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0491
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1119
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0897
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "es-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0579
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-001",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8981
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-002",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8733
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-003",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.6138
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-004",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8804
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-005",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8652
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "fr-006",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.4776
+      },
+      {
+        "decision": false,
+        "expected_match": true,
+        "id": "fr-007",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.3536
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-008",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8056
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-009",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8838
+      },
+      {
+        "decision": true,
+        "expected_match": true,
+        "id": "fr-010",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.8809
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-011",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0396
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-012",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0405
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-013",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0806
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-014",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0794
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-015",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0671
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-016",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1074
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-017",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1148
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-018",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0585
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-019",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.0853
+      },
+      {
+        "decision": false,
+        "expected_match": false,
+        "id": "fr-020",
+        "requested_image_count": 0,
+        "sent_image_count": 0,
+        "should_show": 0.1037
+      }
+    ],
+    "shared_provider_requests": 0,
+    "token_priced_cost_usd": 0.001950008,
+    "true_negative": 50,
+    "true_positive": 47,
+    "unknown_output_token_requests": 0,
+    "unknown_token_requests": 0,
+    "unresolved_candidates": 0,
+    "unresolved_questions": 0,
+    "valid_response_rate": 1.0
+  },
+  "singleton_comparison": {
+    "compared_candidates": 100,
+    "decision_disagreement": 0.1,
+    "decision_flips": [
+      {
+        "expected_match": true,
+        "id": "en-011",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.8869,
+        "right_decision": false,
+        "right_should_show": 0.2749
+      },
+      {
+        "expected_match": true,
+        "id": "en-015",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.91,
+        "right_decision": false,
+        "right_should_show": 0.1641
+      },
+      {
+        "expected_match": true,
+        "id": "en-016",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.8971,
+        "right_decision": false,
+        "right_should_show": 0.4457
+      },
+      {
+        "expected_match": true,
+        "id": "en-017",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.8766,
+        "right_decision": false,
+        "right_should_show": 0.4769
+      },
+      {
+        "expected_match": true,
+        "id": "en-020",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.672,
+        "right_decision": false,
+        "right_should_show": 0.3849
+      },
+      {
+        "expected_match": true,
+        "id": "en-023",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.8716,
+        "right_decision": false,
+        "right_should_show": 0.3135
+      },
+      {
+        "expected_match": false,
+        "id": "en-041",
+        "left_correct_right_wrong": true,
+        "left_decision": false,
+        "left_should_show": 0.1664,
+        "right_decision": true,
+        "right_should_show": 0.6492
+      },
+      {
+        "expected_match": true,
+        "id": "es-005",
+        "left_correct_right_wrong": true,
+        "left_decision": true,
+        "left_should_show": 0.8246,
+        "right_decision": false,
+        "right_should_show": 0.3196
+      },
+      {
+        "expected_match": true,
+        "id": "fr-006",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.4776,
+        "right_decision": true,
+        "right_should_show": 0.7194
+      },
+      {
+        "expected_match": true,
+        "id": "fr-007",
+        "left_correct_right_wrong": false,
+        "left_decision": false,
+        "left_should_show": 0.3536,
+        "right_decision": true,
+        "right_should_show": 0.5737
+      }
+    ],
+    "image_evidence_disagreement": [],
+    "should_show_max_absolute_delta": 0.7459,
+    "should_show_mean_absolute_delta": 0.11013500000000002
+  },
+  "singleton_prompt_version": "saved-search-match-v2"
+}

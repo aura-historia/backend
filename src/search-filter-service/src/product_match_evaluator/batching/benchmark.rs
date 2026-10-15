@@ -20,6 +20,7 @@ use std::{
 struct Observation {
     millis: u64,
     shared: bool,
+    candidates: usize,
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     unresolved_questions: usize,
@@ -43,11 +44,13 @@ impl<M: ClassifierModel> ClassifierModel for MeasuredModel<M> {
     ) -> Result<ClassificationResponse, ClassificationError> {
         let questions = request.questions.len();
         let shared = request.state.get("candidates").is_some();
+        let candidates = request.state["candidates"].as_array().map_or(1, Vec::len);
         let start = Instant::now();
         let result = self.model.classify(request).await;
         self.observations.lock().unwrap().push(Observation {
             millis: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             shared,
+            candidates,
             input_tokens: result.as_ref().ok().and_then(|r| r.usage.input_tokens),
             output_tokens: result.as_ref().ok().and_then(|r| r.usage.output_tokens),
             unresolved_questions: result
@@ -132,12 +135,16 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
     // The initial schema comparison can use the existing hard cases. The larger
     // multilingual coverage gate applies before evaluating shared requests.
     let batching = manifest["batch_candidates"].as_u64() != Some(1);
-    assert_eq!(
-        Some("human-reviewed"),
-        manifest["label_provenance"].as_str()
-    );
+    let human_reviewed = human_reviewed(manifest);
     required_text(manifest, "dataset_revision");
-    required_text(manifest, "reviewed_by");
+    required_text(
+        manifest,
+        if human_reviewed {
+            "reviewed_by"
+        } else {
+            "authored_by"
+        },
+    );
     let mut ids = BTreeSet::new();
     let mut languages = BTreeSet::new();
     let mut tags = BTreeSet::new();
@@ -191,7 +198,13 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
                 id.len() <= 100 && ids.insert(id.to_owned()),
                 "unique bounded case IDs"
             );
-            let label = case["human_match"].as_bool().expect("human match decision");
+            let label = case[if human_reviewed {
+                "human_match"
+            } else {
+                "expected_match"
+            }]
+            .as_bool()
+            .expect("expected match decision");
             if label {
                 positives += 1;
                 group_positive = true;
@@ -223,7 +236,7 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
     }
     assert!(
         positives > 0 && negatives > 0,
-        "human positives and negatives required"
+        "positive and negative labels required"
     );
     if !batching {
         return groups;
@@ -248,6 +261,24 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
         assert!(tags.contains(tag), "missing coverage tag: {tag}");
     }
     groups
+}
+
+fn human_reviewed(manifest: &Value) -> bool {
+    match manifest["label_provenance"].as_str() {
+        Some("human-reviewed") => true,
+        Some("agent-authored") => false,
+        _ => panic!("unsupported benchmark label provenance"),
+    }
+}
+
+fn rollout_gate(manifest: &Value, batch_size: usize) -> &'static str {
+    if !human_reviewed(manifest) {
+        "INELIGIBLE_AGENT_AUTHORED_LABELS"
+    } else if batch_size == 1 {
+        "PENDING_HUMAN_SCHEMA_REVIEW"
+    } else {
+        "PENDING_HUMAN_REVIEW_AND_RECONCILED_COSTS"
+    }
 }
 
 // This schema is confined to the manual comparison; it is never live matching input.
@@ -409,6 +440,8 @@ async fn measure_schema<M: ClassifierModel>(
         "request_p95_millis": durations[(durations.len() * 95 / 100).min(durations.len() - 1)],
         "provider_requests": observations.len(), "planned_requests": planned_count,
         "shared_provider_requests": observations.iter().filter(|o| o.shared).count(),
+        "largest_request_candidates": observations.iter().map(|o| o.candidates).max(),
+        "request_candidate_counts": observations.iter().fold(BTreeMap::<usize, usize>::new(), |mut counts, o| { *counts.entry(o.candidates).or_default() += 1; counts }),
         "fallback_requests": observations.len().saturating_sub(planned_count),
         "fallback_candidates": scores.values().filter(|s| s.fallback).count(),
         "failed_requests": observations.iter().filter(|o| o.failed).count(),
@@ -422,7 +455,7 @@ async fn measure_schema<M: ClassifierModel>(
         "incomplete_response_rate": ratio(observations.iter().filter(|o| !o.failed && o.unresolved_questions > 0).count(), observations.len()),
         "invalid_response_rate": ratio(observations.iter().filter(|o| o.invalid_envelope).count(), observations.len()),
         "incomplete_evidence_candidates": scores.values().filter(|s| s.sent_image_count.is_some_and(|count| count != s.requested_image_count)).count(),
-        "scores": scores.iter().map(|(id, s)| json!({"id": id, "human_match": s.label, "should_show": s.score, "decision": s.score.map(|score| score >= threshold), "requested_image_count": s.requested_image_count, "sent_image_count": s.sent_image_count})).collect::<Vec<_>>()
+        "scores": scores.iter().map(|(id, s)| json!({"id": id, "expected_match": s.label, "should_show": s.score, "decision": s.score.map(|score| score >= threshold), "requested_image_count": s.requested_image_count, "sent_image_count": s.sent_image_count})).collect::<Vec<_>>()
     });
     (report, scores)
 }
@@ -444,7 +477,7 @@ fn compare(
     let mut max_show_delta: f64 = 0.0;
     for (id, left) in left {
         let right = &right[id];
-        assert_eq!(left.label, right.label, "identical human labels");
+        assert_eq!(left.label, right.label, "identical expected labels");
         if left.sent_image_count != right.sent_image_count {
             evidence_disagreement.push(id);
         }
@@ -455,7 +488,7 @@ fn compare(
             show_delta += delta;
             if (left_show >= threshold) != (right_show >= threshold) {
                 flips.push(
-                    json!({"id": id, "human_match": left.label, "left_should_show": left_show,
+                    json!({"id": id, "expected_match": left.label, "left_should_show": left_show,
                     "right_should_show": right_show, "left_decision": left_show >= threshold,
                     "right_decision": right_show >= threshold,
                     "left_correct_right_wrong": (left_show >= threshold) == left.label}),
@@ -470,7 +503,7 @@ fn compare(
         "should_show_max_absolute_delta": max_show_delta})
 }
 
-/// Requires a reviewed fixture and dedicated test account. Writes only aggregate
+/// Requires explicit label provenance and a dedicated test account. Writes only aggregate
 /// metrics and opaque case IDs/scores; never fixture text or credentials.
 #[tokio::test]
 #[ignore = "manual labelled provider benchmark; requires explicit test-account opt-in"]
@@ -537,13 +570,17 @@ async fn saved_search_batch_quality_benchmark() {
         measure(&model, &groups, 1, false, threshold, token_price).await;
     let mut report = json!({
         "dataset_revision": manifest["dataset_revision"], "model": configured_model.as_str(),
+        "label_provenance": manifest["label_provenance"],
+        "human_reviewed": human_reviewed(&manifest),
+        "input_usd_per_million_tokens": token_price,
+        "pricing_source": manifest["pricing_source"],
         "singleton_prompt_version": super::super::MATCH_PROMPT_VERSION,
         "batch_prompt_version": BATCH_PROMPT_VERSION,
         "evidence_policy_version": MatchingEvidencePolicy::VERSION,
         "should_show_threshold": threshold, "batch_candidates": batch_size,
         "baseline_two_questions": baseline, "singleton": singleton,
         "schema_comparison": compare(&baseline_scores, &singleton_scores, threshold),
-        "rollout_gate": if batch_size == 1 { "PENDING_HUMAN_SCHEMA_REVIEW" } else { "PENDING_HUMAN_REVIEW_AND_RECONCILED_COSTS" }
+        "rollout_gate": rollout_gate(&manifest, batch_size)
     });
     if batch_size > 1 {
         let (batched, batched_scores) =
@@ -861,6 +898,67 @@ async fn initial_schema_comparison_accepts_hard_cases_and_preserves_the_batch_ga
     assert!(std::panic::catch_unwind(|| fixtures(&manifest)).is_err());
 }
 
+#[test]
+fn agent_authored_fixtures_cannot_claim_the_human_quality_gate() {
+    let mut manifest = offline_manifest();
+    manifest["label_provenance"] = "agent-authored".into();
+    manifest["authored_by"] = "Codex".into();
+    manifest.as_object_mut().unwrap().remove("reviewed_by");
+    for group in manifest["groups"].as_array_mut().unwrap() {
+        for case in group["cases"].as_array_mut().unwrap() {
+            let label = case.as_object_mut().unwrap().remove("human_match").unwrap();
+            case["expected_match"] = label;
+        }
+    }
+    assert_eq!(42, fixtures(&manifest).iter().map(Vec::len).sum::<usize>());
+    assert!(!human_reviewed(&manifest));
+    for batch_size in [1, 50] {
+        assert_eq!(
+            "INELIGIBLE_AGENT_AUTHORED_LABELS",
+            rollout_gate(&manifest, batch_size)
+        );
+    }
+    manifest["label_provenance"] = "human-reviewed".into();
+    assert!(std::panic::catch_unwind(|| fixtures(&manifest)).is_err());
+    let reviewed = offline_manifest();
+    assert_eq!("PENDING_HUMAN_SCHEMA_REVIEW", rollout_gate(&reviewed, 1));
+    assert_eq!(
+        "PENDING_HUMAN_REVIEW_AND_RECONCILED_COSTS",
+        rollout_gate(&reviewed, 50)
+    );
+}
+
+#[test]
+fn synthetic_live_fixture_preserves_distinct_cases_and_provisional_labels() {
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../benchmarks/clef-should-show/fixtures.json"
+    ))
+    .unwrap();
+    let groups = fixtures(&manifest);
+    assert_eq!(
+        vec![50, 20, 20, 10],
+        groups.iter().map(Vec::len).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        50,
+        groups
+            .iter()
+            .flatten()
+            .filter(|fixture| fixture.label)
+            .count()
+    );
+    assert!(
+        groups
+            .iter()
+            .flatten()
+            .all(|fixture| fixture.request.image_urls.is_empty())
+    );
+    assert_eq!(
+        "INELIGIBLE_AGENT_AUTHORED_LABELS",
+        rollout_gate(&manifest, 50)
+    );
+}
+
 #[derive(Clone, Copy)]
 enum OfflineMode {
     Complete,
@@ -1011,6 +1109,16 @@ async fn benchmark_accounts_for_shared_calls_recovery_unresolved_work_and_unknow
         assert_eq!(12, report["planned_requests"]);
         assert_eq!(12, report["shared_provider_requests"]);
         assert_eq!(calls, report["provider_requests"]);
+        assert_eq!(4, report["largest_request_candidates"]);
+        assert_eq!(
+            u64::try_from(calls).unwrap(),
+            report["request_candidate_counts"]
+                .as_object()
+                .unwrap()
+                .values()
+                .map(|count| count.as_u64().unwrap())
+                .sum::<u64>()
+        );
         assert_eq!(fallback, report["fallback_requests"]);
         assert_eq!(fallback, report["fallback_candidates"]);
         assert_eq!(failed, report["failed_requests"]);

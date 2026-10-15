@@ -297,6 +297,10 @@ form; the runner rejects any constructor normalization or truncation
 that would change reviewed evidence. Set `batch_candidates: 1` for the initial singleton
 A/B comparison using the existing hard cases, with human positives and negatives. This
 mode reports only the schema comparison and cannot establish the batching quality gate.
+Exploratory synthetic fixtures may instead declare `label_provenance: "agent-authored"`,
+`authored_by`, and per-case `expected_match` labels. Their reports remain explicitly
+ineligible for the release quality gate until a human reviews the evidence and labels.
+Reports use `expected_match` for the comparison label and retain its provenance.
 For `batch_candidates` above 1, the runner requires at least three languages, twenty
 positives and twenty negatives, 2–50 mixed-label cases in each group, and the coverage
 tags defined in its fixture validator. Review the actual evidence
