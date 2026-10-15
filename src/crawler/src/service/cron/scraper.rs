@@ -116,7 +116,9 @@ struct ScrapeDomainOutcome {
     succeeded: usize,
     failed: usize,
     skipped: usize,
-    /// URLs deferred by URL or ListingSource lock contention inside the batch.
+    /// URLs deferred by lock contention: every candidate of a deferred domain batch plus
+    /// URLs that lost a URL or ListingSource lock race inside a running batch. Counted in
+    /// the same unit as `succeeded`, `failed` and `skipped`.
     deferred_urls: usize,
     /// The whole domain batch was deferred by scraper domain lock contention.
     deferred: bool,
@@ -468,7 +470,7 @@ async fn scrape_candidate_with_options(
     }
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
-        debug!("Deferring URL - lock held by another worker");
+        debug!("Deferring URL - URL lock is currently held");
         return deferred_outcome();
     };
     let Some(_listing_source_lock) =
@@ -1116,8 +1118,13 @@ async fn scrape_domain_candidates(
     let Some(_domain_lock) =
         DomainLock::try_acquire(&ctx.lock_manager, DomainLockScope::Scraper, ctx.domain_id)
     else {
-        debug!(domain_id = %ctx.domain_id, "Deferring scraper domain - lock held by another scraper worker");
+        debug!(
+            domain_id = %ctx.domain_id,
+            candidate_count = candidates.len(),
+            "Deferring scraper domain - scraper domain lock is currently held"
+        );
         outcome.deferred = true;
+        outcome.deferred_urls = candidates.len();
         return outcome;
     };
 
@@ -1319,7 +1326,7 @@ impl CrawlerCronJob {
         let mut skipped = 0usize;
         let mut started = false;
         let mut no_more_candidates = false;
-        let mut deferred = 0usize;
+        let mut deferred_domains = 0usize;
         let mut deferred_urls = 0usize;
 
         let raw_capture_collector = tokio::spawn(run_raw_capture_collector(
@@ -1446,7 +1453,7 @@ impl CrawlerCronJob {
                     skipped += scheduled.outcome.skipped;
                     deferred_urls += scheduled.outcome.deferred_urls;
                     if scheduled.outcome.deferred {
-                        deferred += 1;
+                        deferred_domains += 1;
                     }
                 }
                 Some(Err(e)) => {
@@ -1465,13 +1472,17 @@ impl CrawlerCronJob {
         }
 
         let duration_ms = pass_start.elapsed().as_millis() as u64;
+        // `total`, `succeeded`, `failed`, `skipped` and `deferred_urls` are all counted in
+        // candidate URLs; `deferred_domains` counts whole domain batches that lost the
+        // scraper domain lock and is reported separately so expected lock contention is
+        // not mistaken for failures or meaningful skips.
         info!(
             total,
             succeeded,
             failed,
             skipped,
-            deferred,
             deferred_urls,
+            deferred_domains,
             duration_ms,
             "Scraper scheduler pass complete"
         );
@@ -2044,6 +2055,7 @@ mod tests {
 
         let deferred = scrape_domain_candidates(vec![candidate], first_context).await;
         assert!(deferred.deferred);
+        assert_eq!(deferred.deferred_urls, 1);
         assert_eq!(deferred.succeeded, 0);
         assert_eq!(deferred.failed, 0);
         assert_eq!(deferred.skipped, 0);
