@@ -21,6 +21,9 @@ const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60
 const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+/// Cap for the escalating catch-all cooldown; mirrors the domain-circuit cap in
+/// [`crate::network::policy::domain_cooldown`].
+const MAX_UNCLASSIFIED_CRAWL_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
     match profile {
@@ -66,10 +69,21 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
     }
 }
 
+/// Cooldown for the catch-all `spider_run_error` case (internal or config
+/// faults without a crawl profile). Starts at the generic durable retry
+/// cooldown and doubles with every consecutive failure, capped at 24h, so a
+/// persistent fault cannot retry every few minutes forever.
+fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
+    let exponent = u32::try_from(failure_count.max(1) - 1).unwrap_or(0).min(31);
+    durable_retry_cooldown_for(NetworkErrorKind::Unknown)
+        .saturating_mul(1_u32 << exponent)
+        .min(MAX_UNCLASSIFIED_CRAWL_COOLDOWN)
+}
+
 fn cooldown_for_spider_failure(error: &SpiderServiceError, failure_count: i32) -> Duration {
     crawl_cooldown_profile(error)
         .map(|profile| cooldown_for_failure_count(profile, failure_count))
-        .unwrap_or_else(|| durable_retry_cooldown_for(NetworkErrorKind::Unknown))
+        .unwrap_or_else(|| unclassified_cooldown_for_failure_count(failure_count))
 }
 
 /// Persisted `last_crawl_error_kind` identifier; these strings are a stable
@@ -560,9 +574,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
-        for error in [
+    fn unclassified_errors() -> [SpiderServiceError; 3] {
+        [
             SpiderServiceError::Database(sqlx::Error::RowNotFound),
             SpiderServiceError::Discovery(SpiderDiscoveryError::Config(
                 "SPIDER_MAX_SIZE_BYTES must be set".to_string(),
@@ -570,11 +583,43 @@ mod tests {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Client(
                 application::error::static_error("tls backend unavailable"),
             )),
-        ] {
+        ]
+    }
+
+    #[test]
+    fn cooldown_should_keep_generic_fallback_for_first_unknown_failure() {
+        for error in unclassified_errors() {
             assert_eq!(error_kind_for_spider_error(&error), "spider_run_error");
             assert_eq!(
-                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                cooldown_for_spider_failure(&error, 1),
                 durable_retry_cooldown_for(NetworkErrorKind::Unknown)
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_escalate_unknown_failures_exponentially_up_to_one_day() {
+        let base = durable_retry_cooldown_for(NetworkErrorKind::Unknown);
+        for error in unclassified_errors() {
+            assert_eq!(cooldown_for_spider_failure(&error, 0), base);
+            assert_eq!(cooldown_for_spider_failure(&error, 2), base * 2);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                base * 4
+            );
+            assert_eq!(cooldown_for_spider_failure(&error, 6), base * 32);
+            assert_eq!(cooldown_for_spider_failure(&error, 9), base * 256);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 10),
+                MAX_UNCLASSIFIED_CRAWL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 40),
+                MAX_UNCLASSIFIED_CRAWL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, i32::MAX),
+                MAX_UNCLASSIFIED_CRAWL_COOLDOWN
             );
         }
     }

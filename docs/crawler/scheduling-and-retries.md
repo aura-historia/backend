@@ -30,7 +30,7 @@ First-time schema generation samples only product URLs from the primary candidat
 
 Opening and closing updates are fenced by the candidate's complete domain snapshot, including the last failure kind. URL and domain failure writes use independent fences and transactions: a stale URL fence does not prevent a current domain failure from opening the circuit, and a stale domain fence does not roll back a valid URL failure. A domain-opening write reports both outcomes separately, and only an actually applied domain row is reported as opened. A process-local scraper-scoped `DomainLock` serializes scraper batches for the same crawler domain; spider work on that domain writes disjoint `listing_source_domains` columns and is not excluded. Unrelated domains continue independently.
 
-Spider failures use the same durable principle. Repeated failures of the same kind increase the domain cooldown. Access blocks, JavaScript-only sites, and similar durable blockers receive longer cooling than transient connection, rate-limit, or server failures.
+Spider failures use the same durable principle. Repeated failures of the same kind increase the domain cooldown. Access blocks, JavaScript-only sites, and similar durable blockers receive longer cooling than transient connection, rate-limit, or server failures. Unclassified internal or configuration failures (persisted as `spider_run_error`) start with a short retry and double on each consecutive failure, capped at 24 hours, so a persistent fault cannot retry every few minutes indefinitely.
 
 ## Scrape completion fences
 
