@@ -253,6 +253,7 @@ fn product_user_state(
     Ok((
         product_listing_id,
         ProductListingUserState {
+            shipping: None,
             watchlist: WatchlistUserState {
                 watching: row.watchlist_notifications.is_some(),
                 notifications: row.watchlist_notifications.unwrap_or(false),

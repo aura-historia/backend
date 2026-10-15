@@ -39,6 +39,12 @@ pub struct GetAuctionCatalogueRequest {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetAuctionCatalogueError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        crate::shipping::ShippingReadError,
+    ),
     #[error("Auction not found")]
     AuctionNotFound,
     #[error("Auction catalogue cursor belongs to another Auction")]
@@ -75,6 +81,7 @@ pub trait GetAuctionCatalogueUseCase: Send + Sync {
 }
 
 pub struct GetAuctionCatalogueHandler<U, C, F, A> {
+    shipping: crate::shipping::ShippingEnrichment,
     unit_of_work: U,
     catalogue: C,
     fx_rates: F,
@@ -82,8 +89,15 @@ pub struct GetAuctionCatalogueHandler<U, C, F, A> {
 }
 
 impl<U, C, F, A> GetAuctionCatalogueHandler<U, C, F, A> {
-    pub fn new(unit_of_work: U, catalogue: C, fx_rates: F, auctions: A) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        catalogue: C,
+        fx_rates: F,
+        auctions: A,
+        shipping: crate::shipping::ShippingEnrichment,
+    ) -> Self {
         Self {
+            shipping,
             unit_of_work,
             catalogue,
             fx_rates,
@@ -130,7 +144,7 @@ where
                 cursor,
             })
             .await?;
-        let items = present_catalogue_items(
+        let mut items = present_catalogue_items(
             page.items,
             &self.fx_rates,
             &mut transaction,
@@ -143,6 +157,7 @@ where
             }
         })?;
 
+        self.shipping.details(context, &mut items).await?;
         Ok(CursoredResult {
             items,
             cursor: page.cursor,

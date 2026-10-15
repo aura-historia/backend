@@ -154,35 +154,40 @@ These signals establish durable invalidation input; [event flow](events/flow.md)
 activation and downstream routing. Later consumers reread current authoritative
 state, preserve source deletion fences and tolerate duplicate/out-of-order signals.
 
-## Current buyer assessments
+## Shipping on listing reads
 
-[OpenAPI](swagger.yaml) owns the detail and batch POST contracts. Shipping service
-resolves one transient destination, then evaluates at most 20 distinct active listings
-in request order. Listing/source revisions, defaults, selected profiles and explicit
-location facts come from one repeatable, read-only PostgreSQL snapshot. Profile and
-location reads are shared across the batch; OpenSearch and listing-geography projections
-do not determine current eligibility. A dispatch country's submitted assertions take
-precedence over permitted, unexpired derived evidence with matching current input/revision
-guards; the response records any used resolution generation without disclosing the site.
-Missing or withdrawn listings fail the request.
-Current user status is checked even when the caller supplies explicit geography or none.
+[OpenAPI](swagger.yaml) owns the listing response contract. Detail by ID/slug, search,
+similar listings, watchlists, saved-search matches and auction catalogues return effective
+public advertised terms in `item.shipping`. Anonymous callers and users without a selected browsing
+destination receive generic terms. Authenticated users with a permitted selected
+browsing destination also receive its evaluation in `userState.shipping`; merely owning
+an address selects none. The existing preference can select an owned address or explicit
+country/postal assertions. Delegated destination reads require `users:read`; credentials
+without it receive generic terms. Hidden and
+withdrawn entries disclose no shipping; obsolete discovery hits contribute no current
+shipping assertion without failing the rest of the page.
 
-Anonymous geographic input uses validated country/subdivision/postal assertions directly.
-An omitted destination uses the authenticated owner's browsing preference, or no destination
-for anonymous callers. Explicit `NONE` overrides that preference. Saved-address and explicit
-preference requests use the address-book ownership, current user, delegated `users:read`,
-resolution permission and evidence-expiry checks. Foreign/deleted references fail without
-fallback. The captured values distinguish submitted from permitted derived facts, retain
-submitted precedence and omit street text, points and bookmark identity. Derived facts fill
-gaps only when shared country, subdivision and postal assertions and reference releases agree. They remain
-explainable after address-book edits and retain required derived-evidence attribution;
-these request snapshots are never persisted by assessment.
+Listing services orchestrate enrichment for the whole page, preserving membership and
+order. Shipping resolves the destination once and reads listing/source revisions,
+defaults, selected profiles and explicit location dependencies from one repeatable,
+read-only PostgreSQL snapshot, bounded to the existing 100-item page maximum. Shared
+profiles and locations are read in batches. OpenSearch and listing-geography projections
+do not determine current eligibility. No provider, geocoder, carrier or live-rate call
+occurs, and no buyer assessment or destination snapshot is persisted.
+
+Private destination reads retain ownership, current user status, delegated permission
+and evidence-expiry gates. Submitted assertions take precedence; derived facts fill gaps
+only when shared reference-release, country, subdivision and postal assertions agree.
+Responses include only effective area facts and required derived-evidence attribution.
+Browsing establishes no purchase quantities, selected variants, shipment/order counts or
+qualifying values. Missing inputs produce explained uncertainty without inventing prices.
+Clients use selected zone/service indices to relate evaluations to `item.shipping.terms`.
 
 Each service option keeps its applicability, eligibility, advertised price knowledge,
 charge basis/components and known timing independently. Missing quantities or other
 necessary facts produce reasons without inventing charges or cheapest-price claims.
-The response includes selected rule order, sanitized effective terms, input values,
-dependency revisions and evaluation time. A fixed advertised amount is neither a binding
+The response retains selected rule order, sanitized effective terms, dependency
+revisions and evaluation time. A fixed advertised amount is neither a binding
 quote nor a complete landed cost. No provider, geocoder, carrier or live-rate request occurs.
 
 Assertion verification time is independent of management/update time. Source-authored
@@ -198,7 +203,9 @@ reliable assertion nor renew its verification time. Changing normalized terms ve
 the replacement; a listing configuration change verifies its new whole configuration.
 Provider acquisition must preserve its own observation time and reviewed deadlines.
 
-All success and error responses use `private, no-store`. Destination values, private
+Authenticated responses and all errors use `no-store`. Generic anonymous listing
+responses follow discovery caching, capped at the next shipping evidence freshness/expiry
+deadline. Destination values, private
 bookmark identities, address text, postal codes, points, hashes and raw evidence never
 enter diagnostics or public storage. Dispatch and collection sites are omitted from
 response terms: a PartyLocation reference establishes applicability, not permission to
@@ -282,8 +289,8 @@ assessment inputs and must not enter logs or shared fixtures.
 ## Executable examples and shared fixtures
 
 The [domain tests](../src/shipping-core/src/tests.rs) exercise the contract, including the
-shared gallery profile: painting inherits EUR 8000 per item and appointment collection;
-cabinet inherits the profile with a shipping prohibition. A profile change to EUR 9500
+shared gallery profile: painting inherits EUR 80.00 per item (8000 minor units) and appointment collection;
+cabinet inherits the profile with a shipping prohibition. A profile change to EUR 95.00
 changes painting shipping while cabinet shipping and independently applicable collection
 retain their meanings.
 

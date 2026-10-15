@@ -1,4 +1,4 @@
-pub mod assessment;
+pub(crate) mod listing;
 mod terms;
 use crate::{
     auth::{TokenAuthenticator, protected_context},

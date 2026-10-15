@@ -1013,23 +1013,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(delivery),
         );
     }
-    if let Some(assessments) = state.shipping_assessments {
-        routes = routes.merge(
-            Router::new()
-                .route(
-                    "/api/v1/product-listings/delivery-assessments",
-                    axum::routing::post(shipping::assessment::batch),
-                )
-                .route(
-                    "/api/v1/product-listings/{productListingId}/delivery-assessment",
-                    axum::routing::post(shipping::assessment::detail),
-                )
-                .layer(axum::middleware::map_response(|response| async {
-                    transport::cache::private_no_store(response)
-                }))
-                .with_state(assessments),
-        );
-    }
+
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
@@ -1417,11 +1401,24 @@ async fn app_state_from_config_and_pool(
     let get_public_auction =
         GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
     let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let shipping = product_listing_service::shipping::ShippingEnrichment::new(Arc::new(
+        shipping_service::assessment::AssessDeliveryHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::assessment::SqlxAssessmentReaderFactory,
+            address_book.clone(),
+        ),
+    ));
     let get_auction_catalogue = GetAuctionCatalogueHandler::new(
         unit_of_work.clone(),
         SqlxAuctionCatalogueReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
         SqlxPublicAuctionDetailsReader::new(pool.clone()),
+        shipping.clone(),
     );
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
@@ -1694,6 +1691,7 @@ async fn app_state_from_config_and_pool(
         SqlxListingSourceSummaryReader::new(pool.clone()),
         product_user_states.clone(),
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
+        shipping.clone(),
     );
     let search_products = SearchProductListingsHandler::new(
         OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
@@ -1708,12 +1706,14 @@ async fn app_state_from_config_and_pool(
         ),
         product_user_states,
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
+        shipping.clone(),
     )
     .with_read_execution_policy(config.product_listing_search_read_execution_policy());
     let get_product = GetProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
@@ -1760,6 +1760,7 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxProductListingWatchlistDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
 
     let access_token_use_case =
@@ -2180,6 +2181,7 @@ async fn app_state_from_config_and_pool(
             search_filter_reader.clone(),
             SqlxProductListingDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -2278,25 +2280,12 @@ async fn app_state_from_config_and_pool(
         opensearch: opensearch_client.clone(),
     });
 
-    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
-        unit_of_work.clone(),
-        user_postgres::SqlxAddressBookFactory,
-        geo_postgres::SqlxResolutionRepositoryFactory,
-    ));
     let user_addresses_state = state::UserAddressesState {
         commands: address_book.clone(),
         queries: address_book.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
-        .with_shipping_assessments(shipping::assessment::AssessmentState {
-            assess: Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::assessment::SqlxAssessmentReaderFactory,
-                address_book,
-            )),
-            authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-        })
         .with_admin_product_listings(state::AdminProductListingsState::new(
             Arc::new(get_admin_product_listing),
             Arc::new(search_admin_product_listings),

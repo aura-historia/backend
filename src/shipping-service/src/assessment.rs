@@ -1,7 +1,7 @@
 //! Current advertised delivery assessment. Destination snapshots stay request-local.
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{CredentialCapability, OperationContext, Principal},
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use geo::GeographicDescription;
@@ -22,7 +22,7 @@ use user_core::{
 };
 use user_service::address_book::{AddressBookError, AddressBookQueries, DestinationFacts};
 
-pub const MAX_ASSESSMENT_LISTINGS: usize = 20;
+pub const MAX_ASSESSMENT_LISTINGS: usize = 100;
 
 /// Explicit None bypasses preference lookup, including for authenticated callers.
 /// Geographic input never invokes the private address-book use case.
@@ -46,8 +46,6 @@ pub enum AssessmentError {
     InvalidInput,
     #[error("delivery assessment not permitted")]
     Forbidden,
-    #[error("active listing not found")]
-    NotFound,
     #[error("destination resolution failed")]
     Destination(
         #[from]
@@ -82,7 +80,7 @@ impl EvidenceStatus {
     }
 }
 /// No deadline means a continuing manually supplied assertion, not a recent recrawl.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AssertionEvidence {
     pub verified_at: OffsetDateTime,
     pub fresh_until: Option<OffsetDateTime>,
@@ -99,6 +97,7 @@ impl AssertionEvidence {
         }
     }
 }
+#[derive(Clone)]
 pub struct ListingDependency {
     pub id: ProductListingId,
     pub source_id: ListingSourceId,
@@ -151,6 +150,7 @@ pub struct DestinationSnapshot {
     pub effective: Option<GeographicDescription>,
     pub attribution: Option<user_service::address_book::UserAddressAttribution>,
 }
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProfileAssessmentBasis {
     pub id: shipping_core::profile::ShippingProfileId,
     pub terms_revision: u64,
@@ -169,6 +169,8 @@ pub struct ListingAssessmentView {
     pub evaluated_at: OffsetDateTime,
     pub input: AssessmentInput,
     pub effective: EffectiveDeliveryTerms,
+    /// Destination-independent evaluation for public dependency reasons.
+    pub generic_assessment: ShippingAssessment,
     pub assessment: ShippingAssessment,
     pub location_revisions: Vec<LocationAssessmentBasis>,
     pub notices: Vec<&'static str>,
@@ -299,7 +301,12 @@ where
                     .resolve_destination_facts(context, None)
                     .await?
             }
-            None if user.is_some() => {
+            None if user.is_some()
+                && context
+                    .principal
+                    .require_credential_capability(CredentialCapability::UsersRead)
+                    .is_ok() =>
+            {
                 self.destinations
                     .resolve_destination_facts(context, None)
                     .await?
@@ -317,16 +324,17 @@ where
             .in_transaction(&mut tx)
             .snapshot(&ids, user)
             .await?;
-        if dependencies.listings.len() != ids.len() {
-            return Err(AssessmentError::NotFound);
-        }
         let mut items = Vec::with_capacity(ids.len());
         for mut request in request.listings {
-            let listing = dependencies
+            // Discovery projections can still contain a removed or withdrawn listing.
+            // It contributes no current advertised shipping assertion.
+            let Some(listing) = dependencies
                 .listings
                 .iter()
                 .find(|l| l.id == request.listing_id)
-                .ok_or(AssessmentError::NotFound)?;
+            else {
+                continue;
+            };
             let default = dependencies
                 .defaults
                 .iter()
@@ -417,6 +425,7 @@ where
                 listing_evidence: listing.evidence,
                 evaluated_at: dependencies.evaluated_at,
                 input: request.input,
+                generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
                 effective,
                 assessment,
                 location_revisions: dependencies
@@ -662,6 +671,45 @@ mod tests {
             Some(ShippingEligibility::Offered),
             view.items[1].assessment.collection.eligibility
         );
+        assert_eq!(1, handler.reader.1.load(Ordering::SeqCst));
+        assert_eq!(1, handler.uow.0.load(Ordering::SeqCst));
+    }
+    #[tokio::test]
+    async fn a_hundred_listing_page_resolves_one_destination_and_one_shared_snapshot() {
+        let mut deps = dependencies();
+        let template = deps.listings[0].clone();
+        deps.listings = (0..MAX_ASSESSMENT_LISTINGS)
+            .map(|_| ListingDependency {
+                id: ProductListingId::new(),
+                ..template.clone()
+            })
+            .collect();
+        let request = request(&deps, None);
+        let expected_ids = request
+            .listings
+            .iter()
+            .map(|r| r.listing_id)
+            .collect::<Vec<_>>();
+        let destinations = Arc::new(Destinations(AtomicUsize::new(0)));
+        let handler = AssessDeliveryHandler::new(
+            Uow(Arc::new(AtomicUsize::new(0))),
+            Reader(Mutex::new(Some(deps)), AtomicUsize::new(0)),
+            destinations.clone(),
+        );
+        let view = handler
+            .execute(&context(Principal::User(UserId::new())), request)
+            .await
+            .unwrap();
+        assert_eq!(
+            expected_ids,
+            view.items.iter().map(|v| v.listing_id).collect::<Vec<_>>()
+        );
+        assert!(
+            view.items
+                .iter()
+                .all(|v| v.assessment.eligibility == Some(ShippingEligibility::Offered))
+        );
+        assert_eq!(1, destinations.0.load(Ordering::SeqCst));
         assert_eq!(1, handler.reader.1.load(Ordering::SeqCst));
         assert_eq!(1, handler.uow.0.load(Ordering::SeqCst));
     }

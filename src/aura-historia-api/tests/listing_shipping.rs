@@ -2,8 +2,7 @@ use application::operation_context::{CredentialCapability, OperationContext, Pri
 use aura_historia_api::{
     app,
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
-    shipping::assessment::AssessmentState,
-    state::AppState,
+    state::{AppState, ProductListingsState},
 };
 use axum::{
     body::{Body, to_bytes},
@@ -15,6 +14,7 @@ use listing_source_postgres::SqlxSourceLocationAccessFactory;
 use party_core::party_id::PartyId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::{shipping::ShippingEnrichment, use_cases::*};
 use serde_json::{Value, json};
 use shipping_core::{fixtures::gallery_terms, profile::*};
 use shipping_postgres::{SqlxShippingRepositoryFactory, assessment::SqlxAssessmentReaderFactory};
@@ -144,7 +144,7 @@ async fn fixture() -> (
     .await
     .unwrap();
     let id = ProductListingId::new();
-    let event = uuid::Uuid::new_v4();
+    let event = domain_primitives::event_id::EventId::new().into_uuid();
     let mut listing_tx = p.begin().await.unwrap();
     sqlx::query("INSERT INTO product_listings(product_listing_id,product_listing_title_slug_id,current_event_id,content_source_event_id,embedding_source_event_id,listing_source_id,source_listing_id,lifecycle,url)VALUES($1,$2,$3,$3,$3,$4,$2,'ACTIVE','https://example.test/item')").bind(id.into_uuid()).bind(format!("item-{}-abcdef",id.as_uuid().simple())).bind(event).bind(source.into_uuid()).execute(&mut *listing_tx).await.unwrap();
     sqlx::query("INSERT INTO product_listing_events(event_id,product_listing_id,event_type,event_group,event_type_schema_version,payload,event_time)VALUES($1,$2,'PRODUCT_LISTING_DISCOVERED','DOMAIN',1,$3,now())").bind(event).bind(id.into_uuid()).bind(serde_json::json!({"listingSourceId":source.into_uuid().to_string(),"sourceListingId":format!("item-{}-abcdef",id.as_uuid().simple()),"title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/item","imageCount":0,"auction":null})).execute(&mut *listing_tx).await.unwrap();
@@ -154,33 +154,83 @@ async fn fixture() -> (
         user_postgres::SqlxAddressBookFactory,
         geo_postgres::SqlxResolutionRepositoryFactory,
     ));
-    let router = app(AppState::new().with_shipping_assessments(AssessmentState {
-        assess: Arc::new(AssessDeliveryHandler::new(
+    let fx = fxrate_core::FxRateId::new().into_uuid();
+    sqlx::query("INSERT INTO fx_rates(fx_rate_id,captured_at,source,source_event_id)VALUES($1,now(),'fxratesapi',$2)")
+        .bind(fx).bind(fx.to_string()).execute(&p).await.unwrap();
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF", "ZAR", "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF",
+        "RON", "MXN", "THB",
+    ] {
+        sqlx::query(
+            "INSERT INTO fx_rate_quotes(fx_rate_id,currency,units_per_eur)VALUES($1,$2,1000000)",
+        )
+        .bind(fx)
+        .bind(currency)
+        .execute(&p)
+        .await
+        .unwrap();
+    }
+    let shipping = ShippingEnrichment::new(Arc::new(AssessDeliveryHandler::new(
+        uow.clone(),
+        SqlxAssessmentReaderFactory,
+        book.clone(),
+    )));
+    let router = app(AppState::new().with_products(ProductListingsState::new(
+        Arc::new(GetProductListingHandler::new(
             uow,
-            SqlxAssessmentReaderFactory,
-            book.clone(),
+            product_listing_postgres::SqlxProductListingDetailsReaderFactory::new(),
+            fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory,
+            shipping,
         )),
-        authenticator: Arc::new(Auth(owner, other)),
-    }));
+        Arc::new(UnusedQueries),
+        Arc::new(UnusedQueries),
+        Arc::new(Auth(owner, other)),
+    )));
     (p, router, book, owner, profile.id, id)
 }
-async fn request(
-    router: &axum::Router,
-    path: &str,
-    token: Option<&str>,
-    body: Value,
-) -> (StatusCode, Value) {
-    let mut req = Request::post(path).header("content-type", "application/json");
+struct UnusedQueries;
+#[async_trait::async_trait]
+impl GetSimilarProductListingsUseCase for UnusedQueries {
+    async fn execute(
+        &self,
+        _: &OperationContext,
+        _: GetSimilarProductListingsRequest,
+    ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
+        unreachable!()
+    }
+}
+#[async_trait::async_trait]
+impl SearchProductListingsUseCase for UnusedQueries {
+    async fn execute(
+        &self,
+        _: &OperationContext,
+        _: SearchProductListingsRequest,
+    ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
+        unreachable!()
+    }
+}
+async fn request(router: &axum::Router, path: &str, token: Option<&str>) -> (StatusCode, Value) {
+    let mut req = Request::get(path);
     if let Some(token) = token {
         req = req.header("authorization", format!("Bearer {token}"));
     }
     let res = router
         .clone()
-        .oneshot(req.body(Body::from(body.to_string())).unwrap())
+        .oneshot(req.body(Body::empty()).unwrap())
         .await
         .unwrap();
-    assert_eq!("private, no-store", res.headers()["cache-control"]);
     let status = res.status();
+    if token.is_some() || status != StatusCode::OK {
+        assert_eq!("private, no-store", res.headers()["cache-control"]);
+    } else {
+        assert!(
+            res.headers()["cache-control"]
+                .to_str()
+                .unwrap()
+                .starts_with("public, max-age=0, s-maxage=")
+        );
+    }
     let bytes = to_bytes(res.into_body(), 1_000_000).await.unwrap();
     let text = std::str::from_utf8(&bytes).unwrap();
     for private in [
@@ -188,41 +238,125 @@ async fn request(
         "protected-evidence",
         "MANUAL_ASSERTION",
         "address_text",
-        "latitude_degrees",
+        "private origin street",
+        "private pickup street",
     ] {
-        assert!(!text.contains(private), "private content leaked: {private}");
+        assert!(
+            !text.contains(private),
+            "private information leaked: {private}"
+        );
     }
     (status, serde_json::from_slice(&bytes).unwrap())
 }
-fn explicit() -> Value {
-    json!({"destination":{"kind":"GEOGRAPHIC","country":"DE"},"input":{"quantity":1}})
+async fn select_country(book: &Book, owner: UserId, postal: Option<&str>, version: u64) {
+    book.set_destination(
+        &ctx(Principal::User(owner)),
+        BrowsingDestination::CountryPostal {
+            country: CountryCode::DEU,
+            postal_code: postal.map(|v| geo::PostalCode::new(v).unwrap()),
+        },
+        version,
+    )
+    .await
+    .unwrap();
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn current_api_profile_updates_freshness_prices_and_collection() {
-    let (p, router, _, _, profile, id) = fixture().await;
-    let path = format!("/api/v1/product-listings/{id}/delivery-assessment");
-    let (status, first) = request(&router, &path, None, explicit()).await;
-    assert_eq!(StatusCode::OK, status);
-    assert_eq!("OFFERED", first["items"][0]["eligibility"]);
+async fn listings_return_generic_terms_and_selected_destination_personalization() {
+    let (_, router, book, owner, _, id) = fixture().await;
+    let path = format!("/api/v1/product-listings/{id}");
+    let (status, anon) = request(&router, &path, None).await;
+    assert_eq!(StatusCode::OK, status, "{anon}");
+    let shipping = &anon["item"]["shipping"];
     assert_eq!(
         8000,
-        first["items"][0]["options"][0]["charge"]["amount"]["amount_minor"]
+        shipping["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]["price"]["amount"]
+            ["amount_minor"]
     );
+    assert!(anon.get("userState").is_none());
+    let (_, no_destination) = request(&router, &path, Some("owner")).await;
+    assert!(no_destination["userState"].get("shipping").is_none());
     assert_eq!(
-        "EUR",
-        first["items"][0]["options"][0]["charge"]["amount"]["currency"]
+        shipping["terms"],
+        no_destination["item"]["shipping"]["terms"]
     );
+    // Saving an address does not select it for browsing.
+    let address = book
+        .create(
+            &ctx(Principal::User(owner)),
+            CreateUserAddress {
+                idempotency_key: UserAddressIdempotencyKey::new("private".into()).unwrap(),
+                label: UserAddressLabel::new("Destination".into()).unwrap(),
+                geography: GeographicDescription::new(
+                    Some(AddressText::new("private saved street").unwrap()),
+                    Some(CountryCode::DEU),
+                    None,
+                    None,
+                )
+                .unwrap()
+                .unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let (_, unselected) = request(&router, &path, Some("owner")).await;
+    assert!(unselected["userState"].get("shipping").is_none());
+    book.set_destination(
+        &ctx(Principal::User(owner)),
+        BrowsingDestination::Address(address.id),
+        1,
+    )
+    .await
+    .unwrap();
+    let (_, selected) = request(&router, &path, Some("owner")).await;
+    let personal = &selected["userState"]["shipping"];
+    assert_eq!("OFFERED", personal["eligibility"]);
+    assert_eq!("DE", personal["destination"]["country"]);
+    assert_eq!(0, personal["selectedZone"]);
+    assert_eq!(0, personal["options"][0]["serviceIndex"]);
+    assert!(personal["options"][0]["charge"].is_null());
+    assert!(
+        personal["options"][0]["reasons"]
+            .as_array()
+            .unwrap()
+            .contains(&json!({"code":"MISSING_INPUT","input":"QUANTITY"}))
+    );
+    assert_eq!(false, personal["bindingQuote"]);
+    assert_eq!(false, personal["completeLandedCost"]);
+    assert!(!selected.to_string().contains(&address.id.to_string()));
+    let (_, other) = request(&router, &path, Some("other")).await;
+    assert!(other["userState"].get("shipping").is_none());
+    let (_, delegated) = request(&router, &path, Some("delegated")).await;
+    assert_eq!("OFFERED", delegated["userState"]["shipping"]["eligibility"]);
+    let (_, scoped) = request(&router, &path, Some("no-user-scope")).await;
+    assert!(scoped["userState"].get("shipping").is_none());
+    let slug = selected["item"]["productListingTitleSlugId"]
+        .as_str()
+        .unwrap();
+    let (status, by_slug) = request(
+        &router,
+        &format!("/api/v1/product-listings/by-slug/{slug}"),
+        Some("owner"),
+    )
+    .await;
+    assert_eq!(StatusCode::OK, status);
+    assert_eq!("OFFERED", by_slug["userState"]["shipping"]["eligibility"]);
+    book.delete(&ctx(Principal::User(owner)), address.id, 1)
+        .await
+        .unwrap();
+    let (_, deleted) = request(&router, &path, Some("owner")).await;
+    assert!(deleted["userState"].get("shipping").is_none());
     assert_eq!(
-        "PER_ITEM",
-        first["items"][0]["options"][0]["service"]["rate"]["basis"]
+        StatusCode::UNAUTHORIZED,
+        request(&router, &path, Some("invalid")).await.0
     );
-    assert_eq!(
-        "BY_APPOINTMENT",
-        first["items"][0]["terms"]["collection"]["arrangement"]["kind"]
-    );
-    assert_eq!(false, first["items"][0]["bindingQuote"]);
-    assert_eq!(false, first["items"][0]["completeLandedCost"]);
-    let source: ListingSourceId = first["items"][0]["listingSourceId"]
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn current_profile_changes_overrides_expiry_and_suspension_are_reflected() {
+    let (p, router, book, owner, profile, id) = fixture().await;
+    select_country(&book, owner, None, 1).await;
+    let path = format!("/api/v1/product-listings/{id}");
+    let (_, first) = request(&router, &path, Some("owner")).await;
+    let source: ListingSourceId = first["item"]["source"]["listingSourceId"]
         .as_str()
         .unwrap()
         .parse()
@@ -248,26 +382,12 @@ async fn current_api_profile_updates_freshness_prices_and_collection() {
     )
     .await
     .unwrap();
-    let (_, updated) = request(&router, &path, None, explicit()).await;
+    let (_, updated) = request(&router, &path, Some("owner")).await;
+    assert_eq!(2, updated["item"]["shipping"]["profile"]["termsRevision"]);
     assert_eq!(
         9500,
-        updated["items"][0]["options"][0]["charge"]["amount"]["amount_minor"]
-    );
-    assert_eq!(2, updated["items"][0]["profile"]["termsRevision"]);
-    let (_, no_quantity) = request(
-        &router,
-        &path,
-        None,
-        json!({"destination":{"kind":"GEOGRAPHIC","country":"DE"}}),
-    )
-    .await;
-    assert_eq!("OFFERED", no_quantity["items"][0]["eligibility"]);
-    assert!(no_quantity["items"][0]["options"][0]["charge"].is_null());
-    assert!(
-        no_quantity["items"][0]["options"][0]["reasons"]
-            .as_array()
-            .unwrap()
-            .contains(&json!({"code":"MISSING_INPUT","input":"QUANTITY"}))
+        updated["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]
+            ["price"]["amount"]["amount_minor"]
     );
     let cabinet = json!({"schema":"LISTING_DELIVERY_V1","source_id":source.into_uuid().to_string(),"integration":{"kind":"SOURCE"},"selection":{"kind":"INHERIT_SOURCE_DEFAULT"},"rate_inputs":{"classes":null,"variants":null},"shipping":{"kind":"REPLACE","value":{"kind":"PROHIBITED"}},"collection":{"kind":"INHERIT"}});
     sqlx::query(
@@ -278,12 +398,14 @@ async fn current_api_profile_updates_freshness_prices_and_collection() {
     .execute(&p)
     .await
     .unwrap();
-    let (_, cabinet) = request(&router, &path, None, explicit()).await;
-    assert_eq!("NOT_OFFERED", cabinet["items"][0]["eligibility"]);
-    assert_eq!("OFFERED", cabinet["items"][0]["collection"]["eligibility"]);
+    let (_, cabinet) = request(&router, &path, Some("owner")).await;
     assert_eq!(
-        "BY_APPOINTMENT",
-        cabinet["items"][0]["terms"]["collection"]["arrangement"]["kind"]
+        "NOT_OFFERED",
+        cabinet["userState"]["shipping"]["eligibility"]
+    );
+    assert_eq!(
+        "OFFERED",
+        cabinet["userState"]["shipping"]["collection"]["eligibility"]
     );
     sqlx::query(
         "UPDATE product_listings SET delivery_configuration=NULL WHERE product_listing_id=$1",
@@ -292,119 +414,50 @@ async fn current_api_profile_updates_freshness_prices_and_collection() {
     .execute(&p)
     .await
     .unwrap();
+    sqlx::query("UPDATE shipping_profiles SET fresh_until=now()+interval '30 seconds' WHERE shipping_profile_id=$1")
+        .bind(profile.into_uuid()).execute(&p).await.unwrap();
+    let anonymous = router
+        .clone()
+        .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::OK, anonymous.status());
+    let cache = anonymous.headers()["cache-control"].to_str().unwrap();
+    let ttl: u32 = cache
+        .split("s-maxage=")
+        .nth(1)
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        ttl <= 30,
+        "shipping evidence expires before the normal 120s detail TTL: {cache}"
+    );
     sqlx::query("UPDATE shipping_profiles SET fresh_until=verified_at,expires_at=now()+interval '1 hour' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&p).await.unwrap();
-    let (_, stale) = request(&router, &path, None, explicit()).await;
-    assert_eq!("STALE", stale["items"][0]["profile"]["evidence"]["status"]);
+    let (_, stale) = request(&router, &path, Some("owner")).await;
     assert_eq!(
-        updated["items"][0]["profile"]["evidence"]["verifiedAt"],
-        stale["items"][0]["profile"]["evidence"]["verifiedAt"]
+        "STALE",
+        stale["item"]["shipping"]["profile"]["evidence"]["status"]
+    );
+    assert_eq!(
+        updated["item"]["shipping"]["profile"]["evidence"]["verifiedAt"],
+        stale["item"]["shipping"]["profile"]["evidence"]["verifiedAt"]
     );
     sqlx::query("UPDATE shipping_profiles SET expires_at=fresh_until WHERE shipping_profile_id=$1")
         .bind(profile.into_uuid())
         .execute(&p)
         .await
         .unwrap();
-    let (_, expired) = request(&router, &path, None, explicit()).await;
-    assert!(expired["items"][0]["eligibility"].is_null());
+    let (_, expired) = request(&router, &path, Some("owner")).await;
+    assert!(expired["userState"]["shipping"]["eligibility"].is_null());
+    assert!(expired["item"]["shipping"]["terms"]["shipping"].is_null());
     assert_eq!(
         "EXPIRED",
-        expired["items"][0]["profile"]["evidence"]["status"]
+        expired["item"]["shipping"]["profile"]["evidence"]["status"]
     );
-    assert_eq!(
-        json!(["PROFILE_EVIDENCE_EXPIRED"]),
-        expired["items"][0]["notices"]
-    );
-}
-#[aura_integration_test(services=[SCHEMA])]
-async fn anonymous_explicit_none_preferences_owned_foreign_deleted_and_suspended() {
-    let (p, router, book, owner, _, id) = fixture().await;
-    let path = format!("/api/v1/product-listings/{id}/delivery-assessment");
-    let context = ctx(Principal::User(owner));
-    let address = book
-        .create(
-            &context,
-            CreateUserAddress {
-                idempotency_key: UserAddressIdempotencyKey::new("private".into()).unwrap(),
-                label: UserAddressLabel::new("Destination".into()).unwrap(),
-                geography: GeographicDescription::new(
-                    Some(AddressText::new("private saved street").unwrap()),
-                    Some(CountryCode::DEU),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .unwrap(),
-            },
-        )
-        .await
-        .unwrap();
-    book.set_destination(&context, BrowsingDestination::Address(address.id), 1)
-        .await
-        .unwrap();
-    let (_, anonymous) = request(&router, &path, None, json!({"input":{"quantity":1}})).await;
-    assert!(anonymous["items"][0]["eligibility"].is_null());
-    let (_, preferred) = request(
-        &router,
-        &path,
-        Some("owner"),
-        json!({"input":{"quantity":1}}),
-    )
-    .await;
-    assert_eq!("OFFERED", preferred["items"][0]["eligibility"]);
-    assert_eq!("DE", preferred["destination"]["submitted"]["country"]);
-    assert!(!preferred.to_string().contains(&address.id.to_string()));
-    let (_, none) = request(
-        &router,
-        &path,
-        Some("owner"),
-        json!({"destination":{"kind":"NONE"},"input":{"quantity":1}}),
-    )
-    .await;
-    assert!(none["items"][0]["eligibility"].is_null());
-    let body =
-        json!({"destination":{"kind":"ADDRESS","addressId":address.id},"input":{"quantity":1}});
-    assert_eq!(
-        StatusCode::OK,
-        request(&router, &path, Some("delegated"), body.clone())
-            .await
-            .0
-    );
-    assert_eq!(
-        StatusCode::FORBIDDEN,
-        request(&router, &path, Some("no-user-scope"), body.clone())
-            .await
-            .0
-    );
-    assert_eq!(
-        StatusCode::NOT_FOUND,
-        request(&router, &path, Some("other"), body.clone()).await.0
-    );
-    assert_eq!(
-        StatusCode::UNAUTHORIZED,
-        request(&router, &path, None, body.clone()).await.0
-    );
-    assert_eq!(
-        StatusCode::UNAUTHORIZED,
-        request(&router, &path, Some("invalid"), explicit()).await.0
-    );
-    assert_eq!(
-        StatusCode::UNAUTHORIZED,
-        request(
-            &router,
-            &path,
-            None,
-            json!({"destination":{"kind":"PREFERENCE"}})
-        )
-        .await
-        .0
-    );
-    book.delete(&context, address.id, 1).await.unwrap();
-    assert_eq!(
-        StatusCode::NOT_FOUND,
-        request(&router, &path, Some("owner"), body).await.0
-    );
-    // A captured value snapshot remains explainable after bookmark erasure.
-    assert_eq!("DE", preferred["destination"]["effective"]["country"]);
     sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
         .bind(owner.into_uuid())
         .execute(&p)
@@ -412,86 +465,32 @@ async fn anonymous_explicit_none_preferences_owned_foreign_deleted_and_suspended
         .unwrap();
     assert_eq!(
         StatusCode::FORBIDDEN,
-        request(&router, &path, Some("owner"), explicit()).await.0
+        request(&router, &path, Some("owner")).await.0
     );
-    assert_eq!(
-        StatusCode::FORBIDDEN,
-        request(
-            &router,
-            &path,
-            Some("owner"),
-            json!({"destination":{"kind":"NONE"}})
-        )
-        .await
-        .0
-    );
-    assert_eq!(
-        StatusCode::OK,
-        request(&router, &path, None, explicit()).await.0
-    );
-}
-#[aura_integration_test(services=[SCHEMA])]
-async fn batch_limits_codecs_and_incompatible_variants_do_not_offer_or_calculate_charges() {
-    let (_, router, _, _, _, id) = fixture().await;
-    let path = format!("/api/v1/product-listings/{id}/delivery-assessment");
-    for body in [
-        json!({"destination":{"kind":"GEOGRAPHIC","country":"de"}}),
-        json!({"destination":{"kind":"GEOGRAPHIC","country":"DE","subdivision":"FR-75"}}),
-        json!({"destination":{"kind":"GEOGRAPHIC","country":"DE","postalCode":""}}),
-        json!({"input":{"quantity":0}}),
-        json!({"input":{"selectedVariant":{"listingSourceId":"invalid","code":"v"}}}),
-        json!({"private":"unexpected"}),
+    assert_eq!(StatusCode::OK, request(&router, &path, None).await.0);
+    for path in [
+        format!("/api/v1/product-listings/{id}/delivery-assessment"),
+        "/api/v1/product-listings/delivery-assessments".into(),
     ] {
-        assert_eq!(
-            StatusCode::BAD_REQUEST,
-            request(&router, &path, None, body).await.0
-        );
-    }
-    let body = json!({"destination":{"kind":"GEOGRAPHIC","country":"DE"},"input":{"quantity":1,"selectedVariant":{"listingSourceId":ListingSourceId::new(),"code":"foreign"}}});
-    let (_, result) = request(&router, &path, None, body).await;
-    assert!(result["items"][0]["eligibility"].is_null());
-    assert_eq!(json!([]), result["items"][0]["options"]);
-    let batch = "/api/v1/product-listings/delivery-assessments";
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        request(&router, batch, None, json!({"listings":[]}))
+        let response = router
+            .clone()
+            .oneshot(Request::post(path).body(Body::empty()).unwrap())
             .await
-            .0
-    );
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        request(
-            &router,
-            batch,
-            None,
-            json!({"listings":vec![json!({"productListingId":id});21]})
-        )
-        .await
-        .0
-    );
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        request(
-            &router,
-            batch,
-            None,
-            json!({"listings":[{"productListingId":id},{"productListingId":id}]})
-        )
-        .await
-        .0
-    );
-    let(status,result)=request(&router,batch,None,json!({"destination":{"kind":"GEOGRAPHIC","country":"DE"},"listings":[{"productListingId":id,"input":{"quantity":1}}]})).await;
-    assert_eq!(StatusCode::OK, status);
-    assert_eq!(1, result["items"].as_array().unwrap().len());
+            .unwrap();
+        assert!(matches!(
+            response.status(),
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        ));
+    }
 }
-
 #[aura_integration_test(services=[SCHEMA])]
 async fn current_location_eligibility_and_postal_exclusions_preserve_collection_privacy() {
     use shipping_core::{
         coverage::*, inputs::Applicability, terms::*, time::CollectionArrangement,
     };
-    let (p, router, _, _, profile, id) = fixture().await;
-    let path = format!("/api/v1/product-listings/{id}/delivery-assessment");
+    let (p, router, book, user, profile, id) = fixture().await;
+    select_country(&book, user, None, 1).await;
+    let path = format!("/api/v1/product-listings/{id}");
     let(source,owner):(uuid::Uuid,uuid::Uuid)=sqlx::query_as("SELECT s.listing_source_id,s.operator_party_id FROM listing_sources s JOIN product_listings l USING(listing_source_id) WHERE l.product_listing_id=$1").bind(id.into_uuid()).fetch_one(&p).await.unwrap();
     let source = ListingSourceId::try_from(source).unwrap();
     let site = party_core::party_location_id::PartyLocationId::new();
@@ -556,20 +555,25 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         )
         .await
         .unwrap();
-    let (_, active) = request(&router, &path, None, explicit()).await;
-    assert_eq!("OFFERED", active["items"][0]["eligibility"]);
-    assert!(active["items"][0]["terms"]["shipping"]["coverage"]["dispatch_origin"].is_null());
-    assert!(active["items"][0]["terms"]["collection"]["site"].is_null());
+    let (_, active) = request(&router, &path, Some("owner")).await;
+    assert_eq!("OFFERED", active["userState"]["shipping"]["eligibility"]);
+    assert!(
+        active["item"]["shipping"]["terms"]["shipping"]["coverage"]["dispatch_origin"].is_null()
+    );
+    assert!(active["item"]["shipping"]["terms"]["collection"]["site"].is_null());
     assert!(!active.to_string().contains("private pickup street"));
     assert!(!active.to_string().contains("private origin street"));
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(site.into_uuid()).execute(&p).await.unwrap();
-    let (_, retired) = request(&router, &path, None, explicit()).await;
-    assert!(retired["items"][0]["eligibility"].is_null());
+    let (_, retired) = request(&router, &path, Some("owner")).await;
+    assert!(retired["userState"]["shipping"]["eligibility"].is_null());
     assert_eq!(
         json!([{"code":"LOCATION_RETIRED"}]),
-        retired["items"][0]["reasons"]
+        retired["userState"]["shipping"]["reasons"]
     );
-    assert_eq!("OFFERED", retired["items"][0]["collection"]["eligibility"]);
+    assert_eq!(
+        "OFFERED",
+        retired["userState"]["shipping"]["collection"]["eligibility"]
+    );
     // Remove the retired origin explicitly, retaining a country rule with a postal exclusion.
     let exclusion = DeliveryArea::Postal(
         PostalRule::new(
@@ -610,15 +614,16 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         )
         .await
         .unwrap();
-    let (_, unknown) = request(&router, &path, None, explicit()).await;
-    assert!(unknown["items"][0]["eligibility"].is_null());
-    assert_eq!(json!([]), unknown["items"][0]["options"]);
+    let (_, unknown) = request(&router, &path, Some("owner")).await;
+    assert!(unknown["userState"]["shipping"]["eligibility"].is_null());
+    assert_eq!(json!([]), unknown["userState"]["shipping"]["options"]);
     assert!(
-        unknown["items"][0]["reasons"]
+        unknown["userState"]["shipping"]["reasons"]
             .as_array()
             .unwrap()
             .contains(&json!({"code":"MISSING_INPUT","input":"POSTAL_CODE"}))
     );
-    let(_,offered)=request(&router,&path,None,json!({"destination":{"kind":"GEOGRAPHIC","country":"DE","postalCode":"20000"},"input":{"quantity":1}})).await;
-    assert_eq!("OFFERED", offered["items"][0]["eligibility"]);
+    select_country(&book, user, Some("20000"), 2).await;
+    let (_, offered) = request(&router, &path, Some("owner")).await;
+    assert_eq!("OFFERED", offered["userState"]["shipping"]["eligibility"]);
 }

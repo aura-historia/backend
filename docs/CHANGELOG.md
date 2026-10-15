@@ -2,20 +2,18 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
-## 2026-10-14 — Current delivery assessments (#2064)
+## 2026-10-15 — Shipping on listing responses (#2064)
 
-- Added `POST /api/v1/product-listings/{productListingId}/delivery-assessment` and
-  `POST /api/v1/product-listings/delivery-assessments` for up to 20 distinct active listings.
-  Results use current PostgreSQL terms, independently assess service eligibility and price,
-  and include collection, restrictions, rule/revision basis, evidence age and evaluation time.
-- Accepts anonymous country/subdivision/postal input, an owned saved address, browsing
-  preference or explicit none. Omission uses an authenticated owner's preference; none
-  overrides it. Address/preference reads require delegated `users:read`; foreign/deleted
-  addresses fail without fallback, and suspended users cannot assess.
-- Success and errors are `private, no-store`. Destination snapshots omit street text,
-  coordinates and bookmark identity; origin/pickup addresses and raw evidence are withheld.
-  Stale evidence retains its age; expired evidence and retired locations cannot establish
-  current definite availability. Advertised charges are neither quotes nor landed costs.
+- Existing listing detail (ID/slug), search, similar, watchlist, saved-search match and auction catalogue responses
+  include effective advertised shipping/collection terms in `item.shipping`.
+- Authenticated users with a selected browsing destination also receive an evaluation in
+  `userState.shipping`; anonymous callers and users without a selected destination receive
+  generic terms. Delegated destination reads require `users:read`. Missing purchase inputs
+  remain explained unknowns; advertised prices are neither quotes nor complete landed costs.
+- Public terms omit dispatch/pickup sites; private results omit street text, coordinates
+  and saved-address identities. Authenticated responses/errors are `no-store`;
+  anonymous discovery caching is bounded by shipping evidence deadlines. Expired assertions
+  cannot establish current availability, and hidden/withdrawn entries expose no shipping.
 
 ## 2026-10-14 — Listing delivery assignments and overrides (#2063)
 

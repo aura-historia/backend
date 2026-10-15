@@ -5,6 +5,7 @@ use search_filter_core::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingUserState {
+    pub shipping: Option<crate::shipping::PersonalizedShipping>,
     pub watchlist: WatchlistUserState,
     pub content_visibility: ContentVisibilityUserState,
     pub notification: NotificationUserState,

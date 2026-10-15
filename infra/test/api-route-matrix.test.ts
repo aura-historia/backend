@@ -47,10 +47,6 @@ function routeKey(method: string, routePath: string): string {
 }
 
 function matchesSelectiveCacheBehavior(path: string): boolean {
-  if (path === "/api/v1/product-listings/delivery-assessments" ||
-      /^\/api\/v1\/product-listings\/[^/]+\/delivery-assessment$/.test(path)) {
-    return false;
-  }
   return (
     path === "/api/v1/listing-sources" ||
     path.startsWith("/api/v1/listing-sources/by-slug/") ||
@@ -180,32 +176,11 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(153);
+    expect(catalog).toHaveLength(151);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
-  });
-
-  test("exposes delivery assessments as public POST operations with optional bearer authentication", () => {
-    const routes = API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/delivery-assessment") ||
-      route.path.endsWith("/delivery-assessments"));
-    expect(routes.map((route) => route.path).sort()).toEqual([
-      "/api/v1/product-listings/delivery-assessments",
-      "/api/v1/product-listings/{product_listing_id}/delivery-assessment",
-    ]);
-    for (const route of routes) {
-      expect(route.method).toBe("POST");
-      expect(route.lambda).toBe("auraHistoriaApi");
-      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
-      expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
-      expect(route.policy).toEqual({
-        bearer: "OPTIONAL",
-        authorization: RouteAuthorizationClass.Public,
-        oauthCredentials: OAuthCredentialRequirement.None,
-        providerProof: ProviderProofRequirement.None,
-      });
-    }
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
@@ -550,7 +525,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(153);
+    expect(routes).toHaveLength(151);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
@@ -731,15 +706,8 @@ describe("HTTP API route policy matrix", () => {
       "/api/v1/product-listings",
       "/api/v1/product-listings/*",
     ];
-    const assessmentPathPatterns = [
-      "/api/v1/product-listings/delivery-assessments",
-      "/api/v1/product-listings/*/delivery-assessment",
-    ];
-    const assessmentBehaviors = distributionConfig.CacheBehaviors.slice(0, assessmentPathPatterns.length);
-    const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(
-      assessmentPathPatterns.length, assessmentPathPatterns.length + selectivePathPatterns.length,
-    );
-    const broadApiBehavior = distributionConfig.CacheBehaviors[assessmentPathPatterns.length + selectivePathPatterns.length];
+    const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
+    const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
 
     expect(domains).toHaveLength(1);
     expect(mappings).toHaveLength(1);
@@ -768,21 +736,9 @@ describe("HTTP API route policy matrix", () => {
       },
     });
     expect(distributionConfig.CacheBehaviors.map((behavior) => behavior.PathPattern)).toEqual([
-      ...assessmentPathPatterns,
       ...selectivePathPatterns,
       "/api/*",
     ]);
-    for (const [index, behavior] of assessmentBehaviors.entries()) {
-      expect(behavior).toEqual(expect.objectContaining({
-        AllowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
-        CachedMethods: ["GET", "HEAD", "OPTIONS"],
-        CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
-        OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
-        PathPattern: assessmentPathPatterns[index],
-        TargetOriginId: originId,
-      }));
-      expect(behavior).not.toHaveProperty("ResponseHeadersPolicyId");
-    }
     for (const [index, behavior] of selectiveBehaviors.entries()) {
       expect(behavior).toEqual(expect.objectContaining({
         AllowedMethods: ["GET", "HEAD", "OPTIONS"],

@@ -303,6 +303,7 @@ mod tests {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
             item: product_listing_service::use_cases::ProductListingDetailsView {
+            shipping: None,
                 product_listing_id,
                 product_listing_title_slug_id: Some(ProductListingSlugId::raw("product-a1b2c3")
                                     .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))),

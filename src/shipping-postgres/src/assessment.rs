@@ -155,7 +155,7 @@ impl AssessmentReader for Reader<'_> {
         for row in rows {
             match row.lifecycle.as_str() {
                 "ACTIVE" => {}
-                "WITHDRAWN" => return Err(AssessmentError::NotFound),
+                "WITHDRAWN" => continue,
                 _ => return Err(corrupt()),
             }
             let source_id = ListingSourceId::try_from(row.listing_source_id).map_err(invalid)?;
@@ -210,9 +210,6 @@ impl AssessmentReader for Reader<'_> {
                 evidence: assertion,
                 integration_current,
             });
-        }
-        if listings.len() != ids.len() {
-            return Err(AssessmentError::NotFound);
         }
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
         let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT listing_source_id,shipping_profile_id,revision,source_deleted FROM shipping_source_defaults WHERE listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;

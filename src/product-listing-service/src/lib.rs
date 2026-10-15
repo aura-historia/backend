@@ -10,3 +10,5 @@ pub mod use_cases;
 pub mod user_state;
 
 pub mod geography;
+
+pub mod shipping;

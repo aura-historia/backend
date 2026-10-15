@@ -47,7 +47,8 @@ relax raw-body limits or application checks to fix an edge integration.
 ## Selective anonymous discovery caching
 
 Only explicitly approved anonymous `200` discovery representations may be shared.
-Any `Authorization` header means `private, no-store`, including malformed credentials.
+Any `Authorization` header disables shared caching, including malformed credentials;
+discovery responses use `private, no-store`.
 Unmarked responses and errors default to no-store; pending results, redirects and
 non-`200` responses are not cacheable. Consent, OAuth, protected and write routes
 remain uncached. Application cache approval and edge policy must agree.
@@ -60,16 +61,16 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing ID/by-slug detail | 120 s |
 | Product-listing history and ready similar results | 300 s |
 
-Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`.
+Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
+responses containing advertised shipping cap this TTL at the next evidence freshness or
+expiry deadline; destination personalization remains private and uncached.
 The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin`,
 `Host` and **all query strings**, and enables gzip/Brotli variation. Cookies are
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
 Only reviewed discovery path behaviors use this policy; generic `/api/*` and default
-behaviors use `CachingDisabled`. Private delivery-assessment behaviors precede the
-product-listing discovery wildcard, permit POST and use `CachingDisabled`.
-Wildcard expansion requires route/cache review and
+behaviors use `CachingDisabled`. Wildcard expansion requires route/cache review and
 tests. Do not add token-derived keys, cookie partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain

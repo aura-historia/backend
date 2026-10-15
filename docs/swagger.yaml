@@ -185,6 +185,30 @@ paths:
           description: Complete returned JSON cursor. It is scoped to this Auction and includes `auctionId`, catalogue position, and ProductListing ID.
           schema: { type: string }
       responses:
+        "401":
+          description: Supplied bearer credentials are invalid (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Invalid persisted shipping dependencies (SHIPPING_STORAGE_ERROR) or listing read failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Shipping storage/transaction or permitted destination reads are temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
@@ -2911,6 +2935,18 @@ paths:
         - BearerAuth: []
         - {}
       responses:
+        "401":
+          description: Supplied bearer credentials are invalid (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: ProductListing found and returned successfully
           headers:
@@ -3004,6 +3040,18 @@ paths:
         - BearerAuth: []
         - {}
       responses:
+        "401":
+          description: Supplied bearer credentials are invalid (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: ProductListing found and returned successfully
           content:
@@ -3061,252 +3109,6 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
-  /api/v1/product-listings/{productListingId}/delivery-assessment:
-    post:
-      summary: Assess current delivery for one listing
-      operationId: assessListingDelivery
-      tags:
-      - ProductListings
-      description: Buyer-specific advertised delivery, using current PostgreSQL terms and location eligibility.
-        Optional authentication; missing destination uses the owned preference for authenticated users,
-        while explicit NONE overrides it. Invalid credentials never downgrade to anonymous. All success
-        and error responses are private, no-store. Missing necessary facts produce explained incomplete
-        results; eligibility and price knowledge are independent.
-      security:
-      - {}
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssessListingDeliveryRequest'
-      responses:
-        '200':
-          description: Assessment of current advertised terms. No geocoder, carrier, provider rate call
-            or public persistence.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeliveryAssessmentResponse'
-        '400':
-          description: Invalid input, object identity, constructor, zero count, duplicate identity or batch
-            over 20 (BAD_BODY_VALUE or INVALID_OBJECT_ID).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Supplied credentials invalid, or authentication required for ADDRESS/PREFERENCE (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user suspended/deleted or delegated user scope absent (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Active listing absent/withdrawn, or owned saved address absent/deleted/foreign (PRODUCT_LISTING_NOT_FOUND
-            or USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Address/resolution changed during snapshot resolution (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted shipping/address/geographic state (SHIPPING_STORAGE_ERROR or ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Database/transaction/resolution read unavailable (SHIPPING_TEMPORARILY_UNAVAILABLE
-            or ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-      parameters:
-      - $ref: '#/components/parameters/ProductListingIdPath'
-  /api/v1/product-listings/delivery-assessments:
-    post:
-      summary: Assess current delivery for up to 20 listings
-      operationId: assessListingDeliveries
-      tags:
-      - ProductListings
-      description: Buyer-specific advertised delivery, using current PostgreSQL terms and location eligibility.
-        Optional authentication; missing destination uses the owned preference for authenticated users,
-        while explicit NONE overrides it. Invalid credentials never downgrade to anonymous. All success
-        and error responses are private, no-store. Missing necessary facts produce explained incomplete
-        results; eligibility and price knowledge are independent.
-      security:
-      - {}
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssessDeliveryBatchRequest'
-      responses:
-        '200':
-          description: Assessment of current advertised terms. No geocoder, carrier, provider rate call
-            or public persistence.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeliveryAssessmentResponse'
-        '400':
-          description: Invalid input, object identity, constructor, zero count, duplicate identity or batch
-            over 20 (BAD_BODY_VALUE or INVALID_OBJECT_ID).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Supplied credentials invalid, or authentication required for ADDRESS/PREFERENCE (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user suspended/deleted or delegated user scope absent (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Active listing absent/withdrawn, or owned saved address absent/deleted/foreign (PRODUCT_LISTING_NOT_FOUND
-            or USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Address/resolution changed during snapshot resolution (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted shipping/address/geographic state (SHIPPING_STORAGE_ERROR or ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Database/transaction/resolution read unavailable (SHIPPING_TEMPORARILY_UNAVAILABLE
-            or ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - private, no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /api/v1/product-listings/{productListingId}/history:
     get:
       summary: Get ProductListing history
@@ -3518,6 +3320,24 @@ paths:
         - BearerAuth: []
         - {}
       responses:
+        "401":
+          description: Supplied bearer credentials are invalid (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Shipping storage/transaction or permitted destination reads are temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: Ready anonymous responses without Authorization are shared for 300 seconds; credential-bearing responses are private and not stored.
           headers:
@@ -3865,6 +3685,18 @@ paths:
         - BearerAuth: []
         - {}
       responses:
+        "401":
+          description: Supplied bearer credentials are invalid (INVALID_CREDENTIALS).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: Simple search results returned successfully
           headers:
@@ -5117,6 +4949,12 @@ paths:
       security:
         - BearerAuth: []
       responses:
+        "403":
+          description: The current authenticated user is suspended, deleted or not permitted (FORBIDDEN).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "200":
           description: Watchlist product-listings retrieved successfully
           headers:
@@ -17785,227 +17623,6 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
   schemas:
-    DeliveryAssessmentDestinationNone:
-      type: object
-      additionalProperties: false
-      required:
-      - kind
-      properties:
-        kind:
-          type: string
-          enum:
-          - NONE
-    DeliveryAssessmentDestinationGeographic:
-      type: object
-      additionalProperties: false
-      required:
-      - kind
-      properties:
-        kind:
-          type: string
-          enum:
-          - GEOGRAPHIC
-        country:
-          type: string
-          pattern: ^[A-Z]{2}$
-          nullable: true
-        subdivision:
-          type: string
-          nullable: true
-        postalCode:
-          type: string
-          minLength: 1
-          maxLength: 64
-          nullable: true
-      description: At least one geographic assertion is required. Constructors validate current ISO codes
-        and country/subdivision compatibility. No street text or geocoding.
-    DeliveryAssessmentDestinationAddress:
-      type: object
-      additionalProperties: false
-      required:
-      - kind
-      - addressId
-      properties:
-        kind:
-          type: string
-          enum:
-          - ADDRESS
-        addressId:
-          $ref: '#/components/schemas/UserAddressId'
-    DeliveryAssessmentDestinationPreference:
-      type: object
-      additionalProperties: false
-      required:
-      - kind
-      properties:
-        kind:
-          type: string
-          enum:
-          - PREFERENCE
-    DeliveryAssessmentDestination:
-      oneOf:
-      - $ref: '#/components/schemas/DeliveryAssessmentDestinationNone'
-      - $ref: '#/components/schemas/DeliveryAssessmentDestinationGeographic'
-      - $ref: '#/components/schemas/DeliveryAssessmentDestinationAddress'
-      - $ref: '#/components/schemas/DeliveryAssessmentDestinationPreference'
-      description: Omitted/null selects the current owned preference for a user and no destination for anonymous
-        callers. NONE overrides preference. ADDRESS/PREFERENCE require an unsuspended owner; delegated credentials
-        need users:read. A foreign/deleted address fails without fallback.
-    DeliveryAssessmentVariant:
-      type: object
-      additionalProperties: false
-      required:
-      - listingSourceId
-      - code
-      properties:
-        listingSourceId:
-          type: string
-          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        code:
-          type: string
-          minLength: 1
-          maxLength: 128
-    DeliveryAssessmentInput:
-      type: object
-      additionalProperties: false
-      required: []
-      properties:
-        quantity:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        lots:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        shipments:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        sellerOrders:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        selectedVariant:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentVariant'
-          nullable: true
-        itemValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        lotValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        shipmentValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        sellerOrderValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-      description: Optional independent positive counts and exact-currency qualifying values. No default quantity,
-        count substitution, FX, variant selection or subtotal inference. Null leaves a fact absent.
-    DeliveryAssessmentInputSnapshot:
-      type: object
-      additionalProperties: false
-      required:
-      - quantity
-      - lots
-      - shipments
-      - sellerOrders
-      - selectedVariant
-      - itemValue
-      - lotValue
-      - shipmentValue
-      - sellerOrderValue
-      properties:
-        quantity:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        lots:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        shipments:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        sellerOrders:
-          type: integer
-          minimum: 1
-          maximum: 18446744073709551615
-          nullable: true
-        selectedVariant:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentVariant'
-          nullable: true
-        itemValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        lotValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        shipmentValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-        sellerOrderValue:
-          allOf:
-          - $ref: '#/components/schemas/ShippingMoneyData'
-          nullable: true
-    AssessListingDeliveryRequest:
-      type: object
-      additionalProperties: false
-      required: []
-      properties:
-        destination:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentDestination'
-          nullable: true
-        input:
-          $ref: '#/components/schemas/DeliveryAssessmentInput'
-    AssessDeliveryBatchItem:
-      type: object
-      additionalProperties: false
-      required:
-      - productListingId
-      properties:
-        productListingId:
-          type: string
-          pattern: ^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        input:
-          $ref: '#/components/schemas/DeliveryAssessmentInput'
-    AssessDeliveryBatchRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - listings
-      properties:
-        destination:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentDestination'
-          nullable: true
-        listings:
-          type: array
-          items:
-            $ref: '#/components/schemas/AssessDeliveryBatchItem'
-          minItems: 1
-          maxItems: 20
-      description: Listing identities must be unique. One common destination; results preserve request order.
-        Any missing/withdrawn listing or invalid private reference fails the complete request.
     DeliveryAssessmentGeography:
       type: object
       additionalProperties: false
@@ -18036,35 +17653,6 @@ components:
       properties:
         provider: {type: string}
         attributionUrl: {type: string}
-    DeliveryAssessmentDestinationSnapshot:
-      type: object
-      additionalProperties: false
-      required:
-      - submitted
-      - derived
-      - effective
-      - attribution
-      properties:
-        submitted:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
-          nullable: true
-        derived:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
-          nullable: true
-        effective:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentGeography'
-          nullable: true
-        attribution:
-          allOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentAttribution'
-          nullable: true
-      description: Transient value snapshot with submitted facts separate from permitted unexpired derived
-        evidence. Submitted facts take precedence; conflicting derived country, subdivision, postcode or reference
-        release cannot fill missing facts. No bookmark IDs, street text, coordinates or provider evidence;
-        no snapshot is stored by this endpoint.
     DeliveryAssertionEvidence:
       type: object
       additionalProperties: false
@@ -18209,14 +17797,16 @@ components:
       type: object
       additionalProperties: false
       required:
-      - service
+      - serviceIndex
       - applicability
       - eligibility
       - charge
       - reasons
       properties:
-        service:
-          $ref: '#/components/schemas/ShippingServiceData'
+        serviceIndex:
+          type: integer
+          minimum: 0
+          description: Zero-based service index within the selected zone of item.shipping.terms.
         applicability:
           type: string
           enum:
@@ -18238,9 +17828,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeliveryAssessmentReason'
-      description: Each option retains advertised price knowledge, service identity/features/roles, charge
-        basis/components and known handling/transit/total durations independently of assessed eligibility
-        and charge.
+      description: Eligibility and calculated charge for a service in the selected advertised zone.
+        Service identity, advertised price/basis/components and durations remain in item.shipping.terms.
     DeliveryAssessmentCollection:
       type: object
       additionalProperties: false
@@ -18268,67 +17857,22 @@ components:
             $ref: '#/components/schemas/DeliveryAssessmentReason'
       description: Independent collection can remain offered when shipping is prohibited. Arrangement/windows
         are in terms.collection; site is always null pending explicit permitted disclosure.
-    DeliveryAssessmentLocationRevision:
+    AdvertisedListingShippingData:
       type: object
       additionalProperties: false
-      required:
-      - partyLocationId
-      - revision
-      - resolutionGeneration
+      description: >-
+        Effective advertised shipping and collection terms, shared by every viewer. Source defaults
+        and listing overrides are resolved from current PostgreSQL state. Dispatch origins and
+        collection sites are always null. Invalid shipping dependencies return 500 SHIPPING_STORAGE_ERROR;
+        unavailable shipping reads return 503 SHIPPING_TEMPORARILY_UNAVAILABLE. Missing or withdrawn listings and hidden entries have
+        shipping null. Clients render these terms generically without a destination.
+      required: [terms, listingRevision, sourceRevision, defaultRevision, profile, listingEvidence, evaluatedAt, shippingReasons, collectionReasons, notices]
       properties:
-        partyLocationId:
-          $ref: '#/components/schemas/PartyLocationId'
-        revision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-        resolutionGeneration:
-          type: integer
-          minimum: 1
-          nullable: true
-    ListingDeliveryAssessment:
-      type: object
-      additionalProperties: false
-      required:
-      - productListingId
-      - listingSourceId
-      - listingRevision
-      - sourceRevision
-      - defaultRevision
-      - profile
-      - listingEvidence
-      - evaluatedAt
-      - eligibility
-      - selectedZone
-      - options
-      - reasons
-      - notices
-      - terms
-      - collection
-      - locationRevisions
-      - input
-      - bindingQuote
-      - completeLandedCost
-      properties:
-        productListingId:
-          type: string
-          pattern: ^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        listingSourceId:
-          type: string
-          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        listingRevision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-        sourceRevision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-        defaultRevision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-          nullable: true
+        terms:
+          $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
+        listingRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
+        sourceRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
+        defaultRevision: {type: integer, minimum: 1, maximum: 9223372036854775807, nullable: true}
         profile:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
@@ -18337,75 +17881,58 @@ components:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssertionEvidence'
           nullable: true
-        evaluatedAt:
-          type: string
-          format: date-time
+        evaluatedAt: {type: string, format: date-time}
+        shippingReasons:
+          type: array
+          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
+        collectionReasons:
+          type: array
+          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
+        notices:
+          type: array
+          items:
+            type: string
+            enum: [ASSIGNMENT_UNRESOLVED, LISTING_EVIDENCE_EXPIRED, PROVIDER_INTEGRATION_CHANGED, PROFILE_INTEGRATION_MISMATCH, PROFILE_EVIDENCE_EXPIRED]
+    PersonalizedListingShippingData:
+      type: object
+      additionalProperties: false
+      description: >-
+        Evaluation for the authenticated owner's selected browsing destination. Omitted when
+        no destination is selected or the listing is hidden/withdrawn. A saved address or explicit
+        country/postal preference can supply the destination; owning addresses alone selects none.
+        Destination facts include submitted assertions and compatible permitted unexpired derived
+        evidence. No street, coordinates or address identity is returned. Delegated personalization
+        requires users:read; credentials without it receive generic terms. Browsing infers no quantity, variant, shipment/order count or qualifying
+        amount. Missing inputs retain uncertainty and explained null charges. This enrichment does
+        not filter or reorder results. Authenticated responses are never cached.
+      required: [destination, attribution, evaluatedAt, eligibility, selectedZone, options, reasons, collection, bindingQuote, completeLandedCost]
+      properties:
+        destination:
+          $ref: '#/components/schemas/DeliveryAssessmentGeography'
+        attribution:
+          allOf:
+          - $ref: '#/components/schemas/DeliveryAssessmentAttribution'
+          nullable: true
+        evaluatedAt: {type: string, format: date-time}
         eligibility:
           type: string
-          enum:
-          - OFFERED
-          - NOT_OFFERED
-          - SUBJECT_TO_CONFIRMATION
+          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION]
           nullable: true
         selectedZone:
           type: integer
           minimum: 0
           nullable: true
+          description: Zero-based zone index in item.shipping.terms.shipping.coverage.zones.
         options:
           type: array
-          items:
-            $ref: '#/components/schemas/DeliveryAssessmentOption'
+          items: {$ref: '#/components/schemas/DeliveryAssessmentOption'}
         reasons:
           type: array
-          items:
-            $ref: '#/components/schemas/DeliveryAssessmentReason'
-        notices:
-          type: array
-          items:
-            type: string
-            enum:
-            - ASSIGNMENT_UNRESOLVED
-            - LISTING_EVIDENCE_EXPIRED
-            - INTEGRATION_MISMATCH
-            - PROFILE_INTEGRATION_MISMATCH
-            - PROFILE_EVIDENCE_EXPIRED
-        terms:
-          $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
+          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
         collection:
           $ref: '#/components/schemas/DeliveryAssessmentCollection'
-        locationRevisions:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeliveryAssessmentLocationRevision'
-        input:
-          $ref: '#/components/schemas/DeliveryAssessmentInputSnapshot'
-        bindingQuote:
-          type: boolean
-          enum:
-          - false
-        completeLandedCost:
-          type: boolean
-          enum:
-          - false
-      description: Current authoritative assessment. selectedZone is the zero-based matched rule in the sanitized
-        effective terms snapshot, with ordered zones/exclusions/applicability retained for explanation. terms.shipping.coverage.dispatch_origin
-        and terms.collection.site are always null. No public address disclosure or cheapest-price claim. Revisions
-        describe the evaluation basis; they are not mutation preconditions for this endpoint.
-    DeliveryAssessmentResponse:
-      type: object
-      additionalProperties: false
-      required:
-      - destination
-      - items
-      properties:
-        destination:
-          $ref: '#/components/schemas/DeliveryAssessmentDestinationSnapshot'
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/ListingDeliveryAssessment'
-          minItems: 1
-          maxItems: 20
+        bindingQuote: {type: boolean, enum: [false]}
+        completeLandedCost: {type: boolean, enum: [false]}
     ProductListingDeliveryCommandData:
       type: object
       additionalProperties: false
@@ -19868,6 +19395,7 @@ components:
       type: object
       description: Lightweight ProductListing summary for search and similar-listing results.
       required:
+        - shipping
         - productListingId
         - eventId
         - source
@@ -19880,6 +19408,10 @@ components:
         - images
         - updated
       properties:
+        shipping:
+          allOf:
+          - $ref: '#/components/schemas/AdvertisedListingShippingData'
+          nullable: true
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -19971,6 +19503,7 @@ components:
       type: object
       description: Canonical ProductListing detail inside a personalized response wrapper.
       required:
+        - shipping
         - productListingId
         - eventId
         - source
@@ -19986,6 +19519,10 @@ components:
         - created
         - updated
       properties:
+        shipping:
+          allOf:
+          - $ref: '#/components/schemas/AdvertisedListingShippingData'
+          nullable: true
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -20237,6 +19774,8 @@ components:
         - notification
         - searchFilter
       properties:
+        shipping:
+          $ref: '#/components/schemas/PersonalizedListingShippingData'
         watchlist:
           $ref: "#/components/schemas/WatchlistUserStateData"
         contentVisibility:

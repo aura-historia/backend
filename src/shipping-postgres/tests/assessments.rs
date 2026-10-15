@@ -170,13 +170,15 @@ async fn reads_share_repeatable_snapshot_and_new_transactions_see_retirement() {
     );
     let mut tx = SqlxUnitOfWork::new(p.clone()).begin().await.unwrap();
     let absent = ProductListingId::new();
-    assert!(matches!(
+    assert!(
         SqlxAssessmentReaderFactory
             .in_transaction(&mut tx)
             .snapshot(&[absent], None)
-            .await,
-        Err(AssessmentError::NotFound)
-    ));
+            .await
+            .unwrap()
+            .listings
+            .is_empty()
+    );
 }
 #[aura_integration_test(services=[SCHEMA])]
 async fn invalid_delivery_codes_fail_closed_and_withdrawn_is_unavailable() {
@@ -198,13 +200,15 @@ async fn invalid_delivery_codes_fail_closed_and_withdrawn_is_unavailable() {
         .await
         .unwrap();
     let mut tx = SqlxUnitOfWork::new(p).begin().await.unwrap();
-    assert!(matches!(
+    assert!(
         SqlxAssessmentReaderFactory
             .in_transaction(&mut tx)
             .snapshot(&ids[..1], None)
-            .await,
-        Err(AssessmentError::NotFound)
-    ));
+            .await
+            .unwrap()
+            .listings
+            .is_empty()
+    );
 }
 
 #[aura_integration_test(services=[SCHEMA])]
