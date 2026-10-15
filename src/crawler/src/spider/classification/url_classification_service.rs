@@ -165,28 +165,34 @@ impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServ
         &self,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        let pattern =
-            generate_validated_with_governor::<_, PatternResponse, Option<Regex>, (), _, _>(
-                &self.llm,
-                self.governor.as_ref(),
-                Self::build_generation_request(all_urls)?,
-                MAX_VALIDATION_ATTEMPTS,
-                |response| {
-                    let pattern = response.pattern.trim();
-                    if pattern.is_empty() {
-                        return Ok(None);
-                    }
-                    Regex::new(pattern).map(Some).map_err(|_| ())
-                },
-                |_: &()| "invalid_regex",
-            )
-            .await
-            .map_err(|error| match error {
-                ValidatedGenerationError::Model(error) => UrlClassificationError::from(error),
-                ValidatedGenerationError::Validation(()) => {
-                    UrlClassificationError::Llm("URL response validation failed".to_owned())
+        let pattern = generate_validated_with_governor::<
+            _,
+            PatternResponse,
+            Option<Regex>,
+            regex::Error,
+            _,
+            _,
+        >(
+            &self.llm,
+            self.governor.as_ref(),
+            Self::build_generation_request(all_urls)?,
+            MAX_VALIDATION_ATTEMPTS,
+            |response| {
+                let pattern = response.pattern.trim();
+                if pattern.is_empty() {
+                    return Ok(None);
                 }
-            })?;
+                Regex::new(pattern).map(Some)
+            },
+            |_: &regex::Error| "invalid_regex",
+        )
+        .await
+        .map_err(|error| match error {
+            ValidatedGenerationError::Model(error) => UrlClassificationError::from(error),
+            ValidatedGenerationError::Validation(error) => {
+                UrlClassificationError::Llm(format!("URL response validation failed: {error}"))
+            }
+        })?;
 
         Ok(pattern)
     }

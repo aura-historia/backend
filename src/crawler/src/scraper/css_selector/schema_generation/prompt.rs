@@ -3,6 +3,7 @@ use super::projection::html_to_schema_prompt_dsl;
 const SAMPLE_LABEL: &str = "YAML";
 const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
 const SELECTOR_GROUNDING_INSTRUCTION: &str = "Only use CSS selectors that can be derived from tags, attrs, text, and tree context visible in the YAML projection. Never invent class names, ids, attributes, or selector paths that are not present in the YAML. Every non-null selector must be product-specific and must apply to every sample covered by that schema. Optional fields must be null unless an exact selector is visible in the YAML and clearly extracts non-empty product-specific content from the page or template. Prefer null over guessed selectors, generic wrappers, layout containers, or whole-page content selectors. For description, use null unless a precise product-description selector is visible; do not use generic selectors such as .description-wrapper or .HTMLPageContent unless those exact classes appear in the YAML on nodes containing product description text.";
+const PRODUCT_SAMPLES_INSTRUCTION: &str = "Every sample was fetched from a URL matching the product-page pattern of this ListingSource and is expected to be a product detail page. Do not classify the samples: this response has no page_kind, removed_schema, or reason field. If a sample looks like a removed, sold-out, not-found, category, search, or other non-product page, exclude that sample from schema coverage, still return schemas for the remaining product samples, and name the excluded sample number in risks. Return an empty schemas array only when no sample is a product detail page.";
 const CONFIDENCE_INSTRUCTION: &str = "Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.";
 
 struct RawAttributeDefinition {
@@ -230,7 +231,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
 
     if prompt_pages.is_empty() {
         return String::from(
-            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY ProductListingSchemaGenerationResponse JSON with schemas plus confidence LOW, MEDIUM, or HIGH.",
+            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY ProductListingSchemasGenerationResponse JSON with schemas plus confidence LOW, MEDIUM, or HIGH.",
         );
     }
 
@@ -255,6 +256,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
 
     format!(
         "Generate robust Extraction-Schemas that together cover these product page HTML samples from the same ListingSource.\n\
+         {product_samples_instruction}\n\
          {template_instruction}\
          ListingSources often have multiple templates/layouts. Do not collapse different templates into one overly broad schema just because fields share names.\n\
          A schema may target only the subset of samples where its selectors are precise and product-specific.\n\
@@ -268,10 +270,11 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
          {raw_attributes_instruction}\n\
-         Return ONLY ProductListingSchemaGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
+         Return ONLY ProductListingSchemasGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
          {confidence_instruction}\n\
          {sample_description}\n\
          Here are the page {sample_label} samples:{samples}",
+        product_samples_instruction = PRODUCT_SAMPLES_INSTRUCTION,
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
         raw_attributes_instruction = raw_attributes_instruction(),
         confidence_instruction = CONFIDENCE_INSTRUCTION,
