@@ -462,6 +462,7 @@ impl SpiderServiceImpl {
         // A filter task that died without reporting cannot vouch for a full crawl.
         let diagnostics = diagnostics_rx.await.unwrap_or_else(|_| CrawlDiagnostics {
             completion: CrawlCompletion::HardTimeoutTruncated,
+            diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
             ..CrawlDiagnostics::default()
         });
         if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
@@ -498,6 +499,7 @@ impl SpiderServiceImpl {
         info!(
             completion = %completion,
             at_budget = completion == CrawlCompletion::PageBudgetReached,
+            diagnostic_reason = ?diagnostics.diagnostic_reason,
             total_crawled = state.total_crawled,
             product_urls_count = state.products_found,
             product_pattern_known = product_pattern.is_some(),

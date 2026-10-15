@@ -890,7 +890,11 @@ impl SpiderImpl {
             match outcome_rx.await {
                 Ok(outcome) => apply_library_outcome(&mut diagnostics, outcome),
                 // The crawl task died without reporting; never call that full.
-                Err(_) => diagnostics.completion = CrawlCompletion::HardTimeoutTruncated,
+                Err(_) => {
+                    diagnostics.completion = CrawlCompletion::HardTimeoutTruncated;
+                    diagnostics.diagnostic_reason =
+                        Some("crawl_task_ended_without_outcome".to_string());
+                }
             }
             apply_local_filter_outcome(&mut diagnostics);
             let _ = diagnostics_tx.send(diagnostics);
