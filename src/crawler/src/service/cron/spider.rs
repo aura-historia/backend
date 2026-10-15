@@ -1,6 +1,6 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
-use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
+use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown};
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
@@ -66,10 +66,22 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
     }
 }
 
+/// Cooldown for the catch-all `spider_run_error` case (internal or config
+/// faults without a crawl profile). Starts at the generic durable retry
+/// cooldown and escalates like the scraper domain circuit, so a persistent
+/// fault cannot retry every few minutes forever.
+fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
+    let failure_streak = u32::try_from(failure_count).unwrap_or(1);
+    exponential_cooldown(
+        durable_retry_cooldown_for(NetworkErrorKind::Unknown),
+        failure_streak,
+    )
+}
+
 fn cooldown_for_spider_failure(error: &SpiderServiceError, failure_count: i32) -> Duration {
     crawl_cooldown_profile(error)
         .map(|profile| cooldown_for_failure_count(profile, failure_count))
-        .unwrap_or_else(|| durable_retry_cooldown_for(NetworkErrorKind::Unknown))
+        .unwrap_or_else(|| unclassified_cooldown_for_failure_count(failure_count))
 }
 
 /// Persisted `last_crawl_error_kind` identifier; these strings are a stable
@@ -395,6 +407,7 @@ impl CrawlerCronJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::policy::MAX_EXPONENTIAL_COOLDOWN;
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
@@ -560,9 +573,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
-        for error in [
+    fn unclassified_errors() -> [SpiderServiceError; 3] {
+        [
             SpiderServiceError::Database(sqlx::Error::RowNotFound),
             SpiderServiceError::Discovery(SpiderDiscoveryError::Config(
                 "SPIDER_MAX_SIZE_BYTES must be set".to_string(),
@@ -570,11 +582,43 @@ mod tests {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Client(
                 application::error::static_error("tls backend unavailable"),
             )),
-        ] {
+        ]
+    }
+
+    #[test]
+    fn cooldown_should_keep_generic_fallback_for_first_unknown_failure() {
+        for error in unclassified_errors() {
             assert_eq!(error_kind_for_spider_error(&error), "spider_run_error");
             assert_eq!(
-                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                cooldown_for_spider_failure(&error, 1),
                 durable_retry_cooldown_for(NetworkErrorKind::Unknown)
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_escalate_unknown_failures_exponentially_up_to_one_day() {
+        let base = durable_retry_cooldown_for(NetworkErrorKind::Unknown);
+        for error in unclassified_errors() {
+            assert_eq!(cooldown_for_spider_failure(&error, 0), base);
+            assert_eq!(cooldown_for_spider_failure(&error, 2), base * 2);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                base * 4
+            );
+            assert_eq!(cooldown_for_spider_failure(&error, 6), base * 32);
+            assert_eq!(cooldown_for_spider_failure(&error, 9), base * 256);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 10),
+                MAX_EXPONENTIAL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 40),
+                MAX_EXPONENTIAL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, i32::MAX),
+                MAX_EXPONENTIAL_COOLDOWN
             );
         }
     }
@@ -962,6 +1006,63 @@ mod tests {
                         min_sample_size: 20,
                     },
                 )
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_escalate_cooldown_after_repeated_spider_run_errors() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("spider_run_error".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "spider_run_error"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(
+                        *next_crawl_at,
+                        durable_retry_cooldown_for(NetworkErrorKind::Unknown) * 4,
+                    )
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, _, _| {
+            Box::pin(async {
+                Err(crate::spider::service::SpiderServiceError::Database(
+                    sqlx::Error::RowNotFound,
+                ))
             })
         });
 

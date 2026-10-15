@@ -256,22 +256,27 @@ pub fn parse_retry_after_at(value: &HeaderValue, now: SystemTime) -> Option<Dura
     Some(delay.min(MAX_RETRY_AFTER))
 }
 
+/// Upper bound for every durable cooldown that escalates with a failure streak.
+pub const MAX_EXPONENTIAL_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Doubles `base` for every consecutive failure after the first, capped at
+/// [`MAX_EXPONENTIAL_COOLDOWN`]. A streak of zero behaves like the first failure.
+pub fn exponential_cooldown(base: Duration, failure_streak: u32) -> Duration {
+    let exponent = failure_streak.saturating_sub(1).min(31);
+    base.saturating_mul(1_u32 << exponent)
+        .min(MAX_EXPONENTIAL_COOLDOWN)
+}
+
 pub fn domain_cooldown(
     kind: DomainFailureKind,
     failure_streak: u32,
     retry_after: Option<Duration>,
 ) -> Duration {
-    const MAX_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
-    let exponent = failure_streak.saturating_sub(1).min(31);
-    let multiplier = 1_u32 << exponent;
-    let local = kind
-        .base_cooldown()
-        .saturating_mul(multiplier)
-        .min(MAX_COOLDOWN);
+    let local = exponential_cooldown(kind.base_cooldown(), failure_streak);
     retry_after
         .unwrap_or(Duration::ZERO)
         .max(local)
-        .min(MAX_COOLDOWN)
+        .min(MAX_EXPONENTIAL_COOLDOWN)
 }
 
 #[derive(Debug, Clone, Copy)]
