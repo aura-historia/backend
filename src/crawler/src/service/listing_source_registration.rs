@@ -153,7 +153,7 @@ impl ListingSourceRegistrationService {
         let observations = self
             .unconfigured
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .observe(
                 &unconfigured_ids,
                 Instant::now(),
