@@ -16,9 +16,9 @@ use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
-    inline_retry_backoff_for, is_same_or_www_host, network_error_kind_for_public_target_error,
-    resolve_public_http_target,
+    NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
+    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
+    network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::spider::utils::url::CrawledUrl;
 
@@ -29,6 +29,7 @@ const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
 const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_RETRY_COUNT: u8 = 2;
 const DEFAULT_PREFLIGHT_ATTEMPTS: u32 = 2;
+const DEFAULT_PREFLIGHT_DEADLINE: Duration = Duration::from_secs(90);
 
 fn spider_request_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -232,6 +233,8 @@ pub struct CrawlerConfig {
     pub retry_count: u8,
     /// Inline attempts for the root preflight on transient transport errors.
     pub preflight_retry: RetryPolicy,
+    /// Wall-clock budget for the whole root preflight (redirects and retries).
+    pub preflight_deadline: Duration,
 }
 
 impl Default for CrawlerConfig {
@@ -251,6 +254,7 @@ impl Default for CrawlerConfig {
                 max_attempts: DEFAULT_PREFLIGHT_ATTEMPTS,
                 ..RetryPolicy::default()
             },
+            preflight_deadline: DEFAULT_PREFLIGHT_DEADLINE,
         }
     }
 }
@@ -388,22 +392,24 @@ fn root_redirect_target(
     Ok(redirect_target)
 }
 
-/// Mirrors `network::policy::classify_reqwest_error` for Spider's reqwest
-/// version, which is distinct from the workspace one.
-fn classify_spider_reqwest_error(error: &spider::reqwest::Error) -> NetworkErrorKind {
-    if error.is_timeout() {
-        return NetworkErrorKind::Timeout;
+/// Spider pins its own reqwest major version; route it through the shared
+/// policy classifier.
+impl ReqwestErrorLike for spider::reqwest::Error {
+    fn is_timeout(&self) -> bool {
+        spider::reqwest::Error::is_timeout(self)
     }
-    if error.is_connect() {
-        return NetworkErrorKind::Connect;
+
+    fn is_connect(&self) -> bool {
+        spider::reqwest::Error::is_connect(self)
     }
-    if error.is_request() {
-        return NetworkErrorKind::Request;
+
+    fn is_request(&self) -> bool {
+        spider::reqwest::Error::is_request(self)
     }
-    if let Some(status) = error.status() {
-        return NetworkErrorKind::HttpStatus(status.as_u16());
+
+    fn status_code(&self) -> Option<u16> {
+        self.status().map(|status| status.as_u16())
     }
-    NetworkErrorKind::Unknown
 }
 
 /// reqwest reports TLS handshake failures as connect errors; the certificate
@@ -459,7 +465,7 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
             },
         };
     }
-    let network_kind = classify_spider_reqwest_error(&error);
+    let network_kind = classify_reqwest_error(&error);
     PreflightAttemptError {
         retryable: action_for(network_kind) == NetworkAction::Retry,
         error: SpiderDiscoveryError::Preflight {
@@ -470,20 +476,28 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
     }
 }
 
+/// A fetched crawl root together with the pinned client that fetched it, so
+/// the crawl reuses the validated client instead of resolving the host again.
+struct RootFetch {
+    response: spider::reqwest::Response,
+    client: spider::reqwest::Client,
+}
+
 async fn fetch_crawl_root_once(
     transport: &dyn SpiderTransport,
     root: &Url,
     timeout: Duration,
-) -> Result<spider::reqwest::Response, PreflightAttemptError> {
+) -> Result<RootFetch, PreflightAttemptError> {
     let client = transport
         .client_for(root, timeout)
         .await
         .map_err(preflight_transport_error)?;
-    client
+    let response = client
         .get(root.clone())
         .send()
         .await
-        .map_err(preflight_request_error)
+        .map_err(preflight_request_error)?;
+    Ok(RootFetch { response, client })
 }
 
 /// Fetches the crawl root with bounded inline retries for transient transport
@@ -494,12 +508,12 @@ async fn fetch_crawl_root(
     root: &Url,
     timeout: Duration,
     retry: RetryPolicy,
-) -> Result<spider::reqwest::Response, SpiderDiscoveryError> {
+) -> Result<RootFetch, SpiderDiscoveryError> {
     let max_attempts = retry.max_attempts.max(1);
     let mut attempt = 1;
     loop {
         match fetch_crawl_root_once(transport, root, timeout).await {
-            Ok(response) => return Ok(response),
+            Ok(fetched) => return Ok(fetched),
             Err(failure) if failure.retryable && attempt < max_attempts => {
                 tokio::time::sleep(inline_retry_backoff_for(retry, attempt)).await;
                 attempt += 1;
@@ -509,19 +523,51 @@ async fn fetch_crawl_root(
     }
 }
 
+/// The established crawl root and the client pinned to it.
+struct PreflightedRoot {
+    url: Url,
+    client: spider::reqwest::Client,
+}
+
+/// Bounds the whole redirect chain, retries included, so a stalling host
+/// cannot hold a spider slot for longer than `deadline`.
 async fn preflight_crawl_root(
     transport: &dyn SpiderTransport,
     configured_root: Url,
     timeout: Duration,
     retry: RetryPolicy,
-) -> Result<Url, SpiderDiscoveryError> {
+    deadline: Duration,
+) -> Result<PreflightedRoot, SpiderDiscoveryError> {
+    tokio::time::timeout(
+        deadline,
+        follow_crawl_root(transport, configured_root, timeout, retry),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(SpiderDiscoveryError::preflight(
+            CrawlFailureKind::ConnectError,
+            "crawl-root preflight exceeded its time budget",
+        ))
+    })
+}
+
+async fn follow_crawl_root(
+    transport: &dyn SpiderTransport,
+    configured_root: Url,
+    timeout: Duration,
+    retry: RetryPolicy,
+) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     let mut current_root = configured_root.clone();
 
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
-        let response = fetch_crawl_root(transport, &current_root, timeout, retry).await?;
+        let RootFetch { response, client } =
+            fetch_crawl_root(transport, &current_root, timeout, retry).await?;
 
         if !response.status().is_redirection() {
-            return Ok(current_root);
+            return Ok(PreflightedRoot {
+                url: current_root,
+                client,
+            });
         }
 
         if redirect_count == MAX_ROOT_REDIRECTS {
@@ -608,18 +654,17 @@ impl SpiderImpl {
             )
         })?;
         let request_timeout = Duration::from_secs(self.config.request_timeout_secs);
-        let root_url = preflight_crawl_root(
+        let PreflightedRoot {
+            url: root_url,
+            client,
+        } = preflight_crawl_root(
             self.transport.as_ref(),
             configured_root,
             request_timeout,
             self.config.preflight_retry,
+            self.config.preflight_deadline,
         )
         .await?;
-        let client = self
-            .transport
-            .client_for(&root_url, request_timeout)
-            .await
-            .map_err(|error| preflight_transport_error(error).error)?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client);
@@ -725,18 +770,14 @@ impl SpiderImpl {
                 diagnostics.pages_received += 1;
 
                 if !first_page_seen {
-                    let initial = diagnostics_from_library_page(
+                    apply_library_page(
+                        &mut diagnostics,
                         &crawl_root_url,
                         page.get_url(),
                         page.status_code.as_u16(),
                         page.final_redirect_destination.as_deref(),
                         page.anti_bot_tech,
                     );
-                    diagnostics = CrawlDiagnostics {
-                        pages_received: diagnostics.pages_received,
-                        lagged: diagnostics.lagged,
-                        ..initial
-                    };
                     root_redirect_rejected = matches!(
                         diagnostics.failure_kind,
                         Some(CrawlFailureKind::RedirectProblem)
@@ -802,29 +843,27 @@ impl Spider for SpiderImpl {
     }
 }
 
-fn diagnostics_from_library_page(
+/// Records the root page Spider delivered: its status, where it ended up and
+/// any failure signal the library attached to it.
+fn apply_library_page(
+    diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     page_url: &str,
     status_code: u16,
     final_redirect_destination: Option<&str>,
     anti_bot_tech: AntiBotTech,
-) -> CrawlDiagnostics {
+) {
     let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
-    let redirect_url = (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
-    let mut diagnostics = CrawlDiagnostics {
-        http_status: Some(status_code),
-        final_url: Some(final_url.clone()),
-        redirect_url,
-        ..CrawlDiagnostics::default()
-    };
+    diagnostics.http_status = Some(status_code);
+    diagnostics.redirect_url =
+        (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
 
     if let Some(signal) =
         page_diagnostic_signal(crawl_root_url, &final_url, status_code, anti_bot_tech)
     {
         diagnostics.apply_signal(signal);
     }
-
-    diagnostics
+    diagnostics.final_url = Some(final_url);
 }
 
 fn page_diagnostic_signal(
@@ -974,6 +1013,25 @@ mod tests {
     use std::net::SocketAddr;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    fn diagnostics_from_library_page(
+        crawl_root_url: &str,
+        page_url: &str,
+        status_code: u16,
+        final_redirect_destination: Option<&str>,
+        anti_bot_tech: AntiBotTech,
+    ) -> CrawlDiagnostics {
+        let mut diagnostics = CrawlDiagnostics::default();
+        apply_library_page(
+            &mut diagnostics,
+            crawl_root_url,
+            page_url,
+            status_code,
+            final_redirect_destination,
+            anti_bot_tech,
+        );
+        diagnostics
+    }
+
     fn whitelist_for(root: &str) -> regex::Regex {
         let pattern = configured_host_whitelist(&Url::parse(root).unwrap()).unwrap();
         regex::Regex::new(&pattern).unwrap()
@@ -1058,10 +1116,12 @@ mod tests {
         Redirect(&'static str),
         /// Close the connection without answering, like a crashed server.
         Drop,
+        /// Accept the request and never answer, like a stalled server.
+        Hang,
     }
 
-    /// `(host, target, user_agent)` per request.
-    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String)>>>;
+    /// `(host, target, user_agent, accept_encoding)` per request.
+    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String, String)>>>;
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
 
     struct TestSite {
@@ -1095,11 +1155,11 @@ mod tests {
                 .lock()
                 .await
                 .iter()
-                .filter(|(_, seen, _)| seen == target)
+                .filter(|(_, seen, ..)| seen == target)
                 .count()
         }
 
-        async fn finish(self) -> Vec<(String, String, String)> {
+        async fn finish(self) -> Vec<(String, String, String, String)> {
             let log = self.requests.lock().await.clone();
             self.server.abort();
             log
@@ -1141,10 +1201,11 @@ mod tests {
                 };
                 let host = header("host").to_ascii_lowercase();
                 let user_agent = header("user-agent");
+                let accept_encoding = header("accept-encoding");
                 let previous = {
                     let mut log = requests.lock().await;
-                    let previous = log.iter().filter(|(_, seen, _)| *seen == target).count();
-                    log.push((host, target.clone(), user_agent));
+                    let previous = log.iter().filter(|(_, seen, ..)| *seen == target).count();
+                    log.push((host, target.clone(), user_agent, accept_encoding));
                     previous
                 };
                 let response = match handler(&target, previous) {
@@ -1156,6 +1217,10 @@ mod tests {
                         "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     ),
                     SiteResponse::Drop => return,
+                    SiteResponse::Hang => {
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        return;
+                    }
                 };
                 let _ = stream.write_all(response.as_bytes()).await;
             });
@@ -1247,7 +1312,7 @@ mod tests {
         assert_eq!(
             request_log
                 .iter()
-                .filter(|(host, _, _)| host == "evil.example")
+                .filter(|(host, ..)| host == "evil.example")
                 .count(),
             0,
             "external host was requested: {request_log:?}"
@@ -1257,13 +1322,21 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent)| user_agent == SPIDER_USER_AGENT),
+                .all(|(_, _, user_agent, _)| user_agent == SPIDER_USER_AGENT),
             "request without the spider user agent: {request_log:?}"
+        );
+        // Spider's reqwest would otherwise advertise zstd, which fix(#1174)
+        // excluded; the injected client must carry the same default.
+        assert!(
+            request_log
+                .iter()
+                .all(|(_, _, _, accept_encoding)| accept_encoding == SPIDER_ACCEPT_ENCODING),
+            "request without the spider accept-encoding: {request_log:?}"
         );
         assert!(
             request_log
                 .iter()
-                .any(|(_, target, _)| target == "/robots.txt")
+                .any(|(_, target, ..)| target == "/robots.txt")
         );
         assert_eq!(diagnostics.accepted, discovered.len());
         assert_eq!(diagnostics.pages_received, discovered.len());
@@ -1315,6 +1388,68 @@ mod tests {
         ));
         assert_eq!(site.requests_for("/").await, 2);
         site.finish().await;
+    }
+
+    #[tokio::test]
+    async fn should_bound_the_whole_preflight_by_its_deadline() {
+        let site = TestSite::spawn(Arc::new(|_: &str, _: usize| SiteResponse::Hang)).await;
+        let config = CrawlerConfig {
+            preflight_deadline: Duration::from_millis(300),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+        let started = tokio::time::Instant::now();
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::ConnectError,
+                reason: "crawl-root preflight exceeded its time budget",
+                ..
+            }
+        ));
+        // Well under one request timeout (2 s) of the stalled site.
+        assert!(started.elapsed() < Duration::from_secs(2));
+        site.finish().await;
+    }
+
+    #[tokio::test]
+    async fn should_reuse_the_preflight_client_for_the_crawl() {
+        let site = TestSite::spawn(Arc::new(regression_site)).await;
+        let transport = Arc::new(CountingTransport {
+            inner: PinnedTransport {
+                addr: site.addr,
+                hosts: vec!["example.com"],
+            },
+            builds: AtomicUsize::new(0),
+        });
+        let spider = SpiderImpl::with_transport(test_config(), transport.clone());
+
+        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+
+        assert!(discovered.contains("http://example.com/product/1"));
+        // One client for the single preflight hop, none extra for the crawl.
+        assert_eq!(transport.builds.load(Ordering::Relaxed), 1);
+        site.finish().await;
+    }
+
+    struct CountingTransport {
+        inner: PinnedTransport,
+        builds: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl SpiderTransport for CountingTransport {
+        async fn client_for(
+            &self,
+            url: &Url,
+            timeout: Duration,
+        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+            self.builds.fetch_add(1, Ordering::Relaxed);
+            self.inner.client_for(url, timeout).await
+        }
     }
 
     #[tokio::test]
@@ -1633,6 +1768,7 @@ mod tests {
         assert_eq!(config.max_crawl_duration, Duration::from_secs(10 * 60));
         assert_eq!(config.retry_count, 2);
         assert_eq!(config.preflight_retry.max_attempts, 2);
+        assert_eq!(config.preflight_deadline, Duration::from_secs(90));
     }
 
     #[test]
@@ -1679,7 +1815,7 @@ mod tests {
 
         // Windows may surface a refused loopback connection as a timeout.
         assert!(matches!(
-            classify_spider_reqwest_error(&refused),
+            classify_reqwest_error(&refused),
             NetworkErrorKind::Connect | NetworkErrorKind::Timeout
         ));
         assert!(!is_tls_failure(&refused));

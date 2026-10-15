@@ -291,7 +291,35 @@ impl Default for RetryPolicy {
     }
 }
 
-pub fn classify_reqwest_error(err: &reqwest::Error) -> NetworkErrorKind {
+/// The reqwest error surface the crawler classifies on. The workspace and the
+/// Spider library pin different reqwest major versions, so both error types
+/// implement this instead of each path keeping its own classifier.
+pub trait ReqwestErrorLike {
+    fn is_timeout(&self) -> bool;
+    fn is_connect(&self) -> bool;
+    fn is_request(&self) -> bool;
+    fn status_code(&self) -> Option<u16>;
+}
+
+impl ReqwestErrorLike for reqwest::Error {
+    fn is_timeout(&self) -> bool {
+        reqwest::Error::is_timeout(self)
+    }
+
+    fn is_connect(&self) -> bool {
+        reqwest::Error::is_connect(self)
+    }
+
+    fn is_request(&self) -> bool {
+        reqwest::Error::is_request(self)
+    }
+
+    fn status_code(&self) -> Option<u16> {
+        self.status().map(|status| status.as_u16())
+    }
+}
+
+pub fn classify_reqwest_error<E: ReqwestErrorLike>(err: &E) -> NetworkErrorKind {
     if err.is_timeout() {
         return NetworkErrorKind::Timeout;
     }
@@ -301,8 +329,8 @@ pub fn classify_reqwest_error(err: &reqwest::Error) -> NetworkErrorKind {
     if err.is_request() {
         return NetworkErrorKind::Request;
     }
-    if let Some(status) = err.status() {
-        return NetworkErrorKind::HttpStatus(status.as_u16());
+    if let Some(status) = err.status_code() {
+        return NetworkErrorKind::HttpStatus(status);
     }
     NetworkErrorKind::Unknown
 }
