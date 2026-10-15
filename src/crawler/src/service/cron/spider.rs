@@ -1,7 +1,7 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown};
-use crate::spider::candidate_service::SpiderCandidate;
+use crate::spider::candidate_service::{SPIDER_RECRAWL_INTERVAL, SpiderCandidate};
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
     CrawlCooldownProfile, CrawlFailureKind, SpiderDiscoveryError,
@@ -21,6 +21,7 @@ const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60
 const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
     match profile {
@@ -35,6 +36,23 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
         true => long_cooldown(profile),
         false => CRAWL_RETRY_COOLDOWN,
     }
+}
+
+/// A crawl cut short by the wall-clock budget is retried sooner than the
+/// normal recrawl interval. The delay doubles with each consecutive
+/// truncation and is capped at that interval, so a domain too large for one
+/// crawl settles into the normal schedule instead of looping.
+fn truncated_crawl_cooldown(truncation_count: i32) -> Duration {
+    let exponent = u32::try_from(truncation_count.saturating_sub(1))
+        .unwrap_or(0)
+        .min(31);
+    TRUNCATED_CRAWL_RETRY_COOLDOWN
+        .saturating_mul(1_u32 << exponent)
+        .min(SPIDER_RECRAWL_INTERVAL)
+}
+
+fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
+    candidate.crawl_truncation_count.max(0).saturating_add(1)
 }
 
 fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
@@ -99,6 +117,7 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
 struct SpiderSlotOutcome {
     domain_id: CrawlerDomainId,
     succeeded: bool,
+    truncated: bool,
     skipped: bool,
     deferred: bool,
 }
@@ -139,6 +158,7 @@ fn spawn_spider_candidate(
                 return SpiderSlotOutcome {
                     domain_id,
                     succeeded: false,
+                    truncated: false,
                     skipped: false,
                     deferred: true,
                 };
@@ -153,20 +173,58 @@ fn spawn_spider_candidate(
                 )
                 .await
             {
-                Ok(_) => {
+                Ok(result) if result.completion.is_full() => {
                     if let Err(err) = spider_candidates
-                        .reset_crawl_failure(&candidate.domain_id)
+                        .mark_crawl_completed(&candidate.domain_id, result.completion)
                         .await
                     {
                         warn!(
                             error = ?err,
                             domain = %candidate.listing_source_domain,
-                            "Failed to reset crawl failure metadata"
+                            "Failed to persist crawl completion metadata"
                         );
                     }
                     SpiderSlotOutcome {
                         domain_id,
                         succeeded: true,
+                        truncated: false,
+                        skipped: false,
+                        deferred: false,
+                    }
+                }
+                Ok(result) => {
+                    // Failure metadata stays untouched: a truncated crawl
+                    // neither proves recovery nor counts as a failure.
+                    let truncation_count = next_truncation_count(&candidate);
+                    let cooldown = truncated_crawl_cooldown(truncation_count);
+                    let next_crawl_at = time::OffsetDateTime::now_utc()
+                        + time::Duration::seconds(cooldown.as_secs() as i64);
+
+                    if let Err(err) = spider_candidates
+                        .mark_crawl_truncated(&candidate.domain_id, truncation_count, next_crawl_at)
+                        .await
+                    {
+                        warn!(
+                            error = ?err,
+                            domain = %candidate.listing_source_domain,
+                            "Failed to persist crawl truncation metadata"
+                        );
+                    }
+                    warn!(
+                        domain = %candidate.listing_source_domain,
+                        completion = %result.completion,
+                        total_crawled = result.total_links,
+                        product_urls_count = result.product_urls_count,
+                        truncation_count,
+                        crawl_failure_count = candidate.crawl_failure_count,
+                        next_crawl_at = %next_crawl_at,
+                        cooldown_seconds = cooldown.as_secs(),
+                        "Spider run truncated by hard timeout"
+                    );
+                    SpiderSlotOutcome {
+                        domain_id,
+                        succeeded: false,
+                        truncated: true,
                         skipped: false,
                         deferred: false,
                     }
@@ -268,6 +326,7 @@ fn spawn_spider_candidate(
                     SpiderSlotOutcome {
                         domain_id,
                         succeeded: false,
+                        truncated: false,
                         skipped: false,
                         deferred: false,
                     }
@@ -298,6 +357,7 @@ impl CrawlerCronJob {
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
+        let mut truncated = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
         let mut started = false;
@@ -380,6 +440,8 @@ impl CrawlerCronJob {
                         deferred += 1;
                     } else if outcome.succeeded {
                         succeeded += 1;
+                    } else if outcome.truncated {
+                        truncated += 1;
                     } else if outcome.skipped {
                         skipped += 1;
                     } else {
@@ -397,7 +459,13 @@ impl CrawlerCronJob {
         let duration_ms = pass_start.elapsed().as_millis() as u64;
         info!(
             total,
-            succeeded, failed, skipped, deferred, duration_ms, "Spider scheduler pass complete"
+            succeeded,
+            truncated,
+            failed,
+            skipped,
+            deferred,
+            duration_ms,
+            "Spider scheduler pass complete"
         );
 
         self.spider_perf.record(total as u64, duration_ms);
@@ -417,7 +485,7 @@ mod tests {
         MockListingSourceRegistrationRepository, MockListingSourceRegistrationSource,
     };
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
-    use crate::spider::discovery::website_spider::CrawlDiagnostics;
+    use crate::spider::discovery::website_spider::{CrawlCompletion, CrawlDiagnostics};
     use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -430,6 +498,7 @@ mod tests {
             listing_source_domain: "example.com".to_string(),
             crawl_failure_count: 0,
             last_crawl_error_kind: None,
+            crawl_truncation_count: 0,
         }
     }
 
@@ -699,9 +768,11 @@ mod tests {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
         spider_candidates
-            .expect_reset_crawl_failure()
-            .withf(move |domain_id| *domain_id == expected_domain_id)
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .expect_mark_crawl_completed()
+            .withf(move |domain_id, completion| {
+                *domain_id == expected_domain_id && *completion == CrawlCompletion::Completed
+            })
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service
@@ -713,6 +784,7 @@ mod tests {
                         total_links: 10,
                         product_urls_count: 5,
                         product_pattern: None,
+                        completion: CrawlCompletion::Completed,
                     })
                 })
             });
@@ -766,9 +838,9 @@ mod tests {
                 })
             });
         spider_candidates
-            .expect_reset_crawl_failure()
+            .expect_mark_crawl_completed()
             .times(3)
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let slow_running = Arc::new(AtomicBool::new(false));
         let refill_started_while_slow_running = Arc::new(AtomicBool::new(false));
@@ -805,6 +877,7 @@ mod tests {
                         total_links: 10,
                         product_urls_count: 5,
                         product_pattern: None,
+                        completion: CrawlCompletion::Completed,
                     })
                 })
             });
@@ -1364,6 +1437,243 @@ mod tests {
         job.run_spider_once().await;
     }
 
+    #[test]
+    fn truncated_cooldown_should_start_sooner_than_recrawl_and_double_up_to_it() {
+        let day = Duration::from_secs(24 * 60 * 60);
+
+        assert_eq!(truncated_crawl_cooldown(1), day);
+        assert_eq!(truncated_crawl_cooldown(2), day * 2);
+        assert_eq!(truncated_crawl_cooldown(3), day * 4);
+        assert_eq!(truncated_crawl_cooldown(4), SPIDER_RECRAWL_INTERVAL);
+        assert!(truncated_crawl_cooldown(1) < SPIDER_RECRAWL_INTERVAL);
+    }
+
+    #[test]
+    fn truncated_cooldown_should_never_drop_below_one_day_or_exceed_recrawl_interval() {
+        for count in [i32::MIN, -1, 0, 1, 5, 31, 32, 1_000, i32::MAX] {
+            let cooldown = truncated_crawl_cooldown(count);
+            assert!(
+                cooldown >= TRUNCATED_CRAWL_RETRY_COOLDOWN,
+                "{count}: {cooldown:?}"
+            );
+            assert!(cooldown <= SPIDER_RECRAWL_INTERVAL, "{count}: {cooldown:?}");
+        }
+    }
+
+    fn run_result(completion: CrawlCompletion) -> SpiderRunResult {
+        SpiderRunResult {
+            total_links: 4_000,
+            product_urls_count: 1_200,
+            product_pattern: Some("/product/".to_string()),
+            completion,
+        }
+    }
+
+    fn spider_job(
+        spider_candidates: MockSpiderCandidateService,
+        spider_service: MockSpiderService,
+        spider_concurrency: usize,
+    ) -> CrawlerCronJob {
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+
+        CrawlerCronJob::new(
+            CrawlerCronConfig {
+                spider_concurrency,
+                ..CrawlerCronConfig::default()
+            },
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(MockScraperService::new()),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        )
+    }
+
+    #[tokio::test]
+    async fn should_mark_truncated_without_resetting_prior_failure_metadata() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    if !first_call {
+                        return Ok(vec![]);
+                    }
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("RateLimited".to_string());
+                    candidate.crawl_truncation_count = 1;
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_truncated()
+            .times(1)
+            .withf(move |domain_id, truncation_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && *truncation_count == 2
+                    && next_crawl_at_is_about(*next_crawl_at, truncated_crawl_cooldown(2))
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_completed().times(0);
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_treat_page_budget_as_completed_crawl() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(if first_call {
+                        vec![spider_candidate(expected_domain_id)]
+                    } else {
+                        vec![]
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_completed()
+            .times(1)
+            .withf(move |domain_id, completion| {
+                *domain_id == expected_domain_id
+                    && *completion == CrawlCompletion::PageBudgetReached
+            })
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_truncated().times(0);
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(run_result(CrawlCompletion::PageBudgetReached)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_keep_genuine_failure_classification_after_truncation() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    if !first_call {
+                        return Ok(vec![]);
+                    }
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_truncation_count = 3;
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .times(1)
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "ConnectError"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_truncated().times(0);
+        spider_candidates.expect_mark_crawl_completed().times(0);
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _| {
+                Box::pin(async { Err(crawl_failed(CrawlFailureKind::ConnectError)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_complete_other_domains_while_one_crawl_is_truncated() {
+        let truncated_domain_id = CrawlerDomainId::new();
+        let completed_domain_id = CrawlerDomainId::new();
+
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(if first_call {
+                        vec![
+                            spider_candidate(truncated_domain_id),
+                            spider_candidate(completed_domain_id),
+                        ]
+                    } else {
+                        vec![]
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_truncated()
+            .times(1)
+            .withf(move |domain_id, truncation_count, _| {
+                *domain_id == truncated_domain_id && *truncation_count == 1
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates
+            .expect_mark_crawl_completed()
+            .times(1)
+            .withf(move |domain_id, completion| {
+                *domain_id == completed_domain_id && *completion == CrawlCompletion::Completed
+            })
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(2)
+            .returning(move |_, domain_id, _, _| {
+                let completion = if *domain_id == truncated_domain_id {
+                    CrawlCompletion::HardTimeoutTruncated
+                } else {
+                    CrawlCompletion::Completed
+                };
+                Box::pin(async move { Ok(run_result(completion)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 2)
+            .run_spider_once()
+            .await;
+    }
+
     #[tokio::test]
     async fn should_run_spider_candidate_while_the_scraper_holds_its_own_domain_lock() {
         let mut spider_candidates = MockSpiderCandidateService::new();
@@ -1372,8 +1682,8 @@ mod tests {
             .expect_get_candidates()
             .returning(move |_, _| Box::pin(async move { Ok(vec![spider_candidate(domain_id)]) }));
         spider_candidates
-            .expect_reset_crawl_failure()
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .expect_mark_crawl_completed()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().once().returning(|_, _, _, _| {
@@ -1382,6 +1692,7 @@ mod tests {
                     total_links: 10,
                     product_urls_count: 5,
                     product_pattern: None,
+                    completion: CrawlCompletion::Completed,
                 })
             })
         });

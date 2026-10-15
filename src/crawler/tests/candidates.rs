@@ -11,6 +11,7 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::discovery::website_spider::CrawlCompletion;
 use listing_source_core::ListingSourceId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -454,6 +455,157 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
     assert!(
         (stored_next_crawl_at - next_crawl_at).whole_seconds().abs() <= 1,
         "next_crawl_at should match the caller-provided timestamp"
+    );
+}
+
+type CrawlStateRow = (
+    i32,
+    Option<String>,
+    Option<time::OffsetDateTime>,
+    Option<String>,
+    i32,
+    Option<time::OffsetDateTime>,
+);
+
+async fn crawl_state(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) -> CrawlStateRow {
+    sqlx::query_as(
+        "SELECT crawl_failure_count, last_crawl_error_kind, next_crawl_at,
+                last_crawl_outcome, crawl_truncation_count, last_crawled
+         FROM listing_source_domains
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// crawl outcomes — truncation keeps failure state, completion clears it
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retry() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-truncated.example.com")
+            .await;
+    let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
+    service
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
+        .await
+        .unwrap();
+    assert_eq!(
+        crawl_state(&pool, domain_id).await.3.as_deref(),
+        Some("FAILED")
+    );
+
+    let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
+    service
+        .mark_crawl_truncated(&domain_id, 1, next_crawl_at)
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 2);
+    assert_eq!(error_kind.as_deref(), Some("RateLimited"));
+    assert_eq!(outcome.as_deref(), Some("HARD_TIMEOUT_TRUNCATED"));
+    assert_eq!(truncations, 1);
+    assert!(
+        last_crawled.is_none(),
+        "a truncated crawl is not a full crawl"
+    );
+    assert!((stored_next.unwrap() - next_crawl_at).whole_seconds().abs() <= 1);
+    assert!(
+        !service
+            .get_candidates(10, &[])
+            .await
+            .unwrap()
+            .iter()
+            .any(|c| c.domain_id == domain_id),
+        "a truncated domain waits for its follow-up cooldown"
+    );
+
+    sqlx::query(
+        "UPDATE listing_source_domains SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let candidate = service
+        .get_candidates(10, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.domain_id == domain_id)
+        .expect("a truncated domain is due again after its cooldown");
+    assert_eq!(candidate.crawl_truncation_count, 1);
+    assert_eq!(candidate.crawl_failure_count, 2);
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-at-budget.example.com")
+            .await;
+    let future = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
+    service
+        .mark_crawl_failure(&domain_id, "ConnectError", 1, future)
+        .await
+        .unwrap();
+    service
+        .mark_crawl_truncated(&domain_id, 3, future)
+        .await
+        .unwrap();
+
+    service
+        .mark_crawl_completed(&domain_id, CrawlCompletion::PageBudgetReached)
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, next_crawl_at, outcome, truncations, _) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 0);
+    assert_eq!(error_kind, None);
+    assert_eq!(next_crawl_at, None);
+    assert_eq!(outcome.as_deref(), Some("PAGE_BUDGET_REACHED"));
+    assert_eq!(truncations, 0);
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn spider_crawl_outcome_should_reject_unknown_values() {
+    let pool = get_postgres_client().await;
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-bad-outcome.example.com",
+    )
+    .await;
+
+    let result = sqlx::query(
+        "UPDATE listing_source_domains SET last_crawl_outcome = 'Truncated' WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await;
+
+    assert!(
+        result.is_err(),
+        "outcome values must stay in the persisted contract"
     );
 }
 

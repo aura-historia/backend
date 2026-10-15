@@ -8,7 +8,7 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::discovery::website_spider::{
-    CrawlDiagnostics, CrawlFailureKind, CrawledPage, Spider, SpiderDiscoveryError,
+    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawledPage, Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -20,11 +20,14 @@ use url::Url;
 use crate::spider::classification::url_metadata::UrlClass;
 use thiserror::Error;
 
+/// URLs from every outcome are persisted; `completion` tells the scheduler
+/// whether the crawl was full or must be treated as truncated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpiderRunResult {
     pub total_links: usize,
     pub product_urls_count: usize,
     pub product_pattern: Option<String>,
+    pub completion: CrawlCompletion,
 }
 
 #[derive(Debug, Clone)]
@@ -479,11 +482,18 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
-        self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
-            .await;
+        // `last_crawled` records the last full crawl; a truncated one keeps the
+        // domain due so the scheduler can retry it sooner.
+        let completion = diagnostics.completion;
+        if completion.is_full() {
+            self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
+                .await;
+        }
 
-        // Coverage losses on a healthy crawl are only visible here.
+        // Coverage losses on a crawl that delivered pages are only visible here.
         info!(
+            completion = %completion,
+            at_budget = completion == CrawlCompletion::PageBudgetReached,
             total_crawled = state.total_crawled,
             product_urls_count = state.products_found,
             product_pattern_known = product_pattern.is_some(),
@@ -495,13 +505,15 @@ impl SpiderServiceImpl {
             robots_blocked = diagnostics.robots_blocked,
             lagged = diagnostics.lagged,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
-            "Crawl completed successfully"
+            "{}",
+            crawl_outcome_message(completion)
         );
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
             product_urls_count: state.products_found,
             product_pattern,
+            completion,
         })
     }
 }
@@ -534,6 +546,16 @@ impl SpiderService for SpiderServiceImpl {
             classify_threshold,
         )
         .await
+    }
+}
+
+fn crawl_outcome_message(completion: CrawlCompletion) -> &'static str {
+    match completion {
+        CrawlCompletion::Completed => "Crawl completed",
+        CrawlCompletion::PageBudgetReached => "Crawl completed at page budget",
+        CrawlCompletion::HardTimeoutTruncated => {
+            "Crawl truncated by hard timeout, keeping discovered URLs"
+        }
     }
 }
 
@@ -608,7 +630,7 @@ mod service_tests {
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::MockUrlPatternService;
     use crate::spider::discovery::website_spider::{
-        CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
+        CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
     use regex::Regex;
     use tokio::sync::{mpsc, oneshot};
@@ -731,6 +753,123 @@ mod service_tests {
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
         assert_eq!(run_result.total_links, 20);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
+    }
+
+    fn product_pages_until_timeout() -> Vec<String> {
+        (1..=25).map(|i| format!("/product/{i}")).collect()
+    }
+
+    #[tokio::test]
+    async fn should_keep_urls_but_not_mark_crawled_when_crawl_hits_hard_timeout() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            product_pages_until_timeout(),
+            CrawlDiagnostics {
+                completion: CrawlCompletion::HardTimeoutTruncated,
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .times(1)
+            .withf(|_, _, urls, _| urls.len() == 25)
+            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(run_result.completion, CrawlCompletion::HardTimeoutTruncated);
+        assert_eq!(run_result.total_links, 25);
+        assert_eq!(run_result.product_urls_count, 25);
+    }
+
+    #[tokio::test]
+    async fn should_report_page_budget_and_mark_crawled_when_crawl_is_bounded() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            one_product_and_listing_pages(),
+            CrawlDiagnostics {
+                completion: CrawlCompletion::PageBudgetReached,
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(run_result.completion, CrawlCompletion::PageBudgetReached);
+    }
+
+    #[test]
+    fn should_never_log_hard_timeout_run_as_completed() {
+        let message = crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated);
+
+        assert!(message.contains("truncated"), "{message}");
+        assert!(!message.contains("completed"), "{message}");
+        for completion in [
+            CrawlCompletion::Completed,
+            CrawlCompletion::PageBudgetReached,
+            CrawlCompletion::HardTimeoutTruncated,
+        ] {
+            assert!(!crawl_outcome_message(completion).contains("successfully"));
+        }
     }
 
     #[tokio::test]

@@ -124,10 +124,67 @@ impl std::fmt::Display for CrawlFailureKind {
     }
 }
 
-/// Structured, log-only explanation of a crawl outcome. Counters are bounded
-/// by the crawl budget; no URL collections are retained.
+/// How a crawl that delivered pages ended. `as_str()` values are persisted as
+/// `listing_source_domains.last_crawl_outcome` and must not change.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CrawlCompletion {
+    /// Spider ran out of links to follow.
+    #[default]
+    Completed,
+    /// The configured page budget bounded discovery on purpose.
+    PageBudgetReached,
+    /// The whole-crawl wall-clock budget cut discovery short; the pages
+    /// delivered before it are valid but the crawl is incomplete.
+    HardTimeoutTruncated,
+}
+
+impl CrawlCompletion {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CrawlCompletion::Completed => "COMPLETED",
+            CrawlCompletion::PageBudgetReached => "PAGE_BUDGET_REACHED",
+            CrawlCompletion::HardTimeoutTruncated => "HARD_TIMEOUT_TRUNCATED",
+        }
+    }
+
+    /// Whether discovery covered everything the configured bounds allow.
+    pub const fn is_full(self) -> bool {
+        !matches!(self, CrawlCompletion::HardTimeoutTruncated)
+    }
+}
+
+impl std::fmt::Display for CrawlCompletion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Spider reports a crawl cut short by its wall-clock budget as idle, like a
+/// finished one, so elapsed time is the only signal. Spider starts that timer
+/// after its own setup, so a crawl it stopped always took at least the budget
+/// here. A reached page budget wins: discovery was bounded on purpose.
+fn crawl_completion(
+    elapsed: Duration,
+    max_crawl_duration: Duration,
+    pages_visited: usize,
+    max_pages_per_crawl: u32,
+) -> CrawlCompletion {
+    if pages_visited >= max_pages_per_crawl as usize {
+        CrawlCompletion::PageBudgetReached
+    } else if elapsed >= max_crawl_duration {
+        CrawlCompletion::HardTimeoutTruncated
+    } else {
+        CrawlCompletion::Completed
+    }
+}
+
+/// Structured explanation of a crawl outcome. Counters are bounded by the
+/// crawl budget; no URL collections are retained.
 #[derive(Debug, Clone, Default)]
 pub struct CrawlDiagnostics {
+    /// How Spider stopped; only meaningful when `failure_kind` is unset.
+    pub completion: CrawlCompletion,
     pub failure_kind: Option<CrawlFailureKind>,
     /// Status of the root page after Spider's own retries.
     pub http_status: Option<u16>,
@@ -622,6 +679,7 @@ impl RetryStrategy for TruncationAwareRetry {
 /// Library-level outcome handed from the crawl task to the filter task once
 /// Spider has finished.
 struct LibraryOutcome {
+    completion: CrawlCompletion,
     status: CrawlStatus,
     meta: WebsiteMetaInfo,
     initial_html_length: usize,
@@ -708,9 +766,18 @@ impl SpiderImpl {
 
         let mut spider_rx = website.subscribe(512);
 
+        let max_crawl_duration = self.config.max_crawl_duration;
+        let max_pages_per_crawl = self.config.max_pages_per_crawl;
         tokio::spawn(async move {
+            let started = tokio::time::Instant::now();
             website.crawl().await;
             let outcome = LibraryOutcome {
+                completion: crawl_completion(
+                    started.elapsed(),
+                    max_crawl_duration,
+                    website.size(),
+                    max_pages_per_crawl,
+                ),
                 status: *website.get_status(),
                 meta: *website.get_website_meta_info(),
                 initial_html_length: website.get_initial_html_length(),
@@ -925,6 +992,7 @@ fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSi
 }
 
 fn apply_library_outcome(diagnostics: &mut CrawlDiagnostics, outcome: LibraryOutcome) {
+    diagnostics.completion = outcome.completion;
     diagnostics.robots_denied = outcome.robots_denied;
     diagnostics.initial_html_length = Some(outcome.initial_html_length);
     diagnostics.initial_should_retry = outcome.initial_should_retry;
@@ -1348,6 +1416,105 @@ mod tests {
         );
         assert_eq!(diagnostics.rejected_host, 0);
         assert_eq!(diagnostics.lagged, 0);
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    #[test]
+    fn crawl_completion_should_distinguish_normal_budget_and_timeout_endings() {
+        let budget = Duration::from_secs(600);
+
+        assert_eq!(
+            crawl_completion(Duration::from_secs(30), budget, 50, 10_000),
+            CrawlCompletion::Completed
+        );
+        assert_eq!(
+            crawl_completion(Duration::from_secs(30), budget, 10_000, 10_000),
+            CrawlCompletion::PageBudgetReached
+        );
+        assert_eq!(
+            crawl_completion(budget, budget, 4_000, 10_000),
+            CrawlCompletion::HardTimeoutTruncated
+        );
+        assert_eq!(
+            crawl_completion(budget + Duration::from_secs(1), budget, 10_000, 10_000),
+            CrawlCompletion::PageBudgetReached
+        );
+    }
+
+    #[test]
+    fn crawl_completion_should_use_stable_persisted_identifiers() {
+        assert_eq!(
+            [
+                CrawlCompletion::Completed,
+                CrawlCompletion::PageBudgetReached,
+                CrawlCompletion::HardTimeoutTruncated,
+            ]
+            .map(CrawlCompletion::as_str),
+            ["COMPLETED", "PAGE_BUDGET_REACHED", "HARD_TIMEOUT_TRUNCATED"]
+        );
+        assert_eq!(
+            serde_json::to_string(&CrawlCompletion::HardTimeoutTruncated).unwrap(),
+            "\"HARD_TIMEOUT_TRUNCATED\""
+        );
+        assert!(CrawlCompletion::Completed.is_full());
+        assert!(CrawlCompletion::PageBudgetReached.is_full());
+        assert!(!CrawlCompletion::HardTimeoutTruncated.is_full());
+    }
+
+    #[tokio::test]
+    async fn should_keep_pages_discovered_before_hard_timeout_and_report_truncation() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1">1</a>
+                   <a href="/product/2">2</a>
+                   <a href="/slow">slow</a>"#
+                    .to_string(),
+            ),
+            "/product/1" | "/product/2" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            "/slow" => SiteResponse::Hang,
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let config = CrawlerConfig {
+            request_timeout_secs: 5,
+            max_crawl_duration: Duration::from_millis(1_500),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.completion,
+            CrawlCompletion::HardTimeoutTruncated
+        );
+        assert!(diagnostics.failure_kind.is_none(), "{diagnostics:?}");
+        for expected in [
+            "http://example.com/",
+            "http://example.com/product/1",
+            "http://example.com/product/2",
+        ] {
+            assert!(discovered.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_report_page_budget_when_crawl_stops_at_configured_limit() {
+        let site = TestSite::spawn(Arc::new(regression_site)).await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 2,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
+        assert!(diagnostics.failure_kind.is_none(), "{diagnostics:?}");
+        assert!(discovered.len() <= 2, "{discovered:?}");
     }
 
     #[tokio::test]
@@ -1948,6 +2115,7 @@ mod tests {
 
     fn library_outcome(status: CrawlStatus, meta: WebsiteMetaInfo) -> LibraryOutcome {
         LibraryOutcome {
+            completion: CrawlCompletion::Completed,
             status,
             meta,
             initial_html_length: 0,
@@ -2031,6 +2199,7 @@ mod tests {
         apply_library_outcome(
             &mut diagnostics,
             LibraryOutcome {
+                completion: CrawlCompletion::HardTimeoutTruncated,
                 status: CrawlStatus::Blocked,
                 meta: WebsiteMetaInfo::None,
                 initial_html_length: 1_234,
@@ -2044,6 +2213,10 @@ mod tests {
         assert_eq!(diagnostics.http_status, None);
         assert_eq!(diagnostics.initial_html_length, Some(1_234));
         assert!(diagnostics.initial_should_retry);
+        assert_eq!(
+            diagnostics.completion,
+            CrawlCompletion::HardTimeoutTruncated
+        );
         assert_eq!(diagnostics.initial_anti_bot.as_deref(), Some("DataDome"));
         assert_eq!(
             diagnostics.failure_kind,

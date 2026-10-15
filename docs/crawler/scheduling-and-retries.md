@@ -32,6 +32,12 @@ Opening and closing updates are fenced by the candidate's complete domain snapsh
 
 Spider failures use the same durable principle. Repeated failures of the same kind increase the domain cooldown. Access blocks, JavaScript-only sites, and similar durable blockers receive longer cooling than transient connection, rate-limit, or server failures. Unclassified internal or configuration failures (persisted as `spider_run_error`) start with a short retry and double on each consecutive failure, capped at 24 hours, so a persistent fault cannot retry every few minutes indefinitely.
 
+## Spider crawl completion
+
+Every spider run records a stable `last_crawl_outcome` for its domain. A crawl that delivers usable pages ends as `COMPLETED`, as `PAGE_BUDGET_REACHED` when the page bound stopped discovery on purpose, or as `HARD_TIMEOUT_TRUNCATED` when the wall-clock bound cut it short. A spider error is recorded as `FAILED`. A crawl with at most one usable page is a failure, whatever stopped it.
+
+URLs discovered before a truncation are kept and classified like any other. Only `COMPLETED` and `PAGE_BUDGET_REACHED` count as a full crawl: they clear failure and truncation state and start the normal recrawl interval. A truncated crawl leaves failure metadata and the last full-crawl time untouched and schedules a follow-up sooner than the normal interval. That delay starts at one day, doubles with each consecutive truncation and is capped at the normal recrawl interval, so a domain too large for one crawl settles into the normal schedule instead of looping.
+
 ## Scrape completion fences
 
 The crawler marks a URL scraped only after raw capture reports a terminal persisted outcome (`Changed`, `Unchanged`, `Duplicate`, or `Stale`). Crawler-local completion writes fence on the raw-input SHA-256 observed by that candidate: a later capture makes an older completion or error write a no-op.
