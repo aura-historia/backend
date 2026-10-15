@@ -3,7 +3,10 @@ use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::page_match::{page_classification_regex_matches, page_classification_text_matches};
+use super::page_match::{
+    page_classification_regex_matches, page_classification_text_matches,
+    page_classification_value_contains_text, page_classification_value_matches_regex,
+};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -22,6 +25,16 @@ impl RemovedPageSchema {
             (None, Some(pattern)) => {
                 page_classification_regex_matches(&self.selector, pattern, html)
             }
+            _ => false,
+        }
+    }
+
+    /// Returns whether an already-extracted value carries this schema's removed-page
+    /// text or regex, independent of the selector.
+    pub fn matches_value(&self, value: &str) -> bool {
+        match (self.text.as_deref(), self.regex.as_deref()) {
+            (Some(text), None) => page_classification_value_contains_text(value, text),
+            (None, Some(pattern)) => page_classification_value_matches_regex(value, pattern),
             _ => false,
         }
     }
@@ -108,6 +121,17 @@ mod tests {
         let html = r#"<main id="mainCatCol"><h1>Vintage Chair</h1></main>"#;
 
         assert!(!regex_schema(r"the .+ is not available anymore").matches(html));
+    }
+
+    #[test]
+    fn should_match_extracted_value_by_text_or_regex() {
+        assert!(schema().matches_value("  SORRY, the page you're looking for couldn't be found "));
+        assert!(!schema().matches_value("Vintage Chair"));
+        assert!(
+            regex_schema(r"the .+ is not available anymore")
+                .matches_value("The table from 2020 is not available anymore.")
+        );
+        assert!(!regex_schema("[unclosed").matches_value("[unclosed"));
     }
 
     #[test]

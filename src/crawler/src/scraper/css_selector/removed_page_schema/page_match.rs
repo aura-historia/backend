@@ -32,15 +32,14 @@ pub(super) fn page_classification_text_matches(
     let Some(values) = selected_texts(selector, html) else {
         return false;
     };
-    let expected = normalize_page_classification_text(text);
-    if expected.is_empty() {
-        return false;
-    }
-
     values
         .iter()
-        .map(|value| normalize_page_classification_text(value))
-        .any(|value| value.contains(&expected))
+        .any(|value| page_classification_value_contains_text(value, text))
+}
+
+pub(super) fn page_classification_value_contains_text(value: &str, text: &str) -> bool {
+    let expected = normalize_page_classification_text(text);
+    !expected.is_empty() && normalize_page_classification_text(value).contains(&expected)
 }
 
 pub(super) fn page_classification_regex_matches(
@@ -48,10 +47,7 @@ pub(super) fn page_classification_regex_matches(
     pattern: &str,
     html: &str,
 ) -> bool {
-    if pattern.trim().is_empty() {
-        return false;
-    }
-    let Ok(regex) = Regex::new(pattern) else {
+    let Some(regex) = page_classification_regex(pattern) else {
         return false;
     };
     let Some(values) = selected_texts(selector, html) else {
@@ -60,6 +56,17 @@ pub(super) fn page_classification_regex_matches(
 
     values
         .iter()
-        .map(|value| normalize_page_classification_text(value))
-        .any(|value| regex.is_match(&value))
+        .any(|value| regex.is_match(&normalize_page_classification_text(value)))
+}
+
+pub(super) fn page_classification_value_matches_regex(value: &str, pattern: &str) -> bool {
+    page_classification_regex(pattern)
+        .is_some_and(|regex| regex.is_match(&normalize_page_classification_text(value)))
+}
+
+fn page_classification_regex(pattern: &str) -> Option<Regex> {
+    if pattern.trim().is_empty() {
+        return None;
+    }
+    Regex::new(pattern).ok()
 }
