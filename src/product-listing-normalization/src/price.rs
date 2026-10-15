@@ -1208,6 +1208,7 @@ mod tests {
             ("RON", Currency::Ron, 12345),
             ("MXN", Currency::Mxn, 12345),
             ("THB", Currency::Thb, 12345),
+            ("ARS", Currency::Ars, 12345),
         ] {
             assert_eq!(Some(currency), detect_currency(&format!("{code} 123.45")));
             assert_eq!(
@@ -1243,5 +1244,24 @@ mod tests {
                 parse_price(&format!("123 {ambiguous}"), None)
             );
         }
+    }
+
+    #[test]
+    fn should_parse_argentine_peso_codes_and_fallback_with_two_minor_units() {
+        for (raw, amount) in [
+            ("ARS 750.000,00", 75_000_000_u64),
+            ("750.000,00 ARS", 75_000_000),
+            ("ARS 123,45", 12_345),
+        ] {
+            assert_eq!(
+                Ok((MonetaryAmount::from(amount), Currency::Ars)),
+                parse_price(raw, Some(Currency::Usd))
+            );
+        }
+        assert_eq!(
+            Ok((MonetaryAmount::from(75_000_000_u64), Currency::Ars)),
+            parse_price("750.000,00", Some(Currency::Ars))
+        );
+        assert_ne!(Some(Currency::Ars), detect_currency("$750.000,00"));
     }
 }

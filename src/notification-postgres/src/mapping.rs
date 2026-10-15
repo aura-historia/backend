@@ -134,6 +134,7 @@ enum PersistedCurrency {
     Ron,
     Mxn,
     Thb,
+    Ars,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -671,6 +672,7 @@ fn price_data_from_price(price: ProductListingPrice) -> PersistedProductListingP
         Currency::Ron => PersistedCurrency::Ron,
         Currency::Mxn => PersistedCurrency::Mxn,
         Currency::Thb => PersistedCurrency::Thb,
+        Currency::Ars => PersistedCurrency::Ars,
     };
     PersistedProductListingPrice::Monetary {
         currency,
@@ -712,6 +714,7 @@ fn price_from_data(price: PersistedProductListingPrice) -> ProductListingPrice {
         PersistedCurrency::Ron => Currency::Ron,
         PersistedCurrency::Mxn => Currency::Mxn,
         PersistedCurrency::Thb => Currency::Thb,
+        PersistedCurrency::Ars => Currency::Ars,
     };
     ProductListingPrice::Monetary(Price::new(MonetaryAmount::from(amount), currency))
 }
@@ -1131,6 +1134,19 @@ mod tests {
             }),
             serde_json::to_value(persisted)?
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_argentine_peso_notification_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let price = Price::new(MonetaryAmount::from(75_000_000_u64), Currency::Ars).into();
+        let json = serde_json::to_value(price_data_from_price(price))?;
+        assert_eq!(
+            serde_json::json!({"type": "MONETARY", "currency": "ARS", "amount": 75_000_000}),
+            json
+        );
+        assert_eq!(price, price_from_data(serde_json::from_value(json)?));
         Ok(())
     }
 

@@ -49,7 +49,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
             "firstName": "Ada",
             "lastName": "Lovelace",
             "language": "de",
-            "currency": "EUR",
+            "currency": "ARS",
             "measurementUnit": "METRIC",
             "showUnassessedOrSensitiveContent": true,
             "email": "changed@example.test",
@@ -66,6 +66,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
         body["email"]
     );
     assert_eq!(serde_json::json!("Ada"), body["firstName"]);
+    assert_eq!(serde_json::json!("ARS"), body["currency"]);
     assert_eq!(
         serde_json::json!(true),
         body["showUnassessedOrSensitiveContent"]

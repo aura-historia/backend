@@ -60,6 +60,7 @@ pub enum Currency {
     Ron,
     Mxn,
     Thb,
+    Ars,
 }
 
 impl Currency {
@@ -153,6 +154,7 @@ impl Currency {
             Currency::Ron => ("lei", ",", false),
             Currency::Mxn => ("MX$", ".", true),
             Currency::Thb => ("฿", ".", true),
+            Currency::Ars => ("ARS", ",", false),
         }
     }
 
@@ -193,6 +195,7 @@ impl Currency {
             Currency::Ron => "RON",
             Currency::Mxn => "MXN",
             Currency::Thb => "THB",
+            Currency::Ars => "ARS",
         }
     }
 }
@@ -254,6 +257,7 @@ mod tests {
             (Currency::Ron, 2, "123,45 lei"),
             (Currency::Mxn, 2, "MX$123.45"),
             (Currency::Thb, 2, "฿123.45"),
+            (Currency::Ars, 2, "123,45 ARS"),
         ] {
             assert_eq!(MinorUnitExponent(exponent), currency.minor_unit_exponent());
             assert_eq!(

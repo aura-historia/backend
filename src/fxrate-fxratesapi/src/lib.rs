@@ -56,6 +56,7 @@ enum ProviderCurrency {
     Ron,
     Mxn,
     Thb,
+    Ars,
 }
 
 impl From<ProviderCurrency> for Currency {
@@ -90,6 +91,7 @@ impl From<ProviderCurrency> for Currency {
             ProviderCurrency::Ron => Self::Ron,
             ProviderCurrency::Mxn => Self::Mxn,
             ProviderCurrency::Thb => Self::Thb,
+            ProviderCurrency::Ars => Self::Ars,
         }
     }
 }
@@ -261,7 +263,11 @@ mod tests {
             serde_json::from_str(include_str!("../tests/fixtures/expanded-eur-quotes.json"))?;
         assert!(response.success);
         assert_eq!(Currency::Eur, Currency::from(response.base));
-        assert_eq!(10, response.rates.len());
+        assert_eq!(11, response.rates.len());
+        assert_eq!(
+            1_697_918_692,
+            decimal_rate_to_scaled_integer(&response.rates[&ProviderCurrency::Ars])?
+        );
         for rate in response.rates.values() {
             assert!(decimal_rate_to_scaled_integer(rate)? > 0);
         }

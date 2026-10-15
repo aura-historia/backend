@@ -199,11 +199,19 @@ async fn should_select_distinct_historical_snapshots_in_one_batch() {
             .unwrap()
             .is_empty()
     );
-    // A valid complete legacy snapshot stays usable by the batch reader.
+    // A complete snapshot from before ARS support stays usable by the batch reader.
+    sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = 'ARS'")
+        .bind(first.id().into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before_ars = reader.find_latest_at_or_before_many(&[at]).await.unwrap();
+    assert_eq!(29, before_ars[0].quotes().len());
+    // The original complete set also stays usable.
     sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = ANY($2)")
         .bind(first.id().into_uuid())
         .bind(vec![
-            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB", "ARS",
         ])
         .execute(&pool)
         .await

@@ -683,12 +683,12 @@ mod tests {
         });
         let configuration = ListingSourceIngestionConfigurations(vec![
             ListingIngestionConfiguration::WebCrawl {
-                fallback_currency: Some(money::Currency::Eur),
+                fallback_currency: Some(money::Currency::Ars),
             },
             ListingIngestionConfiguration::Shopify {
                 domain: Domain::try_from("shop.provider.example")
                     .unwrap_or_else(|error| panic!("test domain: {error}")),
-                currency: Some(money::Currency::Eur),
+                currency: Some(money::Currency::Ars),
                 language: Some(localization::Language::En),
             },
             ListingIngestionConfiguration::Woocommerce {
@@ -696,7 +696,7 @@ mod tests {
                     "test-webhook-secret",
                 )
                 .unwrap_or_else(|error| panic!("invalid test webhook secret: {error}")),
-                currency: Some(money::Currency::Usd),
+                currency: Some(money::Currency::Ars),
                 language: Some(localization::Language::De),
             },
         ]);
@@ -763,7 +763,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("read Shopify source: {error}"))
             .unwrap_or_else(|| panic!("Shopify source missing"));
-        assert_eq!(Some(money::Currency::Eur), shopify.currency);
+        assert_eq!(Some(money::Currency::Ars), shopify.currency);
         assert_eq!(Some(localization::Language::En), shopify.language);
 
         let woocommerce = readers
@@ -771,7 +771,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("read WooCommerce source: {error}"))
             .unwrap_or_else(|| panic!("WooCommerce source missing"));
-        assert_eq!(Some(money::Currency::Usd), woocommerce.currency);
+        assert_eq!(Some(money::Currency::Ars), woocommerce.currency);
         assert_eq!(Some(localization::Language::De), woocommerce.language);
 
         let webcrawl = readers
@@ -782,7 +782,7 @@ mod tests {
             candidate.listing_source_id == source.id()
                 && candidate.listing_source_name == *source.name()
                 && candidate.listing_source_slug == *source.slug_id()
-                && candidate.fallback_currency == Some(money::Currency::Eur)
+                && candidate.fallback_currency == Some(money::Currency::Ars)
         }));
 
         let body = b"payload";

@@ -346,8 +346,8 @@ fn validate_quotes(
         return Err(FxRateSnapshotError::InvalidEurQuote);
     }
 
-    // Persisted snapshots are immutable. Accept exactly the original complete set,
-    // or the expanded complete set; a partially expanded snapshot remains invalid.
+    // Persisted snapshots are immutable. Accept each previously supported complete
+    // set, while requiring every current currency for new captures.
     let added = [
         Currency::Sek,
         Currency::Dkk,
@@ -360,11 +360,13 @@ fn validate_quotes(
         Currency::Mxn,
         Currency::Thb,
     ];
-    let legacy = allow_legacy
+    let before_ars = allow_legacy && !by_currency.contains_key(&Currency::Ars);
+    let legacy = before_ars
         && added
             .iter()
             .all(|currency| !by_currency.contains_key(currency));
     Currency::iter()
+        .filter(|currency| !before_ars || *currency != Currency::Ars)
         .filter(|currency| !legacy || !added.contains(currency))
         .map(|currency| {
             by_currency
@@ -650,6 +652,7 @@ mod tests {
             FxRateQuote::new(Currency::Ron, FX_RATE_SCALE),
             FxRateQuote::new(Currency::Mxn, FX_RATE_SCALE),
             FxRateQuote::new(Currency::Thb, FX_RATE_SCALE),
+            FxRateQuote::new(Currency::Ars, FX_RATE_SCALE),
         ];
         let precise = NewFxRateSnapshot::capture_eur(
             FxRateId::new(),
@@ -843,6 +846,50 @@ mod tests {
         partial.push(FxRateQuote::new(Currency::Sek, FX_RATE_SCALE));
         assert_eq!(
             Err(FxRateSnapshotError::MissingQuote(Currency::Dkk)),
+            restore(partial)
+        );
+        let mut partial = legacy();
+        partial.push(FxRateQuote::new(Currency::Ars, FX_RATE_SCALE));
+        assert_eq!(
+            Err(FxRateSnapshotError::MissingQuote(Currency::Sek)),
+            restore(partial)
+        );
+        let before_ars = Currency::iter()
+            .filter(|currency| *currency != Currency::Ars)
+            .map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE))
+            .collect::<Vec<_>>();
+        let snapshot = restore(before_ars.clone())?;
+        assert_eq!(29, snapshot.quotes().len());
+        assert_eq!(
+            Ok(price(100, Currency::Krw)),
+            snapshot.convert(
+                price(10_000, Currency::Eur),
+                Currency::Krw,
+                RoundingMode::HalfUp
+            )
+        );
+        assert_eq!(
+            Err(FxRateSnapshotError::MissingQuote(Currency::Ars)),
+            snapshot.convert(
+                price(100, Currency::Eur),
+                Currency::Ars,
+                RoundingMode::HalfUp
+            )
+        );
+        assert_eq!(
+            Err(FxRateSnapshotError::MissingQuote(Currency::Ars)),
+            NewFxRateSnapshot::capture_eur(
+                FxRateId::new(),
+                OffsetDateTime::UNIX_EPOCH,
+                FxRateSource::FxRatesApi,
+                Currency::Eur,
+                before_ars.clone()
+            )
+        );
+        let mut partial = before_ars;
+        partial.retain(|quote| quote.currency() != Currency::Krw);
+        assert_eq!(
+            Err(FxRateSnapshotError::MissingQuote(Currency::Krw)),
             restore(partial)
         );
         let mut invalid = legacy();

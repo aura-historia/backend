@@ -17583,6 +17583,7 @@ components:
         - RON
         - MXN
         - THB
+        - ARS
       description: "Supported currencies (ISO 4217 codes):
 
         - EUR: Euro
@@ -17642,6 +17643,8 @@ components:
         - MXN: Mexican Peso
 
         - THB: Thai Baht
+
+        - ARS: Argentine Peso (2 minor-unit decimal places)
 
         "
       default: EUR
