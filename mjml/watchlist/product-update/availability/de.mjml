@@ -1,138 +1,68 @@
-<mjml>
-    <mj-head>
-        <mj-attributes>
-            <mj-all font-family="Manrope, Helvetica, Arial, sans-serif" />
-            <mj-text color="#1c1c16" font-size="15px" line-height="1.6" />
-            <mj-button background-color="#42120f" color="#ffffff" border-radius="4px" font-size="15px" inner-padding="12px 32px" />
-            <mj-section padding="0" />
-            <mj-column padding="0" />
-            <mj-divider border-color="#E8E0D6" border-width="1px" />
-        </mj-attributes>
-        <mj-style>
-            a { color: #42120f; }
-            .availability-old { text-decoration: line-through; color: #6d625d; }
-            .availability-new { color: #42120f; font-weight: 700; font-size: 18px; }
-        </mj-style>
-        <mj-title>Änderung der Verfügbarkeit{{#if title}}: {{title}}{{/if}}</mj-title>
-        <mj-preview>Die Verfügbarkeit von „{{#if title}}{{title}}{{else}}dieses Objekt{{/if}}“ hat sich geändert — jetzt ansehen.</mj-preview>
-    </mj-head>
-
-    <mj-body background-color="#F7F4E9" width="600px">
-
-        <!-- Header -->
-        <mj-section padding="32px 24px 20px">
-        </mj-section>
-
-        <mj-section padding="0 24px">
-            <mj-column>
-                <mj-divider border-color="#42120f" border-width="2px" padding="0" />
-            </mj-column>
-        </mj-section>
-
-        <!-- Content card -->
-        <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
-            <mj-column>
-                <mj-text font-size="16px" color="#1c1c16" padding-bottom="8px">
-                    {{#if first_name}}Hallo {{first_name}},{{else}}Guten Tag,{{/if}}
-                </mj-text>
-                <mj-text>
-                    Die Verfügbarkeit einer Antiquität auf Ihrer Merkliste hat sich geändert. Hier sind die Details:
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-        <!-- Product info -->
-        <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
-            <mj-column>
-                {{#if title}}
-                <mj-text font-family="'Newsreader', Georgia, serif" font-size="22px" font-weight="600" color="#1c1c16" padding-bottom="4px">
-                    {{title}}
-                </mj-text>
-                {{/if}}
-                <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
-                    Angeboten von <b>{{listing_source_name}}</b>
-                </mj-text>
-                {{#if image_url}}
-                <mj-image src="{{image_url}}" alt="{{listing_source_name}}" padding="0 0 16px" border-radius="8px" />
-                {{/if}}
-            </mj-column>
-        </mj-section>
-
-        <!-- Availability change highlight -->
-        <mj-section background-color="#ffffff" padding="0 32px 8px" border-radius="12px">
-            <mj-column>
-                <mj-table font-size="15px" color="#1c1c16" cellpadding="6">
-                    <tr>
-                        <td style="font-weight:600;color:#6d625d;padding:6px 12px 6px 0;">Bisherige Verfügbarkeit</td>
-                        <td style="padding:6px 0;">
-                            <span class="availability-old">{{#if old_availability}}{{old_availability}}{{else}}k.&nbsp;A.{{/if}}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight:600;color:#6d625d;padding:6px 12px 6px 0;">Neue Verfügbarkeit</td>
-                        <td style="padding:6px 0;">
-                            <span class="availability-new">{{#if new_availability}}{{new_availability}}{{else}}k.&nbsp;A.{{/if}}</span>
-                        </td>
-                    </tr>
-                </mj-table>
-            </mj-column>
-        </mj-section>
-
-        <!-- CTA buttons -->
-        <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
-            <mj-column>
-                <mj-button href="{{product_listing_url}}" align="center">
-                    Auf Aura Historia ansehen
-                </mj-button>
-            </mj-column>
-            <mj-column>
-                <mj-button href="{{view_url}}" background-color="#ffffff" color="#42120f" border="1px solid #d8c1bf" align="center">
-                    Beim Anbieter ansehen
-                </mj-button>
-            </mj-column>
-        </mj-section>
-
-        <!-- Banner -->
-        <mj-section padding="24px 0 0">
-            <mj-column>
-                <mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" />
-            </mj-column>
-        </mj-section>
-
-        <!-- Footer -->
-        <mj-section padding="24px 24px 0">
-            <mj-column>
-                <mj-text color="#6d625d" font-size="13px" line-height="1.5" align="center">
-                    Sie erhalten diese E-Mail, da sich diese Antiquität auf Ihrer <a href="https://aura-historia.com/watchlist" style="color:#42120f;">Merkliste</a> befindet.
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-        <mj-section padding="8px 24px 0">
-            <mj-column>
-                <mj-divider />
-            </mj-column>
-        </mj-section>
-
-        <mj-section padding="8px 24px 32px">
-            <mj-column>
-                <mj-text color="#6d625d" font-size="12px" line-height="1.6" align="center">
-                    © 2026 Aura Historia — Alle Rechte vorbehalten.
-                    <br />
-                    <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#42120f;text-decoration:none;">aura-historia.com</a>
-                    <br /><br />
-                    <span style="font-family:'Newsreader', Georgia, serif;color:#1c1c16;font-size:14px;font-weight:600;">Impressum</span>
-                    <br />
-                    Handelsname: Aura Historia &middot; Inhaber: Julian Bruder Einzelunternehmen
-                    <br />
-                    Anschrift: Hardenbergstraße 80, 04275 Leipzig, Germany
-                    <br />
-                    Kontakt: <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a> &middot; USt-IdNr.: angefragt
-                    <br /><br />
-                    Wenn Sie keine Benachrichtigungen mehr zu Antiquitäten auf Ihrer Merkliste erhalten möchten, können Sie Ihre Einstellungen pro Antiquität in Ihrer <a href="https://aura-historia.com/watchlist" style="color:#42120f;">Merkliste</a> anpassen.
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-    </mj-body>
+<mjml lang="de">
+  <mj-head>
+    <mj-title>Änderung der Verfügbarkeit{{#if title}}: {{title}}{{/if}}</mj-title>
+    <mj-preview>Die Verfügbarkeit von „{{#if title}}{{title}}{{else}}dieses Objekt{{/if}}“ hat sich geändert — jetzt ansehen.</mj-preview>
+    <mj-font name="Newsreader" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" />
+    <mj-font name="Geist" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+    <mj-attributes>
+      <mj-all font-family="Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif" />
+      <mj-wrapper padding="20px 0" />
+      <mj-section padding="0 40px" background-color="#F4EEE3" css-class="ah-px" />
+      <mj-column padding="0" />
+      <mj-text padding="0" color="#4F4441" font-size="16px" line-height="1.6" />
+      <mj-image padding="0" />
+      <mj-spacer height="28px" />
+      <mj-class name="eyebrow" font-family="'Geist Mono', Menlo, Consolas, 'Courier New', monospace" font-size="12px" line-height="1.4" letter-spacing="0.2em" color="#7A5C30" padding="0 0 18px" />
+      <mj-class name="headline" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40px" line-height="1.06" letter-spacing="-0.02em" color="#170D0E" css-class="ah-headline" />
+      <mj-class name="note" font-size="14px" color="#6B5E58" />
+      <mj-class name="footnote" font-size="13px" color="#6B5E58" />
+      <mj-divider padding="0 0 24px" border-width="1px" border-color="#D5CFC5" />
+    </mj-attributes>
+    <mj-style>
+      a { color: #170D0E; }
+      @media only screen and (max-width: 480px) {
+        .ah-px > table > tbody > tr > td { padding-left: 20px !important; padding-right: 20px !important; }
+        .ah-headline > div { font-size: 32px !important; }
+      }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#EDE5D7" width="600px">
+    <mj-wrapper>
+    <mj-section background-color="#170D0E" padding="30px 40px" border-radius="14px 14px 0 0">
+      <mj-column>
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="https://aura-historia.com" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">MERKLISTE</td></tr></table></mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section padding="44px 40px 48px">
+      <mj-column>
+        <mj-text mj-class="eyebrow">VERFÜGBARKEIT GEÄNDERT</mj-text>
+        <mj-text mj-class="headline">Etwas hat sich geändert — <em>auf Ihrer Merkliste.</em></mj-text>
+        <mj-spacer />
+        <mj-text padding="0 0 12px" color="#170D0E">{{#if first_name}}Hallo {{first_name}},{{else}}Guten Tag,{{/if}}</mj-text>
+        <mj-text>Die Verfügbarkeit einer Antiquität auf Ihrer Merkliste hat sich geändert. Hier sind die Details.</mj-text>
+        <mj-spacer />
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background-color:#FBF8F2;border:1px solid #E5DED4;border-radius:14px;">{{#if image_url}}<tr><td style="padding:0;background-color:#E6DDCD;border-radius:15px 15px 0 0;"><a href="{{product_listing_url}}" style="text-decoration:none;"><img src="{{image_url}}" alt="{{#if title}}{{title}}{{else}}{{listing_source_name}}{{/if}}" width="518" style="display:block;width:100%;max-width:518px;height:auto;border:0;border-radius:15px 15px 0 0;" /></a></td></tr>{{/if}}<tr><td style="padding:20px 22px 22px;">{{#if title}}<a href="{{product_listing_url}}" style="text-decoration:none;"><div style="font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:24px;line-height:1.2;color:#170D0E;padding-bottom:8px;">{{title}}</div></a>{{/if}}<div style="font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:14px;line-height:1.5;color:#6B5E58;">Angeboten von <strong style="font-weight:600;color:#170D0E;">{{listing_source_name}}</strong></div></td></tr><tr><td style="padding:0;"><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="width:50%;padding:18px 22px 20px;vertical-align:bottom;border-top:1px solid #E9E5E0;border-right:1px solid #E9E5E0;"><div style="padding-bottom:8px;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">BISHER</span></div><div style="font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:20px;line-height:1.2;color:#6B5E58;text-decoration:line-through;">{{#if old_availability}}{{old_availability}}{{else}}&mdash;{{/if}}</div></td><td style="width:50%;padding:18px 22px 20px;vertical-align:bottom;border-top:1px solid #E9E5E0;"><div style="padding-bottom:8px;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">JETZT</span></div><div style="font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:34px;line-height:1.05;color:#170D0E;">{{#if new_availability}}{{new_availability}}{{else}}&mdash;{{/if}}</div></td></tr></table></td></tr></table></mj-text>
+        <mj-spacer />
+<mj-text padding="0" font-size="0px" line-height="0"><table role="presentation" border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:separate;vertical-align:top;margin:0 6px 10px 0;"><tr><td bgcolor="#170D0E" style="background-color:#170D0E;border-radius:999px;padding:14px 24px;"><a href="{{product_listing_url}}" style="display:inline-block;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;font-weight:500;line-height:20px;color:#FBF8F2;text-decoration:none;white-space:nowrap;">Auf Aura Historia ansehen<span style="padding-left:8px;">&rarr;</span></a></td></tr></table><table role="presentation" border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:separate;vertical-align:top;margin:0 6px 10px 0;"><tr><td style="border:1px solid #BDB6AE;border-radius:999px;padding:13px 23px;"><a href="{{view_url}}" style="display:inline-block;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;font-weight:500;line-height:20px;color:#170D0E;text-decoration:none;white-space:nowrap;">Beim Anbieter ansehen</a></td></tr></table></mj-text>
+        <mj-spacer />
+        <mj-divider />
+        <mj-text mj-class="footnote">Sie erhalten diese E-Mail, weil diese Antiquität auf Ihrer <a href="https://aura-historia.com/watchlist" style="color:#170D0E;text-decoration:underline;text-underline-offset:3px;">Merkliste</a> steht. Dort können Sie für jede Antiquität festlegen, welche Benachrichtigungen Sie erhalten.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#170D0E" padding="36px 40px 40px" border-radius="0 0 14px 14px">
+      <mj-column>
+        <mj-text font-size="14px" color="#D8CABE">
+          <div style="padding-bottom:10px;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:20px;line-height:1;letter-spacing:0.22em;color:#F4EEE3;">AURA HISTORIA</div>
+          <div style="padding-bottom:16px;">Der weltweite Antiquitätenmarkt in einer einzigen Suche.</div>
+          <div style="padding-bottom:22px;line-height:2;"><a href="https://aura-historia.com" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
+          <div style="border-top:1px solid #362D2C;padding-top:22px;font-size:12px;color:#A8988D;">
+            <div style="padding-bottom:10px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#D8CABE;">IMPRESSUM</div>
+            <div style="padding-bottom:10px;">Handelsname: Aura Historia &middot; Inhaber: Julian Bruder Einzelunternehmen<br />Anschrift: Hardenbergstraße 80, 04275 Leipzig, Deutschland<br />Kontakt: contact@aura-historia.com &middot; USt-IdNr.: beantragt</div>
+            <div>© 2026 Aura Historia — Alle Rechte vorbehalten.</div>
+          </div>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    </mj-wrapper>
+  </mj-body>
 </mjml>
