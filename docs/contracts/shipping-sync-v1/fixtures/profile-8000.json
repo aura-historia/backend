@@ -1,0 +1,105 @@
+{
+  "schema": "SHIP_SYNC_V1",
+  "records": [
+    {
+      "key": "gallery",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "PROFILE",
+        "name": "Gallery advertised terms",
+        "terms": {
+          "schema": "SHIP_TERMS_V1",
+          "shipping": {
+            "kind": "COVERAGE",
+            "coverage": {
+              "reference_release": "iso-codes-4.20.1",
+              "completeness": "PARTIAL",
+              "applicability": {
+                "class": null,
+                "variants": null,
+                "quantity": null,
+                "threshold": null
+              },
+              "exclusions": [],
+              "dispatch_origin": null,
+              "zones": [
+                {
+                  "areas": [
+                    {
+                      "kind": "COUNTRY",
+                      "code": "DE",
+                      "reference_release": "iso-codes-4.20.1"
+                    }
+                  ],
+                  "applicability": {
+                    "class": null,
+                    "variants": null,
+                    "quantity": null,
+                    "threshold": null
+                  },
+                  "services": [
+                    {
+                      "code": "gallery-delivery",
+                      "applicability": {
+                        "class": null,
+                        "variants": null,
+                        "quantity": null,
+                        "threshold": null
+                      },
+                      "eligibility": "OFFERED",
+                      "rate": {
+                        "price": {
+                          "kind": "FIXED",
+                          "amount": {
+                            "amount_minor": 8000,
+                            "currency": "EUR"
+                          }
+                        },
+                        "basis": "PER_ITEM",
+                        "qualifying_scope": null,
+                        "components": {}
+                      },
+                      "lead_times": {
+                        "handling": null,
+                        "transit": null,
+                        "total": null
+                      },
+                      "features": [],
+                      "arranger": null,
+                      "performer": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "collection": {
+            "applicability": {
+              "class": null,
+              "variants": null,
+              "quantity": null,
+              "threshold": null
+            },
+            "dependency": "INDEPENDENT",
+            "eligibility": "OFFERED",
+            "site": null,
+            "arrangement": {
+              "kind": "BY_APPOINTMENT"
+            }
+          }
+        },
+        "evidence": [
+          {
+            "reference": "https://gallery.example.test/delivery",
+            "assertion": "ADVERTISED_TERMS"
+          }
+        ]
+      }
+    }
+  ]
+}

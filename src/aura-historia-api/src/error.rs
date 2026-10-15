@@ -141,6 +141,11 @@ pub(crate) const SHIPPING_PROFILE_RETIRED: ApiErrorCode = ApiErrorCode("SHIPPING
 pub(crate) const SHIPPING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SHIPPING_TEMPORARILY_UNAVAILABLE");
 pub(crate) const SHIPPING_STORAGE_ERROR: ApiErrorCode = ApiErrorCode("SHIPPING_STORAGE_ERROR");
+pub(crate) const SHIPPING_SYNC_CONFLICT: ApiErrorCode = ApiErrorCode("SHIPPING_SYNC_CONFLICT");
+pub(crate) const SHIPPING_SYNC_REVOKED: ApiErrorCode = ApiErrorCode("SHIPPING_SYNC_REVOKED");
+pub(crate) const SHIPPING_SYNC_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHIPPING_SYNC_NOT_FOUND");
+pub(crate) const SHIPPING_SYNC_INCOMPLETE: ApiErrorCode = ApiErrorCode("SHIPPING_SYNC_INCOMPLETE");
+pub(crate) const SHIPPING_SYNC_LIMIT: ApiErrorCode = ApiErrorCode("SHIPPING_SYNC_LIMIT");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");

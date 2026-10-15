@@ -1,4 +1,5 @@
 pub(crate) mod listing;
+pub mod sync;
 mod terms;
 use crate::{
     auth::{TokenAuthenticator, protected_context},

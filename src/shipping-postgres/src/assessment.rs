@@ -77,6 +77,7 @@ fn evidence(
 }
 #[derive(FromRow)]
 struct ListingRow {
+    cache_until: Option<OffsetDateTime>,
     product_listing_id: Uuid,
     listing_source_id: Uuid,
     version: i64,
@@ -90,6 +91,10 @@ struct ListingRow {
     enabled_methods: Vec<String>,
     shopify_domain: Option<String>,
     woocommerce_domain: Option<String>,
+    selection_current: bool,
+    inputs_current: bool,
+    shipping_current: bool,
+    collection_current: bool,
 }
 #[derive(FromRow)]
 struct ProfileRow {
@@ -142,13 +147,23 @@ impl AssessmentReader for Reader<'_> {
             }
         }
         let rows = sqlx::query_as::<_, ListingRow>(r#"
-            SELECT l.product_listing_id,l.listing_source_id,l.version,l.lifecycle,l.delivery_configuration,s.version AS source_revision,s.operator_party_id,
-                l.delivery_verified_at,l.delivery_fresh_until,l.delivery_expires_at,
+            SELECT LEAST(CASE WHEN l.delivery_selection_fresh_until>clock_timestamp() THEN l.delivery_selection_fresh_until END,CASE WHEN l.delivery_selection_expires_at>clock_timestamp() THEN l.delivery_selection_expires_at END,CASE WHEN l.delivery_inputs_fresh_until>clock_timestamp() THEN l.delivery_inputs_fresh_until END,CASE WHEN l.delivery_inputs_expires_at>clock_timestamp() THEN l.delivery_inputs_expires_at END,CASE WHEN l.delivery_shipping_fresh_until>clock_timestamp() THEN l.delivery_shipping_fresh_until END,CASE WHEN l.delivery_shipping_expires_at>clock_timestamp() THEN l.delivery_shipping_expires_at END,CASE WHEN l.delivery_collection_fresh_until>clock_timestamp() THEN l.delivery_collection_fresh_until END,CASE WHEN l.delivery_collection_expires_at>clock_timestamp() THEN l.delivery_collection_expires_at END) AS cache_until,l.product_listing_id,l.listing_source_id,l.version,l.lifecycle,l.delivery_configuration,s.version AS source_revision,s.operator_party_id,
+                CASE WHEN l.delivery_configuration IS NOT NULL THEN LEAST(l.delivery_verified_at,l.delivery_selection_observed_at,l.delivery_inputs_observed_at,l.delivery_shipping_observed_at,l.delivery_collection_observed_at) ELSE l.delivery_verified_at END AS delivery_verified_at,
+                CASE WHEN l.delivery_configuration IS NOT NULL THEN LEAST(l.delivery_fresh_until,l.delivery_selection_fresh_until,l.delivery_inputs_fresh_until,l.delivery_shipping_fresh_until,l.delivery_collection_fresh_until) ELSE l.delivery_fresh_until END AS delivery_fresh_until,
+                l.delivery_expires_at,
                 ARRAY(SELECT ingestion_method FROM listing_source_ingestion_methods m WHERE m.listing_source_id=l.listing_source_id) AS enabled_methods,
-                sh.domain AS shopify_domain,w.shipping_integration_domain AS woocommerce_domain
+                sh.domain AS shopify_domain,w.shipping_integration_domain AS woocommerce_domain,
+                (l.delivery_selection_epoch IS NULL OR (se.active AND se.current_source_id=l.listing_source_id AND EXISTS(SELECT 1 FROM shipping_sync_claims live_claim WHERE live_claim.epoch=se.epoch AND live_claim.object_kind='ITEM' AND live_claim.external_key=l.source_listing_id AND NOT live_claim.tombstoned) AND (se.integration_key='SOURCE' OR NOT EXISTS(SELECT 1 FROM shipping_sync_claims c JOIN shipping_sync_scopes cs ON cs.epoch=c.epoch AND cs.scope=c.scope WHERE c.epoch=se.epoch AND c.object_kind='ITEM' AND c.external_key=l.source_listing_id AND (cs.configuration_sequence<>se.configuration_sequence))) AND (l.delivery_selection_expires_at IS NULL OR l.delivery_selection_expires_at>clock_timestamp()))) AS selection_current,
+                (l.delivery_inputs_epoch IS NULL OR (ie.active AND ie.current_source_id=l.listing_source_id AND EXISTS(SELECT 1 FROM shipping_sync_claims live_claim WHERE live_claim.epoch=ie.epoch AND live_claim.object_kind='ITEM' AND live_claim.external_key=l.source_listing_id AND NOT live_claim.tombstoned) AND (ie.integration_key='SOURCE' OR NOT EXISTS(SELECT 1 FROM shipping_sync_claims c JOIN shipping_sync_scopes cs ON cs.epoch=c.epoch AND cs.scope=c.scope WHERE c.epoch=ie.epoch AND c.object_kind='ITEM' AND c.external_key=l.source_listing_id AND (cs.configuration_sequence<>ie.configuration_sequence))) AND (l.delivery_inputs_expires_at IS NULL OR l.delivery_inputs_expires_at>clock_timestamp()))) AS inputs_current,
+                (l.delivery_shipping_epoch IS NULL OR (he.active AND he.current_source_id=l.listing_source_id AND EXISTS(SELECT 1 FROM shipping_sync_claims live_claim WHERE live_claim.epoch=he.epoch AND live_claim.object_kind='ITEM' AND live_claim.external_key=l.source_listing_id AND NOT live_claim.tombstoned) AND (l.delivery_shipping_expires_at IS NULL OR l.delivery_shipping_expires_at>clock_timestamp()))) AS shipping_current,
+                (l.delivery_collection_epoch IS NULL OR (ce.active AND ce.current_source_id=l.listing_source_id AND EXISTS(SELECT 1 FROM shipping_sync_claims live_claim WHERE live_claim.epoch=ce.epoch AND live_claim.object_kind='ITEM' AND live_claim.external_key=l.source_listing_id AND NOT live_claim.tombstoned) AND (l.delivery_collection_expires_at IS NULL OR l.delivery_collection_expires_at>clock_timestamp()))) AS collection_current
             FROM product_listings l JOIN listing_sources s USING(listing_source_id)
             LEFT JOIN listing_source_shopify_ingestion_configurations sh USING(listing_source_id)
             LEFT JOIN listing_source_woocommerce_ingestion_configurations w USING(listing_source_id)
+            LEFT JOIN shipping_sync_epochs se ON se.epoch=l.delivery_selection_epoch
+            LEFT JOIN shipping_sync_epochs ie ON ie.epoch=l.delivery_inputs_epoch
+            LEFT JOIN shipping_sync_epochs he ON he.epoch=l.delivery_shipping_epoch
+            LEFT JOIN shipping_sync_epochs ce ON ce.epoch=l.delivery_collection_epoch
             WHERE l.product_listing_id=ANY($1)
         "#).bind(ids.iter().map(|i| i.into_uuid()).collect::<Vec<_>>()).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut listings = Vec::new();
@@ -169,6 +184,41 @@ impl AssessmentReader for Reader<'_> {
             if delivery.source_id() != source_id {
                 return Err(corrupt());
             }
+            let delivery = ListingDelivery::new(
+                source_id,
+                delivery.integration().clone(),
+                if row.selection_current {
+                    delivery.selection().cloned()
+                } else {
+                    None
+                },
+                if row.inputs_current {
+                    delivery.rate_inputs().clone()
+                } else {
+                    Default::default()
+                },
+                shipping_core::selection::DeliveryOverrides {
+                    shipping: if row.shipping_current {
+                        delivery.overrides().shipping.clone()
+                    } else if delivery.overrides().shipping
+                        != shipping_core::selection::ComponentOverride::Inherit
+                    {
+                        shipping_core::selection::ComponentOverride::Clear
+                    } else {
+                        Default::default()
+                    },
+                    collection: if row.collection_current {
+                        delivery.overrides().collection.clone()
+                    } else if delivery.overrides().collection
+                        != shipping_core::selection::ComponentOverride::Inherit
+                    {
+                        shipping_core::selection::ComponentOverride::Clear
+                    } else {
+                        Default::default()
+                    },
+                },
+            )
+            .map_err(invalid)?;
             let integration_current = match delivery.integration() {
                 DeliveryIntegration::Source => true,
                 DeliveryIntegration::Provider { method, domain } => {
@@ -201,6 +251,7 @@ impl AssessmentReader for Reader<'_> {
                 None
             };
             listings.push(ListingDependency {
+                cache_until: row.cache_until,
                 id: ProductListingId::try_from(row.product_listing_id).map_err(invalid)?,
                 source_id,
                 revision: revision(row.version)?,
@@ -212,13 +263,14 @@ impl AssessmentReader for Reader<'_> {
             });
         }
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
-        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT listing_source_id,shipping_profile_id,revision,source_deleted FROM shipping_source_defaults WHERE listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
+        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool,Option<OffsetDateTime>)> = sqlx::query_as("SELECT listing_source_id,CASE WHEN sync_epoch IS NULL OR EXISTS(SELECT 1 FROM shipping_sync_epochs e WHERE e.epoch=sync_epoch AND e.active AND e.current_source_id=shipping_source_defaults.listing_source_id AND (sync_expires_at IS NULL OR sync_expires_at>clock_timestamp())) THEN shipping_profile_id END,revision,source_deleted,CASE WHEN sync_expires_at>clock_timestamp() THEN sync_expires_at END FROM shipping_source_defaults WHERE listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut defaults = Vec::new();
-        for (source, id, rev, deleted) in default_rows {
+        for (source, id, rev, deleted, cache_until) in default_rows {
             if deleted || rev < 2 {
                 return Err(corrupt());
             }
             defaults.push(DefaultDependency {
+                cache_until,
                 selection: SourceDefaultProfile::rehydrate(
                     ListingSourceId::try_from(source).map_err(invalid)?,
                     id.map(ShippingProfileId::try_from)
@@ -248,6 +300,7 @@ impl AssessmentReader for Reader<'_> {
             SELECT shipping_profile_id,listing_source_id,management_revision,terms_revision,lifecycle,name,attributed_party_id,terms,
                 integration_method,integration_domain,verified_at,fresh_until,expires_at
             FROM shipping_profiles WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2)
+                AND (sync_epoch IS NULL OR EXISTS(SELECT 1 FROM shipping_sync_epochs e WHERE e.epoch=sync_epoch AND e.active AND e.current_source_id=shipping_profiles.listing_source_id))
         "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut profiles = Vec::new();
         for row in rows {

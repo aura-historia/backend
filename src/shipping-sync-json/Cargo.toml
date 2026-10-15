@@ -1,0 +1,22 @@
+[package]
+name = "shipping-sync-json"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+listing-source-core = { workspace = true }
+party-core = { workspace = true }
+product-listing-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+shipping-core = { workspace = true }
+shipping-json = { workspace = true }
+shipping-service = { workspace = true }
+shipping-sync-service = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+shipping-core = { workspace = true, features = ["test-data"] }

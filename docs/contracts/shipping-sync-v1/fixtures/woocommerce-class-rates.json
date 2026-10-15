@@ -1,0 +1,65 @@
+{
+  "schema": "SHIP_SYNC_V1",
+  "records": [
+    {
+      "key": "woocommerce-shipping",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "WOOCOMMERCE_CONFIGURATION",
+        "configuration_id": "woocommerce-shipping",
+        "name": "WooCommerce advertised zones",
+        "zones": [
+          {
+            "id": "1",
+            "countries": [
+              "DE"
+            ],
+            "methods": [
+              {
+                "id": "flat-rate:10",
+                "class_id": "painting",
+                "amount_minor": 8000,
+                "currency": "EUR",
+                "basis": "PER_ITEM"
+              },
+              {
+                "id": "flat-rate:11",
+                "class_id": "oversized",
+                "amount_minor": 9500,
+                "currency": "EUR",
+                "basis": "PER_ITEM"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "100",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "WOOCOMMERCE_ITEM",
+        "product_id": "100",
+        "class_ids": [
+          "oversized"
+        ],
+        "classes_complete": true,
+        "variation_ids": [
+          "101",
+          "102"
+        ],
+        "profile": "woocommerce-shipping"
+      }
+    }
+  ]
+}

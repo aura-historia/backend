@@ -110,6 +110,16 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-default", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/cleanup", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/installation", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/installation/status", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}", ["DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/scopes/{scope}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/pending", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/chunks/{chunk_index}", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/finalize", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
@@ -561,6 +571,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
   }
   if (path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
       path === "/api/v1/listing-sources/{listing_source_id}/shipping-default" ||
+      path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-sync/") ||
       path.startsWith("/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
     return {
       bearer: "REQUIRED",

@@ -1,0 +1,29 @@
+{
+  "schema": "SHIP_SYNC_V1",
+  "records": [
+    {
+      "key": "100",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "SHOPIFY_MEMBERSHIP",
+        "product_id": "gid://shopify/Product/100",
+        "complete": false,
+        "variants": [
+          {
+            "id": "gid://shopify/ProductVariant/101",
+            "profile": "gid://shopify/DeliveryProfile/201"
+          },
+          {
+            "id": "gid://shopify/ProductVariant/102",
+            "profile": "gid://shopify/DeliveryProfile/202"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -35,6 +35,19 @@ evidence and creation receipts remain outside ordinary CDC. Profile management c
 signals locally and performs no synchronous fan-out. Shipping fan-out routing and
 consumers are not activated by profile management.
 
+`SHIP_SYNC_V1` [shipping evidence synchronization](../shipping.md#evidence-and-connector-synchronization)
+uses PostgreSQL custody and synchronous, retryable finalization. Captured chunks and
+claims are protected source evidence outside CDC. Finalized canonical profile/default
+changes reuse the above signals; item changes reuse the listing semantic journal.
+Receipt, ownership and canonical signals commit in one application transaction.
+An immutable, address-free `shipping_sync_changes` completion signal identifies its
+source, epoch, session and generation; it is retained without captured content. Future
+consumers must reread current authority and coalesce superseded scopes. Its routing is
+not activated by this intake.
+`WAITING_DEPENDENCY` and `RECONCILE_REQUIRED` are incomplete application, even after
+raw capture succeeds. No new queue/worker or projection visibility acknowledgment is
+activated by this intake. Recovery uses the bounded source-scoped API directory.
+
 ## ProductListing write flow
 
 - Partner writes commit canonical state and at most one semantic event atomically.

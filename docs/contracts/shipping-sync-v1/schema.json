@@ -1,0 +1,2473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aura-historia:shipping-sync:1",
+  "title": "Advertised shipping evidence and synchronization v1",
+  "description": "Protected advertised terms, never carrier quotes. Runtime constructors additionally enforce source scopes, ISO references, monetary limits and acquisition windows.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Chunk"
+    },
+    {
+      "$ref": "#/$defs/Manifest"
+    },
+    {
+      "$ref": "#/$defs/Begin"
+    },
+    {
+      "$ref": "#/$defs/Installation"
+    },
+    {
+      "$ref": "#/$defs/Current"
+    },
+    {
+      "$ref": "#/$defs/Cleanup"
+    }
+  ],
+  "$defs": {
+    "AdvertisedDeliveryTermsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "shipping",
+        "collection"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_TERMS_V1"
+          ]
+        },
+        "shipping": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingPolicyData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collection": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingCollectionData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "Strict versioned advertised terms. All fields, including nullable fields, are required; unknown fields/codes are rejected. Absence, explicit prohibition and retirement have different meanings. This contract supplies no quote."
+    },
+    "ShippingPolicyData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingPolicyDataProhibited"
+        },
+        {
+          "$ref": "#/$defs/ShippingPolicyDataCoverage"
+        }
+      ]
+    },
+    "ShippingPolicyDataProhibited": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "PROHIBITED"
+          ]
+        }
+      }
+    },
+    "ShippingPolicyDataCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "coverage"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "COVERAGE"
+          ]
+        },
+        "coverage": {
+          "$ref": "#/$defs/ShippingCoverageData"
+        }
+      }
+    },
+    "ShippingCoverageData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_release",
+        "completeness",
+        "applicability",
+        "exclusions",
+        "zones",
+        "dispatch_origin"
+      ],
+      "properties": {
+        "reference_release": {
+          "type": "string",
+          "enum": [
+            "iso-codes-4.20.1"
+          ]
+        },
+        "completeness": {
+          "type": "string",
+          "enum": [
+            "PARTIAL",
+            "COMPLETE"
+          ]
+        },
+        "applicability": {
+          "$ref": "#/$defs/ShippingApplicabilityData"
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShippingAreaData"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShippingZoneData"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "dispatch_origin": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingSiteData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingApplicabilityData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "variants",
+        "quantity",
+        "threshold"
+      ],
+      "properties": {
+        "class": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variants": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "maxItems": 64,
+              "minItems": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingQuantityData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingThresholdData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "Class and variant codes are scoped to the path ListingSource; absence must be explicit null."
+    },
+    "ShippingQuantityData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "maximum"
+      ],
+      "properties": {
+        "minimum": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "maximum": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      },
+      "description": "Ordered inclusive bounds."
+    },
+    "ShippingThresholdData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "scope"
+      ],
+      "properties": {
+        "minimum": {
+          "$ref": "#/$defs/ShippingMoneyData"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "ITEM",
+            "LOT",
+            "SHIPMENT",
+            "SELLER_ORDER"
+          ]
+        }
+      }
+    },
+    "ShippingMoneyData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amount_minor",
+        "currency"
+      ],
+      "properties": {
+        "amount_minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "currency": {
+          "$ref": "#/$defs/ShippingCurrencyCode"
+        }
+      },
+      "description": "Advertised amount in currency minor units; never an authorized quote or checkout total."
+    },
+    "ShippingCurrencyCode": {
+      "type": "string",
+      "enum": [
+        "EUR",
+        "GBP",
+        "USD",
+        "AUD",
+        "CAD",
+        "NZD",
+        "CNY",
+        "BRL",
+        "PLN",
+        "TRY",
+        "JPY",
+        "CZK",
+        "RUB",
+        "AED",
+        "SAR",
+        "HKD",
+        "SGD",
+        "CHF",
+        "ZAR",
+        "SEK",
+        "DKK",
+        "NOK",
+        "KRW",
+        "INR",
+        "TWD",
+        "HUF",
+        "RON",
+        "MXN",
+        "THB"
+      ]
+    },
+    "ShippingAreaData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingAreaDataAnywhere"
+        },
+        {
+          "$ref": "#/$defs/ShippingAreaDataDomestic"
+        },
+        {
+          "$ref": "#/$defs/ShippingAreaDataCountry"
+        },
+        {
+          "$ref": "#/$defs/ShippingAreaDataSubdivision"
+        },
+        {
+          "$ref": "#/$defs/ShippingAreaDataPostal"
+        },
+        {
+          "$ref": "#/$defs/ShippingAreaDataUnresolved"
+        }
+      ]
+    },
+    "ShippingAreaDataAnywhere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "ANYWHERE"
+          ]
+        }
+      }
+    },
+    "ShippingAreaDataDomestic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "DOMESTIC"
+          ]
+        }
+      }
+    },
+    "ShippingAreaDataCountry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "code",
+        "reference_release"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "COUNTRY"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "reference_release": {
+          "type": "string",
+          "enum": [
+            "iso-codes-4.20.1"
+          ]
+        }
+      }
+    },
+    "ShippingAreaDataSubdivision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "code",
+        "reference_release"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "SUBDIVISION"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "reference_release": {
+          "type": "string",
+          "enum": [
+            "iso-codes-4.20.1"
+          ]
+        }
+      }
+    },
+    "ShippingAreaDataPostal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "version",
+        "country",
+        "reference_release",
+        "form"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "POSTAL"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "enum": [
+            "POSTAL_RULE_V1"
+          ]
+        },
+        "country": {
+          "type": "string"
+        },
+        "reference_release": {
+          "type": "string",
+          "enum": [
+            "iso-codes-4.20.1"
+          ]
+        },
+        "form": {
+          "$ref": "#/$defs/ShippingPostalFormData"
+        }
+      }
+    },
+    "ShippingPostalFormData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingPostalFormDataExact"
+        },
+        {
+          "$ref": "#/$defs/ShippingPostalFormDataGermanPrefix"
+        },
+        {
+          "$ref": "#/$defs/ShippingPostalFormDataGermanRange"
+        }
+      ]
+    },
+    "ShippingPostalFormDataExact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "code"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "EXACT"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "ShippingPostalFormDataGermanPrefix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "prefix"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "GERMAN_PREFIX"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9]{1,4}$"
+        }
+      }
+    },
+    "ShippingPostalFormDataGermanRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "first",
+        "last"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "GERMAN_RANGE"
+          ]
+        },
+        "first": {
+          "type": "string",
+          "pattern": "^[0-9]{5}$"
+        },
+        "last": {
+          "type": "string",
+          "pattern": "^[0-9]{5}$"
+        }
+      }
+    },
+    "ShippingAreaDataUnresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "assertion"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "UNRESOLVED"
+          ]
+        },
+        "assertion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "ShippingZoneData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "areas",
+        "applicability",
+        "services"
+      ],
+      "properties": {
+        "areas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShippingAreaData"
+          },
+          "maxItems": 64,
+          "minItems": 1
+        },
+        "applicability": {
+          "$ref": "#/$defs/ShippingApplicabilityData"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShippingServiceData"
+          },
+          "maxItems": 64,
+          "minItems": 1
+        }
+      },
+      "description": "Zones are ordered; service codes are unique within each zone."
+    },
+    "ShippingServiceData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "applicability",
+        "eligibility",
+        "rate",
+        "lead_times",
+        "features",
+        "arranger",
+        "performer"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "applicability": {
+          "$ref": "#/$defs/ShippingApplicabilityData"
+        },
+        "eligibility": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "OFFERED",
+                "NOT_OFFERED",
+                "SUBJECT_TO_CONFIRMATION"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingRateData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lead_times": {
+          "$ref": "#/$defs/ShippingLeadTimesData"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "TRACKING",
+              "INSURED",
+              "WHITE_GLOVE",
+              "INSTALLATION",
+              "PACKING"
+            ]
+          },
+          "maxItems": 5,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "arranger": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingActorData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "performer": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingActorData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingRateData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "price",
+        "basis",
+        "qualifying_scope",
+        "components"
+      ],
+      "properties": {
+        "price": {
+          "$ref": "#/$defs/ShippingPriceData"
+        },
+        "basis": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "PER_ITEM",
+                "PER_LOT",
+                "PER_SHIPMENT",
+                "PER_SELLER_ORDER"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qualifying_scope": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ITEM",
+                "LOT",
+                "SHIPMENT",
+                "SELLER_ORDER"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "INCLUDED",
+              "EXCLUDED"
+            ]
+          },
+          "description": "Keys: TRANSPORT, PACKING, INSURANCE, HANDLING, INSTALLATION, IMPORT_DUTY, TAX. Unknown keys are rejected."
+        }
+      }
+    },
+    "ShippingPriceData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingPriceDataFree"
+        },
+        {
+          "$ref": "#/$defs/ShippingPriceDataFixed"
+        },
+        {
+          "$ref": "#/$defs/ShippingPriceDataFrom"
+        },
+        {
+          "$ref": "#/$defs/ShippingPriceDataEstimatedRange"
+        },
+        {
+          "$ref": "#/$defs/ShippingPriceDataExternallyCalculated"
+        },
+        {
+          "$ref": "#/$defs/ShippingPriceDataOnRequest"
+        }
+      ]
+    },
+    "ShippingPriceDataFree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "currency"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREE"
+          ]
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingCurrencyCode"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingPriceDataFixed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "amount"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FIXED"
+          ]
+        },
+        "amount": {
+          "$ref": "#/$defs/ShippingMoneyData"
+        }
+      }
+    },
+    "ShippingPriceDataFrom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "amount"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FROM"
+          ]
+        },
+        "amount": {
+          "$ref": "#/$defs/ShippingMoneyData"
+        }
+      }
+    },
+    "ShippingPriceDataEstimatedRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "minimum",
+        "maximum"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "ESTIMATED_RANGE"
+          ]
+        },
+        "minimum": {
+          "$ref": "#/$defs/ShippingMoneyData"
+        },
+        "maximum": {
+          "$ref": "#/$defs/ShippingMoneyData"
+        }
+      }
+    },
+    "ShippingPriceDataExternallyCalculated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "currency"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "EXTERNALLY_CALCULATED"
+          ]
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingCurrencyCode"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingPriceDataOnRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "currency"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "ON_REQUEST"
+          ]
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingCurrencyCode"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingLeadTimesData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handling",
+        "transit",
+        "total"
+      ],
+      "properties": {
+        "handling": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingTimeData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transit": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingTimeData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingTimeData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingTimeData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "maximum",
+        "unit",
+        "basis",
+        "trigger"
+      ],
+      "properties": {
+        "minimum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "maximum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "HOURS",
+            "DAYS",
+            "WEEKS"
+          ]
+        },
+        "basis": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "CALENDAR",
+                "BUSINESS"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ORDER",
+                "ORDER_CONFIRMATION",
+                "PAYMENT",
+                "DISPATCH",
+                "READY_FOR_COLLECTION"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "Ordered duration bounds; handling, transit and total are independent assertions."
+    },
+    "ShippingActorData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingActorDataListingSource"
+        },
+        {
+          "$ref": "#/$defs/ShippingActorDataBuyer"
+        },
+        {
+          "$ref": "#/$defs/ShippingActorDataParty"
+        }
+      ]
+    },
+    "ShippingActorDataListingSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "LISTING_SOURCE"
+          ]
+        }
+      }
+    },
+    "ShippingActorDataBuyer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "BUYER"
+          ]
+        }
+      }
+    },
+    "ShippingActorDataParty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "party_id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "PARTY"
+          ]
+        },
+        "party_id": {
+          "type": "string",
+          "pattern": "^pty_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        }
+      }
+    },
+    "ShippingSiteData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingSiteDataPartyLocation"
+        },
+        {
+          "$ref": "#/$defs/ShippingSiteDataAsserted"
+        }
+      ]
+    },
+    "ShippingSiteDataPartyLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "party_location_id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "PARTY_LOCATION"
+          ]
+        },
+        "party_location_id": {
+          "type": "string",
+          "pattern": "^ploc_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        }
+      }
+    },
+    "ShippingSiteDataAsserted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "geography",
+        "position"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "ASSERTED"
+          ]
+        },
+        "geography": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingSiteGeographyData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "position": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingSitePositionData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingSiteGeographyData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_release",
+        "address_text",
+        "country",
+        "subdivision",
+        "postal_code"
+      ],
+      "properties": {
+        "reference_release": {
+          "type": "string",
+          "enum": [
+            "iso-codes-4.20.1"
+          ]
+        },
+        "address_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subdivision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "postal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "One whole advertised site assertion. ISO geography constructors validate codes, release and compatibility. Confidential assertions are protected management data."
+    },
+    "ShippingSitePositionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "point",
+        "precision",
+        "accuracy_metres"
+      ],
+      "properties": {
+        "point": {
+          "$ref": "#/$defs/ShippingSitePointData"
+        },
+        "precision": {
+          "type": "string",
+          "enum": [
+            "PREMISES",
+            "STREET",
+            "LOCALITY",
+            "REPRESENTATIVE"
+          ]
+        },
+        "accuracy_metres": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingSitePointData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latitude_degrees",
+        "longitude_degrees"
+      ],
+      "properties": {
+        "latitude_degrees": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude_degrees": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "ShippingCollectionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicability",
+        "dependency",
+        "eligibility",
+        "site",
+        "arrangement"
+      ],
+      "properties": {
+        "applicability": {
+          "$ref": "#/$defs/ShippingApplicabilityData"
+        },
+        "dependency": {
+          "type": "string",
+          "enum": [
+            "INDEPENDENT",
+            "SHIPPING"
+          ]
+        },
+        "eligibility": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "OFFERED",
+                "NOT_OFFERED",
+                "SUBJECT_TO_CONFIRMATION"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "site": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingSiteData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrangement": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ShippingCollectionArrangementData"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ShippingCollectionArrangementData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShippingCollectionArrangementDataByAppointment"
+        },
+        {
+          "$ref": "#/$defs/ShippingCollectionArrangementDataContactToArrange"
+        },
+        {
+          "$ref": "#/$defs/ShippingCollectionArrangementDataWindow"
+        }
+      ]
+    },
+    "ShippingCollectionArrangementDataByAppointment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "BY_APPOINTMENT"
+          ]
+        }
+      }
+    },
+    "ShippingCollectionArrangementDataContactToArrange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "CONTACT_TO_ARRANGE"
+          ]
+        }
+      }
+    },
+    "ShippingCollectionArrangementDataWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "duration"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "WINDOW"
+          ]
+        },
+        "duration": {
+          "$ref": "#/$defs/ShippingTimeData"
+        }
+      }
+    },
+    "ListingDeliveryRateInputsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classes",
+        "variants"
+      ],
+      "properties": {
+        "classes": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "codes",
+                "completeness"
+              ],
+              "properties": {
+                "codes": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "completeness": {
+                  "type": "string",
+                  "enum": [
+                    "PARTIAL",
+                    "COMPLETE"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variants": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ListingDeliveryShippingOverrideData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ListingDeliveryInheritOrClearData"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "REPLACE"
+              ]
+            },
+            "value": {
+              "$ref": "#/$defs/ShippingPolicyData"
+            }
+          }
+        }
+      ]
+    },
+    "ListingDeliveryInheritOrClearData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "INHERIT",
+            "CLEAR"
+          ]
+        }
+      }
+    },
+    "ListingDeliveryCollectionOverrideData": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ListingDeliveryInheritOrClearData"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "REPLACE"
+              ]
+            },
+            "value": {
+              "$ref": "#/$defs/ShippingCollectionData"
+            }
+          }
+        }
+      ]
+    },
+    "ListingDeliveryIntegrationData": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "SOURCE"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "method",
+            "domain"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "PROVIDER"
+              ]
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "SHOPIFY",
+                "WOOCOMMERCE"
+              ]
+            },
+            "domain": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "description": "Canonical lowercase source integration domain; noncanonical encodings are rejected."
+            }
+          }
+        }
+      ]
+    },
+    "Window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observedAt",
+        "freshUntil",
+        "expiresAt"
+      ],
+      "properties": {
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "freshUntil": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "Object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "parent",
+        "profile"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "PROFILE",
+            "ZONE",
+            "METHOD",
+            "CLASS",
+            "PRODUCT",
+            "VARIANT"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Selection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "UNRESOLVED"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "UNAVAILABLE"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "INHERIT_SOURCE_DEFAULT"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "SUPPRESS_INHERITANCE"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "PROFILE"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      ],
+      "description": "UNAVAILABLE preserves prior reliable assertions and their age; it never affirms default membership."
+    },
+    "ProviderMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "class_id",
+        "amount_minor",
+        "currency",
+        "basis"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "class_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "amount_minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "currency": {
+          "$ref": "#/$defs/CurrencyData"
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "PER_ITEM",
+            "PER_LOT",
+            "PER_SHIPMENT",
+            "PER_SELLER_ORDER"
+          ]
+        }
+      }
+    },
+    "ProviderZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "countries",
+        "methods"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "countries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        },
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/ProviderMethod"
+          }
+        }
+      }
+    },
+    "Assertion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "terms",
+            "evidence"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "PROFILE"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "terms": {
+              "$ref": "#/$defs/AdvertisedDeliveryTermsData"
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reference",
+                  "assertion"
+                ],
+                "properties": {
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "assertion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  }
+                }
+              },
+              "maxItems": 32
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "profile"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "DEFAULT"
+              ]
+            },
+            "profile": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source_listing_id",
+            "selection",
+            "rate_inputs",
+            "shipping",
+            "collection"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "ITEM"
+              ]
+            },
+            "source_listing_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "selection": {
+              "$ref": "#/$defs/Selection"
+            },
+            "rate_inputs": {
+              "$ref": "#/$defs/ListingDeliveryRateInputsData"
+            },
+            "shipping": {
+              "$ref": "#/$defs/ListingDeliveryShippingOverrideData"
+            },
+            "collection": {
+              "$ref": "#/$defs/ListingDeliveryCollectionOverrideData"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "object_kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "DELETE"
+              ]
+            },
+            "object_kind": {
+              "type": "string",
+              "enum": [
+                "PROFILE",
+                "DEFAULT",
+                "ITEM"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "capability",
+            "reason"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "UNAVAILABLE"
+              ]
+            },
+            "capability": {
+              "type": "string",
+              "enum": [
+                "CONFIGURATION",
+                "MEMBERSHIP",
+                "RATE_INPUTS"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "PERMISSION_DENIED",
+                "UNSUPPORTED",
+                "EXTRACTION_FAILED"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "profile_id",
+            "name",
+            "zones"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "SHOPIFY_PROFILE"
+              ]
+            },
+            "profile_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "zones": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProviderZone"
+              },
+              "maxItems": 16
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "product_id",
+            "complete",
+            "variants"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "SHOPIFY_MEMBERSHIP"
+              ]
+            },
+            "product_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^(gid://shopify/Product/)?[1-9][0-9]*$",
+              "description": "Native Shopify product GID or numeric ID; record key is its numeric catalog source listing ID."
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "variants": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "profile"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "profile": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "configuration_id",
+            "name",
+            "zones"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "WOOCOMMERCE_CONFIGURATION"
+              ]
+            },
+            "configuration_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "zones": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProviderZone"
+              },
+              "maxItems": 16
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "product_id",
+            "class_ids",
+            "classes_complete",
+            "variation_ids",
+            "profile"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "WOOCOMMERCE_ITEM"
+              ]
+            },
+            "product_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "class_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "maxItems": 32
+            },
+            "classes_complete": {
+              "type": "boolean"
+            },
+            "variation_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "maxItems": 32
+            },
+            "profile": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      ]
+    },
+    "Record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "window",
+        "objects",
+        "assertion"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "window": {
+          "$ref": "#/$defs/Window"
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Object"
+          },
+          "maxItems": 64
+        },
+        "assertion": {
+          "$ref": "#/$defs/Assertion"
+        }
+      }
+    },
+    "Chunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "records"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Record"
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "Manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "chunks",
+        "records",
+        "digest"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "records": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "Begin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "epoch",
+        "key",
+        "scope",
+        "mode",
+        "expectedGeneration",
+        "expectedSequence",
+        "providerVersion",
+        "components"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "epoch": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[!-~]+$"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[!-~]+$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "SNAPSHOT",
+            "DELTA"
+          ]
+        },
+        "expectedGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "expectedSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775806
+        },
+        "providerVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[!-~]+$"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "contains": {
+            "const": true
+          }
+        }
+      }
+    },
+    "Installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "integration",
+        "expectedRevision"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "integration": {
+          "$ref": "#/$defs/ListingDeliveryIntegrationData"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775806
+        }
+      }
+    },
+    "Current": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "integration"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "integration": {
+          "$ref": "#/$defs/ListingDeliveryIntegrationData"
+        }
+      }
+    },
+    "CurrencyData": {
+      "type": "string",
+      "enum": [
+        "EUR",
+        "GBP",
+        "USD",
+        "AUD",
+        "CAD",
+        "NZD",
+        "CNY",
+        "BRL",
+        "PLN",
+        "TRY",
+        "JPY",
+        "CZK",
+        "RUB",
+        "AED",
+        "SAR",
+        "HKD",
+        "SGD",
+        "CHF",
+        "ZAR",
+        "SEK",
+        "DKK",
+        "NOK",
+        "KRW",
+        "INR",
+        "TWD",
+        "HUF",
+        "RON",
+        "MXN",
+        "THB"
+      ],
+      "description": "Supported currencies (ISO 4217 codes):\n- EUR: Euro\n- GBP: British Pound\n- USD: US Dollar\n- AUD: Australian Dollar\n- CAD: Canadian Dollar\n- NZD: New Zealand Dollar\n- CNY: Chinese Yuan\n- BRL: Brazilian Real\n- PLN: Polish Z\u0142oty\n- TRY: Turkish Lira\n- JPY: Japanese Yen\n- CZK: Czech Koruna\n- RUB: Russian Ruble\n- AED: UAE Dirham\n- SAR: Saudi Riyal\n- HKD: Hong Kong Dollar\n- SGD: Singapore Dollar\n- CHF: Swiss Franc\n- ZAR: South African Rand\n- SEK: Swedish Krona\n- DKK: Danish Krone\n- NOK: Norwegian Krone\n- KRW: South Korean Won\n- INR: Indian Rupee\n- TWD: New Taiwan Dollar\n- HUF: Hungarian Forint\n- RON: Romanian Leu\n- MXN: Mexican Peso\n- THB: Thai Baht\n",
+      "default": "EUR",
+      "example": "EUR"
+    },
+    "Cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "limit"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SHIP_SYNC_V1"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
+      }
+    }
+  }
+}

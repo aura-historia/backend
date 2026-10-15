@@ -627,3 +627,167 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
     let (_, offered) = request(&router, &path, Some("owner")).await;
     assert_eq!("OFFERED", offered["userState"]["shipping"]["eligibility"]);
 }
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn synchronized_gallery_terms_are_visible_without_a_projection_wait() {
+    use shipping_sync_service::{use_cases::*, *};
+    let (p, router, book, owner, _, id) = fixture().await;
+    let (source, source_key): (uuid::Uuid, String) = sqlx::query_as(
+        "SELECT listing_source_id,source_listing_id FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(id.into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    let source = ListingSourceId::try_from(source).unwrap();
+    let key = |value: &str| ExternalKey::new(value.into()).unwrap();
+    let sync = ShippingSyncHandler::new(
+        SqlxUnitOfWork::new(p.clone()),
+        shipping_sync_postgres::SqlxShippingSyncStoreFactory,
+        SqlxSourceLocationAccessFactory,
+        canonical::CanonicalShippingSync::new(
+            shipping_sync_postgres::SqlxShippingSyncStoreFactory,
+            SqlxShippingRepositoryFactory,
+            product_listing_postgres::SqlxProductListingRepositoryFactory,
+            product_listing_postgres::SqlxProductListingEventAppenderFactory,
+            product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+        ),
+    );
+    let context = ctx(Principal::System);
+    let SyncResult::Binding(binding) = sync
+        .execute(
+            &context,
+            source,
+            SyncCommand::Rotate {
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("installation binding");
+    };
+    select_country(&book, owner, None, 1).await;
+    for amount in [8000, 9500] {
+        let SyncResult::Head(head) = sync
+            .execute(
+                &context,
+                source,
+                SyncCommand::Head {
+                    epoch: binding.epoch,
+                    scope: key("gallery"),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("scope head");
+        };
+        let SyncResult::Receipt(receipt) = sync
+            .execute(
+                &context,
+                source,
+                SyncCommand::Begin(Begin {
+                    epoch: binding.epoch,
+                    key: key(&format!("gallery-{amount}")),
+                    scope: key("gallery"),
+                    mode: Mode::Snapshot,
+                    expected_generation: head.generation,
+                    expected_sequence: head.sequence,
+                    provider_version: key("website-v1"),
+                    components: [true, false, true],
+                }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("fetch receipt");
+        };
+        let now = time::OffsetDateTime::now_utc();
+        let window = ObservationWindow {
+            observed_at: now,
+            fresh_until: now + time::Duration::hours(1),
+            expires_at: now + time::Duration::hours(2),
+        };
+        let records = vec![
+            Record {
+                key: key("policy"),
+                window,
+                objects: vec![],
+                assertion: Assertion::Profile {
+                    content: Box::new(ShippingProfileContent {
+                        name: ShippingProfileName::new("Acquired gallery terms".into()).unwrap(),
+                        attributed_party: None,
+                        terms: gallery_terms(amount),
+                    }),
+                    evidence: vec![],
+                },
+            },
+            Record {
+                key: key(&source_key),
+                window,
+                objects: vec![],
+                assertion: Assertion::Item {
+                    source_listing_id: source_key.clone().try_into().unwrap(),
+                    assertion: Box::new(ItemAssertion {
+                        selection: EvidenceSelection::Profile(key("policy")),
+                        rate_inputs: Default::default(),
+                        overrides: Default::default(),
+                    }),
+                },
+            },
+        ];
+        let chunk = shipping_sync_json::decode_chunk::<shipping_sync_json::PublicReferences>(
+            shipping_sync_json::encode_chunk::<shipping_sync_json::PublicReferences>(&records)
+                .unwrap(),
+            source,
+        )
+        .unwrap();
+        sync.execute(
+            &context,
+            source,
+            SyncCommand::Capture {
+                id: receipt.id,
+                index: 0,
+                chunk: chunk.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let SyncResult::Receipt(applied) = sync
+            .execute(
+                &context,
+                source,
+                SyncCommand::Finalize {
+                    id: receipt.id,
+                    manifest: shipping_sync_json::manifest(&[chunk]),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("application receipt");
+        };
+        assert_eq!(ApplicationState::Applied, applied.state);
+        let path = format!("/api/v1/product-listings/{id}");
+        let (status, public) = request(&router, &path, None).await;
+        assert_eq!(StatusCode::OK, status, "{public}");
+        assert_eq!(
+            amount,
+            public["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]
+                ["rate"]["price"]["amount"]["amount_minor"]
+        );
+        let (status, personalized) = request(&router, &path, Some("owner")).await;
+        assert_eq!(StatusCode::OK, status, "{personalized}");
+        assert_eq!(
+            public["item"]["shipping"]["terms"],
+            personalized["item"]["shipping"]["terms"]
+        );
+        assert_eq!(
+            "OFFERED",
+            personalized["userState"]["shipping"]["eligibility"]
+        );
+        assert_eq!(false, personalized["userState"]["shipping"]["bindingQuote"]);
+    }
+}

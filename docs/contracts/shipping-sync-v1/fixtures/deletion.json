@@ -1,0 +1,18 @@
+{
+  "schema": "SHIP_SYNC_V1",
+  "records": [
+    {
+      "key": "cabinet",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "DELETE",
+        "object_kind": "ITEM"
+      }
+    }
+  ]
+}

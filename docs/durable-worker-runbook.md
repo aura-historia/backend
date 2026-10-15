@@ -6,6 +6,55 @@ running. [Event flow](events/flow.md) owns routes/completion;
 owns consent-specific recovery. Record the approved stage/account, release SHA, operator,
 checks and omissions. Keep payloads, credentials and personal content out of evidence.
 
+## Shipping evidence recovery
+
+The [shipping sync contract](shipping.md#evidence-and-connector-synchronization) owns
+limits and authority. Finalization runs through the API; there is no shipping queue or
+background normalizer to drain. Producers/operators must retain their exact fetch key,
+session ID, ordered chunk digests and manifest until confirmed `APPLIED`. Existing
+Shopify and WooCommerce catalog backfill admission remains independent: catalog queue
+admission does not prove shipping application or justify dropping a pending session.
+
+- After a response timeout, read the session receipt or repeat the identical operation.
+  After uncertain installation rotation, resolve installation status before rotating again.
+- Page the current installation's `pending` directory (at most 32 IDs, UUID keyset) and
+  inspect each receipt, including completed applications with dirty current dependencies.
+  Repair `LISTING_MISSING`/`PROFILE_MISSING` through the normal
+  authorized catalog/configuration path, then retry the stored manifest before its
+  24-hour deadline. Configuration repair can fence an earlier membership fetch; acquire a
+  new snapshot when its receipt then requires reconciliation. Review retained manager
+  assertions through typed management commands for `INTEGRATION_CONFLICT`, rather than
+  migrating their class/variant meaning across installations. Shipping intake must never
+  create or restore a dependency.
+- `RECONCILE_REQUIRED` marks a durably dirty scope. Resolve current fences and acquire
+  a new full snapshot; replaying the old receipt cannot clear the race. Failed extraction
+  or lost provider permissions preserves prior assertion age. Renew permissions and fetch
+  anew rather than finalizing partial pages. `EXPIRED` requires a new acquisition.
+- Disconnect/replace through installation management; provider configuration replacement
+  also revokes old work. Never copy an old epoch into a new installation. Current source
+  authorization is checked even for matching successful replays.
+- Invoke source `shipping-sync/cleanup` with a limit of 1–32 to erase captured content
+  older than 30 days. Repeat bounded calls during authorized maintenance. It also expires
+  unfinished retained sessions. Digests, manifests, receipt/generation/epoch identities and
+  canonical ownership fences survive without TTL; erasure cannot make a retry key reusable.
+  This route is callable maintenance, not an activated retention schedule. Protected profile
+  history and current ownership state follow the separate shipping management retention
+  and authorized-erasure requirements. Fence the installation before exceptional content
+  erasure; retain address-free IDs/revisions rather than restoring erased captured content.
+
+For a deleted source, source HTTP authorization is unavailable. Use the approved private
+PostgreSQL maintenance role with the retained native source UUID: select at most 32 sessions
+older than 30 days under row locks, expire unfinished sessions, then set their chunk payloads
+to null with an erasure timestamp in the same transaction. The retention trigger permits
+that content-only update; preserve digests, counts, application signals and identity fences.
+Do not disable immutability triggers or restore erased chunks to repair later ingestion.
+
+Record only source/session/epoch IDs, state/failure codes and counts. Raw candidates,
+policy addresses, evidence references and request bodies must stay out of logs and
+ordinary jobs. Check current listing responses for canonical effects; `projection: UNKNOWN`
+does not confirm search visibility. [Executable PostgreSQL recovery tests](../src/shipping-sync-postgres/tests/synchronization.rs)
+and [shared fixtures](contracts/shipping-sync-v1/fixtures) exercise the protocol.
+
 ## Activation and legacy handoff
 
 1. Follow the [release sequence](infra.md#first-time-stage). Verify schema/job

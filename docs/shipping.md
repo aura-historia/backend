@@ -154,6 +154,120 @@ These signals establish durable invalidation input; [event flow](events/flow.md)
 activation and downstream routing. Later consumers reread current authoritative
 state, preserve source deletion fences and tolerate duplicate/out-of-order signals.
 
+## Evidence and connector synchronization
+
+`SHIP_SYNC_V1` is the independent ingestion boundary for the external source agent,
+product crawler and connectors. [OpenAPI](swagger.yaml) owns callable routes;
+[JSON Schema and executable fixtures](contracts/shipping-sync-v1/schema.json) pin the
+cross-repository protocol. Producers pin its schema and fixture revision alongside their
+generated client. Typed profile and listing commands remain directly usable. Historical
+product raw/event versions retain their original interpretation; optional shipping
+candidates use this separate stream and cannot reject otherwise valid product facts.
+
+An authenticated manager explicitly binds `SOURCE` or an enabled provider's exact
+configured method/domain. The backend issues the epoch; a supplied UUID establishes no
+authority. Rotation/replacement and disconnect revoke the preceding epoch. Provider
+configuration replacement/removal also fences acquisition. Installation status resolves
+an uncertain rotation response. Every capture, status and application revalidates current
+source/grant authority. Delegated access requires both listing-source and product-listing
+capabilities for the operation. Source deletion leaves identity/receipt fences.
+
+### Fetch custody and completion
+
+1. Read the scope generation/sequence and begin with a stable fetch key **before acquiring
+   pages**. Begin retries compare the original request. `providerVersion` records the
+   Shopify API or WooCommerce plugin version, or the website adapter version.
+2. Upload zero-based chunks in any arrival order. At most 16 chunks, 16 records/chunk,
+   256 records/generation and 65,536 input/canonical bytes/chunk are admitted. At most
+   16 unexpired open/pending sessions exist per installation. Each session expires after
+   24 hours. Object identities and optional provenance associations are bounded and inert.
+3. After successful acquisition of every advertised page/capability, finalize with the
+   exact chunk/record counts and SHA-256 of the concatenated **binary** ordered chunk
+   digests returned by capture/status. Chunk digests cover the backend's canonical
+   allowlisted interpretation: recursively sorted object keys, retained array order and
+   UTF-8 JSON without whitespace. Native producer observations need no local shipping
+   interpretation to build the manifest. Even an empty snapshot uploads one empty chunk.
+
+`components` explicitly selects completeness for profiles, source default and item
+membership/inputs, in that order. A snapshot retracts unseen assertions only for selected
+components already owned in that scope. Scope ownership cannot migrate implicitly.
+Partition large membership sets into stable scopes of at most 256 retained object keys;
+use a new reviewed scope/epoch when a partition is exhausted. A product webhook uses a
+scoped `DELTA`, never a configuration snapshot or global clear. Duplicate chunks compare
+immutable canonical values; changed retry reuse conflicts, including after sealing.
+Missing indices/counts/digest or failed capability acquisition cannot activate retirement.
+The first finalization fixes the manifest even when chunks are still missing; later
+chunks may complete that intent, but a retry cannot shrink it to match partial custody.
+
+Finalization first commits raw custody/completion intent, then atomically commits canonical
+application, assertion ownership, normal profile/listing change signals, scope generation
+and application receipt. An immutable `shipping_sync_changes` signal contains only native
+source, epoch and session identities, generation, version and recorded time. It carries no
+scope text, terms or evidence; downstream routing is not activated by this intake.
+Profile/default changes do not manufacture listing events.
+Status distinguishes `custody`, `rawCapture`, `application`, `applied` and `projection`.
+Only `APPLIED` means confirmed canonical completion. `WAITING_DEPENDENCY` returns 424;
+missing profiles/listings and withdrawn update targets remain pending without partial
+canonical effects. A deletion of an already absent/withdrawn target records a tombstone
+without restoring it; independent catalog restoration cannot revive its acquired assertions.
+Captured intent can be retried after repair, including after an uncertain commit.
+`projection: UNKNOWN` establishes no visibility guarantee. Current canonical shipping is
+available through existing listing responses immediately after application.
+
+Delta begin advances the installation's acquisition sequence. Confirmed changes to shared
+terms, lifecycle or default assignment also advance the configuration fence, invalidating
+membership dependencies in other scopes without rewriting every listing. Application checks
+the acquisition sequence and its scope generation
+captured at begin. A concurrent delta or competing finalized fetch
+fences the old snapshot; its receipt becomes `RECONCILE_REQUIRED` and the scope is durably
+dirty. The bounded pending directory also exposes current completed scopes whose
+dependencies became dirty; receipts retain historical `APPLIED` alongside current
+`reconciliationRequired`. Provider membership cannot support a definite selection/rate
+input until a newer full fetch validates those dependencies. Start that fetch from current
+fences before declaring completeness. This
+is an acquisition fence, not a claim that paginated provider reads were transactional or
+that receive time establishes provider chronology. Observation acquisition must fall
+between begin and finalization; producers must forward concurrent upstream changes into
+the affected scope. Live webhook payloads and cached bulk exports are not current reads:
+use them to request a fresh scoped acquisition after begin, or retain their original age
+and reconcile. A provider permission/extraction failure preserves old assertions and
+their original observation age.
+
+### Interpretation, ownership and age
+
+Backend adapters interpret bounded Shopify profile/variant membership and WooCommerce
+ordered country-zone/method/class-rate observations. Native v1 candidates cover known
+fixed advertised amounts in currency minor units and explicit charge bases. Shopify mixed
+variant profiles retain source associations and unresolved selection; the first priced
+variant never establishes coverage. Shopify membership keys use the numeric catalog
+source listing ID; the adapter maps a product GID to that ID and retains the native GID
+as provenance. WooCommerce classes remain applicability/rate inputs.
+Unsupported formulas, postal zones, tax/quantity assumptions or incomplete extraction must
+use `UNAVAILABLE` and await a newer supported acquisition; producers must not simplify
+them into definite rates. No credentials, wholesale settings, executable expressions,
+customer/order/address data or arbitrary provider fields are admitted. These observations
+are advertised terms, never carrier quotes. Broader provider interpretation belongs to
+the provider adapter work, not an engine in the TypeScript/PHP producer.
+
+External profile mappings preserve Aura identity across refreshes within an epoch.
+Profile/default ownership uses committed revisions. Item ownership independently compares
+selection, rate inputs, shipping override and collection override against the last applied
+values. Explicit manager changes release ownership of the changed components and later
+evidence preserves them. Reliable deletion retracts only still-owned assertions; it never
+deletes/restores a listing or changes its title, price, images or lifecycle.
+
+Acquisition observation, freshness and expiry are explicit and independent of receive,
+management and replay timestamps. Semantic no-ops and evidence-only corrections retain
+the prior window. Source defaults and item components retain independent expiry/epoch gates, so disconnect or
+expiry cannot expose old acquired assertions or erase a separately managed override.
+Only a snapshot explicitly complete for membership can revalidate existing item
+dependencies in its scope; a configuration-only refresh cannot clear their fence.
+Anonymous cache lifetimes respect these component/default deadlines even for implicit
+inheritance and mixed ownership.
+Raw custody and pending dependency state are bounded; [worker recovery](durable-worker-runbook.md#shipping-evidence-recovery)
+owns repair and retained-content erasure. No shipping worker, provider call, public buyer
+assessment endpoint or competing projection writer is introduced by this protocol.
+
 ## Shipping on listing reads
 
 [OpenAPI](swagger.yaml) owns the listing response contract. Detail by ID/slug, search,

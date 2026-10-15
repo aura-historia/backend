@@ -59,6 +59,7 @@ PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uui
 These persisted fields deliberately retain **canonical lowercase hyphenated UUID text**, not public TypeID serde:
 
 - Shipping storage terms: explicit Party/PartyLocation actor and site references.
+- Shipping sync custody and applied claims: source, profile, Party and PartyLocation references use the adapter's explicit storage codec.
 - PartyLocation creation receipts: result site/Party IDs and optional relocated site ID.
 - Private geographic resolution inputs: the cache-scope owner UUID.
 - Partnership application proposal `listing_source_id`.
@@ -89,6 +90,7 @@ Not every value named “ID” is an Aura object identity:
 - Credentials, OAuth/exchange codes, raw bearer tokens, PKCE values, confirmation tokens/digests and session cookies.
 - Request/correlation IDs, idempotency keys, ingestion submission/command IDs, queue receipt/message IDs, CDC delivery IDs/LSNs and search PIT IDs.
 - Lease tokens and marketing-consent proof/fingerprint keys.
+- Shipping sync acquisition session IDs and installation epoch fences.
 
 `OAuthClientId`, `AccessTokenId` and `MarketingConsentSyncIntentId` identify durable records, not their associated secrets, provider identities or operational ordering counters.
 

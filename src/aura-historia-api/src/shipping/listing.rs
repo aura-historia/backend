@@ -200,6 +200,7 @@ pub(crate) fn cache_ttl<'a>(
             .chain(item.profile.as_ref().map(|p| p.evidence))
             .flat_map(|e| [e.fresh_until, e.expires_at])
             .flatten()
+            .chain(item.cache_until)
             .filter(|deadline| *deadline > item.evaluated_at)
             .fold(ttl, |ttl, deadline| {
                 ttl.min(u32::try_from((deadline - now).whole_seconds().max(0)).unwrap_or(u32::MAX))

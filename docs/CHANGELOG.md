@@ -2,6 +2,18 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-15 — Shipping evidence and connector synchronization (#2065)
+
+- Added protected `shipping-sync` installation, scoped begin/chunk/finalize, receipt,
+  pending-recovery and retained-content cleanup routes with the pinned `SHIP_SYNC_V1`
+  schema and shared gallery, Shopify and WooCommerce fixtures.
+- Receipts distinguish custody, raw capture, canonical application and unknown projection
+  visibility. Incomplete/raced snapshots preserve current assertions; missing dependencies
+  return 424 and support exact finalization retry. Changed retry reuse conflicts.
+- Server-issued epochs fence reconnect/disconnect work. Component ownership preserves
+  explicit manager edits; acquisition freshness/expiry survive retries and no-ops.
+  Existing listing reads expose applied canonical shipping without a projection wait.
+
 ## 2026-10-15 — Shipping on listing responses (#2064)
 
 - Existing listing detail (ID/slug), search, similar, watchlist, saved-search match and auction catalogue responses

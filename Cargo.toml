@@ -46,6 +46,9 @@ members = [
     "src/shipping-service",
     "src/shipping-postgres",
     "src/shipping-json",
+    "src/shipping-sync-service",
+    "src/shipping-sync-json",
+    "src/shipping-sync-postgres",
     "src/embedding",
     "src/classifier-model",
     "src/image-fetcher",
@@ -156,6 +159,9 @@ shipping-core = { path = "src/shipping-core" }
 shipping-service = { path = "src/shipping-service" }
 shipping-postgres = { path = "src/shipping-postgres" }
 shipping-json = { path = "src/shipping-json" }
+shipping-sync-service = { path = "src/shipping-sync-service" }
+shipping-sync-json = { path = "src/shipping-sync-json" }
+shipping-sync-postgres = { path = "src/shipping-sync-postgres" }
 embedding = { path = "src/embedding" }
 classifier-model = { path = "src/classifier-model" }
 image-fetcher = { path = "src/image-fetcher" }

@@ -20,6 +20,7 @@ pub use shipping_service::assessment::AssessmentError as ShippingReadError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdvertisedShipping {
+    pub cache_until: Option<OffsetDateTime>,
     pub effective: EffectiveDeliveryTerms,
     pub shipping_reasons: Vec<shipping_core::assessment::AssessmentReason>,
     pub collection_reasons: Vec<shipping_core::assessment::AssessmentReason>,
@@ -118,6 +119,7 @@ impl ShippingEnrichment {
                     item.listing_id,
                     ShippingView {
                         advertised: AdvertisedShipping {
+                            cache_until: item.cache_until,
                             effective: item.effective,
                             shipping_reasons: item.generic_assessment.reasons,
                             collection_reasons: item.generic_assessment.collection.reasons,

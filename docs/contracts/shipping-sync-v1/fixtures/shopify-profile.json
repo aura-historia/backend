@@ -1,0 +1,36 @@
+{
+  "schema": "SHIP_SYNC_V1",
+  "records": [
+    {
+      "key": "gid://shopify/DeliveryProfile/201",
+      "window": {
+        "observedAt": "2026-10-15T10:00:00Z",
+        "freshUntil": "2026-10-16T10:00:00Z",
+        "expiresAt": "2026-10-22T10:00:00Z"
+      },
+      "objects": [],
+      "assertion": {
+        "kind": "SHOPIFY_PROFILE",
+        "profile_id": "gid://shopify/DeliveryProfile/201",
+        "name": "Shopify advertised terms",
+        "zones": [
+          {
+            "id": "301",
+            "countries": [
+              "DE"
+            ],
+            "methods": [
+              {
+                "id": "shopify-delivery",
+                "class_id": null,
+                "amount_minor": 8000,
+                "currency": "EUR",
+                "basis": "PER_ITEM"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

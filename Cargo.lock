@@ -349,6 +349,9 @@ dependencies = [
  "shipping-json",
  "shipping-postgres",
  "shipping-service",
+ "shipping-sync-json",
+ "shipping-sync-postgres",
+ "shipping-sync-service",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
@@ -7882,6 +7885,73 @@ dependencies = [
  "tracing",
  "user-core",
  "user-service",
+]
+
+[[package]]
+name = "shipping-sync-json"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "listing-source-core",
+ "party-core",
+ "product-listing-core",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shipping-core",
+ "shipping-json",
+ "shipping-service",
+ "shipping-sync-service",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "shipping-sync-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
+ "party-core",
+ "platform-postgres",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "shipping-core",
+ "shipping-json",
+ "shipping-postgres",
+ "shipping-service",
+ "shipping-sync-json",
+ "shipping-sync-service",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "shipping-sync-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "listing-source-core",
+ "listing-source-service",
+ "product-listing-core",
+ "product-listing-service",
+ "sha2 0.11.0",
+ "shipping-core",
+ "shipping-service",
+ "thiserror 2.0.21",
+ "time",
+ "uuid",
 ]
 
 [[package]]

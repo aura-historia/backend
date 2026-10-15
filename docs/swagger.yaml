@@ -17484,6 +17484,928 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AsyncProductListingBatchReport'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/installation:
+    put:
+      operationId: rotateShippingSyncInstallation
+      summary: Create or replace an authoritative shipping installation
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Binding'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest, admission limit or reconciliation
+            required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Installation'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/installation/status:
+    post:
+      operationId: getShippingSyncInstallation
+      summary: Resolve the current installation after an ambiguous response
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Binding'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest, admission limit or reconciliation
+            required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Current'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}:
+    delete:
+      operationId: revokeShippingSyncInstallation
+      summary: Disconnect shipping acquisition and fence old work
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: epoch
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Binding'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest, admission limit or reconciliation
+            required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/scopes/{scope}:
+    get:
+      operationId: getShippingSyncScope
+      summary: Read the current scope generation and dirty status
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: epoch
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: scope
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Head'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest, admission limit or reconciliation
+            required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/pending:
+    get:
+      operationId: listPendingShippingSyncSessions
+      summary: List a bounded recovery page of captured sessions
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: epoch
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: size
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 32
+          default: 16
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Pending'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest, admission limit or reconciliation
+            required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions:
+    post:
+      operationId: beginShippingSyncSession
+      summary: Reserve a bounded fetch before acquiring provider pages
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Session requires reconciliation or has expired; admission conflicts use the standard error
+            body.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '202':
+          description: Custody accepted; canonical application is incomplete.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '424':
+          description: Raw capture is complete; a retryable dependency prevents atomic application.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Begin'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}:
+    get:
+      operationId: getShippingSyncReceipt
+      summary: Read capture, canonical application and projection boundaries
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Session requires reconciliation or has expired; admission conflicts use the standard error
+            body.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '202':
+          description: Custody accepted; canonical application is incomplete.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '424':
+          description: Raw capture is complete; a retryable dependency prevents atomic application.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/chunks/{chunk_index}:
+    put:
+      operationId: captureShippingSyncChunk
+      summary: Capture one immutable allowlisted evidence chunk
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: chunk_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 15
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Session requires reconciliation or has expired; admission conflicts use the standard error
+            body.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '202':
+          description: Custody accepted; canonical application is incomplete.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '424':
+          description: Raw capture is complete; a retryable dependency prevents atomic application.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Chunk'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/finalize:
+    post:
+      operationId: finalizeShippingSyncSession
+      summary: Validate completeness and atomically apply the generation
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Requires current source management authority. Delegated reads require listing-sources:read and
+        product-listings:read; writes require both write capabilities. All responses/errors are no-store. Shipping
+        sync does not create or restore catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Current committed state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Session requires reconciliation or has expired; admission conflicts use the standard error
+            body.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '202':
+          description: Custody accepted; canonical application is incomplete.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+        '424':
+          description: Raw capture is complete; a retryable dependency prevents atomic application.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Receipt'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Manifest'
+  /api/v1/listing-sources/{listing_source_id}/shipping-sync/cleanup:
+    post:
+      operationId: cleanupShippingSyncEvidence
+      summary: Erase a bounded page of captured shipping content after retention
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Requires current source management authority. Delegated reads require
+        listing-sources:read and product-listings:read; writes require both write capabilities.
+        All responses/errors are no-store. Shipping sync does not create or restore
+        catalog listings. See docs/shipping.md and the versioned fixtures in docs/contracts/shipping-sync-v1.
+      responses:
+        '200':
+          description: Retained content erased; digests and retry fences remain.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingSyncV1Cleaned'
+        '400':
+          description: Invalid bounded input or schema.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current source authority or capability missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Session or installation not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Changed retry reuse, stale scope, revoked epoch, incomplete manifest,
+            admission limit or reconciliation required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Unconfirmed storage/application; retry the same identity and
+            input.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingSyncV1Cleanup'
 components:
   securitySchemes:
     BearerAuth:
@@ -17623,6 +18545,754 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
   schemas:
+    ShippingSyncV1Cleanup:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - limit
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 32
+    ShippingSyncV1Cleaned:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - erasedSessions
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        erasedSessions:
+          type: integer
+          minimum: 0
+          maximum: 32
+    ShippingSyncV1Window:
+      type: object
+      additionalProperties: false
+      required:
+      - observedAt
+      - freshUntil
+      - expiresAt
+      properties:
+        observedAt:
+          type: string
+          format: date-time
+        freshUntil:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    ShippingSyncV1Object:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - id
+      - parent
+      - profile
+      properties:
+        kind:
+          type: string
+          enum:
+          - PROFILE
+          - ZONE
+          - METHOD
+          - CLASS
+          - PRODUCT
+          - VARIANT
+        id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        parent:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+        profile:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+    ShippingSyncV1Selection:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - UNRESOLVED
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - UNAVAILABLE
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - INHERIT_SOURCE_DEFAULT
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - SUPPRESS_INHERITANCE
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - id
+        properties:
+          kind:
+            type: string
+            enum:
+            - PROFILE
+          id:
+            type: string
+            minLength: 1
+            maxLength: 512
+      description: UNAVAILABLE preserves prior reliable assertions and their age; it never
+        affirms default membership.
+    ShippingSyncV1ProviderMethod:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - class_id
+      - amount_minor
+      - currency
+      - basis
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        class_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+        amount_minor:
+          type: integer
+          minimum: 0
+          maximum: 18446744073709551615
+        currency:
+          $ref: '#/components/schemas/CurrencyData'
+        basis:
+          type: string
+          enum:
+          - PER_ITEM
+          - PER_LOT
+          - PER_SHIPMENT
+          - PER_SELLER_ORDER
+    ShippingSyncV1ProviderZone:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - countries
+      - methods
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        countries:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            type: string
+            pattern: ^[A-Z]{2}$
+        methods:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/ShippingSyncV1ProviderMethod'
+    ShippingSyncV1Assertion:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - name
+        - terms
+        - evidence
+        properties:
+          kind:
+            type: string
+            enum:
+            - PROFILE
+          name:
+            type: string
+            minLength: 1
+            maxLength: 255
+          terms:
+            $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
+          evidence:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required:
+              - reference
+              - assertion
+              properties:
+                reference:
+                  type: string
+                  minLength: 1
+                  maxLength: 2048
+                assertion:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+            maxItems: 32
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - profile
+        properties:
+          kind:
+            type: string
+            enum:
+            - DEFAULT
+          profile:
+            type: string
+            minLength: 1
+            maxLength: 512
+            nullable: true
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - source_listing_id
+        - selection
+        - rate_inputs
+        - shipping
+        - collection
+        properties:
+          kind:
+            type: string
+            enum:
+            - ITEM
+          source_listing_id:
+            type: string
+            minLength: 1
+            maxLength: 512
+          selection:
+            $ref: '#/components/schemas/ShippingSyncV1Selection'
+          rate_inputs:
+            $ref: '#/components/schemas/ListingDeliveryRateInputsData'
+          shipping:
+            $ref: '#/components/schemas/ListingDeliveryShippingOverrideData'
+          collection:
+            $ref: '#/components/schemas/ListingDeliveryCollectionOverrideData'
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - object_kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - DELETE
+          object_kind:
+            type: string
+            enum:
+            - PROFILE
+            - DEFAULT
+            - ITEM
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - capability
+        - reason
+        properties:
+          kind:
+            type: string
+            enum:
+            - UNAVAILABLE
+          capability:
+            type: string
+            enum:
+            - CONFIGURATION
+            - MEMBERSHIP
+            - RATE_INPUTS
+          reason:
+            type: string
+            enum:
+            - PERMISSION_DENIED
+            - UNSUPPORTED
+            - EXTRACTION_FAILED
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - profile_id
+        - name
+        - zones
+        properties:
+          kind:
+            type: string
+            enum:
+            - SHOPIFY_PROFILE
+          profile_id:
+            type: string
+            minLength: 1
+            maxLength: 512
+          name:
+            type: string
+            minLength: 1
+            maxLength: 255
+          zones:
+            type: array
+            items:
+              $ref: '#/components/schemas/ShippingSyncV1ProviderZone'
+            maxItems: 16
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - product_id
+        - complete
+        - variants
+        properties:
+          kind:
+            type: string
+            enum:
+            - SHOPIFY_MEMBERSHIP
+          product_id:
+            type: string
+            minLength: 1
+            maxLength: 512
+            pattern: ^(gid://shopify/Product/)?[1-9][0-9]*$
+            description: Native Shopify product GID or numeric ID; record key is its numeric catalog source listing ID.
+          complete:
+            type: boolean
+          variants:
+            type: array
+            minItems: 1
+            maxItems: 32
+            items:
+              type: object
+              additionalProperties: false
+              required:
+              - id
+              - profile
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                profile:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - configuration_id
+        - name
+        - zones
+        properties:
+          kind:
+            type: string
+            enum:
+            - WOOCOMMERCE_CONFIGURATION
+          configuration_id:
+            type: string
+            minLength: 1
+            maxLength: 512
+          name:
+            type: string
+            minLength: 1
+            maxLength: 255
+          zones:
+            type: array
+            items:
+              $ref: '#/components/schemas/ShippingSyncV1ProviderZone'
+            maxItems: 16
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - product_id
+        - class_ids
+        - classes_complete
+        - variation_ids
+        - profile
+        properties:
+          kind:
+            type: string
+            enum:
+            - WOOCOMMERCE_ITEM
+          product_id:
+            type: string
+            minLength: 1
+            maxLength: 512
+          class_ids:
+            type: array
+            items:
+              type: string
+              minLength: 1
+              maxLength: 512
+            maxItems: 32
+          classes_complete:
+            type: boolean
+          variation_ids:
+            type: array
+            items:
+              type: string
+              minLength: 1
+              maxLength: 512
+            maxItems: 32
+          profile:
+            type: string
+            minLength: 1
+            maxLength: 512
+    ShippingSyncV1Record:
+      type: object
+      additionalProperties: false
+      required:
+      - key
+      - window
+      - objects
+      - assertion
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 512
+        window:
+          $ref: '#/components/schemas/ShippingSyncV1Window'
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShippingSyncV1Object'
+          maxItems: 64
+        assertion:
+          $ref: '#/components/schemas/ShippingSyncV1Assertion'
+    ShippingSyncV1Chunk:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - records
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShippingSyncV1Record'
+          maxItems: 16
+    ShippingSyncV1Manifest:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - chunks
+      - records
+      - digest
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        chunks:
+          type: integer
+          minimum: 1
+          maximum: 16
+        records:
+          type: integer
+          minimum: 0
+          maximum: 256
+        digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    ShippingSyncV1Begin:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - epoch
+      - key
+      - scope
+      - mode
+      - expectedGeneration
+      - expectedSequence
+      - providerVersion
+      - components
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        epoch:
+          type: string
+          format: uuid
+        key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+        scope:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+        mode:
+          type: string
+          enum:
+          - SNAPSHOT
+          - DELTA
+        expectedGeneration:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775807
+        expectedSequence:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775806
+        providerVersion:
+          type: string
+          minLength: 1
+          maxLength: 32
+          pattern: ^[!-~]+$
+        components:
+          type: array
+          items:
+            type: boolean
+          minItems: 3
+          maxItems: 3
+    ShippingSyncV1Installation:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - integration
+      - expectedRevision
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        expectedRevision:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775806
+    ShippingSyncV1Current:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - integration
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+    ShippingSyncV1Receipt:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - sessionId
+      - epoch
+      - scope
+      - custody
+      - rawCapture
+      - capturedChunks
+      - capturedRecords
+      - chunks
+      - application
+      - applied
+      - generation
+      - failure
+      - projection
+      - startedAt
+      - expiresAt
+      - manifest
+      - reconciliationRequired
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        sessionId:
+          type: string
+          format: uuid
+        epoch:
+          type: string
+          format: uuid
+        scope:
+          type: string
+        custody:
+          type: string
+          enum:
+          - ACCEPTED
+        rawCapture:
+          type: string
+          enum:
+          - IN_PROGRESS
+          - COMPLETE
+        capturedChunks:
+          type: integer
+          minimum: 0
+          maximum: 16
+        capturedRecords:
+          type: integer
+          minimum: 0
+          maximum: 256
+        chunks:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - index
+            - digest
+            properties:
+              index:
+                type: integer
+                minimum: 0
+                maximum: 15
+              digest:
+                type: string
+                pattern: ^[0-9a-f]{64}$
+        application:
+          type: string
+          enum:
+          - OPEN
+          - READY
+          - WAITING_DEPENDENCY
+          - APPLIED
+          - RECONCILE_REQUIRED
+          - EXPIRED
+        applied:
+          type: boolean
+        generation:
+          type: integer
+          nullable: true
+        failure:
+          type: string
+          nullable: true
+        projection:
+          type: string
+          enum:
+          - UNKNOWN
+        startedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        manifest:
+          allOf:
+          - $ref: '#/components/schemas/ShippingSyncV1Manifest'
+          nullable: true
+        reconciliationRequired:
+          type: boolean
+          description: Current scope has unresolved acquisition dependencies, even if this historical application completed.
+    ShippingSyncV1Binding:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - epoch
+      - revision
+      - active
+      - integration
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        epoch:
+          type: string
+          format: uuid
+        revision:
+          type: integer
+          minimum: 1
+        active:
+          type: boolean
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+    ShippingSyncV1Head:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - generation
+      - sequence
+      - reconciliationRequired
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        generation:
+          type: integer
+          minimum: 0
+        sequence:
+          type: integer
+          minimum: 0
+        reconciliationRequired:
+          type: boolean
+    ShippingSyncV1Pending:
+      type: object
+      additionalProperties: false
+      required:
+      - schema
+      - sessionIds
+      properties:
+        schema:
+          type: string
+          enum:
+          - SHIP_SYNC_V1
+        sessionIds:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            format: uuid
     DeliveryAssessmentGeography:
       type: object
       additionalProperties: false

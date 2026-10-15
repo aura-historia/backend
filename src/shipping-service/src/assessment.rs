@@ -99,6 +99,7 @@ impl AssertionEvidence {
 }
 #[derive(Clone)]
 pub struct ListingDependency {
+    pub cache_until: Option<OffsetDateTime>,
     pub id: ProductListingId,
     pub source_id: ListingSourceId,
     pub revision: u64,
@@ -115,6 +116,7 @@ pub struct ProfileDependency {
     pub evidence: AssertionEvidence,
 }
 pub struct DefaultDependency {
+    pub cache_until: Option<OffsetDateTime>,
     pub selection: SourceDefaultProfile,
     pub revision: u64,
 }
@@ -159,6 +161,7 @@ pub struct ProfileAssessmentBasis {
     pub evidence: AssertionEvidence,
 }
 pub struct ListingAssessmentView {
+    pub cache_until: Option<OffsetDateTime>,
     pub listing_id: ProductListingId,
     pub source_id: ListingSourceId,
     pub listing_revision: u64,
@@ -406,6 +409,20 @@ where
             request.input.destination = destination.effective.clone();
             let assessment = effective.assess(&request.input, &locations);
             items.push(ListingAssessmentView {
+                cache_until: listing
+                    .cache_until
+                    .into_iter()
+                    .chain(
+                        if matches!(
+                            configuration.selection(),
+                            ProfileSelection::InheritSourceDefault
+                        ) {
+                            default.and_then(|d| d.cache_until)
+                        } else {
+                            None
+                        },
+                    )
+                    .min(),
                 listing_id: listing.id,
                 source_id: listing.source_id,
                 listing_revision: listing.revision,
@@ -586,6 +603,7 @@ mod tests {
         let listings = [g.painting, g.cabinet]
             .into_iter()
             .map(|c| ListingDependency {
+                cache_until: None,
                 id: ProductListingId::new(),
                 source_id: g.source_id,
                 revision: 1,
@@ -613,6 +631,7 @@ mod tests {
                 evidence,
             }],
             defaults: vec![DefaultDependency {
+                cache_until: None,
                 selection: g.source_default,
                 revision: 2,
             }],

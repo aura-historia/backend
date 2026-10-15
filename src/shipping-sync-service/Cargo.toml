@@ -1,0 +1,18 @@
+[package]
+name = "shipping-sync-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+listing-source-core = { workspace = true }
+listing-source-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-service = { workspace = true }
+shipping-core = { workspace = true }
+shipping-service = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }

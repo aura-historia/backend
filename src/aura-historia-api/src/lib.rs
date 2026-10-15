@@ -1014,6 +1014,22 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(sync) = state.shipping_sync {
+        routes = routes.merge(Router::new()
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/cleanup", axum::routing::post(shipping::sync::cleanup))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/installation", axum::routing::put(shipping::sync::rotate))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/installation/status", axum::routing::post(shipping::sync::current))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}", axum::routing::delete(shipping::sync::revoke))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/scopes/{scope}", get(shipping::sync::head))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/installations/{epoch}/pending", get(shipping::sync::pending))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions", axum::routing::post(shipping::sync::begin))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}", get(shipping::sync::status))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/chunks/{chunk_index}", axum::routing::put(shipping::sync::capture))
+            .route("/api/v1/listing-sources/{listing_source_id}/shipping-sync/sessions/{session_id}/finalize", axum::routing::post(shipping::sync::finalize))
+            .layer(axum::extract::DefaultBodyLimit::max(shipping_sync_service::MAX_CHUNK_BYTES))
+            .layer(axum::middleware::map_response(parties::locations::no_store_response))
+            .with_state(sync));
+    }
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
@@ -1970,6 +1986,21 @@ async fn app_state_from_config_and_pool(
             submit: submit_product_listing_ingestion,
             authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         };
+    let shipping_sync_state = shipping::sync::ShippingSyncState {
+        sync: Arc::new(shipping_sync_service::use_cases::ShippingSyncHandler::new(
+            unit_of_work.clone(),
+            shipping_sync_postgres::SqlxShippingSyncStoreFactory,
+            SqlxSourceLocationAccessFactory,
+            shipping_sync_service::canonical::CanonicalShippingSync::new(
+                shipping_sync_postgres::SqlxShippingSyncStoreFactory,
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                product_listing_postgres::SqlxProductListingRepositoryFactory,
+                product_listing_postgres::SqlxProductListingEventAppenderFactory,
+                product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+            ),
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let shipping_state = shipping::ShippingState {
         create: Arc::new(
             shipping_service::use_cases::CreateShippingProfileHandler::new(
@@ -2313,6 +2344,7 @@ async fn app_state_from_config_and_pool(
         ))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
+        .with_shipping_sync(shipping_sync_state)
         .with_shipping(shipping_state)
         .with_product_listing_delivery(product_listing_delivery_state)
         .with_source_location_defaults(source_location_defaults_state)
