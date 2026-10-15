@@ -14,6 +14,8 @@ The production server currently schedules spider work every 72 hours and scraper
 
 A scraper request receives up to three inline attempts. Backoff begins at one second and is capped at two seconds. `Retry-After` never blocks a domain worker.
 
+Spider fetches follow the same bounded inline principle. The crawl-root preflight retries transient transport failures (DNS, connect, timeout) a bounded number of times within a fixed wall-clock budget for the whole redirect chain, and never retries policy, TLS or redirect failures; HTTP statuses are left to Spider, which retries each page a bounded number of times except when the body was already truncated by the transport ceiling. A preflight failure carries the same typed failure kind as a Spider-detected one, so it receives the same durable cooldown profile instead of a generic short retry.
+
 Schema-generation outcomes (exhausted regeneration, failed fresh normalization, rejected classification, pending review, exhausted LLM budget, and generated schemas that fail deterministic validation, recorded as `SchemaGenerationValidationFailed`) give the URL a 30-minute retry cooldown instead of an immediate retry.
 
 After final failure, the crawler records retry metadata and a future `next_retry_at`; it does not hold a worker open. HTTP 404 and 410 are terminal removals. Unsafe targets and other terminal outcomes are not retried immediately. Retryable transport and selected HTTP failures receive a durable cooldown.

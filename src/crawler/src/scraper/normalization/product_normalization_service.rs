@@ -8,7 +8,7 @@ use product_listing_normalization::{
     normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
     normalize_title, quick_check_availability,
 };
-use tracing::warn;
+use tracing::debug;
 use url::Url;
 
 #[async_trait::async_trait]
@@ -180,7 +180,7 @@ fn normalize_product_listing_price_or_skip_missing_currency(
     match normalize_product_listing_price(raw, fallback_currency) {
         Ok(price) => Ok(price),
         Err(PriceNormalizationError::UnknownCurrency) => {
-            warn!(price_field = ?field, "Skipping price extraction because no currency was detected");
+            debug!(price_field = ?field, "Skipping price extraction because no currency was detected");
             Ok(None)
         }
         Err(error) => Err(map_price_error(error, field)),
@@ -195,7 +195,7 @@ fn normalize_price_or_skip_missing_currency(
     match normalize_price(raw, fallback_currency) {
         Ok(price) => Ok(price),
         Err(PriceNormalizationError::UnknownCurrency) => {
-            warn!(price_field = ?field, "Skipping price extraction because no currency was detected");
+            debug!(price_field = ?field, "Skipping price extraction because no currency was detected");
             Ok(None)
         }
         Err(error) => Err(map_price_error(error, field)),
