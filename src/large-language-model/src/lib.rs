@@ -1,5 +1,7 @@
 use application::error::{BoxError, box_error};
+mod anthropic;
 mod llm_logging;
+pub use anthropic::{AnthropicClaude, AnthropicConfig};
 use futures::{StreamExt, stream};
 use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
@@ -350,7 +352,7 @@ impl LargeLanguageModel for VertexAiGemini {
     where
         Output: DeserializeOwned + Send,
     {
-        let images = self.fetch_images(&request.image_urls).await;
+        let images = fetch_images(&self.image_fetcher, &request.image_urls).await;
         self.generate_with_images(request, images).await
     }
 
@@ -362,7 +364,7 @@ impl LargeLanguageModel for VertexAiGemini {
     where
         Output: DeserializeOwned + Send,
     {
-        let images = Arc::new(self.fetch_images_for_requests(&requests).await);
+        let images = Arc::new(fetch_images_for_requests(&self.image_fetcher, &requests).await);
         stream::iter(requests)
             .map(|request| {
                 let images = Arc::clone(&images);
@@ -447,38 +449,36 @@ impl VertexAiGemini {
     }
 }
 
-impl VertexAiGemini {
-    async fn fetch_images(&self, urls: &[Url]) -> Vec<FetchedImage> {
-        let mut images = Vec::with_capacity(MAX_IMAGES_PER_REQUEST);
-        for url in urls.iter().take(MAX_IMAGES_PER_REQUEST) {
-            if let Some(image) = self.image_fetcher.fetch(url).await {
-                images.push(image);
-            }
+async fn fetch_images(image_fetcher: &ImageFetcher, urls: &[Url]) -> Vec<FetchedImage> {
+    let mut images = Vec::with_capacity(MAX_IMAGES_PER_REQUEST);
+    for url in urls.iter().take(MAX_IMAGES_PER_REQUEST) {
+        if let Some(image) = image_fetcher.fetch(url).await {
+            images.push(image);
         }
-        images
     }
+    images
+}
 
-    async fn fetch_images_for_requests(
-        &self,
-        requests: &[StructuredGenerationRequest],
-    ) -> HashMap<String, FetchedImage> {
-        let mut unique_urls = Vec::new();
-        let mut seen = HashSet::new();
-        for request in requests {
-            for url in request.image_urls.iter().take(MAX_IMAGES_PER_REQUEST) {
-                if seen.insert(url.as_str()) {
-                    unique_urls.push(url);
-                }
+async fn fetch_images_for_requests(
+    image_fetcher: &ImageFetcher,
+    requests: &[StructuredGenerationRequest],
+) -> HashMap<String, FetchedImage> {
+    let mut unique_urls = Vec::new();
+    let mut seen = HashSet::new();
+    for request in requests {
+        for url in request.image_urls.iter().take(MAX_IMAGES_PER_REQUEST) {
+            if seen.insert(url.as_str()) {
+                unique_urls.push(url);
             }
         }
-        let mut images = HashMap::with_capacity(unique_urls.len());
-        for url in unique_urls {
-            if let Some(image) = self.image_fetcher.fetch(url).await {
-                images.insert(url.as_str().to_owned(), image);
-            }
-        }
-        images
     }
+    let mut images = HashMap::with_capacity(unique_urls.len());
+    for url in unique_urls {
+        if let Some(image) = image_fetcher.fetch(url).await {
+            images.insert(url.as_str().to_owned(), image);
+        }
+    }
+    images
 }
 
 fn images_for_request(
