@@ -32,13 +32,13 @@ enum UnconfiguredObservation {
 
 impl UnconfiguredListingSources {
     /// Records the current unconfigured set, forgets sources that gained domains, and
-    /// returns each remaining source with its classification against `grace`.
+    /// returns each remaining source's classification against `grace`, keyed by id.
     fn observe(
         &mut self,
         unconfigured: &[ListingSourceId],
         now: Instant,
         grace: Duration,
-    ) -> Vec<(ListingSourceId, UnconfiguredObservation)> {
+    ) -> HashMap<ListingSourceId, UnconfiguredObservation> {
         self.first_seen
             .retain(|listing_source_id, _| unconfigured.contains(listing_source_id));
         unconfigured
@@ -159,15 +159,16 @@ impl ListingSourceRegistrationService {
                 Instant::now(),
                 UNCONFIGURED_WARNING_GRACE,
             );
-        for (listing_source, (_, observation)) in enabled_without_domains.iter().zip(observations) {
-            match observation {
-                UnconfiguredObservation::Overdue => warn!(
+        for listing_source in enabled_without_domains {
+            match observations.get(&listing_source.listing_source_id) {
+                None => {}
+                Some(UnconfiguredObservation::Overdue) => warn!(
                     event = "crawler.listing_source_unconfigured",
                     listing_source_id = %listing_source.listing_source_id,
                     listing_source_name = %listing_source.listing_source_name,
                     "enabled ListingSource still has no crawler-local domains after the bootstrap grace period"
                 ),
-                UnconfiguredObservation::WithinGrace => debug!(
+                Some(UnconfiguredObservation::WithinGrace) => debug!(
                     event = "crawler.listing_source_unconfigured_pending",
                     listing_source_id = %listing_source.listing_source_id,
                     listing_source_name = %listing_source.listing_source_name,
@@ -315,30 +316,70 @@ mod tests {
         let first = tracker.observe(&[pending, configured_later], start, grace);
         assert_eq!(
             first,
-            vec![
+            HashMap::from([
                 (pending, UnconfiguredObservation::WithinGrace),
                 (configured_later, UnconfiguredObservation::WithinGrace),
-            ]
+            ])
         );
 
         let within_grace = tracker.observe(&[pending], start + grace / 2, grace);
         assert_eq!(
             within_grace,
-            vec![(pending, UnconfiguredObservation::WithinGrace)]
+            HashMap::from([(pending, UnconfiguredObservation::WithinGrace)])
         );
 
         let overdue = tracker.observe(&[pending, configured_later], start + grace, grace);
         assert_eq!(
             overdue,
-            vec![
+            HashMap::from([
                 (pending, UnconfiguredObservation::Overdue),
                 (configured_later, UnconfiguredObservation::WithinGrace),
-            ],
+            ]),
             "a source that gained domains and lost them again restarts its grace period"
         );
 
         assert!(tracker.observe(&[], start + grace * 2, grace).is_empty());
         assert!(tracker.first_seen.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_track_unconfigured_listing_sources_across_syncs() {
+        let unconfigured = listing_source();
+        let unconfigured_id = unconfigured.listing_source_id;
+        let mut source = MockListingSourceRegistrationSource::new();
+        source
+            .expect_fetch_registered_listing_sources()
+            .times(2)
+            .returning(move || {
+                let source = unconfigured.clone();
+                Box::pin(async move { Ok(vec![source]) })
+            });
+
+        let mut repository = MockListingSourceRegistrationRepository::new();
+        repository
+            .expect_apply_snapshot()
+            .times(2)
+            .returning(|sources| {
+                let enabled_without_domains = sources.to_vec();
+                Box::pin(async move {
+                    Ok(ListingSourceSnapshotResult {
+                        disabled: 0,
+                        enabled_without_domains,
+                    })
+                })
+            });
+
+        let service = ListingSourceRegistrationService::new(Box::new(source), Box::new(repository));
+        assert!(matches!(service.sync().await, Ok(1)));
+        let first_seen = service.unconfigured.lock().unwrap().first_seen[&unconfigured_id];
+
+        assert!(matches!(service.sync().await, Ok(1)));
+        let tracked = service.unconfigured.lock().unwrap();
+        assert_eq!(tracked.first_seen.len(), 1);
+        assert_eq!(
+            tracked.first_seen[&unconfigured_id], first_seen,
+            "the first observation must survive later syncs so the grace period can elapse"
+        );
     }
 
     #[tokio::test]

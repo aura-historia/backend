@@ -1120,7 +1120,6 @@ async fn scrape_domain_candidates(
     else {
         debug!(
             domain_id = %ctx.domain_id,
-            candidate_count = candidates.len(),
             "Deferring scraper domain - scraper domain lock is currently held"
         );
         outcome.deferred = true;
