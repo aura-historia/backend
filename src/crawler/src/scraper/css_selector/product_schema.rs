@@ -158,7 +158,16 @@ impl ProductCssSelectorSchema {
 
     /// Validates the rules of every schema and returns the first invalid rule.
     pub(crate) fn validate_all(schemas: &[Self]) -> Result<(), ExtractionError> {
-        schemas.iter().try_for_each(Self::validate_rules)
+        Self::validate_all_indexed(schemas).map_err(|(_, error)| error)
+    }
+
+    /// Validates the rules of every schema and returns the first invalid rule together
+    /// with the index of the schema that holds it.
+    pub(crate) fn validate_all_indexed(schemas: &[Self]) -> Result<(), (usize, ExtractionError)> {
+        schemas
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, schema)| schema.validate_rules().map_err(|error| (index, error)))
     }
 
     pub(crate) fn apply_image_url_candidate_groups(

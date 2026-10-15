@@ -1,5 +1,6 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::rule::ExtractionError;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
@@ -98,12 +99,16 @@ enum SinglePageKind {
 ///
 /// Each variant names the offending field and value so retry feedback and logs stay
 /// precise without echoing the prompt, the HTML, or the full response.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub(super) enum ProductListingSchemaResponseValidationError {
     #[error("field `schemas` was empty; at least one product schema is required")]
     InitialEmptySchemas,
-    #[error("field `schemas[{schema_index}]` contained an invalid extraction rule: {detail}")]
-    InvalidProductSchemaRule { schema_index: usize, detail: String },
+    #[error("field `schemas[{schema_index}]` contained an invalid extraction rule: {source}")]
+    InvalidProductSchemaRule {
+        schema_index: usize,
+        #[source]
+        source: ExtractionError,
+    },
     #[error(
         "field `schemas` must contain exactly one schema for page_kind `product`, got {schema_count}"
     )]
@@ -139,23 +144,18 @@ impl ProductListingSchemaResponseValidationError {
 fn validate_schema_rules(
     schemas: &[ProductCssSelectorSchema],
 ) -> Result<(), ProductListingSchemaResponseValidationError> {
-    schemas
-        .iter()
-        .enumerate()
-        .try_for_each(|(schema_index, schema)| {
-            schema.validate_rules().map_err(|error| {
-                ProductListingSchemaResponseValidationError::InvalidProductSchemaRule {
-                    schema_index,
-                    detail: error.to_string(),
-                }
-            })
-        })
+    ProductCssSelectorSchema::validate_all_indexed(schemas).map_err(|(schema_index, source)| {
+        ProductListingSchemaResponseValidationError::InvalidProductSchemaRule {
+            schema_index,
+            source,
+        }
+    })
 }
 
 fn evaluation_from_response(
     confidence: SchemaLlmEvaluationConfidence,
-    summary: &str,
-    risks: &[String],
+    summary: String,
+    risks: Vec<String>,
 ) -> SchemaLlmEvaluation {
     let decision = if confidence == SchemaLlmEvaluationConfidence::High {
         SchemaLlmEvaluationDecision::Approve
@@ -167,8 +167,8 @@ fn evaluation_from_response(
         decision,
         confidence,
         approved_by_llm: false,
-        summary: summary.to_owned(),
-        risks: risks.to_vec(),
+        summary,
+        risks,
     }
 }
 
@@ -195,7 +195,7 @@ impl ProductListingSchemasGenerationResponse {
             return Err(ProductListingSchemaResponseValidationError::InitialEmptySchemas);
         }
         validate_schema_rules(&self.schemas)?;
-        let evaluation = evaluation_from_response(self.confidence, &self.summary, &self.risks);
+        let evaluation = evaluation_from_response(self.confidence, self.summary, self.risks);
         Ok(GeneratedProductSchemas {
             schemas: self.schemas,
             evaluation,
@@ -225,25 +225,18 @@ impl ProductListingSchemaGenerationResponse {
     pub(super) fn try_into_single(
         self,
     ) -> Result<GeneratedSingleSchema, ProductListingSchemaResponseValidationError> {
-        let evaluation = evaluation_from_response(self.confidence, &self.summary, &self.risks);
+        let evaluation = evaluation_from_response(self.confidence, self.summary, self.risks);
         let schema_count = self.schemas.len();
         match self.page_kind.unwrap_or(SinglePageKind::ProductListing) {
             SinglePageKind::ProductListing => {
-                if schema_count != 1 {
-                    return Err(
-                        ProductListingSchemaResponseValidationError::SingleProductSchemaCount {
-                            schema_count,
-                        },
-                    );
-                }
-                validate_schema_rules(&self.schemas)?;
-                let Some(schema) = self.schemas.into_iter().next() else {
+                let Ok([schema]) = <[ProductCssSelectorSchema; 1]>::try_from(self.schemas) else {
                     return Err(
                         ProductListingSchemaResponseValidationError::SingleProductSchemaCount {
                             schema_count,
                         },
                     );
                 };
+                validate_schema_rules(std::slice::from_ref(&schema))?;
                 Ok(GeneratedSingleSchema::ProductListing {
                     schema: Box::new(schema),
                     evaluation,

@@ -1574,7 +1574,9 @@ mod tests {
             );
             let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
             assert_eq!(requests.len(), 2);
-            assert!(requests[1].prompt.contains("invalid_product_schema_rule"));
+            assert!(requests[1].prompt.contains(
+                "invalid_product_schema_rule: field `schemas[0]` contained an invalid extraction rule:"
+            ));
         }
     }
 
