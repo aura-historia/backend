@@ -127,7 +127,10 @@ mod tests {
             "listing_source_name": "Aster Antiques",
             "title": "Bronze Vase",
             "image_url": "https://images.example.test/bronze-vase.jpg",
-            "product_listing_url": "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "product_listing_url": "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
+            "home_url": "https://aura-historia.com/en",
+            "watchlist_url": "https://aura-historia.com/en/me/watchlist",
+            "search_filter_url": "https://aura-historia.com/en/me/search-filter/a1b2c3d4",
             "view_url": "https://merchant.example.test/products/bronze-vase",
             "search_filter_id": "a1b2c3d4",
             "search_filter_name": "Art Nouveau",
@@ -169,9 +172,10 @@ mod tests {
             "Aster Antiques",
             "Bronze Vase",
             "https://images.example.test/bronze-vase.jpg",
-            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en\"",
             "https://merchant.example.test/products/bronze-vase",
-            "a1b2c3d4",
+            "https://aura-historia.com/en/me/search-filter/a1b2c3d4",
             "Art Nouveau",
         ];
         const AVAILABILITY_MARKERS: &[&str] = &[
@@ -179,8 +183,10 @@ mod tests {
             "Aster Antiques",
             "Bronze Vase",
             "https://images.example.test/bronze-vase.jpg",
-            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en\"",
             "https://merchant.example.test/products/bronze-vase",
+            "https://aura-historia.com/en/me/watchlist",
             "Available",
             "In stock",
         ];
@@ -189,8 +195,10 @@ mod tests {
             "Aster Antiques",
             "Bronze Vase",
             "https://images.example.test/bronze-vase.jpg",
-            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
+            "https://aura-historia.com/en\"",
             "https://merchant.example.test/products/bronze-vase",
+            "https://aura-historia.com/en/me/watchlist",
             "100,00 €",
             "90,00 €",
         ];
@@ -282,5 +290,131 @@ mod tests {
                 required_markers: PRICE_MARKERS,
             },
         ]
+    }
+
+    const PARTNERSHIP_TEMPLATES: [(&str, &str); 10] = [
+        (
+            "approval/de",
+            include_str!("../../../mjml/partnership-application/approval/de.mjml"),
+        ),
+        (
+            "approval/en",
+            include_str!("../../../mjml/partnership-application/approval/en.mjml"),
+        ),
+        (
+            "approval/es",
+            include_str!("../../../mjml/partnership-application/approval/es.mjml"),
+        ),
+        (
+            "approval/fr",
+            include_str!("../../../mjml/partnership-application/approval/fr.mjml"),
+        ),
+        (
+            "approval/it",
+            include_str!("../../../mjml/partnership-application/approval/it.mjml"),
+        ),
+        (
+            "rejection/de",
+            include_str!("../../../mjml/partnership-application/rejection/de.mjml"),
+        ),
+        (
+            "rejection/en",
+            include_str!("../../../mjml/partnership-application/rejection/en.mjml"),
+        ),
+        (
+            "rejection/es",
+            include_str!("../../../mjml/partnership-application/rejection/es.mjml"),
+        ),
+        (
+            "rejection/fr",
+            include_str!("../../../mjml/partnership-application/rejection/fr.mjml"),
+        ),
+        (
+            "rejection/it",
+            include_str!("../../../mjml/partnership-application/rejection/it.mjml"),
+        ),
+    ];
+
+    #[test]
+    fn should_render_every_partnership_template_with_delivery_contract_data()
+    -> Result<(), NotificationChannelSendError> {
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        let data = json!({
+            "first_name": "Ada",
+            "party_name": "Aster Antiques GmbH",
+            "listing_source_name": "aster-antiques.example",
+            "image_url": null,
+            "home_url": "https://aura-historia.com/en",
+            "partner_dashboard_url": "https://aura-historia.com/en/partners/applications",
+            "notification_type": "partnership_application_approval",
+        });
+
+        for (path, template) in PARTNERSHIP_TEMPLATES {
+            let rendered = render_template(&handlebars, template, &data)?;
+            assert!(
+                !rendered.contains("{{"),
+                "{path} left an unresolved expression"
+            );
+            for marker in ["Ada", "Aster Antiques GmbH", "aster-antiques.example"] {
+                assert!(
+                    rendered.contains(marker),
+                    "{path} did not render {marker:?}"
+                );
+            }
+            assert_eq!(
+                path.starts_with("approval"),
+                rendered.contains("https://aura-historia.com/en/partners/applications"),
+                "{path} links the partner dashboard only on approval"
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case("en", 1, 1, "1 new match", "in 1 listing")]
+    #[case("en", 3, 1, "3 new matches", "in 1 listing")]
+    #[case("en", 3, 2, "3 new matches", "across 2 listings")]
+    #[case("de", 1, 1, "1 neuer Treffer", "in 1 Angebot")]
+    #[case("de", 3, 2, "3 neue Treffer", "in 2 Angeboten")]
+    #[case("fr", 1, 1, "1 nouveau résultat", "dans 1 annonce")]
+    #[case("fr", 3, 2, "3 nouveaux résultats", "parmi 2 annonces")]
+    #[case("es", 1, 1, "1 nuevo resultado", "en 1 anuncio")]
+    #[case("es", 3, 2, "3 nuevos resultados", "en 2 anuncios")]
+    #[case("it", 1, 1, "1 nuovo risultato", "in 1 annuncio")]
+    #[case("it", 3, 2, "3 nuovi risultati", "in 2 annunci")]
+    fn should_pluralize_digest_counts(
+        #[case] language: &str,
+        #[case] match_count: u64,
+        #[case] listing_count: u64,
+        #[case] matches: &str,
+        #[case] listings: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let template = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../mjml/search-filter/digest/{language}.mjml")),
+        )?;
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        let rendered = render_template(
+            &handlebars,
+            &template,
+            &json!({
+                "first_name": null,
+                "home_url": "https://aura-historia.com/en",
+                "match_count": match_count,
+                "listing_count": listing_count,
+                "preview_count": listing_count,
+                "preview_limit": 20,
+                "has_more": false,
+                "groups": [{ "id": "f1", "name": "Art Nouveau", "url": "https://aura-historia.com/en/me/search-filter/f1", "match_count": match_count }],
+                "listings": [],
+                "results_url": "https://aura-historia.com/en/me/search-filters",
+                "settings_url": "https://aura-historia.com/en/me/search-filters",
+            }),
+        )?;
+        assert!(rendered.contains(&format!("{matches} <em>{listings}.</em>")));
+        assert!(!rendered.contains("{{"));
+        Ok(())
     }
 }

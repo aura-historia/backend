@@ -285,6 +285,8 @@ impl SesNewsletterConfirmationEmailSender {
             return Err(PreparationFailure::TemplateInvalid);
         }
         let url = self.confirmation_url(language, &email.token)?;
+        let mut home_url = self.config.frontend_origin.clone();
+        home_url.set_path(language.code());
         let mut handlebars = Handlebars::new();
         handlebars.set_strict_mode(true);
         let body = handlebars
@@ -293,6 +295,7 @@ impl SesNewsletterConfirmationEmailSender {
                 &serde_json::json!({
                     "confirmation_url": url.as_str(),
                     "first_name": email.profile.first_name.as_ref().map(AsRef::as_ref),
+                    "home_url": home_url.as_str(),
                 }),
             )
             .map_err(|_| PreparationFailure::TemplateInvalid)?;

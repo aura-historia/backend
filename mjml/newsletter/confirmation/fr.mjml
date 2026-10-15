@@ -30,7 +30,7 @@
     <mj-wrapper>
     <mj-section background-color="#170D0E" padding="30px 40px" border-radius="14px 14px 0 0">
       <mj-column>
-        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="https://aura-historia.com" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">NEWSLETTER</td></tr></table></mj-text>
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="{{home_url}}" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">NEWSLETTER</td></tr></table></mj-text>
       </mj-column>
     </mj-section>
     <mj-section padding="44px 40px 48px">
@@ -58,7 +58,7 @@
         <mj-text font-size="14px" color="#D8CABE">
           <div style="padding-bottom:10px;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:20px;line-height:1;letter-spacing:0.22em;color:#F4EEE3;">AURA HISTORIA</div>
           <div style="padding-bottom:16px;">Le marché mondial des antiquités, en une seule recherche.</div>
-          <div style="padding-bottom:22px;line-height:2;"><a href="https://aura-historia.com" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
+          <div style="padding-bottom:22px;line-height:2;"><a href="{{home_url}}" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
           <div style="border-top:1px solid #362D2C;padding-top:22px;font-size:12px;color:#A8988D;">
             <div style="padding-bottom:10px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#D8CABE;">MENTIONS LÉGALES</div>
             <div style="padding-bottom:10px;">Nom commercial&nbsp;: Aura Historia &middot; Titulaire&nbsp;: Julian Bruder Einzelunternehmen<br />Adresse&nbsp;: Hardenbergstraße 80, 04275 Leipzig, Allemagne<br />Contact&nbsp;: contact@aura-historia.com &middot; Numéro de TVA&nbsp;: demandé</div>

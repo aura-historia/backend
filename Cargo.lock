@@ -5069,6 +5069,7 @@ dependencies = [
  "notification-core",
  "notification-email",
  "notification-service",
+ "partnership-core",
  "party-core",
  "product-listing-core",
  "rstest",

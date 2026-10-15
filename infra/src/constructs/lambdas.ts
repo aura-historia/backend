@@ -672,11 +672,17 @@ function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<st
   };
 }
 
+/** Web app origin that emails link to. */
+function frontendOrigin(config: StageConfig): string {
+  return config.isProd ? "https://aura-historia.com" : "https://stage.aura-historia.com";
+}
+
 function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     COMMIT_SHA: context.commitSha,
     NOTIFICATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
+    NOTIFICATION_EMAIL_FRONTEND_ORIGIN: frontendOrigin(context.config),
     NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
     STAGE: context.config.stage,
@@ -711,9 +717,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
     NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
-    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: config.isProd
-      ? "https://aura-historia.com"
-      : "https://stage.aura-historia.com",
+    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: frontendOrigin(config),
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
     STAGE: config.stage,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,

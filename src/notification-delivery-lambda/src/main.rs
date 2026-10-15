@@ -114,6 +114,7 @@ fn email_config_from_env(
         required_env("NOTIFICATION_EMAIL_CONFIGURATION_SET")?,
         required_env("STAGE")?,
         required_env("COMMIT_SHA")?,
+        &required_env("NOTIFICATION_EMAIL_FRONTEND_ORIGIN")?,
     )?)
 }
 
@@ -132,6 +133,7 @@ mod tests {
             CONFIGURATION_SET_ENV => "aura-historia-test-email",
             "STAGE" => "test",
             "COMMIT_SHA" => "test-commit",
+            "NOTIFICATION_EMAIL_FRONTEND_ORIGIN" => "https://stage.aura-historia.com",
             _ => return Err(std::env::VarError::NotPresent),
         }
         .to_owned())
