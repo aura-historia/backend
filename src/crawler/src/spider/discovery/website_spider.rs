@@ -6,6 +6,7 @@ use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
 use spider::utils::auto_throttle::AutoThrottleConfig;
 use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -145,6 +146,9 @@ pub struct CrawlDiagnostics {
     /// Links Spider refused because of robots.txt.
     pub robots_blocked: usize,
     pub first_robots_blocked_url: Option<String>,
+    /// The robots.txt request itself was refused (401/403), which Spider
+    /// treats as "disallow everything".
+    pub robots_denied: bool,
     /// Pages dropped because the local filter fell behind Spider's broadcast.
     pub lagged: u64,
 }
@@ -179,6 +183,9 @@ pub enum SpiderDiscoveryError {
     /// Operator or build misconfiguration; not a property of the crawled domain.
     #[error("Spider configuration error: {0}")]
     Config(String),
+    /// The HTTP client could not be built; not a property of the crawled domain.
+    #[error("failed to build the spider HTTP client")]
+    Client(#[source] BoxError),
     /// The crawl root could not be established before Spider started.
     #[error("Spider preflight failed ({kind}): {reason}")]
     Preflight {
@@ -400,12 +407,16 @@ fn classify_spider_reqwest_error(error: &spider::reqwest::Error) -> NetworkError
 }
 
 /// reqwest reports TLS handshake failures as connect errors; the certificate
-/// detail only survives in the error chain text.
-fn is_tls_failure(error: &spider::reqwest::Error) -> bool {
-    let detail = format!("{error:?}").to_ascii_lowercase();
-    ["certificate", "tls", "handshake"]
-        .iter()
-        .any(|needle| detail.contains(needle))
+/// detail only survives in the messages of the underlying error chain. Only
+/// the sources are inspected: the top-level message embeds the request URL,
+/// which must not be able to trigger this classification.
+fn is_tls_failure(error: &dyn std::error::Error) -> bool {
+    std::iter::successors(error.source(), |source| source.source()).any(|source| {
+        let detail = source.to_string().to_ascii_lowercase();
+        ["certificate", "tls", "handshake"]
+            .iter()
+            .any(|needle| detail.contains(needle))
+    })
 }
 
 struct PreflightAttemptError {
@@ -432,9 +443,7 @@ fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptErr
         }
         SpiderTransportError::Client(client_error) => PreflightAttemptError {
             retryable: false,
-            error: SpiderDiscoveryError::Config(format!(
-                "failed to build the spider HTTP client: {client_error}"
-            )),
+            error: SpiderDiscoveryError::Client(Box::new(client_error)),
         },
     }
 }
@@ -569,10 +578,10 @@ impl RetryStrategy for TruncationAwareRetry {
 struct LibraryOutcome {
     status: CrawlStatus,
     meta: WebsiteMetaInfo,
-    initial_status: u16,
     initial_html_length: usize,
     initial_should_retry: bool,
     initial_anti_bot: AntiBotTech,
+    robots_denied: bool,
 }
 
 #[derive(Default)]
@@ -659,10 +668,13 @@ impl SpiderImpl {
             let outcome = LibraryOutcome {
                 status: *website.get_status(),
                 meta: *website.get_website_meta_info(),
-                initial_status: website.get_initial_status_code().as_u16(),
                 initial_html_length: website.get_initial_html_length(),
                 initial_should_retry: website.get_initial_page_should_retry(),
                 initial_anti_bot: *website.get_initial_anti_bot_tech(),
+                robots_denied: website
+                    .get_robots_parser()
+                    .as_ref()
+                    .is_some_and(|robots| robots.disallow_all),
             };
             website.unsubscribe();
             let _ = outcome_tx.send(outcome);
@@ -677,15 +689,37 @@ impl SpiderImpl {
             let mut first_page_seen = false;
             let configured_root = Url::parse(&crawl_root_url).ok();
             let mut root_redirect_rejected = false;
+            // Accepted URLs wait here instead of blocking the broadcast
+            // subscription: Spider's 512-slot broadcast drops pages once the
+            // subscriber falls behind, while this queue only holds small
+            // normalized URLs and is bounded by the crawl page budget.
+            let mut pending: VecDeque<CrawledPage> = VecDeque::new();
+            let mut broadcast_open = true;
 
-            loop {
-                let page = match spider_rx.recv().await {
-                    Ok(page) => page,
-                    Err(RecvError::Lagged(skipped)) => {
-                        diagnostics.lagged += skipped;
-                        continue;
-                    }
-                    Err(RecvError::Closed) => break,
+            while broadcast_open || !pending.is_empty() {
+                let page = ::tokio::select! {
+                    biased;
+                    received = spider_rx.recv(), if broadcast_open => match received {
+                        Ok(page) => page,
+                        Err(RecvError::Lagged(skipped)) => {
+                            diagnostics.lagged += skipped;
+                            continue;
+                        }
+                        Err(RecvError::Closed) => {
+                            broadcast_open = false;
+                            continue;
+                        }
+                    },
+                    permit = tx.reserve(), if !pending.is_empty() => match permit {
+                        Ok(permit) => {
+                            if let Some(next) = pending.pop_front() {
+                                permit.send(next);
+                            }
+                            continue;
+                        }
+                        // The consumer is gone; nothing left to deliver.
+                        Err(_) => break,
+                    },
                 };
                 diagnostics.pages_received += 1;
 
@@ -739,10 +773,7 @@ impl SpiderImpl {
                 }
                 bloom.set(&normalized_str);
                 diagnostics.accepted += 1;
-
-                if tx.send(CrawledPage { url: normalized }).await.is_err() {
-                    break;
-                }
+                pending.push_back(CrawledPage { url: normalized });
             }
 
             diagnostics.robots_blocked = robots_blocked.count.load(Ordering::Relaxed);
@@ -854,9 +885,7 @@ fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSi
 }
 
 fn apply_library_outcome(diagnostics: &mut CrawlDiagnostics, outcome: LibraryOutcome) {
-    if diagnostics.http_status.is_none() && outcome.initial_status != 0 {
-        diagnostics.http_status = Some(outcome.initial_status);
-    }
+    diagnostics.robots_denied = outcome.robots_denied;
     diagnostics.initial_html_length = Some(outcome.initial_html_length);
     diagnostics.initial_should_retry = outcome.initial_should_retry;
     diagnostics.initial_anti_bot = (outcome.initial_anti_bot != AntiBotTech::None)
@@ -878,14 +907,20 @@ fn apply_website_status(
     }
 }
 
-/// Distinguishes "robots.txt blocked the crawl root" and "Spider delivered
-/// pages but local filtering accepted none" from a genuinely empty library
-/// response. Library signals keep precedence.
+/// Distinguishes "the site refused the robots.txt request", "robots.txt
+/// blocked the crawl root" and "Spider delivered pages but local filtering
+/// accepted none" from a genuinely empty library response. Library signals
+/// keep precedence.
 fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
     if diagnostics.failure_kind.is_some() {
         return;
     }
-    if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
+    if diagnostics.pages_received == 0 && diagnostics.robots_denied {
+        diagnostics.apply_signal(DiagnosticSignal::new(
+            CrawlFailureKind::AccessDenied,
+            "robots_txt_request_denied",
+        ));
+    } else if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::RobotsBlocked,
             "robots_blocked_crawl_root",
@@ -1439,9 +1474,15 @@ mod tests {
 
     #[tokio::test]
     async fn should_report_robots_blocked_root_instead_of_empty_crawl() {
-        for robots in [
-            SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /\n".to_string()),
-            SiteResponse::Html("403 Forbidden", String::new()),
+        for (robots, expected_kind) in [
+            (
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /\n".to_string()),
+                CrawlFailureKind::RobotsBlocked,
+            ),
+            (
+                SiteResponse::Html("403 Forbidden", String::new()),
+                CrawlFailureKind::AccessDenied,
+            ),
         ] {
             let site = TestSite::spawn(Arc::new(move |target: &str, previous: usize| {
                 if target == "/robots.txt" {
@@ -1460,7 +1501,7 @@ mod tests {
             assert!(discovered.is_empty(), "{diagnostics:?}");
             assert_eq!(
                 diagnostics.failure_kind,
-                Some(CrawlFailureKind::RobotsBlocked),
+                Some(expected_kind),
                 "{diagnostics:?}"
             );
             assert_eq!(diagnostics.pages_received, 0);
@@ -1471,7 +1512,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_keep_consuming_after_broadcast_lag() {
+    async fn should_not_lose_pages_while_the_consumer_is_slow() {
         const LINKS: usize = 700;
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| {
             if target == "/" {
@@ -1500,9 +1541,20 @@ mod tests {
             .await
             .unwrap();
 
-        // Let Spider finish while nobody drains the page channel so the
-        // 512-slot broadcast overflows.
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        // Let Spider finish the whole site (well past the 512-slot broadcast
+        // capacity) while nobody drains the page channel.
+        let served = |site: &TestSite| {
+            let requests = site.requests.clone();
+            async move { requests.lock().await.len() }
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while served(&site).await < LINKS + 2 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "site never finished"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
         let mut received = 0usize;
         while pages.recv().await.is_some() {
             received += 1;
@@ -1510,12 +1562,10 @@ mod tests {
         let diagnostics = diagnostics.await.unwrap();
         site.finish().await;
 
-        assert!(diagnostics.lagged > 0, "expected lag: {diagnostics:?}");
+        assert_eq!(diagnostics.lagged, 0, "broadcast lagged: {diagnostics:?}");
+        assert_eq!(diagnostics.pages_received, LINKS + 1, "{diagnostics:?}");
+        assert_eq!(received, LINKS + 1);
         assert_eq!(received, diagnostics.accepted);
-        assert!(
-            diagnostics.pages_received + diagnostics.lagged as usize >= LINKS,
-            "pages were lost beyond the lag count: {diagnostics:?}"
-        );
         assert!(diagnostics.failure_kind.is_none());
     }
 
@@ -1614,11 +1664,17 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
         let client = spider_client_builder(Duration::from_secs(2))
-            .resolve("example.com", addr)
+            .resolve("tls-handshake.example", addr)
             .build()
             .unwrap();
 
-        let refused = client.get("http://example.com/").send().await.unwrap_err();
+        // The host name deliberately contains the TLS needles: the request URL
+        // in the top-level message must never classify a connect failure as TLS.
+        let refused = client
+            .get("http://tls-handshake.example/certificate")
+            .send()
+            .await
+            .unwrap_err();
 
         // Windows may surface a refused loopback connection as a timeout.
         assert!(matches!(
@@ -1636,6 +1692,50 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[derive(Debug)]
+    struct ChainedError {
+        message: &'static str,
+        source: Option<Box<ChainedError>>,
+    }
+
+    impl std::fmt::Display for ChainedError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.message)
+        }
+    }
+
+    impl std::error::Error for ChainedError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source
+                .as_deref()
+                .map(|source| source as &(dyn std::error::Error + 'static))
+        }
+    }
+
+    #[test]
+    fn should_detect_tls_failures_only_in_the_error_source_chain() {
+        let tls = ChainedError {
+            message: "error sending request for url (https://shop.example/)",
+            source: Some(Box::new(ChainedError {
+                message: "client error (Connect)",
+                source: Some(Box::new(ChainedError {
+                    message: "invalid peer certificate: UnknownIssuer",
+                    source: None,
+                })),
+            })),
+        };
+        assert!(is_tls_failure(&tls));
+
+        let url_only = ChainedError {
+            message: "error sending request for url (https://tls-handshake.example/)",
+            source: Some(Box::new(ChainedError {
+                message: "tcp connect error: connection refused",
+                source: None,
+            })),
+        };
+        assert!(!is_tls_failure(&url_only));
     }
 
     #[test]
@@ -1713,11 +1813,36 @@ mod tests {
         LibraryOutcome {
             status,
             meta,
-            initial_status: 0,
             initial_html_length: 0,
             initial_should_retry: false,
             initial_anti_bot: AntiBotTech::None,
+            robots_denied: false,
         }
+    }
+
+    #[test]
+    fn should_report_refused_robots_request_as_access_denied() {
+        let mut diagnostics = CrawlDiagnostics {
+            robots_blocked: 1,
+            ..CrawlDiagnostics::default()
+        };
+        apply_library_outcome(
+            &mut diagnostics,
+            LibraryOutcome {
+                robots_denied: true,
+                ..library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None)
+            },
+        );
+        apply_local_filter_outcome(&mut diagnostics);
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::AccessDenied)
+        );
+        assert_eq!(
+            diagnostics.diagnostic_reason.as_deref(),
+            Some("robots_txt_request_denied")
+        );
     }
 
     #[test]
@@ -1771,14 +1896,15 @@ mod tests {
             LibraryOutcome {
                 status: CrawlStatus::Blocked,
                 meta: WebsiteMetaInfo::None,
-                initial_status: 403,
                 initial_html_length: 1_234,
                 initial_should_retry: true,
                 initial_anti_bot: AntiBotTech::DataDome,
+                robots_denied: false,
             },
         );
 
-        assert_eq!(diagnostics.http_status, Some(403));
+        // The status comes only from an actually delivered page.
+        assert_eq!(diagnostics.http_status, None);
         assert_eq!(diagnostics.initial_html_length, Some(1_234));
         assert!(diagnostics.initial_should_retry);
         assert_eq!(diagnostics.initial_anti_bot.as_deref(), Some("DataDome"));

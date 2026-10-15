@@ -224,6 +224,7 @@ fn spawn_spider_candidate(
                             rejected_duplicate = diagnostics.rejected_duplicate,
                             robots_blocked = diagnostics.robots_blocked,
                             first_robots_blocked_url = ?diagnostics.first_robots_blocked_url,
+                            robots_denied = diagnostics.robots_denied,
                             lagged = diagnostics.lagged,
                             next_crawl_at = %next_crawl_at,
                             cooldown_seconds = cooldown.as_secs(),
