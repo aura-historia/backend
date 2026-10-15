@@ -567,6 +567,9 @@ mod tests {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Config(
                 "SPIDER_MAX_SIZE_BYTES must be set".to_string(),
             )),
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Client(
+                application::error::static_error("tls backend unavailable"),
+            )),
         ] {
             assert_eq!(error_kind_for_spider_error(&error), "spider_run_error");
             assert_eq!(

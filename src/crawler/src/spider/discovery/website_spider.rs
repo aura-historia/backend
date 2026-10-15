@@ -697,6 +697,10 @@ impl SpiderImpl {
             let mut broadcast_open = true;
 
             while broadcast_open || !pending.is_empty() {
+                // The consumer is gone; nothing left to deliver.
+                if tx.is_closed() {
+                    break;
+                }
                 let page = ::tokio::select! {
                     biased;
                     received = spider_rx.recv(), if broadcast_open => match received {
@@ -712,12 +716,9 @@ impl SpiderImpl {
                     },
                     permit = tx.reserve(), if !pending.is_empty() => match permit {
                         Ok(permit) => {
-                            if let Some(next) = pending.pop_front() {
-                                permit.send(next);
-                            }
+                            permit.send(pending.pop_front().expect("guarded by the select precondition"));
                             continue;
                         }
-                        // The consumer is gone; nothing left to deliver.
                         Err(_) => break,
                     },
                 };
