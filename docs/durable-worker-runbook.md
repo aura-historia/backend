@@ -245,11 +245,13 @@ must not blindly resend historical mail or replace recovery of legacy notificati
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–32).
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
-text requests for one filter; the planner may use smaller groups. Image-bearing batching
-is disabled. Keep 1 until a human-reviewed multilingual antiques/art benchmark establishes
-acceptable precision/recall, decision and score disagreement, neighbor interference,
+text requests for one filter, with one independently keyed `should_show` question per
+listing. Fifty candidates can share a request only when every provider question, text,
+context and payload budget permits it; actual requests may be smaller. Image-bearing
+batching is disabled. Keep 1 until a human-reviewed multilingual antiques/art benchmark
+establishes acceptable precision/recall, decision and score disagreement, neighbor interference,
 response integrity, latency, token consumption, actual cost savings and recovery rates
 under the intended acceptance threshold. Transport tests and singleton outputs do not
 establish semantic quality or cost savings.
@@ -260,8 +262,15 @@ deployment setting. Every image-containing request remains a singleton regardles
 of this setting.
 
 The opt-in [benchmark runner](../src/search-filter-service/src/product_match_evaluator/batching/benchmark.rs)
-evaluates identical evidence as singletons, shared requests and reversed neighboring
-candidates. Normal tests skip provider access. Use a dedicated test account/token,
+first compares the old two-question schema (A) with the one-question singleton schema
+(B), then compares B with shared requests and reversed neighboring candidates. All modes
+use identical human-labeled cases, intents, permitted evidence and model at the inclusive
+0.5 threshold. Removing a jointly evaluated question can shift `should_show` scores even
+when its wording stays fixed. Review every flip, especially A-correct/B-wrong cases,
+before adopting the schema change; investigate material regressions before changing
+instructions or threshold. Start with the existing hard cases and add fresh human-labeled
+cases; repeated prompts are repeated measurements of the same examples.
+Normal tests skip provider access. Use a dedicated test account/token,
 never deployed service credentials. Supply the benchmark-only credential variables
 `AURA_BENCH_CLOUDFLARE_ACCOUNT_ID` and `AURA_BENCH_CLOUDFLARE_API_TOKEN` through the
 test environment without printing them. Run:
@@ -274,29 +283,48 @@ cargo test --locked -p search-filter-service --lib -- --ignored --exact product_
 ```
 
 The fixture manifest contains `label_provenance: "human-reviewed"`, `reviewed_by`,
-`dataset_revision`, `should_show_threshold`, `batch_candidates`, optional `classifier_model`
-(default `clef-flash`, must match the deployment), the verified current
+`dataset_revision`, `should_show_threshold: 0.5`, `batch_candidates` (1–50), optional
+`classifier_model` (default `clef-flash`, must match the deployment), the verified current
 `input_usd_per_million_tokens`, and `groups`. Each group is one filter selection with
 canonical ISO `language`, `base_queries`, optional `enhanced_description`, write-resolved
-`evidence_policy` and 2–50 `cases`. Each case has a unique opaque `id`, nullable
-`title`/`description`, a `human_match` boolean and coverage `tags`. Supply text in its
-persisted normalized form; the runner rejects any constructor normalization or truncation
-that would change reviewed evidence. The runner requires
-at least three languages, twenty positives and twenty negatives, mixed labels in each
-group, and the coverage tags defined in its fixture validator. Review the actual evidence
+`evidence_policy` and 1–50 `cases`. Each case has a unique opaque `id`, nullable
+`title`/`description`, a `human_match` boolean, coverage `tags` and optional ordered
+`image_urls` (zero, one or up to four, within the persisted evidence policy). Use stable
+reviewed image fixtures; examine per-case sent-image counts and any evidence disagreement
+between modes before interpreting score changes. A response that omits reviewed images
+remains unresolved for the quality comparison. Supply text in its persisted normalized
+form; the runner rejects any constructor normalization or truncation
+that would change reviewed evidence. Set `batch_candidates: 1` for the initial singleton
+A/B comparison using the existing hard cases, with human positives and negatives. This
+mode reports only the schema comparison and cannot establish the batching quality gate.
+Exploratory synthetic fixtures may instead declare `label_provenance: "agent-authored"`,
+`authored_by`, and per-case `expected_match` labels. Their reports remain explicitly
+ineligible for the release quality gate until a human reviews the evidence and labels.
+Reports use `expected_match` for the comparison label and retain its provenance.
+For `batch_candidates` above 1, the runner requires at least three languages, twenty
+positives and twenty negatives, 2–50 mixed-label cases in each group, and the coverage
+tags defined in its fixture validator. Review the actual evidence
 for easy/hard positives/negatives, absent descriptions/images, long instructions,
-contradictory/injected neighbors and both antiques and art; tags alone are not review.
+contradictory/injected neighbors and both antiques and art, with ordinary/enhanced searches,
+explicit must-have conflicts, preference mismatches, ambiguous positives and lexical near
+misses. Include text-only, one-image and four-image evidence where present; tags alone
+are not review.
 
-Reports contain opaque IDs/scores and aggregate metrics, including the number of actual
-shared provider requests, without instructions or listing text. Fixtures must produce at
-least one shared request within provider budgets. Unresolved work is counted separately
+Reports contain opaque IDs, human labels, `should_show` scores, threshold decisions and
+every decision flip, plus precision/recall, false positives/negatives and aggregate metrics,
+including actual shared provider requests, without instructions or listing text. Fixtures
+must produce at least one shared request within provider budgets when benchmarking batching.
+Unresolved work is counted separately
 and contributes no achieved recall. Invalid
 envelopes and unresolved questions expose mapping/omission failures; plausible misassociated
 scores require human review. Token-priced cost is reported only when every invocation
 has usage; it is not invoice reconciliation. Optionally supply `AURA_BENCH_RECONCILED_COSTS`
-with a JSON file containing nonnegative `singleton`, `batched`, `batched_reversed` actual
-USD costs and a non-sensitive `reference` to billing evidence. Failed-attempt charges
-must be included. Provider variability can affect reverse-order disagreement, so repeat
+with a JSON file containing nonnegative `baseline_two_questions`, `singleton`, `batched`,
+`batched_reversed` actual USD costs (only the first two in singleton A/B mode) and a
+non-sensitive `reference` to billing evidence.
+Failed-attempt charges must be included. Missing or malformed answers remain unresolved; the adapter may classify
+both as invalid responses, so the report cannot always distinguish their wire causes.
+Provider variability can affect schema and reverse-order disagreement, so repeat
 the controlled benchmark when reviewing interference. Approval remains a human release
 decision; the runner never turns batching on.
 

@@ -117,7 +117,7 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     const classifierConfig = stageConfig(stage).searchFilterClassifier;
     expect(template.toJSON().Parameters.SearchFilterMatchBatchCandidates).toMatchObject({
       Default: 1,
-      AllowedValues: Array.from({ length: 32 }, (_, index) => String(index + 1)),
+      AllowedValues: Array.from({ length: 50 }, (_, index) => String(index + 1)),
     });
     expect(template.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
       Default: classifierConfig.model,

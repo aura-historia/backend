@@ -1,0 +1,339 @@
+{
+  "experiment_date": "2026-10-15",
+  "model": "clef-flash",
+  "dataset_revision": "synthetic-text-v1-2026-10-15",
+  "unique_cases": 100,
+  "languages": [
+    "en",
+    "de",
+    "fr",
+    "es"
+  ],
+  "provisional_positives": 50,
+  "provisional_negatives": 50,
+  "label_provenance": "agent-authored",
+  "human_reviewed": false,
+  "labels_authored_before_provider_results": true,
+  "evidence_scope": "Text only; no image evidence tested",
+  "repetitions": 3,
+  "same_scores_across_repetitions": true,
+  "statistical_note": "Three measurements of the same 100 synthetic cases; not 300 independent examples",
+  "configured_batch_candidates": 50,
+  "threshold_inclusive": 0.5,
+  "metrics_per_run": {
+    "baseline_two_questions": {
+      "precision": 1.0,
+      "recall_including_unresolved": 0.92,
+      "true_positive": 46,
+      "true_negative": 50,
+      "false_positive": 0,
+      "false_negative": 4,
+      "unresolved_candidates": 0,
+      "provider_requests": 100,
+      "fallback_requests": 0,
+      "failed_requests": 0,
+      "known_input_tokens": 62816,
+      "token_priced_cost_usd": 0.002387008,
+      "largest_request_candidates": 1,
+      "request_candidate_counts": {
+        "1": 100
+      }
+    },
+    "singleton": {
+      "precision": 1.0,
+      "recall_including_unresolved": 0.94,
+      "true_positive": 47,
+      "true_negative": 50,
+      "false_positive": 0,
+      "false_negative": 3,
+      "unresolved_candidates": 0,
+      "provider_requests": 100,
+      "fallback_requests": 0,
+      "failed_requests": 0,
+      "known_input_tokens": 51316,
+      "token_priced_cost_usd": 0.001950008,
+      "largest_request_candidates": 1,
+      "request_candidate_counts": {
+        "1": 100
+      }
+    },
+    "batched": {
+      "precision": 0.9767441860465116,
+      "recall_including_unresolved": 0.84,
+      "true_positive": 42,
+      "true_negative": 49,
+      "false_positive": 1,
+      "false_negative": 8,
+      "unresolved_candidates": 0,
+      "provider_requests": 5,
+      "fallback_requests": 0,
+      "failed_requests": 0,
+      "known_input_tokens": 21278,
+      "token_priced_cost_usd": 0.000808564,
+      "largest_request_candidates": 38,
+      "request_candidate_counts": {
+        "10": 1,
+        "12": 1,
+        "20": 2,
+        "38": 1
+      }
+    },
+    "batched_reversed": {
+      "precision": 0.9555555555555556,
+      "recall_including_unresolved": 0.86,
+      "true_positive": 43,
+      "true_negative": 48,
+      "false_positive": 2,
+      "false_negative": 7,
+      "unresolved_candidates": 0,
+      "provider_requests": 5,
+      "fallback_requests": 0,
+      "failed_requests": 0,
+      "known_input_tokens": 21278,
+      "token_priced_cost_usd": 0.000808564,
+      "largest_request_candidates": 38,
+      "request_candidate_counts": {
+        "10": 1,
+        "12": 1,
+        "20": 2,
+        "38": 1
+      }
+    }
+  },
+  "decision_comparisons_per_run": {
+    "schema_comparison": {
+      "compared_candidates": 100,
+      "decision_disagreement": 0.01,
+      "decision_flips": [
+        {
+          "expected_match": true,
+          "id": "fr-003",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.4515,
+          "right_decision": true,
+          "right_should_show": 0.6138
+        }
+      ],
+      "image_evidence_disagreement": [],
+      "should_show_max_absolute_delta": 0.1623,
+      "should_show_mean_absolute_delta": 0.043748999999999996
+    },
+    "singleton_comparison": {
+      "compared_candidates": 100,
+      "decision_disagreement": 0.1,
+      "decision_flips": [
+        {
+          "expected_match": true,
+          "id": "en-011",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.8869,
+          "right_decision": false,
+          "right_should_show": 0.2749
+        },
+        {
+          "expected_match": true,
+          "id": "en-015",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.91,
+          "right_decision": false,
+          "right_should_show": 0.1641
+        },
+        {
+          "expected_match": true,
+          "id": "en-016",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.8971,
+          "right_decision": false,
+          "right_should_show": 0.4457
+        },
+        {
+          "expected_match": true,
+          "id": "en-017",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.8766,
+          "right_decision": false,
+          "right_should_show": 0.4769
+        },
+        {
+          "expected_match": true,
+          "id": "en-020",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.672,
+          "right_decision": false,
+          "right_should_show": 0.3849
+        },
+        {
+          "expected_match": true,
+          "id": "en-023",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.8716,
+          "right_decision": false,
+          "right_should_show": 0.3135
+        },
+        {
+          "expected_match": false,
+          "id": "en-041",
+          "left_correct_right_wrong": true,
+          "left_decision": false,
+          "left_should_show": 0.1664,
+          "right_decision": true,
+          "right_should_show": 0.6492
+        },
+        {
+          "expected_match": true,
+          "id": "es-005",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.8246,
+          "right_decision": false,
+          "right_should_show": 0.3196
+        },
+        {
+          "expected_match": true,
+          "id": "fr-006",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.4776,
+          "right_decision": true,
+          "right_should_show": 0.7194
+        },
+        {
+          "expected_match": true,
+          "id": "fr-007",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.3536,
+          "right_decision": true,
+          "right_should_show": 0.5737
+        }
+      ],
+      "image_evidence_disagreement": [],
+      "should_show_max_absolute_delta": 0.7459,
+      "should_show_mean_absolute_delta": 0.11013500000000002
+    },
+    "neighbor_order_interference": {
+      "compared_candidates": 100,
+      "decision_disagreement": 0.1,
+      "decision_flips": [
+        {
+          "expected_match": true,
+          "id": "de-008",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.4751,
+          "right_decision": true,
+          "right_should_show": 0.5482
+        },
+        {
+          "expected_match": false,
+          "id": "de-012",
+          "left_correct_right_wrong": true,
+          "left_decision": false,
+          "left_should_show": 0.1607,
+          "right_decision": true,
+          "right_should_show": 0.8509
+        },
+        {
+          "expected_match": false,
+          "id": "de-016",
+          "left_correct_right_wrong": true,
+          "left_decision": false,
+          "left_should_show": 0.059,
+          "right_decision": true,
+          "right_should_show": 0.8227
+        },
+        {
+          "expected_match": true,
+          "id": "en-012",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.7248,
+          "right_decision": false,
+          "right_should_show": 0.2265
+        },
+        {
+          "expected_match": true,
+          "id": "en-014",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.6003,
+          "right_decision": false,
+          "right_should_show": 0.2594
+        },
+        {
+          "expected_match": true,
+          "id": "en-016",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.4457,
+          "right_decision": true,
+          "right_should_show": 0.6222
+        },
+        {
+          "expected_match": true,
+          "id": "en-017",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.4769,
+          "right_decision": true,
+          "right_should_show": 0.6103
+        },
+        {
+          "expected_match": true,
+          "id": "en-020",
+          "left_correct_right_wrong": false,
+          "left_decision": false,
+          "left_should_show": 0.3849,
+          "right_decision": true,
+          "right_should_show": 0.58
+        },
+        {
+          "expected_match": false,
+          "id": "en-041",
+          "left_correct_right_wrong": false,
+          "left_decision": true,
+          "left_should_show": 0.6492,
+          "right_decision": false,
+          "right_should_show": 0.2546
+        },
+        {
+          "expected_match": true,
+          "id": "es-002",
+          "left_correct_right_wrong": true,
+          "left_decision": true,
+          "left_should_show": 0.7059,
+          "right_decision": false,
+          "right_should_show": 0.1371
+        }
+      ],
+      "image_evidence_disagreement": [],
+      "should_show_max_absolute_delta": 0.7637,
+      "should_show_mean_absolute_delta": 0.11071199999999996
+    }
+  },
+  "normal_vs_reversed_note": "Reversal changes both candidate order and, for the 50-member group, budgeted neighbor membership; the measured difference includes both effects",
+  "provider_requests_benchmark": 630,
+  "provider_preflight_requests": 1,
+  "provider_preflight_input_tokens": 170,
+  "input_usd_per_million_tokens": 0.038,
+  "pricing_source": "https://developers.cloudflare.com/workers-ai/models/clef-flash/",
+  "token_priced_benchmark_cost_usd": 0.017862432,
+  "token_priced_cost_including_preflight_usd": 0.017868892,
+  "actual_cost_reconciled": false,
+  "release_gate": "INELIGIBLE_AGENT_AUTHORED_LABELS",
+  "recommendation": "Keep runtime batching at 1. The synthetic measurements favor the one-question singleton schema but expose lower shared-batch recall and neighbor sensitivity. Human review, real labeled examples and billing reconciliation remain required.",
+  "artifact_sha256": {
+    "fixtures.json": "5fec7d8d8d10cdbffcb02df0c50fc9d3c30659f99d542becfd307d665f184ed4",
+    "run-1.json": "e72e33754d82e74cd1558f5a790cafea39035634cbf78bc47d207e991a76a806",
+    "run-2.json": "929a015d9d2bac6b4e472e6df1d26f624dbb9338419558c4906da9ce2515dbaa",
+    "run-3.json": "845e4b8393167927e969042b56117903a90ac116aa1a800c46ce0bb28f29f4a7",
+    "comparisons.csv": "ac5e4be0b92d52b9b06acd0c4a51f0289a63767429328d2a087cd023cec026a8"
+  }
+}

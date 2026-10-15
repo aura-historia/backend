@@ -171,7 +171,7 @@ impl PeriodicMatchConfig {
 }
 fn batch_candidates(value: usize) -> Result<NonZeroUsize, WiringError> {
     NonZeroUsize::new(value)
-        .filter(|value| value.get() <= 32)
+        .filter(|value| value.get() <= 50)
         .ok_or(WiringError::InvalidPolicy)
 }
 
@@ -369,7 +369,7 @@ mod tests {
                 );
             }
             "batch" => assert_eq!(
-                32,
+                50,
                 config
                     .expect("valid text batch setting")
                     .policy
@@ -403,9 +403,10 @@ mod tests {
         ];
         let cases: &[(&[(&str, &str)], &str)] = &[
             (&[], "valid-local"),
-            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "32")], "batch"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "1")], "valid-local"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "50")], "batch"),
             (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "0")], "policy"),
-            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "33")], "policy"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "51")], "policy"),
             (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "1.5")], "number"),
             (
                 &[
