@@ -1,6 +1,10 @@
 use crate::network::policy::NetworkErrorKind;
 
+use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::normalization::product_normalization_service::{
+    ProductNormalizationContext, prepare_product,
+};
 use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
@@ -9,6 +13,7 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
+use crate::scraper::scraper_service::extraction::schema_candidates::collect_applicable_candidates;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
@@ -124,6 +129,45 @@ impl ScraperServiceImpl {
             .iter()
             .any(|schema| schema.matches(html)))
     }
+
+    /// Returns whether a cached product schema still deterministically prepares a
+    /// product from the page. Only reads the schema cache; it never generates schemas
+    /// or spends LLM budget.
+    #[allow(clippy::result_large_err)]
+    async fn cached_schemas_extract_product(
+        &self,
+        listing_source_id: &ListingSourceId,
+        html: &str,
+        context: ProductNormalizationContext,
+    ) -> Result<bool, ScraperError> {
+        let Some(cached) = self
+            .schema_service
+            .find_product_schema(listing_source_id)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        Ok(page_has_product_evidence(
+            &cached.product_schemas,
+            html,
+            &context,
+        ))
+    }
+}
+
+/// A removed-page template match is only removal evidence while no cached schema
+/// still extracts a product that passes deterministic preparation.
+fn page_has_product_evidence(
+    schemas: &[ProductCssSelectorSchema],
+    html: &str,
+    context: &ProductNormalizationContext,
+) -> bool {
+    let parsed = scraper::Html::parse_document(html);
+    collect_applicable_candidates(schemas, &parsed)
+        .candidates
+        .into_iter()
+        .any(|candidate| prepare_product(candidate.raw, context.clone()).is_ok())
 }
 
 #[async_trait::async_trait]
@@ -296,6 +340,25 @@ impl ScraperServiceImpl {
         let html = fetched.html;
 
         if self.is_removed_page(listing_source_id, &html).await? {
+            // Withdrawal needs unambiguous evidence: a removed-page template that also
+            // matches a still-extractable product page preserves listing state.
+            if self
+                .cached_schemas_extract_product(
+                    listing_source_id,
+                    &html,
+                    ProductNormalizationContext {
+                        effective_url: effective_url.clone(),
+                        source_record_key: source_record_key.to_owned(),
+                        fallback_currency,
+                    },
+                )
+                .await?
+            {
+                return Err(ScraperError::SchemaClassificationRejected {
+                    url: url.clone(),
+                    details: "removed-page schema matched a page that a cached product schema still extracts".to_string(),
+                });
+            }
             return Err(ScraperError::ProductListingRemoved {
                 url: url.clone(),
                 details: "soft-404 removed page matched configured removed-page schema".to_string(),
