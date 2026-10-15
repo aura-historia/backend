@@ -20,6 +20,7 @@ use shipping_core::{
     selection::{ComponentOverride, DeliveryOverrides, ProfileSelection},
     terms::{CollectionPolicy, ShippingPolicy},
 };
+use shipping_service::imports::{ImportListingPatch, ShippingImportOperation, ShippingImportWrite};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingDeliveryPatch {
@@ -31,6 +32,16 @@ pub struct ProductListingDeliveryPatch {
     pub collection: PatchField<ComponentOverride<CollectionPolicy>>,
 }
 impl ProductListingDeliveryPatch {
+    fn import_patch(&self) -> ImportListingPatch<'_> {
+        ImportListingPatch::Set {
+            integration: &self.integration,
+            selection: &self.selection,
+            rate_inputs: &self.rate_inputs,
+            shipping: &self.shipping,
+            collection: &self.collection,
+        }
+    }
+
     pub fn apply(
         &self,
         source: listing_source_core::ListingSourceId,
@@ -97,9 +108,23 @@ impl ProductListingDeliveryPatch {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeProductListingDeliveryCommand {
+    pub import: Option<ShippingImportWrite>,
     pub product_key: ProductListingKey,
     pub expected_version: ProductListingStorageVersion,
     pub delivery: PatchField<ProductListingDeliveryPatch>,
+}
+impl ChangeProductListingDeliveryCommand {
+    pub fn import_operation(&self) -> ShippingImportOperation<'_> {
+        ShippingImportOperation::Listing {
+            key: &self.product_key,
+            expected_version: self.expected_version.into_inner(),
+            patch: match &self.delivery {
+                PatchField::Unchanged => ImportListingPatch::Unchanged,
+                PatchField::Clear => ImportListingPatch::Clear,
+                PatchField::Set(p) => p.import_patch(),
+            },
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeProductListingDeliveryResult {
@@ -130,6 +155,12 @@ pub enum ProductListingDeliveryError {
         #[source]
         source: BoxError,
     },
+    #[error("shipping import rejected")]
+    Import(
+        #[from]
+        #[source]
+        shipping_service::ShippingError,
+    ),
     #[error("delivery capability unavailable")]
     Unavailable,
     #[error("delivery operation failed")]
@@ -152,6 +183,7 @@ impl ProductListingDeliveryError {
             Self::IntegrationMismatch => "DELIVERY_INTEGRATION_MISMATCH",
             Self::ReferenceIneligible => "DELIVERY_REFERENCE_INELIGIBLE",
             Self::InvalidInput { .. } => "DELIVERY_INVALID_INPUT",
+            Self::Import(_) => "DELIVERY_IMPORT_REJECTED",
             Self::Unavailable => "DELIVERY_UNAVAILABLE",
             Self::OperationFailed { .. } => "DELIVERY_OPERATION_FAILED",
             Self::Transaction(_) => "DELIVERY_TRANSACTION_FAILED",
@@ -227,6 +259,14 @@ where
             .in_transaction(tx)
             .authorize(context, command.product_key.listing_source_id)
             .await?;
+        let replay = if command.import.is_some() {
+            self.references
+                .in_transaction(tx)
+                .prepare_import(context, command)
+                .await?
+        } else {
+            false
+        };
         self.references
             .in_transaction(tx)
             .lock_target(&command.product_key)
@@ -238,6 +278,13 @@ where
             .await
             .map_err(failure)?
             .ok_or(ProductListingDeliveryError::NotFound)?;
+        if replay {
+            return Ok(ChangeProductListingDeliveryResult {
+                product_listing_id: stored.value.id(),
+                version: stored.version,
+                outcome: ChangeOutcome::Unchanged,
+            });
+        }
         if stored.version != command.expected_version {
             return Err(ProductListingDeliveryError::StaleRevision);
         }
@@ -256,6 +303,18 @@ where
                 .in_transaction(tx)
                 .validate(delivery.as_ref().unwrap_or(&inherited))
                 .await?;
+        }
+        if let Some(write) = &command.import {
+            let asserts_content = matches!(&command.delivery, PatchField::Set(p) if p.import_patch().asserts_content());
+            if (asserts_content
+                && delivery != stored.value.delivery().cloned()
+                && write.observation.is_none())
+                || (!asserts_content && write.observation.is_some())
+            {
+                return Err(ProductListingDeliveryError::Import(
+                    shipping_service::ShippingError::InvalidInput,
+                ));
+            }
         }
         let mut listing = stored.value;
         let outcome = listing.replace_delivery(delivery).map_err(failure)?;
@@ -283,6 +342,17 @@ where
         } else {
             stored.version
         };
+        if command.import.is_some() {
+            self.references
+                .in_transaction(tx)
+                .complete_import(context, command, listing.id())
+                .await?;
+        } else {
+            self.references
+                .in_transaction(tx)
+                .manual_takeover(command, listing.id())
+                .await?;
+        }
         Ok(ChangeProductListingDeliveryResult {
             product_listing_id: listing.id(),
             version,

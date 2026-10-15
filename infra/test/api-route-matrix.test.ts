@@ -176,7 +176,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(151);
+    expect(catalog).toHaveLength(154);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -271,7 +271,7 @@ describe("HTTP API route policy matrix", () => {
   test("requires source shipping authority for all profile/default routes and excludes discovery caching", () => {
     const routes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-"));
-    expect(routes).toHaveLength(9);
+    expect(routes).toHaveLength(12);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
       expect(route.policy).toEqual({
@@ -525,7 +525,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(151);
+    expect(routes).toHaveLength(154);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

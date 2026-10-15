@@ -96,6 +96,71 @@ impl References<'_> {
 }
 #[async_trait::async_trait]
 impl ProductListingDeliveryReferences for References<'_> {
+    async fn manual_takeover(
+        &mut self,
+        command: &product_listing_service::use_cases::ChangeProductListingDeliveryCommand,
+        id: product_listing_core::product_listing_id::ProductListingId,
+    ) -> Result<(), ProductListingDeliveryError> {
+        use shipping_service::imports::{
+            ShippingImportAccess, ShippingImportAccessFactory, ShippingImportSubject,
+        };
+        shipping_postgres::imports::SqlxShippingImportAccessFactory
+            .in_transaction(self.0)
+            .manual_takeover(
+                command.product_key.listing_source_id,
+                &command.import_operation(),
+                ShippingImportSubject::Listing(id),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn prepare_import(
+        &mut self,
+        context: &OperationContext,
+        command: &product_listing_service::use_cases::ChangeProductListingDeliveryCommand,
+    ) -> Result<bool, ProductListingDeliveryError> {
+        use shipping_service::imports::{ShippingImportAccess, ShippingImportAccessFactory};
+        let write = command
+            .import
+            .as_ref()
+            .ok_or(ProductListingDeliveryError::Unavailable)?;
+        Ok(shipping_postgres::imports::SqlxShippingImportAccessFactory
+            .in_transaction(self.0)
+            .prepare(
+                context,
+                command.product_key.listing_source_id,
+                write,
+                &command.import_operation(),
+            )
+            .await?
+            .replay)
+    }
+    async fn complete_import(
+        &mut self,
+        context: &OperationContext,
+        command: &product_listing_service::use_cases::ChangeProductListingDeliveryCommand,
+        id: product_listing_core::product_listing_id::ProductListingId,
+    ) -> Result<(), ProductListingDeliveryError> {
+        use shipping_service::imports::{
+            ShippingImportAccess, ShippingImportAccessFactory, ShippingImportSubject,
+        };
+        let write = command
+            .import
+            .as_ref()
+            .ok_or(ProductListingDeliveryError::Unavailable)?;
+        shipping_postgres::imports::SqlxShippingImportAccessFactory
+            .in_transaction(self.0)
+            .complete(
+                context,
+                command.product_key.listing_source_id,
+                write,
+                &command.import_operation(),
+                ShippingImportSubject::Listing(id),
+            )
+            .await?;
+        Ok(())
+    }
     async fn authorize(
         &mut self,
         context: &OperationContext,
@@ -150,7 +215,7 @@ impl ProductListingDeliveryReferences for References<'_> {
             },_=>None,
         };
         let base = if let Some(id) = profile {
-            let row:Option<(String,Option<String>,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,integration_domain,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 FOR SHARE")
+            let row:Option<(String,Option<String>,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,integration_domain,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 AND (expires_at IS NULL OR expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=shipping_profiles.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_connection_current(shipping_profiles.listing_source_id,i.connection_revision)) FOR SHARE")
                 .bind(id).bind(source.into_uuid()).fetch_optional(self.0.connection()).await.map_err(fail)?;
             let (lifecycle, method, domain, terms) =
                 row.ok_or(ProductListingDeliveryError::ReferenceIneligible)?;

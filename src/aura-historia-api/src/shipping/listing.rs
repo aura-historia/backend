@@ -164,6 +164,7 @@ fn advertised_data(item: &AdvertisedShipping) -> Result<Value, BoxError> {
         "terms":public_terms(item.effective.terms())?,
         "listingRevision":item.listing_revision,"sourceRevision":item.source_revision,
         "defaultRevision":item.default_revision,"profile":profile,
+        "validityDeadline":item.validity_deadline.map(timestamp).transpose()?,
         "listingEvidence":item.listing_evidence.map(|e|evidence_data(e,item.evaluated_at)).transpose()?,
         "evaluatedAt":timestamp(item.evaluated_at)?,
         "shippingReasons":reasons(&item.shipping_reasons),
@@ -200,6 +201,7 @@ pub(crate) fn cache_ttl<'a>(
             .chain(item.profile.as_ref().map(|p| p.evidence))
             .flat_map(|e| [e.fresh_until, e.expires_at])
             .flatten()
+            .chain(item.validity_deadline)
             .filter(|deadline| *deadline > item.evaluated_at)
             .fold(ttl, |ttl, deadline| {
                 ttl.min(u32::try_from((deadline - now).whole_seconds().max(0)).unwrap_or(u32::MAX))

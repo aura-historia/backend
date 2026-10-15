@@ -16734,6 +16734,275 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ClearSourceLocationDefaultData'
+  /api/v1/listing-sources/{listing_source_id}/shipping-import-connection:
+    get:
+      summary: getShippingImportConnection
+      operationId: getShippingImportConnection
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Protected current acquisition epoch. Requires listing-sources:read. A null result means no connection
+        has been established.
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      responses:
+        '200':
+          description: Committed result; no-store.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ShippingImportConnectionData'
+                nullable: true
+        '400':
+          description: Invalid input (BAD_BODY_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '401':
+          description: Authentication required.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '403':
+          description: Current source authority or required credential capability missing (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '404':
+          description: Source or producer profile identity absent.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '409':
+          description: Stale revision, ownership, ordering or connection conflict. Refetch and reconcile; do not relabel
+            old acquisition.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '503':
+          description: Temporary failure or uncertain commit; retry the identical request.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+    put:
+      summary: changeShippingImportConnection
+      operationId: changeShippingImportConnection
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: 'Explicit operator setup/replacement/revocation. Requires first-party user authentication and listing-sources:write;
+        delegated producers cannot establish or relabel epochs. expectedRevision=0 creates the first connection; every
+        accepted replacement increments the revision, even for the same domain. active=false disconnects. The producer
+        is the authenticated user (also across their delegated credentials), or trusted service identity. SOURCE is
+        restricted to sources without enabled Shopify/WooCommerce integration. PROVIDER must match an enabled configured
+        integration; Shopify domain must already match, while WooCommerce explicitly establishes its shipping integration
+        domain here. connectedAt is a server acquisition floor: reacquire after reconnect. A lost setup response is
+        recovered through GET; stale setup retries conflict.'
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      responses:
+        '200':
+          description: Committed result; no-store.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingImportConnectionData'
+        '400':
+          description: Invalid input (BAD_BODY_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '401':
+          description: Authentication required.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '403':
+          description: Current source authority or required credential capability missing (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '404':
+          description: Source or producer profile identity absent.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '409':
+          description: Stale revision, ownership, ordering or connection conflict. Refetch and reconcile; do not relabel
+            old acquisition.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '503':
+          description: Temporary failure or uncertain commit; retry the identical request.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeShippingImportConnectionData'
+  /api/v1/listing-sources/{listing_source_id}/shipping-profiles/import-identity:
+    get:
+      summary: resolveImportedShippingProfile
+      operationId: resolveImportedShippingProfile
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Recover stable producer-object identity after a lost response or before a refresh. Requires listing-sources:read
+        and the currently authorized producer connection; returns the same profile through retirement, refresh and
+        same-producer reconnection. Manual takeover preserves identity but forbids subsequent imported edits.
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: connectionRevision
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+      - name: objectKey
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+      responses:
+        '200':
+          description: Committed result; no-store.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingImportIdentityData'
+        '400':
+          description: Invalid input (BAD_BODY_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '401':
+          description: Authentication required.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '403':
+          description: Current source authority or required credential capability missing (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '404':
+          description: Source or producer profile identity absent.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '409':
+          description: Stale revision, ownership, ordering or connection conflict. Refetch and reconcile; do not relabel
+            old acquisition.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '503':
+          description: Temporary failure or uncertain commit; retry the identical request.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
   /api/v1/listing-sources/{listing_source_id}/shipping-profiles:
     get:
       summary: List source shipping profiles
@@ -17877,6 +18146,11 @@ components:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
           nullable: true
+        validityDeadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next imported component or default freshness/expiry transition; also caps anonymous cache lifetime.
         listingEvidence:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssertionEvidence'
@@ -17938,6 +18212,8 @@ components:
       additionalProperties: false
       required: [expectedVersion, delivery]
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedVersion: {type: integer, minimum: 1, maximum: 9223372036854775807}
         delivery:
           oneOf:
@@ -18062,7 +18338,7 @@ components:
           type: string
           pattern: '^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$'
         expectedVersion: {type: integer, minimum: 1}
-        outcome: {type: string, enum: [CHANGED, UNCHANGED]}
+        outcome: {type: string, enum: [CHANGED, UNCHANGED], description: "Canonical listing change; UNCHANGED can still commit an explicit observation or manual ownership handoff."}
     ProductListingDeliveryHistoryChangeData:
       type: object
       additionalProperties: false
@@ -18136,6 +18412,117 @@ components:
               state: {type: string, enum: [SET]}
               value:
                 $ref: '#/components/schemas/ListingDeliveryCollectionOverrideData'
+    ShippingImportObservationData:
+      type: object
+      additionalProperties: false
+      required:
+      - freshUntil
+      - expiresAt
+      properties:
+        freshUntil:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+      description: Explicit successful new acquisition. connectedAt <= acquiredAt <= freshUntil <= expiresAt; acquiredAt
+        cannot be in the future, expiry must be future and at most 30 days after acquisition. Replays and ordinary writes
+        without observation never refresh validity. Evidence-only corrections and lifecycle/removal commands cannot
+        supply observation.
+    ShippingImportWriteData:
+      type: object
+      additionalProperties: false
+      required:
+      - connectionRevision
+      - sequence
+      - acquiredAt
+      - requestKey
+      properties:
+        acquiredAt:
+          type: string
+          format: date-time
+          description: Successful acquisition time for every command, including removal/correction; cannot predate connection setup.
+        connectionRevision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        sequence:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        requestKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+        objectKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+          nullable: true
+        observation:
+          allOf:
+          - $ref: '#/components/schemas/ShippingImportObservationData'
+          nullable: true
+      description: 'Optional import semantics on existing commands. objectKey is required only on profile creation;
+        it identifies a stable source/producer/integration object independently of requestKey. sequence increases per
+        touched component and acquisition epoch; it is producer acquisition order, never receive time. Omitted observation
+        does not renew validity. Creation, changed normalized profile terms, changed default assignment and changed
+        listing assertions and first claims of equal implicit selections require observation; explicit owned-component
+        removals do not renew validity. Acquisition ordering uses microsecond precision. Equal terms with observation explicitly refresh validity without semantic
+        revision changes. Exact requestKey replay returns current committed state without effects for 90 days; changed
+        reuse conflicts permanently. Current source/grant/connection authority is rechecked even on replay. Imports
+        cannot modify manually owned components. 409 codes: SHIPPING_IMPORT_CONNECTION_STALE, SHIPPING_IMPORT_OWNERSHIP_CONFLICT,
+        SHIPPING_IMPORT_REQUEST_CONFLICT, SHIPPING_IMPORT_OUT_OF_ORDER, SHIPPING_IMPORT_IDENTITY_EXISTS. Refetch and
+        reconcile conflicts; never rebase an old payload onto the newest revision. Missing catalog listing is retryable
+        404 SHIPPING_IMPORT_DEPENDENCY_MISSING; retain the record until catalog creation commits. No shipping write
+        creates or restores catalog products.'
+    ShippingImportConnectionData:
+      type: object
+      additionalProperties: false
+      required:
+      - revision
+      - integration
+      - active
+      - connectedAt
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        active:
+          type: boolean
+        connectedAt:
+          type: string
+          format: date-time
+    ChangeShippingImportConnectionData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      - integration
+      - active
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775807
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        active:
+          type: boolean
+    ShippingImportIdentityData:
+      type: object
+      additionalProperties: false
+      required:
+      - shippingProfileId
+      properties:
+        shippingProfileId:
+          type: string
+          pattern: ^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$
     ShippingCurrencyCode:
       type: string
       enum:
@@ -19059,6 +19446,8 @@ components:
       - content
       - evidence
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         creationKey:
           type: string
           minLength: 1
@@ -19080,6 +19469,8 @@ components:
       - content
       - evidence
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19101,6 +19492,8 @@ components:
       required:
       - expectedRevision
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19112,6 +19505,8 @@ components:
       - expectedRevision
       - shippingProfileId
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19125,6 +19520,8 @@ components:
       required:
       - expectedRevision
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1

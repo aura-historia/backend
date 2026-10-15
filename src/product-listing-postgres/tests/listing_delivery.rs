@@ -67,6 +67,7 @@ async fn create_profile(pool: &PgPool, source: ListingSourceId, rate: u64) -> Pr
     .execute(
         &context(),
         CreateProfileCommand {
+            import: None,
             source_id: source,
             creation_key: format!("synthetic-{rate}"),
             content: ShippingProfileContent {
@@ -144,6 +145,7 @@ async fn apply(
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
+                import: None,
                 product_key: key.clone(),
                 expected_version: version,
                 delivery: PatchField::Set(patch),
@@ -189,6 +191,7 @@ async fn gallery_inherits_rates_without_copying_and_cabinet_retains_collection()
     .execute(
         &context(),
         AssignDefaultCommand {
+            import: None,
             source_id: source,
             profile_id: profile.id,
             expected_revision: ShippingDefaultRevision::INITIAL,
@@ -242,6 +245,7 @@ async fn gallery_inherits_rates_without_copying_and_cabinet_retains_collection()
     .execute(
         &context(),
         ReplaceProfileCommand {
+            import: None,
             source_id: source,
             profile_id: profile.id,
             expected_revision: profile.management_revision,
@@ -380,6 +384,7 @@ async fn unchanged_native_inheritance_revalidates_default_dependencies_and_clear
     .execute(
         &context(),
         AssignDefaultCommand {
+            import: None,
             source_id: source,
             profile_id: profile.id,
             expected_revision: ShippingDefaultRevision::INITIAL,
@@ -389,6 +394,7 @@ async fn unchanged_native_inheritance_revalidates_default_dependencies_and_clear
     .unwrap();
     let key = listing(&pool, source, "painting").await;
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Unchanged,
@@ -413,6 +419,7 @@ async fn unchanged_native_inheritance_revalidates_default_dependencies_and_clear
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
+                import: None,
                 delivery: PatchField::Clear,
                 ..command
             },
@@ -434,6 +441,7 @@ async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail
             .execute(
                 &context(),
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     product_key: key.clone(),
                     expected_version: ProductListingStorageVersion::INITIAL,
                     delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -459,6 +467,7 @@ async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail
             .execute(
                 &context(),
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     product_key: key.clone(),
                     expected_version: ProductListingStorageVersion::INITIAL,
                     delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -471,6 +480,7 @@ async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail
         Err(ProductListingDeliveryError::ReferenceIneligible)
     ));
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -500,6 +510,7 @@ async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail
             .execute(
                 &context(),
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     expected_version: current.version,
                     delivery: PatchField::Unchanged,
                     ..command.clone()
@@ -541,6 +552,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
+                import: None,
                 product_key: key.clone(),
                 expected_version: pending.version,
                 delivery: PatchField::Clear,
@@ -563,6 +575,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
             .execute(
                 &context(),
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     product_key: key.clone(),
                     expected_version: pending.version,
                     delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -612,6 +625,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
             .execute(
                 &context(),
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     product_key: local_key.clone(),
                     expected_version: result.version,
                     delivery: PatchField::Unchanged
@@ -662,6 +676,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
+                import: None,
                 product_key: key.clone(),
                 expected_version: pending.version,
                 delivery: PatchField::Clear,
@@ -734,6 +749,7 @@ async fn delivery_queue_replay_uses_the_committed_receipt_and_rejects_changed_re
     let publisher = Capture::default();
     let intake = SubmitInternalProductListingIngestionHandler::new(publisher.clone());
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -842,6 +858,7 @@ async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability
         ..context()
     };
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -862,6 +879,7 @@ async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability
             .execute(
                 &reader,
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     expected_version: result.version,
                     ..command.clone()
                 }
@@ -875,6 +893,7 @@ async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability
             .execute(
                 &ctx,
                 ChangeProductListingDeliveryCommand {
+                    import: None,
                     expected_version: result.version,
                     delivery: PatchField::Clear,
                     ..command
@@ -884,4 +903,715 @@ async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability
         Err(ProductListingDeliveryError::Forbidden)
     ));
     assert_eq!(2, events(&pool, &key).await);
+}
+
+fn import_metadata(
+    revision: u64,
+    sequence: u64,
+    key: &str,
+) -> shipping_service::imports::ShippingImportWrite {
+    let at = time::OffsetDateTime::now_utc();
+    shipping_service::imports::ShippingImportWrite {
+        connection_revision: revision,
+        sequence,
+        acquired_at: at,
+        request_key: key.into(),
+        object_key: None,
+        observation: Some(shipping_service::imports::ShippingObservation {
+            acquired_at: at,
+            fresh_until: at + time::Duration::hours(1),
+            expires_at: at + time::Duration::days(1),
+        }),
+    }
+}
+async fn dependencies(
+    pool: &PgPool,
+    ids: &[ProductListingId],
+) -> shipping_service::assessment::AssessmentDependencies {
+    use shipping_service::assessment::{AssessmentReader, AssessmentReaderFactory};
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let d = shipping_postgres::assessment::SqlxAssessmentReaderFactory
+        .in_transaction(&mut tx)
+        .snapshot(ids, None)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    d
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn explicit_manual_absence_is_protected_before_the_first_import() {
+    use shipping_service::imports::*;
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let connection = ShippingImportManagementHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::imports::SqlxShippingImportAccessFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .change_connection(
+        &context(),
+        ChangeShippingConnectionCommand {
+            source_id: source,
+            expected_revision: 0,
+            integration: DeliveryIntegration::Source,
+            active: true,
+        },
+    )
+    .await
+    .unwrap();
+    let cases = [
+        PatchField::Clear,
+        PatchField::Set(ProductListingDeliveryPatch {
+            selection: PatchField::Clear,
+            ..Default::default()
+        }),
+        PatchField::Set(ProductListingDeliveryPatch {
+            selection: PatchField::Set(ProfileSelection::InheritSourceDefault),
+            ..Default::default()
+        }),
+        PatchField::Set(ProductListingDeliveryPatch {
+            rate_inputs: PatchField::Clear,
+            ..Default::default()
+        }),
+        PatchField::Set(ProductListingDeliveryPatch {
+            shipping: PatchField::Set(ComponentOverride::Inherit),
+            ..Default::default()
+        }),
+        PatchField::Set(ProductListingDeliveryPatch {
+            collection: PatchField::Set(ComponentOverride::Inherit),
+            ..Default::default()
+        }),
+    ];
+    for (index, delivery) in cases.into_iter().enumerate() {
+        let key = listing(&pool, source, &format!("manual-absence-{index}")).await;
+        let command = ChangeProductListingDeliveryCommand {
+            import: None,
+            product_key: key.clone(),
+            expected_version: ProductListingStorageVersion::INITIAL,
+            delivery,
+        };
+        let manual = changer(&pool)
+            .execute(&context(), command.clone())
+            .await
+            .unwrap();
+        let before = events(&pool, &key).await;
+        let mut imported = command;
+        imported.expected_version = manual.version;
+        imported.import = Some(import_metadata(
+            connection.revision,
+            1,
+            &format!("import-{index}"),
+        ));
+        assert!(matches!(
+            changer(&pool).execute(&context(), imported).await,
+            Err(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportOwnershipConflict
+            ))
+        ));
+        assert_eq!(before, events(&pool, &key).await);
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn implicit_source_selection_does_not_block_imports_of_independent_components() {
+    use shipping_service::imports::*;
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let connection = ShippingImportManagementHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::imports::SqlxShippingImportAccessFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .change_connection(
+        &context(),
+        ChangeShippingConnectionCommand {
+            source_id: source,
+            expected_revision: 0,
+            integration: DeliveryIntegration::Source,
+            active: true,
+        },
+    )
+    .await
+    .unwrap();
+    let key = listing(&pool, source, "manual-prohibition").await;
+    let manual = apply(
+        &pool,
+        &key,
+        ProductListingStorageVersion::INITIAL,
+        ProductListingDeliveryPatch {
+            shipping: PatchField::Set(ComponentOverride::Replace(ShippingPolicy::Prohibited)),
+            ..Default::default()
+        },
+    )
+    .await;
+    let mut unobserved = import_metadata(connection.revision, 1, "unobserved-selection");
+    unobserved.observation = None;
+    assert!(matches!(
+        changer(&pool)
+            .execute(
+                &context(),
+                ChangeProductListingDeliveryCommand {
+                    import: Some(unobserved),
+                    product_key: key.clone(),
+                    expected_version: manual.version,
+                    delivery: PatchField::Set(ProductListingDeliveryPatch {
+                        selection: PatchField::Set(ProfileSelection::InheritSourceDefault),
+                        ..Default::default()
+                    }),
+                }
+            )
+            .await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::InvalidInput
+        ))
+    ));
+    changer(&pool)
+        .execute(
+            &context(),
+            ChangeProductListingDeliveryCommand {
+                import: Some(import_metadata(connection.revision, 1, "selection")),
+                product_key: key.clone(),
+                expected_version: manual.version,
+                delivery: PatchField::Set(ProductListingDeliveryPatch {
+                    selection: PatchField::Set(ProfileSelection::InheritSourceDefault),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        ComponentOverride::Replace(ShippingPolicy::Prohibited),
+        view(&pool, &key)
+            .await
+            .delivery
+            .unwrap()
+            .overrides()
+            .shipping
+    );
+    let asserted = changer(&pool)
+        .execute(
+            &context(),
+            ChangeProductListingDeliveryCommand {
+                import: Some(import_metadata(connection.revision, 2, "collection")),
+                product_key: key.clone(),
+                expected_version: manual.version,
+                delivery: PatchField::Set(ProductListingDeliveryPatch {
+                    collection: PatchField::Set(ComponentOverride::Clear),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    let mut removal = import_metadata(connection.revision, 3, "remove-collection-override");
+    removal.observation = None;
+    let removed = changer(&pool)
+        .execute(
+            &context(),
+            ChangeProductListingDeliveryCommand {
+                import: Some(removal),
+                product_key: key.clone(),
+                expected_version: asserted.version,
+                delivery: PatchField::Set(ProductListingDeliveryPatch {
+                    collection: PatchField::Set(ComponentOverride::Inherit),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(ChangeOutcome::Changed, removed.outcome);
+    let current = view(&pool, &key).await.delivery.unwrap();
+    assert_eq!(ComponentOverride::Inherit, current.overrides().collection);
+    assert_eq!(
+        ComponentOverride::Replace(ShippingPolicy::Prohibited),
+        current.overrides().shipping
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn incremental_imports_preserve_manual_components_and_bound_validity_without_listing_events()
+{
+    use shipping_service::imports::*;
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let imports = ShippingImportManagementHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::imports::SqlxShippingImportAccessFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    );
+    let conn = imports
+        .change_connection(
+            &context(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut metadata = import_metadata(conn.revision, 1, "create-profile");
+    metadata.object_key = Some("main-policy".into());
+    let profile = CreateShippingProfileHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context(),
+        CreateProfileCommand {
+            import: Some(metadata),
+            source_id: source,
+            creation_key: "create-main".into(),
+            content: ShippingProfileContent {
+                name: ShippingProfileName::new("Imported gallery".into()).unwrap(),
+                attributed_party: None,
+                terms: gallery_terms(8000),
+            },
+            evidence: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    AssignShippingDefaultHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context(),
+        AssignDefaultCommand {
+            import: Some(import_metadata(conn.revision, 2, "default")),
+            source_id: source,
+            profile_id: profile.id,
+            expected_revision: ShippingDefaultRevision::INITIAL,
+        },
+    )
+    .await
+    .unwrap();
+    let key = listing(&pool, source, "imported-painting").await;
+    let key2 = listing(&pool, source, "manual-cabinet").await;
+    let manual = apply(
+        &pool,
+        &key2,
+        ProductListingStorageVersion::INITIAL,
+        ProductListingDeliveryPatch {
+            shipping: PatchField::Set(ComponentOverride::Replace(ShippingPolicy::Prohibited)),
+            ..Default::default()
+        },
+    )
+    .await;
+    let command = ChangeProductListingDeliveryCommand {
+        import: Some(import_metadata(conn.revision, 3, "membership")),
+        product_key: key.clone(),
+        expected_version: ProductListingStorageVersion::INITIAL,
+        delivery: PatchField::Set(ProductListingDeliveryPatch {
+            selection: PatchField::Set(ProfileSelection::InheritSourceDefault),
+            ..Default::default()
+        }),
+    };
+    let applied = changer(&pool)
+        .execute(&context(), command.clone())
+        .await
+        .unwrap();
+    let ids = [applied.product_listing_id, manual.product_listing_id];
+    assert_eq!(
+        applied.version,
+        changer(&pool)
+            .execute(&context(), command.clone())
+            .await
+            .unwrap()
+            .version
+    );
+    let before = events(&pool, &key).await;
+    let mut observed = command.clone();
+    observed.expected_version = applied.version;
+    observed.import = Some(import_metadata(conn.revision, 4, "membership-observed"));
+    let refreshed = changer(&pool).execute(&context(), observed).await.unwrap();
+    assert_eq!(ChangeOutcome::Unchanged, refreshed.outcome);
+    assert_eq!(before, events(&pool, &key).await);
+    assert_eq!(applied.version, refreshed.version);
+    let d = dependencies(&pool, &ids).await;
+    assert!(
+        d.listings
+            .iter()
+            .find(|l| l.id == applied.product_listing_id)
+            .unwrap()
+            .evidence
+            .is_some()
+    );
+    assert!(
+        d.listings
+            .iter()
+            .find(|l| l.id == applied.product_listing_id)
+            .unwrap()
+            .validity_deadline
+            .is_some()
+    );
+    let updated = ReplaceShippingProfileHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context(),
+        ReplaceProfileCommand {
+            import: Some(import_metadata(conn.revision, 5, "price")),
+            source_id: source,
+            profile_id: profile.id,
+            expected_revision: profile.management_revision,
+            content: ShippingProfileContent {
+                terms: gallery_terms(9500),
+                ..profile.content.clone()
+            },
+            evidence: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        updated.content.terms.shipping(),
+        effective(&view(&pool, &key).await, source, &updated)
+            .terms()
+            .shipping()
+    );
+    assert_eq!(
+        Some(&ShippingPolicy::Prohibited),
+        effective(&view(&pool, &key2).await, source, &updated)
+            .terms()
+            .shipping()
+    );
+    assert_eq!(
+        updated.content.terms.collection(),
+        effective(&view(&pool, &key2).await, source, &updated)
+            .terms()
+            .collection()
+    );
+
+    sqlx::query("UPDATE listing_delivery_import_state SET fresh_until=verified_at,expires_at=verified_at WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).execute(&pool).await.unwrap();
+    let expired = dependencies(&pool, &ids).await;
+    let painting = expired
+        .listings
+        .iter()
+        .find(|l| l.id == applied.product_listing_id)
+        .unwrap();
+    assert!(painting.delivery.selection().is_none());
+    assert!(matches!(
+        painting.delivery.configuration().selection(),
+        ProfileSelection::SuppressInheritance
+    ));
+    assert!(
+        expired
+            .defaults
+            .iter()
+            .any(|d| d.selection.profile_id() == Some(profile.id))
+    );
+    let mut renewed = command.clone();
+    renewed.expected_version = applied.version;
+    renewed.import = Some(import_metadata(conn.revision, 5, "membership-renewed"));
+    assert_eq!(
+        ChangeOutcome::Unchanged,
+        changer(&pool)
+            .execute(&context(), renewed)
+            .await
+            .unwrap()
+            .outcome
+    );
+    // A missing catalog record is a retained retryable dependency, never an implicit create.
+    let mut missing = command.clone();
+    missing.product_key = ProductListingKey::new(source, "not-yet-imported".try_into().unwrap());
+    missing.import = Some(import_metadata(conn.revision, 6, "missing"));
+    assert!(matches!(
+        changer(&pool).execute(&context(), missing).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportDependencyMissing
+        ))
+    ));
+
+    let message = ProductListingIngestionMessage {
+        intent: ProductListingIngestionIntent::ChangeDelivery(command.clone()),
+        metadata: ProductListingIngestionMetadata {
+            submission_id: ProductListingIngestionSubmissionId::from_wire(&format!(
+                "plis1_{}",
+                "1".repeat(64)
+            ))
+            .unwrap(),
+            command_id: ProductListingIngestionCommandId::from_wire(&format!(
+                "plic1_{}",
+                "2".repeat(64)
+            ))
+            .unwrap(),
+            index: 0,
+            input_count: 1,
+            listing_source_id: source,
+            operation: ProductListingIngestionOperation::ChangeDelivery,
+            actor: ProductListingIngestionActor::System,
+            request_id: "shipping-import-replay".into(),
+            correlation_id: "shipping-import-replay".into(),
+        },
+    };
+    let envelope = || {
+        product_listing_ingestion_sqs::codec::envelope(&message)
+            .unwrap()
+            .into_service_envelope()
+            .unwrap()
+    };
+    let worker = ProcessProductListingIngestionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductListingRepositoryFactory,
+        SqlxProductListingEventAppenderFactory,
+        product_listing_postgres::SqlxPartnerProductListingAuthorizerFactory,
+        auction_postgres::SqlxAuctionReferenceValidatorFactory,
+        product_listing_postgres::SqlxProductListingRawCaptureWriterFactory,
+        product_listing_postgres::SqlxProductListingCommandReceiptStoreFactory,
+    )
+    .with_delivery_references(SqlxProductListingDeliveryReferencesFactory);
+    worker.execute(envelope()).await.unwrap();
+    assert_eq!(
+        ProductListingIngestionCompletion::AlreadyCompleted,
+        worker.execute(envelope()).await.unwrap()
+    );
+    let manual_equal = apply(
+        &pool,
+        &key,
+        applied.version,
+        ProductListingDeliveryPatch {
+            selection: PatchField::Set(ProfileSelection::InheritSourceDefault),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(ChangeOutcome::Unchanged, manual_equal.outcome);
+    assert!(sqlx::query_scalar::<_,bool>("SELECT owner_hash IS NULL AND expires_at IS NOT NULL FROM listing_delivery_import_state WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).fetch_one(&pool).await.unwrap());
+    sqlx::query("UPDATE listing_delivery_import_state SET fresh_until=verified_at,expires_at=verified_at WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).execute(&pool).await.unwrap();
+    let expired_manual = dependencies(&pool, &ids).await;
+    assert!(
+        expired_manual
+            .listings
+            .iter()
+            .find(|l| l.id == applied.product_listing_id)
+            .unwrap()
+            .delivery
+            .selection()
+            .is_none()
+    );
+
+    assert_eq!(before, events(&pool, &key).await);
+    // A concurrent manual selection protects the component even if the producer adopts its new revision.
+    let human = apply(
+        &pool,
+        &key,
+        applied.version,
+        ProductListingDeliveryPatch {
+            selection: PatchField::Set(ProfileSelection::SuppressInheritance),
+            ..Default::default()
+        },
+    )
+    .await;
+    let mut stale = command;
+    stale.expected_version = human.version;
+    stale.import = Some(import_metadata(conn.revision, 7, "stale"));
+    assert!(matches!(
+        changer(&pool).execute(&context(), stale).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportOwnershipConflict
+        ))
+    ));
+    // Expiry and disconnect remove imported dependencies while preserving the manual prohibition.
+    sqlx::query("UPDATE shipping_profiles SET expires_at=verified_at,fresh_until=verified_at WHERE shipping_profile_id=$1").bind(profile.id.into_uuid()).execute(&pool).await.unwrap();
+    let d = dependencies(&pool, &ids).await;
+    assert_eq!(
+        shipping_service::assessment::EvidenceStatus::Expired,
+        d.profiles[0].evidence.status(d.evaluated_at)
+    );
+    imports
+        .change_connection(
+            &context(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: conn.revision,
+                integration: DeliveryIntegration::Source,
+                active: false,
+            },
+        )
+        .await
+        .unwrap();
+    let d = dependencies(&pool, &ids).await;
+    assert!(matches!(
+        worker.execute(envelope()).await,
+        Err(ProductListingIngestionError::Delivery(
+            ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportConnectionStale
+            )
+        ))
+    ));
+    assert!(d.profiles.is_empty());
+    let cabinet = d
+        .listings
+        .iter()
+        .find(|l| l.id == manual.product_listing_id)
+        .unwrap();
+    assert_eq!(
+        &ComponentOverride::Replace(ShippingPolicy::Prohibited),
+        &cabinet.delivery.overrides().shipping
+    );
+    assert!(
+        d.defaults
+            .iter()
+            .all(|d| d.selection.profile_id().is_none())
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn integration_replacement_requires_new_acquisition_and_explicit_owned_component_removal() {
+    use shipping_service::imports::*;
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'original.myshopify.com')").bind(source.into_uuid()).execute(&pool).await.unwrap();
+    let imports = ShippingImportManagementHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::imports::SqlxShippingImportAccessFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    );
+    let scope = |domain: &str| DeliveryIntegration::Provider {
+        method: listing_source_core::ListingIngestionMethod::Shopify,
+        domain: domain.try_into().unwrap(),
+    };
+    let original = imports
+        .change_connection(
+            &context(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: scope("original.myshopify.com"),
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let creator = CreateShippingProfileHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    );
+    let mut metadata = import_metadata(original.revision, 1, "original-create");
+    metadata.object_key = Some("provider-policy".into());
+    let command = CreateProfileCommand {
+        import: Some(metadata),
+        source_id: source,
+        creation_key: "original-create".into(),
+        content: ShippingProfileContent {
+            name: ShippingProfileName::new("Provider delivery".into()).unwrap(),
+            attributed_party: None,
+            terms: gallery_terms(8000),
+        },
+        evidence: vec![],
+    };
+    let old_profile = creator.execute(&context(), command.clone()).await.unwrap();
+    let key = listing(&pool, source, "existing-provider-item").await;
+    let assignment = ChangeProductListingDeliveryCommand {
+        import: Some(import_metadata(original.revision, 2, "original-assignment")),
+        product_key: key.clone(),
+        expected_version: ProductListingStorageVersion::INITIAL,
+        delivery: PatchField::Set(ProductListingDeliveryPatch {
+            integration: original.integration.clone(),
+            selection: PatchField::Set(ProfileSelection::Explicit(old_profile.id)),
+            ..Default::default()
+        }),
+    };
+    let assigned = changer(&pool)
+        .execute(&context(), assignment.clone())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&pool).await.unwrap();
+    assert!(matches!(
+        changer(&pool).execute(&context(), assignment).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportConnectionStale
+        ))
+    ));
+    let fenced = imports
+        .connection(&context(), source)
+        .await
+        .unwrap()
+        .unwrap();
+    let replacement = imports
+        .change_connection(
+            &context(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: fenced.revision,
+                integration: scope("replacement.myshopify.com"),
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut removal = import_metadata(replacement.revision, 1, "remove-old-membership");
+    removal.observation = None;
+    let cleared = changer(&pool)
+        .execute(
+            &context(),
+            ChangeProductListingDeliveryCommand {
+                import: Some(removal),
+                product_key: key.clone(),
+                expected_version: assigned.version,
+                delivery: PatchField::Clear,
+            },
+        )
+        .await
+        .unwrap();
+    let d = dependencies(&pool, &[assigned.product_listing_id]).await;
+    assert!(d.listings[0].delivery.selection().is_none());
+    let mut current = command;
+    current.creation_key = "replacement-create".into();
+    let mut metadata = import_metadata(replacement.revision, 2, "replacement-create");
+    metadata.object_key = Some("provider-policy".into());
+    current.import = Some(metadata);
+    let new_profile = creator.execute(&context(), current).await.unwrap();
+    assert_ne!(old_profile.id, new_profile.id);
+    assert_eq!(
+        new_profile.id,
+        imports
+            .resolve_profile(
+                &context(),
+                source,
+                replacement.revision,
+                "provider-policy".into()
+            )
+            .await
+            .unwrap()
+    );
+    let applied = changer(&pool)
+        .execute(
+            &context(),
+            ChangeProductListingDeliveryCommand {
+                import: Some(import_metadata(
+                    replacement.revision,
+                    3,
+                    "replacement-assignment",
+                )),
+                product_key: key.clone(),
+                expected_version: cleared.version,
+                delivery: PatchField::Set(ProductListingDeliveryPatch {
+                    integration: replacement.integration,
+                    selection: PatchField::Set(ProfileSelection::Explicit(new_profile.id)),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(assigned.product_listing_id, applied.product_listing_id);
+    let d = dependencies(&pool, &[applied.product_listing_id]).await;
+    assert!(d.listings[0].integration_current);
+    assert_eq!(new_profile.id, d.profiles[0].profile.id());
 }

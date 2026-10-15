@@ -1,4 +1,5 @@
 pub mod assessment;
+pub mod imports;
 mod terms;
 use application::error::{BoxError, box_error};
 use listing_source_core::ListingSourceId;
@@ -310,6 +311,9 @@ impl DefaultRow {
 }
 #[async_trait::async_trait]
 impl ShippingRepository for Repository<'_> {
+    fn imports(&mut self) -> impl shipping_service::imports::ShippingImportAccess + '_ {
+        imports::Repository(self.0)
+    }
     async fn creation_retry(
         &mut self,
         source: ListingSourceId,

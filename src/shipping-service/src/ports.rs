@@ -60,6 +60,7 @@ pub struct StoredDefault {
 
 #[async_trait::async_trait]
 pub trait ShippingRepository: Send {
+    fn imports(&mut self) -> impl crate::imports::ShippingImportAccess + '_;
     /// Immutable retry identity; source authorization must already be locked.
     async fn creation_retry(
         &mut self,

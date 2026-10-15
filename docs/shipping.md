@@ -124,8 +124,8 @@ Profile selection must match that scope as well as immutable source ownership. S
 profiles; provider acquisition must explicitly bind provider profiles before selecting them.
 Opaque class/variant identities inherit this scope; edits cannot change the scope while
 retaining old facts. A provider assignment without a reliable selection keeps inheritance
-blocked. Clearing it never silently assigns a source default. Provider synchronization and
-binding acquisition remain owned by the evidence/synchronization contract.
+blocked. Clearing it never silently assigns a source default. Provider acquisition binds
+these scopes through the incremental typed import contract below.
 
 Listing writes validate current active profiles and compatible explicit PartyLocations,
 including equal commands using absent default configuration, under the existing source/grant locks. Whole-configuration
@@ -201,7 +201,8 @@ or overrides. Retired profiles are withdrawn dependencies, with no fallback. Fai
 evidence-only corrections, no-ops, lifecycle changes and unrelated edits neither erase a
 reliable assertion nor renew its verification time. Changing normalized terms verifies
 the replacement; a listing configuration change verifies its new whole configuration.
-Provider acquisition must preserve its own observation time and reviewed deadlines.
+Provider acquisition preserves its own observation time and reviewed deadlines through
+the incremental import contract below.
 
 Authenticated responses and all errors use `no-store`. Generic anonymous listing
 responses follow discovery caching, capped at the next shipping evidence freshness/expiry
@@ -299,3 +300,104 @@ The `shipping-core/test-data` [fixture builders](../src/shipping-core/src/fixtur
 normalization, provider mapping, projection and API tests. They use fixed canonical object
 IDs, explicit reference releases and minor-unit money, with no buyer data. The JSON is
 illustrative fixture vocabulary; adapters own their persistence and transport formats.
+
+## Incremental typed imports
+
+External agents acquire site policies only for sources without enabled native Shopify or
+WooCommerce ingestion. Apps/plugins acquire and map their provider data into the same
+canonical terms; the crawler may call these use cases directly. No producer performs
+buyer assessment. Unsupported/omitted facts and failed or incomplete reads produce no
+writes. Only a successful complete provider-scope read may justify explicit removals.
+There is no whole-source activation: create/update profiles before assigning them, and
+retain/retry each failed record independently.
+
+[OpenAPI](swagger.yaml) owns the optional import field on existing profile/default and
+listing delivery commands, source connection setup, and producer-object identity lookup.
+First-party operator setup binds the authenticated producer identity and current integration.
+Delegated producers cannot create/replace acquisition epochs. Shopify must match its
+configured domain; WooCommerce explicitly binds its shipping integration domain during
+setup. Source presentation URLs never establish that identity. Producers reacquire after
+connectedAt; queued data cannot gain authority by adopting a new connection revision.
+A lost setup reply is recovered through connection GET, then reconciled.
+
+objectKey identifies a profile within its immutable source/producer/integration namespace;
+requestKey identifies one exact validated operation within an acquisition epoch. Creation
+uses both this stable object identity and the existing original-request creationKey.
+Resolve an existing object before replacing it; reuse is never an arbitrary upsert.
+Exact committed retries return current committed state without repeating effects for
+90 days; changed request-key reuse conflicts permanently. Current source/grant/connection
+authority is checked before replay, including the outer asynchronous command receipt.
+Address-free hashed identity/request fences survive source deletion and replay expiry.
+No raw provider payload, capture receipt or reconciliation session is retained.
+
+Ownership follows the existing coherent components: whole profile/default, listing
+selection, rate inputs, whole shipping override and whole collection override. An import
+can claim an absent assertion and maintain/remove its own assertions. Explicit manual
+assertions protect their component even when equal to an imported value;
+this ownership handoff has an independent validity signal and does not renew evidence or
+fabricate a terms/listing change. Explicit clears and equal assertions retain protection
+even before the first import. Implicit source-default inheritance accompanying another
+component's edit does not claim selection ownership. Changed components, including clear/removal tombstones,
+remain protected through current source locks
+and optimistic management/default/listing revisions. Other components remain independent.
+Reconnection permits newly acquired work by the same producer to reconcile its previous
+assertions; it cannot reclaim a manual component. After integration replacement, the same
+producer explicitly clears its old scoped listing assertions before assigning new scoped
+profiles/facts. Profile object identity stays integration-scoped; old class/variant facts
+never move implicitly. Provider membership without a reliable
+selection stays unresolved and never falls back to a source default.
+
+Every imported assertion requires an explicit successful observation when created or
+semantically replaced, including a first claim of an equal implicit selection.
+Explicit removal of owned components does not require or renew an observation.
+acquiredAt is acquisition time; freshUntil and expiresAt are
+reviewed deadlines, ordered after acquisition, with expiry at most 30 days later.
+Acquisitions must follow connection setup and cannot be future dated or already expired.
+A new acquisition of unchanged content/evidence explicitly supplies observation to refresh
+validity without changing terms/management/listing revisions or emitting a listing semantic
+event. Evidence-only corrections, lifecycle commands, retries and ordinary equal writes do
+not renew validity. A correction that changes only evidence cannot carry an observation.
+Acquisition ordering uses PostgreSQL's microsecond precision; a new request key cannot
+turn the same acquisition into a fresh observation.
+Increasing producer sequence fences delayed work per touched component and epoch;
+receive time establishes no provider order. After a conflict, refetch and reconcile actual
+facts and ownership; never attach a new revision/epoch to an old payload.
+
+Current snapshot reads exclude disconnected imported profiles/defaults and independently
+expire listing components, preserving manual overrides. Imported membership expiry removes
+selection authority and blocks fallback. The listing evidence summary uses the oldest
+component acquisition/freshness; validityDeadline caps shared cache lifetime at the next
+imported component/default transition. Profile windows retain the B04 expiry contract.
+Source deletion, operator replacement, ingestion configuration removal/rebinding, source
+grant/member revocation and user/partnership authority changes fence the connection.
+Regranting or returning to the same domain does not revive its old epoch. Explicit
+revocation is immediate in authoritative reads; the 30-day maximum expiry bounds abandoned
+producer cleanup. Normal anonymous discovery cache limits still apply pending B09 fan-out.
+
+The migration adds only acquisition epochs, profile identity/ownership, default ownership,
+listing component ownership/windows, hashed request fences and immutable
+shipping_validity_changes. Each exists respectively to reject old authority, recover stable
+identity, protect concurrent manual edits, expire components independently, recognize exact
+retries, or invalidate observation-only changes. Validity signals contain source/subject IDs,
+independent revision, kind and recorded time; they carry no terms, addresses or evidence.
+[Event flow](events/flow.md) owns downstream activation.
+
+| Outcome | Producer action |
+| --- | --- |
+| Synchronous 200 | Record committed state; search visibility remains eventual. |
+| Async admission report | Record queue acceptance only; application still checks current authority/dependencies. |
+| 404 SHIPPING_IMPORT_DEPENDENCY_MISSING | Keep the record and retry after its catalog listing exists; no product is created/restored. |
+| Missing profile / ineligible reference | Create/restore the owned profile first, then retry assignment with reconciled current state. |
+| 409 SHIPPING_IMPORT_IDENTITY_EXISTS | Resolve the producer object key, read its profile and reconcile. |
+| Other import/revision 409 | Refetch current state/connection; reconcile or discard superseded acquisition. |
+| 503 / lost response | Retry the identical request and keys; a missing response does not establish rollback. |
+
+[Canonical request/response fixtures](fixtures/shipping-imports.json) are exercised by
+the API and queue codec tests. For S01, regenerate the Shopify app's pinned
+@hey-api/openapi-ts client from this specification. For W01, update its pinned
+OpenAPI Generator input and operation allowlist with connection GET/PUT, identity lookup,
+profile create/get/replace/lifecycle, default commands, and changeProductListingDelivery
+(or its existing asynchronous submission). Preserve the producer backfill pattern of
+retaining the exact pending request/key until confirmed admission/application; only
+successful complete provider reads generate explicit removals. External-agent SOURCE
+examples apply only to non-native sources.

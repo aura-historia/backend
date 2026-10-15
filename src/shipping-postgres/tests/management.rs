@@ -109,6 +109,7 @@ fn evidence() -> Vec<ShippingEvidence> {
 }
 fn command(source: ListingSourceId) -> CreateProfileCommand {
     CreateProfileCommand {
+        import: None,
         source_id: source,
         creation_key: "gallery-profile".into(),
         content: content(8000),
@@ -117,6 +118,7 @@ fn command(source: ListingSourceId) -> CreateProfileCommand {
 }
 fn replacement(v: &ProfileView, amount: u64) -> ReplaceProfileCommand {
     ReplaceProfileCommand {
+        import: None,
         source_id: v.source_id,
         profile_id: v.id,
         expected_revision: v.management_revision,
@@ -126,6 +128,7 @@ fn replacement(v: &ProfileView, amount: u64) -> ReplaceProfileCommand {
 }
 fn lifecycle(v: &ProfileView) -> ProfileLifecycleCommand {
     ProfileLifecycleCommand {
+        import: None,
         source_id: v.source_id,
         profile_id: v.id,
         expected_revision: v.management_revision,
@@ -168,6 +171,7 @@ async fn gallery_retries_evidence_and_noops_preserve_independent_revisions() {
         .execute(
             &trusted(),
             AssignDefaultCommand {
+                import: None,
                 source_id: source,
                 profile_id: original.id,
                 expected_revision: ShippingDefaultRevision::INITIAL,
@@ -284,6 +288,7 @@ async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() 
         .execute(
             &ctx,
             AssignDefaultCommand {
+                import: None,
                 source_id: source,
                 profile_id: a.id,
                 expected_revision: ShippingDefaultRevision::INITIAL,
@@ -301,6 +306,7 @@ async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() 
             .execute(
                 &ctx,
                 AssignDefaultCommand {
+                    import: None,
                     source_id: source,
                     profile_id: a.id,
                     expected_revision: assigned.revision
@@ -324,6 +330,7 @@ async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() 
         .execute(
             &ctx,
             ClearDefaultCommand {
+                import: None,
                 source_id: source,
                 expected_revision: assigned.revision,
             },
@@ -338,6 +345,7 @@ async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() 
             .execute(
                 &ctx,
                 ClearDefaultCommand {
+                    import: None,
                     source_id: source,
                     expected_revision: cleared.revision
                 }
@@ -350,6 +358,7 @@ async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() 
             .execute(
                 &ctx,
                 ClearDefaultCommand {
+                    import: None,
                     source_id: source,
                     expected_revision: ShippingDefaultRevision::INITIAL
                 }
@@ -422,6 +431,7 @@ async fn source_isolation_current_grants_suspension_and_caller_scoped_retry_keys
             .execute(
                 &trusted(),
                 AssignDefaultCommand {
+                    import: None,
                     source_id: foreign,
                     profile_id: v.id,
                     expected_revision: ShippingDefaultRevision::INITIAL
@@ -495,6 +505,7 @@ async fn source_deletion_retains_profiles_receipts_and_monotonic_default_fence()
         .execute(
             &trusted(),
             AssignDefaultCommand {
+                import: None,
                 source_id: source,
                 profile_id: v.id,
                 expected_revision: ShippingDefaultRevision::INITIAL,
@@ -623,6 +634,7 @@ async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignm
         .execute(
             &trusted(),
             AssignDefaultCommand {
+                import: None,
                 source_id: source,
                 profile_id: v.id,
                 expected_revision: ShippingDefaultRevision::INITIAL,
@@ -648,6 +660,7 @@ async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignm
             .execute(
                 &trusted(),
                 AssignDefaultCommand {
+                    import: None,
                     source_id: source,
                     profile_id: v.id,
                     expected_revision: assigned.revision
@@ -661,6 +674,7 @@ async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignm
             .execute(
                 &trusted(),
                 ReplaceProfileCommand {
+                    import: None,
                     source_id: source,
                     profile_id: v.id,
                     expected_revision: v.management_revision,
@@ -677,6 +691,7 @@ async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignm
         .execute(
             &trusted(),
             ClearDefaultCommand {
+                import: None,
                 source_id: source,
                 expected_revision: assigned.revision,
             },
@@ -721,12 +736,13 @@ async fn invalid_expected_revisions_fail_before_opening_transactions() {
     let profile_id = ShippingProfileId::new();
     let expected_revision = ShippingManagementRevision::try_from(i64::MAX as u64 + 1).unwrap();
     let lifecycle = ProfileLifecycleCommand {
+        import: None,
         source_id,
         profile_id,
         expected_revision,
     };
     assert!(matches!(
-        m.retire.execute(&trusted(), lifecycle).await,
+        m.retire.execute(&trusted(), lifecycle.clone()).await,
         Err(ShippingError::InvalidRevision)
     ));
     assert!(matches!(
@@ -738,6 +754,7 @@ async fn invalid_expected_revisions_fail_before_opening_transactions() {
             .execute(
                 &trusted(),
                 ReplaceProfileCommand {
+                    import: None,
                     source_id,
                     profile_id,
                     expected_revision,
@@ -754,6 +771,7 @@ async fn invalid_expected_revisions_fail_before_opening_transactions() {
             .execute(
                 &trusted(),
                 AssignDefaultCommand {
+                    import: None,
                     source_id,
                     profile_id,
                     expected_revision
@@ -767,6 +785,7 @@ async fn invalid_expected_revisions_fail_before_opening_transactions() {
             .execute(
                 &trusted(),
                 ClearDefaultCommand {
+                    import: None,
                     source_id,
                     expected_revision
                 }
@@ -829,6 +848,7 @@ async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
             .execute(
                 &trusted(),
                 ClearDefaultCommand {
+                    import: None,
                     source_id: source,
                     expected_revision: never_assigned.revision,
                 }
@@ -841,6 +861,7 @@ async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
         .execute(
             &trusted(),
             AssignDefaultCommand {
+                import: None,
                 source_id: source,
                 profile_id: profile.id,
                 expected_revision: never_assigned.revision,
@@ -861,6 +882,7 @@ async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
             .execute(
                 &trusted(),
                 AssignDefaultCommand {
+                    import: None,
                     source_id: source,
                     profile_id: profile.id,
                     expected_revision: max.revision,
@@ -874,6 +896,7 @@ async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
             .execute(
                 &trusted(),
                 ClearDefaultCommand {
+                    import: None,
                     source_id: source,
                     expected_revision: max.revision,
                 }
@@ -909,4 +932,581 @@ async fn source_deletion_without_selection_still_creates_a_retained_fence() {
     ).bind(source.into_uuid()).fetch_one(&p).await.unwrap();
     assert_eq!((2, true, None), fence);
     assert_eq!(1, signals(&p, source).await);
+}
+
+fn import_manager(p: &PgPool) -> impl shipping_service::imports::ShippingImportManagementUseCase {
+    shipping_service::imports::ShippingImportManagementHandler::new(
+        SqlxUnitOfWork::new(p.clone()),
+        shipping_postgres::imports::SqlxShippingImportAccessFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+}
+fn import_write(
+    revision: u64,
+    sequence: u64,
+    key: &str,
+) -> shipping_service::imports::ShippingImportWrite {
+    let at = time::OffsetDateTime::now_utc();
+    shipping_service::imports::ShippingImportWrite {
+        connection_revision: revision,
+        sequence,
+        acquired_at: at,
+        request_key: key.into(),
+        object_key: None,
+        observation: Some(shipping_service::imports::ShippingObservation {
+            acquired_at: at,
+            fresh_until: at + time::Duration::days(1),
+            expires_at: at + time::Duration::days(2),
+        }),
+    }
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn manual_default_clear_protects_an_initially_absent_assertion() {
+    use product_listing_core::delivery::DeliveryIntegration;
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    let m = manager(&p);
+    let connection = import_manager(&p)
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut create = command(source);
+    let mut write = import_write(connection.revision, 1, "create");
+    write.object_key = Some("policy".into());
+    create.import = Some(write);
+    let profile = m.create.execute(&trusted(), create).await.unwrap();
+    let before = signals(&p, source).await;
+    let cleared = m
+        .clear_default
+        .execute(
+            &trusted(),
+            ClearDefaultCommand {
+                import: None,
+                source_id: source,
+                expected_revision: ShippingDefaultRevision::INITIAL,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(ShippingDefaultRevision::INITIAL, cleared.revision);
+    assert_eq!(before, signals(&p, source).await);
+    assert!(matches!(
+        m.assign_default
+            .execute(
+                &trusted(),
+                AssignDefaultCommand {
+                    import: Some(import_write(connection.revision, 2, "assign")),
+                    source_id: source,
+                    profile_id: profile.id,
+                    expected_revision: cleared.revision,
+                }
+            )
+            .await,
+        Err(ShippingError::ImportOwnershipConflict)
+    ));
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn repeated_acquisition_with_a_new_request_key_cannot_extend_profile_validity() {
+    use product_listing_core::delivery::DeliveryIntegration;
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    let m = manager(&p);
+    let connection = import_manager(&p)
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut create = command(source);
+    let mut write = import_write(connection.revision, 1, "create");
+    // PostgreSQL persists microseconds; preserve a sub-microsecond part in the request.
+    let at = write
+        .acquired_at
+        .replace_nanosecond(write.acquired_at.nanosecond() / 1000 * 1000 + 1)
+        .unwrap();
+    write.acquired_at = at;
+    write.observation.as_mut().unwrap().acquired_at = at;
+    write.object_key = Some("policy".into());
+    create.import = Some(write.clone());
+    let profile = m.create.execute(&trusted(), create).await.unwrap();
+    write.object_key = None;
+    write.sequence = 2;
+    write.request_key = "same-acquisition".into();
+    write.observation.as_mut().unwrap().expires_at += time::Duration::days(1);
+    let mut replace = replacement(&profile, 8000);
+    replace.import = Some(write);
+    assert!(matches!(
+        m.replace.execute(&trusted(), replace).await,
+        Err(ShippingError::ImportOutOfOrder)
+    ));
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn incremental_profile_identity_replays_observations_manual_edits_and_disconnect() {
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    let m = manager(&p);
+    let imports = import_manager(&p);
+    let conn = imports
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut create = command(source);
+    let mut write = import_write(conn.revision, 1, "create-v1");
+    write.object_key = Some("website-policy".into());
+    create.import = Some(write.clone());
+    let first = m.create.execute(&trusted(), create.clone()).await.unwrap();
+    assert_eq!(
+        first.id,
+        imports
+            .resolve_profile(&trusted(), source, conn.revision, "website-policy".into())
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        first,
+        m.create.execute(&trusted(), create.clone()).await.unwrap()
+    );
+    let mut changed = create.clone();
+    changed.content = content(9500);
+    assert!(matches!(
+        m.create.execute(&trusted(), changed).await,
+        Err(ShippingError::ImportRequestConflict)
+    ));
+    let mut duplicate = create.clone();
+    duplicate.creation_key = "other-create-key".into();
+    duplicate.import.as_mut().unwrap().request_key = "other-request".into();
+    assert!(matches!(
+        m.create.execute(&trusted(), duplicate).await,
+        Err(ShippingError::ImportIdentityExists)
+    ));
+    let mut replace = replacement(&first, 9500);
+    replace.import = Some(import_write(conn.revision, 2, "replace-v2"));
+    let updated = m
+        .replace
+        .execute(&trusted(), replace.clone())
+        .await
+        .unwrap();
+    assert_eq!(first.id, updated.id);
+    assert_eq!(
+        updated,
+        m.replace
+            .execute(&trusted(), replace.clone())
+            .await
+            .unwrap()
+    );
+    let management_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM shipping_changes WHERE subject_id=$1")
+            .bind(first.id.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap();
+    let old_window: (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1",
+    )
+    .bind(first.id.into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    // An ordinary equal write advances only request/order fences.
+    let mut noop = replacement(&updated, 9500);
+    noop.import = Some(import_write(conn.revision, 3, "noop-v3"));
+    noop.import.as_mut().unwrap().observation = None;
+    assert_eq!(updated, m.replace.execute(&trusted(), noop).await.unwrap());
+    assert_eq!(
+        old_window,
+        sqlx::query_as::<_, (time::OffsetDateTime, time::OffsetDateTime)>(
+            "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1"
+        )
+        .bind(first.id.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+    // A genuinely new acquisition refreshes validity, without semantic/management changes.
+    let mut observed = replacement(&updated, 9500);
+    observed.import = Some(import_write(conn.revision, 4, "observed-v4"));
+    let acquired = observed
+        .import
+        .as_ref()
+        .unwrap()
+        .observation
+        .as_ref()
+        .unwrap()
+        .acquired_at;
+    assert_eq!(
+        updated,
+        m.replace
+            .execute(&trusted(), observed.clone())
+            .await
+            .unwrap()
+    );
+    let stored: time::OffsetDateTime = sqlx::query_scalar(
+        "SELECT verified_at FROM shipping_profiles WHERE shipping_profile_id=$1",
+    )
+    .bind(first.id.into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    assert_eq!(acquired.unix_timestamp(), stored.unix_timestamp());
+    assert_eq!(
+        management_events,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM shipping_changes WHERE subject_id=$1")
+            .bind(first.id.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap()
+    );
+
+    let equal_manual = m
+        .replace
+        .execute(&trusted(), replacement(&updated, 9500))
+        .await
+        .unwrap();
+    assert_eq!(updated, equal_manual);
+    let mut retry_after_equal = replacement(&equal_manual, 9500);
+    retry_after_equal.import = Some(import_write(conn.revision, 5, "after-equal-manual"));
+    assert!(matches!(
+        m.replace.execute(&trusted(), retry_after_equal).await,
+        Err(ShippingError::ImportOwnershipConflict)
+    ));
+    // Relabeling old queued payload with a newer revision/sequence cannot overwrite a manual edit.
+    let human = m
+        .replace
+        .execute(&trusted(), replacement(&updated, 10000))
+        .await
+        .unwrap();
+    let mut stale = replacement(&human, 9500);
+    stale.import = Some(import_write(conn.revision, 5, "stale-v5"));
+    assert!(matches!(
+        m.replace.execute(&trusted(), stale).await,
+        Err(ShippingError::ImportOwnershipConflict)
+    ));
+    let disconnected = imports
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: conn.revision,
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+                active: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!disconnected.active);
+    assert!(matches!(
+        m.create.execute(&trusted(), create.clone()).await,
+        Err(ShippingError::ImportConnectionStale)
+    ));
+    let reconnected = imports
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: disconnected.revision,
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    // A new connection label cannot turn an acquisition from the old epoch into fresh authority.
+    let mut relabeled = create.clone();
+    relabeled.creation_key = "new-epoch-create".into();
+    let w = relabeled.import.as_mut().unwrap();
+    w.connection_revision = reconnected.revision;
+    w.request_key = "new-epoch-request".into();
+    w.object_key = Some("second-policy".into());
+    assert!(matches!(
+        m.create.execute(&trusted(), relabeled).await,
+        Err(ShippingError::ImportConnectionStale)
+    ));
+    sqlx::query("DELETE FROM listing_sources WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
+    assert!(matches!(
+        m.create.execute(&trusted(), create).await,
+        Err(ShippingError::SourceNotFound)
+    ));
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shipping_profile_import_state WHERE shipping_profile_id=$1"
+        )
+        .bind(first.id.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn provider_profiles_bind_current_integration_and_delegates_cannot_reconnect() {
+    use product_listing_core::delivery::DeliveryIntegration;
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'synthetic.myshopify.com')").bind(source.into_uuid()).execute(&p).await.unwrap();
+    let imports = import_manager(&p);
+    assert!(matches!(
+        imports
+            .change_connection(
+                &trusted(),
+                ChangeShippingConnectionCommand {
+                    source_id: source,
+                    expected_revision: 0,
+                    integration: DeliveryIntegration::Source,
+                    active: true
+                }
+            )
+            .await,
+        Err(ShippingError::ImportConnectionStale)
+    ));
+    let scope = DeliveryIntegration::Provider {
+        method: listing_source_core::ListingIngestionMethod::Shopify,
+        domain: "synthetic.myshopify.com".try_into().unwrap(),
+    };
+    let conn = imports
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: scope.clone(),
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut create = command(source);
+    let mut write = import_write(conn.revision, 1, "provider-create");
+    write.object_key = Some("provider-profile-1".into());
+    create.import = Some(write);
+    let profile = manager(&p)
+        .create
+        .execute(&trusted(), create.clone())
+        .await
+        .unwrap();
+    let binding:(String,String)=sqlx::query_as("SELECT integration_method,integration_domain FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.id.into_uuid()).fetch_one(&p).await.unwrap();
+    assert_eq!(
+        ("SHOPIFY".into(), "synthetic.myshopify.com".into()),
+        binding
+    );
+    let delegate = context(Principal::DelegatedUser {
+        user_id: user_core::user_id::UserId::new(),
+        capabilities: std::collections::BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
+    });
+    assert!(matches!(
+        imports
+            .change_connection(
+                &delegate,
+                ChangeShippingConnectionCommand {
+                    source_id: source,
+                    expected_revision: conn.revision,
+                    integration: scope,
+                    active: true
+                }
+            )
+            .await,
+        Err(ShippingError::SourceAccessDenied)
+    ));
+    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
+    assert!(matches!(
+        manager(&p).create.execute(&trusted(), create).await,
+        Err(ShippingError::ImportConnectionStale)
+    ));
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original_validity() {
+    use product_listing_core::delivery::DeliveryIntegration;
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (owner, source) = source(&p).await;
+    let Principal::DelegatedUser { user_id, .. } = member(&p, owner, source).await else {
+        unreachable!()
+    };
+    let setup = context(Principal::User(user_id));
+    let producer = context(Principal::DelegatedUser {
+        user_id,
+        capabilities: std::collections::BTreeSet::from([
+            CredentialCapability::ListingSourcesRead,
+            CredentialCapability::ListingSourcesWrite,
+        ]),
+    });
+    let imports = import_manager(&p);
+    let m = manager(&p);
+    let conn = imports
+        .change_connection(
+            &setup,
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    let mut create = command(source);
+    let mut w = import_write(conn.revision, 1, "create");
+    w.object_key = Some("policy".into());
+    create.import = Some(w);
+    let profile = m.create.execute(&producer, create.clone()).await.unwrap();
+    sqlx::query("UPDATE users SET role=role,suspended=suspended WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
+    assert_eq!(
+        profile,
+        m.create.execute(&producer, create.clone()).await.unwrap()
+    );
+
+    let window: (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1",
+    )
+    .bind(profile.id.into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap();
+    let mut removal = lifecycle(&profile);
+    let mut w = import_write(conn.revision, 2, "retire");
+    w.observation = None;
+    removal.import = Some(w);
+    let retired = m.retire.execute(&producer, removal.clone()).await.unwrap();
+    assert_eq!(retired, m.retire.execute(&producer, removal).await.unwrap());
+    assert_eq!(
+        window,
+        sqlx::query_as::<_, (time::OffsetDateTime, time::OffsetDateTime)>(
+            "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1"
+        )
+        .bind(profile.id.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+    let partnership: uuid::Uuid =
+        sqlx::query_scalar("SELECT partnership_id FROM partnership_members WHERE user_id=$1")
+            .bind(user_id.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM partnership_listing_source_grants WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
+    assert!(matches!(
+        m.create.execute(&producer, create.clone()).await,
+        Err(ShippingError::SourceAccessDenied)
+    ));
+    sqlx::query("INSERT INTO partnership_listing_source_grants(partnership_id,listing_source_id) VALUES($1,$2)").bind(partnership).bind(source.into_uuid()).execute(&p).await.unwrap();
+    assert!(matches!(
+        m.create.execute(&producer, create).await,
+        Err(ShippingError::ImportConnectionStale)
+    ));
+    let conn = imports
+        .connection(&producer, source)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!conn.active);
+    assert_eq!(2, conn.revision);
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn import_validity_signal_failure_rolls_back_profile_identity_and_request_fences() {
+    use shipping_service::imports::*;
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    let conn = import_manager(&p)
+        .change_connection(
+            &trusted(),
+            ChangeShippingConnectionCommand {
+                source_id: source,
+                expected_revision: 0,
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+                active: true,
+            },
+        )
+        .await
+        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE shipping_validity_changes ADD CONSTRAINT reject_observation_for_test CHECK(change_kind<>'OBSERVED' OR listing_source_id<>'{}'::uuid) NOT VALID",source.into_uuid()))).execute(&p).await.unwrap();
+    let mut create = command(source);
+    let mut w = import_write(conn.revision, 1, "create");
+    w.object_key = Some("policy".into());
+    create.import = Some(w);
+    assert!(matches!(
+        manager(&p).create.execute(&trusted(), create).await,
+        Err(ShippingError::PersistenceFailed { .. })
+    ));
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shipping_profiles WHERE listing_source_id=$1"
+        )
+        .bind(source.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shipping_profile_import_state WHERE listing_source_id=$1"
+        )
+        .bind(source.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shipping_import_request_fences WHERE listing_source_id=$1"
+        )
+        .bind(source.into_uuid())
+        .fetch_one(&p)
+        .await
+        .unwrap()
+    );
+    sqlx::query(
+        "ALTER TABLE shipping_validity_changes DROP CONSTRAINT reject_observation_for_test",
+    )
+    .execute(&p)
+    .await
+    .unwrap();
 }

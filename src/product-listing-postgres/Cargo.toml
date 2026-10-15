@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-postgres = { workspace = true }
+shipping-service = { workspace = true }
 shipping-json = { workspace = true }
 shipping-core = { workspace = true }
 listing-source-service = { workspace = true }
@@ -44,8 +46,6 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 shipping-core = { workspace = true, features = ["test-data"] }
-shipping-postgres = { workspace = true }
-shipping-service = { workspace = true }
 user-service = { workspace = true }
 geo-postgres = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }

@@ -1,4 +1,6 @@
+mod imports;
 pub(crate) mod listing;
+pub use imports::{change_connection, get_connection, resolve_import_profile};
 mod terms;
 use crate::{
     auth::{TokenAuthenticator, protected_context},
@@ -37,6 +39,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ShippingState {
+    pub imports: Arc<dyn shipping_service::imports::ShippingImportManagementUseCase>,
     pub create: Arc<dyn CreateShippingProfileUseCase>,
     pub replace: Arc<dyn ReplaceShippingProfileUseCase>,
     pub retire: Arc<dyn RetireShippingProfileUseCase>,
@@ -91,6 +94,8 @@ fn evidence(data: Vec<EvidenceData>) -> Result<Vec<ShippingEvidence>, ApiError> 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CreateData {
+    #[serde(default)]
+    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
     creation_key: String,
     content: ContentData,
     evidence: Vec<EvidenceData>,
@@ -98,6 +103,8 @@ struct CreateData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReplaceData {
+    #[serde(default)]
+    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
     expected_revision: ShippingManagementRevision,
     content: ContentData,
     evidence: Vec<EvidenceData>,
@@ -105,17 +112,23 @@ struct ReplaceData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LifecycleData {
+    #[serde(default)]
+    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
     expected_revision: ShippingManagementRevision,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AssignData {
+    #[serde(default)]
+    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
     expected_revision: ShippingDefaultRevision,
     shipping_profile_id: ShippingProfileId,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ClearData {
+    #[serde(default)]
+    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
     expected_revision: ShippingDefaultRevision,
 }
 #[derive(Deserialize)]
@@ -223,6 +236,24 @@ impl From<ShippingError> for ApiError {
             | ShippingError::Profile(shipping_core::profile::ShippingProfileError::Invalid(_)) => {
                 bad()
             }
+            ShippingError::ImportConnectionStale => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_CONNECTION_STALE)
+            }
+            ShippingError::ImportOwnershipConflict => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_OWNERSHIP_CONFLICT)
+            }
+            ShippingError::ImportRequestConflict => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_REQUEST_CONFLICT)
+            }
+            ShippingError::ImportOutOfOrder => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_OUT_OF_ORDER)
+            }
+            ShippingError::ImportIdentityExists => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_IDENTITY_EXISTS)
+            }
+            ShippingError::ImportDependencyMissing => {
+                Self::not_found(crate::error::SHIPPING_IMPORT_DEPENDENCY_MISSING)
+            }
             ShippingError::StaleRevision => Self::conflict(SHIPPING_STALE_REVISION),
             ShippingError::CreationKeyConflict => Self::conflict(SHIPPING_CREATION_KEY_CONFLICT),
             ShippingError::RevisionExhausted
@@ -278,6 +309,10 @@ pub async fn create(
         let source_id = source_id(&source)?;
         let d: CreateData = parse(&body)?;
         Ok::<_, ApiError>(CreateProfileCommand {
+            import: d
+                .import
+                .map(|v| v.into_command().map_err(|_| bad()))
+                .transpose()?,
             source_id,
             creation_key: d.creation_key,
             content: d.content.domain(source_id)?,
@@ -303,6 +338,10 @@ pub async fn replace(
         let source_id = source_id(&source)?;
         let d: ReplaceData = parse(&body)?;
         Ok::<_, ApiError>(ReplaceProfileCommand {
+            import: d
+                .import
+                .map(|v| v.into_command().map_err(|_| bad()))
+                .transpose()?,
             source_id,
             profile_id: profile_id(&id)?,
             expected_revision: d.expected_revision,
@@ -330,6 +369,10 @@ async fn lifecycle(
     let command = (|| {
         let d: LifecycleData = parse(&body)?;
         Ok::<_, ApiError>(ProfileLifecycleCommand {
+            import: d
+                .import
+                .map(|v| v.into_command().map_err(|_| bad()))
+                .transpose()?,
             source_id: source_id(&source)?,
             profile_id: profile_id(&id)?,
             expected_revision: d.expected_revision,
@@ -427,6 +470,10 @@ pub async fn assign_default(
     let command = (|| {
         let d: AssignData = parse(&body)?;
         Ok::<_, ApiError>(AssignDefaultCommand {
+            import: d
+                .import
+                .map(|v| v.into_command().map_err(|_| bad()))
+                .transpose()?,
             source_id: source_id(&source)?,
             profile_id: d.shipping_profile_id,
             expected_revision: d.expected_revision,
@@ -450,6 +497,10 @@ pub async fn clear_default(
     let command = (|| {
         let d: ClearData = parse(&body)?;
         Ok::<_, ApiError>(ClearDefaultCommand {
+            import: d
+                .import
+                .map(|v| v.into_command().map_err(|_| bad()))
+                .transpose()?,
             source_id: source_id(&source)?,
             expected_revision: d.expected_revision,
         })

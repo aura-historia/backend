@@ -2,6 +2,17 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-15 — Incremental typed shipping imports (#2065)
+
+- Existing profile/default and listing delivery commands accept optional import identity,
+  ownership, ordering and explicit observation metadata. Added source connection setup/read
+  and profile identity recovery; current source/integration authority gates application and replay.
+- Manual components remain protected. Exact retries retain identity; conflicts require
+  refetch/reconciliation. Missing catalog listings return retryable dependency outcomes.
+- New observations can refresh unchanged terms without a semantic listing change.
+  Imported component/default deadlines cap anonymous caching through validityDeadline;
+  expiry/disconnect preserve independent manual overrides. See [shipping](shipping.md).
+
 ## 2026-10-15 — Shipping on listing responses (#2064)
 
 - Existing listing detail (ID/slug), search, similar, watchlist, saved-search match and auction catalogue responses

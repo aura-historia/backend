@@ -377,6 +377,15 @@ where
                 if receipt.completion_code != ProductListingCommandCompletionCode::Applied {
                     return Err(ProductListingIngestionError::InvalidMetadata);
                 }
+                if let ProductListingIngestionIntent::ChangeDelivery(command) = intent
+                    && command.import.is_some()
+                {
+                    // The outer queue receipt is not an authority grant. Recheck current
+                    // source/grant/connection fences even for already committed imports.
+                    delivery
+                        .apply_in_transaction(&mut tx, &context, command)
+                        .await?;
+                }
                 tx.commit().await.map_err(|source| {
                     ProductListingIngestionError::CommitTransactionFailed(Box::new(source))
                 })?;

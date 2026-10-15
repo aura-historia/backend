@@ -1,4 +1,5 @@
 pub mod assessment;
+pub mod imports;
 pub mod ports;
 pub mod use_cases;
 
@@ -32,6 +33,18 @@ pub enum ShippingError {
     RevisionExhausted,
     #[error("creation key has already been used for different content")]
     CreationKeyConflict,
+    #[error("catalog listing dependency has not arrived; retain and retry this record")]
+    ImportDependencyMissing,
+    #[error("shipping import connection is no longer current")]
+    ImportConnectionStale,
+    #[error("shipping assertion is managed by another owner")]
+    ImportOwnershipConflict,
+    #[error("shipping import request key was reused with different input")]
+    ImportRequestConflict,
+    #[error("shipping import observation is older than applied work")]
+    ImportOutOfOrder,
+    #[error("shipping import object already has an identity; resolve it before updating")]
+    ImportIdentityExists,
     #[error("invalid shipping management input")]
     InvalidInput,
     #[error("invalid shipping terms")]

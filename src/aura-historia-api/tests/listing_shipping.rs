@@ -110,6 +110,7 @@ async fn fixture() -> (
     .execute(
         &ctx(Principal::System),
         CreateProfileCommand {
+            import: None,
             source_id: source,
             creation_key: "gallery".into(),
             content: ShippingProfileContent {
@@ -136,6 +137,7 @@ async fn fixture() -> (
     .execute(
         &ctx(Principal::System),
         AssignDefaultCommand {
+            import: None,
             source_id: source,
             profile_id: profile.id,
             expected_revision: ShippingDefaultRevision::INITIAL,
@@ -369,6 +371,7 @@ async fn current_profile_changes_overrides_expiry_and_suspension_are_reflected()
     .execute(
         &ctx(Principal::System),
         ReplaceProfileCommand {
+            import: None,
             source_id: source,
             profile_id: profile,
             expected_revision: shipping_service::ports::ShippingManagementRevision::INITIAL,
@@ -542,6 +545,7 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         .execute(
             &ctx(Principal::System),
             ReplaceProfileCommand {
+                import: None,
                 source_id: source,
                 profile_id: profile,
                 expected_revision: shipping_service::ports::ShippingManagementRevision::INITIAL,
@@ -601,6 +605,7 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         .execute(
             &ctx(Principal::System),
             ReplaceProfileCommand {
+                import: None,
                 source_id: source,
                 profile_id: profile,
                 expected_revision: changed.management_revision,
