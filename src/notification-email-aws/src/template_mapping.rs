@@ -215,13 +215,57 @@ pub(crate) const fn subject(
     }
 }
 
+/// Links into the web app, localized with the email language. Paths mirror the
+/// web app's routes (`/$lng/...`), which are the source of truth.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FrontendLinks<'a> {
+    origin: &'a str,
+    language: EmailLanguage,
+}
+
+impl<'a> FrontendLinks<'a> {
+    /// `origin` is a validated bare origin without a trailing slash.
+    pub(crate) const fn new(origin: &'a str, language: EmailLanguage) -> Self {
+        Self { origin, language }
+    }
+
+    fn page(self, path: &str) -> String {
+        format!("{}/{}{path}", self.origin, self.language.as_str())
+    }
+
+    fn home(self) -> String {
+        self.page("")
+    }
+
+    fn product_listing(self, slug_id: &ProductListingSlugId) -> String {
+        self.page(&format!("/products/{slug_id}"))
+    }
+
+    fn watchlist(self) -> String {
+        self.page("/me/watchlist")
+    }
+
+    fn search_filters(self) -> String {
+        self.page("/me/search-filters")
+    }
+
+    fn search_filter(self, search_filter_id: &str) -> String {
+        self.page(&format!("/me/search-filter/{search_filter_id}"))
+    }
+
+    fn partner_applications(self) -> String {
+        self.page("/partners/applications")
+    }
+}
+
 pub(crate) fn template_data(
     source: &NotificationDeliverySource,
     email_language: EmailLanguage,
     first_name: Option<&str>,
+    links: FrontendLinks<'_>,
 ) -> Value {
     if let Some(digest) = &source.saved_search_digest {
-        return digest_template_data(source, digest, email_language, first_name);
+        return digest_template_data(source, digest, email_language, first_name, links);
     }
     let localized = source
         .content
@@ -243,6 +287,7 @@ pub(crate) fn template_data(
             snapshot, change, ..
         } => {
             let mut data = product_template_data(
+                links,
                 snapshot.listing_source_name.to_string(),
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
@@ -271,7 +316,8 @@ pub(crate) fn template_data(
                     data["notification_type"] = json!("availability_change");
                 }
             }
-            add_recipient_data(data, first_name)
+            data["watchlist_url"] = json!(links.watchlist());
+            add_recipient_data(data, first_name, links)
         }
         LocalizedNotificationContent::SearchFilter {
             snapshot,
@@ -280,16 +326,19 @@ pub(crate) fn template_data(
             ..
         } => {
             let mut data = product_template_data(
+                links,
                 snapshot.listing_source_name.to_string(),
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
             );
-            data["search_filter_id"] = json!(user_search_filter_id.to_string());
+            let search_filter_id = user_search_filter_id.to_string();
+            data["search_filter_url"] = json!(links.search_filter(&search_filter_id));
+            data["search_filter_id"] = json!(search_filter_id);
             data["search_filter_name"] = json!(user_search_filter_name.to_string());
             data["notification_type"] = json!("search_filter_match");
-            add_recipient_data(data, first_name)
+            add_recipient_data(data, first_name, links)
         }
         LocalizedNotificationContent::PartnershipApplication {
             snapshot, decision, ..
@@ -298,18 +347,25 @@ pub(crate) fn template_data(
                 "party_name": snapshot.party_name.to_string(),
                 "listing_source_name": snapshot.listing_source_name.to_string(),
                 "image_url": snapshot.image.map(|image| image.to_string()),
+                "partner_dashboard_url": links.partner_applications(),
                 "notification_type": match decision {
                     PartnershipApplicationDecision::Approved => "partnership_application_approval",
                     PartnershipApplicationDecision::Rejected => "partnership_application_rejection",
                 },
             }),
             first_name,
+            links,
         ),
     }
 }
 
-fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
+fn add_recipient_data(
+    mut data: Value,
+    first_name: Option<&str>,
+    links: FrontendLinks<'_>,
+) -> Value {
     data["first_name"] = json!(first_name);
+    data["home_url"] = json!(links.home());
     data
 }
 
@@ -320,6 +376,7 @@ fn digest_template_data(
     digest: &notification_service::saved_search_digest::SavedSearchEmailDigest,
     language: EmailLanguage,
     first_name: Option<&str>,
+    links: FrontendLinks<'_>,
 ) -> Value {
     use std::collections::BTreeMap;
     let mut listings: BTreeMap<String, Value> = BTreeMap::new();
@@ -333,7 +390,7 @@ fn digest_template_data(
         } = content.clone().localized(&[language.as_language()])
         {
             let filter_id = user_search_filter_id.to_string();
-            let label = json!({ "id": filter_id, "name": user_search_filter_name.to_string(), "url": format!("https://aura-historia.com/search-filters/{filter_id}") });
+            let label = json!({ "id": filter_id, "name": user_search_filter_name.to_string(), "url": links.search_filter(&filter_id) });
             let group = groups.entry(filter_id).or_insert_with(|| {
                 let mut group = label.clone();
                 group["match_count"] = json!(0);
@@ -353,6 +410,7 @@ fn digest_template_data(
                     .and_then(|image| image.url)
                     .map(|url| url.to_string());
                     let mut card = product_template_data(
+                        links,
                         snapshot.listing_source_name.to_string(),
                         &snapshot.product_listing_title_slug_id,
                         snapshot.title.map(|title| title.payload.to_string()),
@@ -384,13 +442,15 @@ fn digest_template_data(
             "match_count": digest.members.len(), "listing_count": listing_count,
             "preview_count": cards.len(), "preview_limit": DIGEST_PREVIEW_LIMIT,
             "has_more": listing_count > DIGEST_PREVIEW_LIMIT, "groups": groups.into_values().collect::<Vec<_>>(),
-            "listings": cards, "results_url": "https://aura-historia.com/search-filters",
-            "settings_url": "https://aura-historia.com/search-filters", "notification_type": "saved_search_digest",
+            "listings": cards, "results_url": links.search_filters(),
+            "settings_url": links.search_filters(), "notification_type": "saved_search_digest",
         }),
         first_name,
+        links,
     )
 }
 fn product_template_data(
+    links: FrontendLinks<'_>,
     listing_source_name: String,
     product_listing_title_slug_id: &ProductListingSlugId,
     title: Option<String>,
@@ -399,16 +459,13 @@ fn product_template_data(
 ) -> Value {
     json!({
         "listing_source_name": listing_source_name,
-        "product_listing_url": product_listing_url(product_listing_title_slug_id),
+        "product_listing_url": links.product_listing(product_listing_title_slug_id),
         "title": title,
         "image_url": image_url,
         "view_url": view_url,
     })
 }
 
-fn product_listing_url(product_listing_title_slug_id: &ProductListingSlugId) -> String {
-    format!("https://aura-historia.com/product-listings/{product_listing_title_slug_id}")
-}
 fn price_text(price: Option<ProductListingPrice>, language: EmailLanguage) -> Option<String> {
     price.map(|price| match price {
         ProductListingPrice::Monetary(price) => price.format_human_readable(),
@@ -589,7 +646,12 @@ mod tests {
                 members,
             },
         );
-        let data = template_data(&source, EmailLanguage::En, Some("<img src=x>"));
+        let data = template_data(
+            &source,
+            EmailLanguage::En,
+            Some("<img src=x>"),
+            links(EmailLanguage::En),
+        );
         assert_eq!(26, data["match_count"]);
         assert_eq!(25, data["listing_count"]);
         assert_eq!(20, data["preview_count"]);
@@ -606,9 +668,14 @@ mod tests {
             .reverse();
         assert_eq!(
             data,
-            template_data(&source, EmailLanguage::En, Some("<img src=x>"))
+            template_data(
+                &source,
+                EmailLanguage::En,
+                Some("<img src=x>"),
+                links(EmailLanguage::En)
+            )
         );
-        let german = template_data(&source, EmailLanguage::De, None);
+        let german = template_data(&source, EmailLanguage::De, None, links(EmailLanguage::De));
         assert_eq!("Deutscher Titel", german["listings"][0]["title"]);
         let sensitive = source.saved_search_digest.as_mut().unwrap();
         for member in &mut sensitive.members {
@@ -619,7 +686,7 @@ mod tests {
             }
         }
         assert!(
-            template_data(&source, EmailLanguage::En, None)["listings"]
+            template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En))["listings"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -641,8 +708,9 @@ mod tests {
             assert!(!rendered.contains("<img src=x>"));
             assert!(!rendered.contains("<b>Saved & search</b>"));
             assert!(rendered.contains("&lt;script&gt;English &amp; title&lt;/script&gt;"));
-            assert!(rendered.contains("https://aura-historia.com/search-filters/"));
-            assert!(rendered.contains("https://aura-historia.com/search-filters\""));
+            assert!(rendered.contains("https://stage.aura-historia.com/en/me/search-filter/"));
+            assert!(rendered.contains("https://stage.aura-historia.com/en/me/search-filters\""));
+            assert!(rendered.contains("https://stage.aura-historia.com/en/products/"));
             assert!(!subject(EmailTemplateType::SavedSearchDigest, language).is_empty());
         }
         Ok(())
@@ -1053,7 +1121,7 @@ esac
         #[case] expected_image_url: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let source = source(consent, content_policy)?;
-        let data = template_data(&source, EmailLanguage::En, None);
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
 
         assert_eq!(expected_image_url, data["image_url"].as_str());
         Ok(())
@@ -1063,11 +1131,24 @@ esac
     fn should_include_frontend_product_listing_url_and_first_name_in_template_data()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = source(false, None)?;
-        let data = template_data(&source, EmailLanguage::En, Some("Ada"));
+        let data = template_data(
+            &source,
+            EmailLanguage::En,
+            Some("Ada"),
+            links(EmailLanguage::En),
+        );
 
         assert_eq!(
-            Some("https://aura-historia.com/product-listings/antique-vase-a1b2c3"),
+            Some("https://stage.aura-historia.com/en/products/antique-vase-a1b2c3"),
             data["product_listing_url"].as_str()
+        );
+        assert_eq!(
+            Some("https://stage.aura-historia.com/en/me/watchlist"),
+            data["watchlist_url"].as_str()
+        );
+        assert_eq!(
+            Some("https://stage.aura-historia.com/en"),
+            data["home_url"].as_str()
         );
         assert_eq!(Some("Ada"), data["first_name"].as_str());
         assert!(data.get("listing_source_slug_id").is_none());
@@ -1081,7 +1162,7 @@ esac
         let mut source = source(false, None)?;
         source.presentation_preferences.language = Language::Zh;
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
-        let data = template_data(&source, email_language, None);
+        let data = template_data(&source, email_language, None, links(email_language));
 
         assert_eq!(Some("Available"), data["old_availability"].as_str());
         assert_eq!(Some("In stock"), data["new_availability"].as_str());
@@ -1102,7 +1183,7 @@ esac
             new_availability: Some(ListingAvailability::InStock),
         };
 
-        let data = template_data(&source, EmailLanguage::En, None);
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
 
         assert!(data["old_availability"].is_null());
         assert_eq!(Some("In stock"), data["new_availability"].as_str());
@@ -1135,7 +1216,7 @@ esac
         ]));
 
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
-        let data = template_data(&source, email_language, None);
+        let data = template_data(&source, email_language, None, links(email_language));
 
         assert_eq!(Some("English title"), data["title"].as_str());
         Ok(())
@@ -1160,7 +1241,7 @@ esac
             new_price: Some(Price::new(MonetaryAmount::from(900_u64), currency).into()),
         };
 
-        let data = template_data(&source, EmailLanguage::En, None);
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
 
         assert_eq!(Some(expected_old_price), data["old_price"].as_str());
         assert_eq!(Some(expected_new_price), data["new_price"].as_str());
@@ -1188,7 +1269,7 @@ esac
             new_price: Some(ProductListingPrice::OnRequest),
         };
 
-        let data = template_data(&source, language, None);
+        let data = template_data(&source, language, None, links(language));
 
         assert!(data["old_price"].is_null());
         assert_eq!(Some(expected), data["new_price"].as_str());
@@ -1209,10 +1290,88 @@ esac
             new_price: Some(Price::new(MonetaryAmount::from(0_u64), Currency::Eur).into()),
         };
 
-        let data = template_data(&source, EmailLanguage::En, None);
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
 
         assert!(data["old_price"].is_null());
         assert_eq!(Some("0,00 €"), data["new_price"].as_str());
+        Ok(())
+    }
+
+    fn links(language: EmailLanguage) -> FrontendLinks<'static> {
+        FrontendLinks::new("https://stage.aura-historia.com", language)
+    }
+
+    #[rstest]
+    #[case(
+        EmailLanguage::De,
+        "https://stage.aura-historia.com/de/partners/applications"
+    )]
+    #[case(
+        EmailLanguage::En,
+        "https://stage.aura-historia.com/en/partners/applications"
+    )]
+    #[case(
+        EmailLanguage::Fr,
+        "https://stage.aura-historia.com/fr/partners/applications"
+    )]
+    #[case(
+        EmailLanguage::Es,
+        "https://stage.aura-historia.com/es/partners/applications"
+    )]
+    #[case(
+        EmailLanguage::It,
+        "https://stage.aura-historia.com/it/partners/applications"
+    )]
+    fn should_link_partnership_decisions_to_localized_partner_applications(
+        #[case] language: EmailLanguage,
+        #[case] expected: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        source.content = NotificationContent::PartnershipApplication {
+            partnership_application_id:
+                partnership_core::partnership_application_id::PartnershipApplicationId::new(),
+            snapshot: notification_core::notification::PartnershipApplicationNotificationSnapshot {
+                party_name: party_core::party_name::PartyName::try_from("Antik und Stil")?,
+                listing_source_name: ListingSourceName::try_from("antik-und-stil.de")?,
+                image: None,
+            },
+            decision: PartnershipApplicationDecision::Approved,
+        };
+
+        let data = template_data(&source, language, None, links(language));
+
+        assert_eq!(Some(expected), data["partner_dashboard_url"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_link_search_filter_matches_to_the_localized_search_filter()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { snapshot, .. } = source.content.clone() else {
+            panic!("fixture")
+        };
+        let filter_id = search_filter_core::user_search_filter_id::UserSearchFilterId::new();
+        source.content = NotificationContent::SearchFilter {
+            origin_event_id: EventId::new(),
+            product_listing_id: ProductListingId::new(),
+            user_search_filter_id: filter_id,
+            snapshot,
+            user_search_filter_name: "Art Nouveau".into(),
+        };
+
+        let data = template_data(&source, EmailLanguage::De, None, links(EmailLanguage::De));
+
+        assert_eq!(
+            Some(
+                format!("https://stage.aura-historia.com/de/me/search-filter/{filter_id}").as_str()
+            ),
+            data["search_filter_url"].as_str()
+        );
+        assert_eq!(
+            Some("https://stage.aura-historia.com/de/products/antique-vase-a1b2c3"),
+            data["product_listing_url"].as_str()
+        );
         Ok(())
     }
 

@@ -641,7 +641,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["COMMIT_SHA", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+      ["COMMIT_SHA", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
     const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));

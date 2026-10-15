@@ -1,14 +1,67 @@
-<mjml>
+<mjml lang="it">
   <mj-head>
     <mj-title>Richiesta di partnership approvata: {{party_name}}</mj-title>
     <mj-preview>La tua richiesta di partnership per {{listing_source_name}} è stata approvata.</mj-preview>
+    <mj-font name="Newsreader" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" />
+    <mj-font name="Geist" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+    <mj-attributes>
+      <mj-all font-family="Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif" />
+      <mj-wrapper padding="20px 0" />
+      <mj-section padding="0 40px" background-color="#F4EEE3" css-class="ah-px" />
+      <mj-column padding="0" />
+      <mj-text padding="0" color="#4F4441" font-size="16px" line-height="1.6" />
+      <mj-image padding="0" />
+      <mj-spacer height="28px" />
+      <mj-class name="eyebrow" font-family="'Geist Mono', Menlo, Consolas, 'Courier New', monospace" font-size="12px" line-height="1.4" letter-spacing="0.2em" color="#7A5C30" padding="0 0 18px" />
+      <mj-class name="headline" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40px" line-height="1.06" letter-spacing="-0.02em" color="#170D0E" css-class="ah-headline" />
+      <mj-class name="note" font-size="14px" color="#6B5E58" />
+      <mj-class name="footnote" font-size="13px" color="#6B5E58" />
+      <mj-divider padding="0 0 24px" border-width="1px" border-color="#D5CFC5" />
+    </mj-attributes>
+    <mj-style>
+      a { color: #170D0E; }
+      @media only screen and (max-width: 480px) {
+        .ah-px > table > tbody > tr > td { padding-left: 20px !important; padding-right: 20px !important; }
+        .ah-headline > div { font-size: 32px !important; }
+      }
+    </mj-style>
   </mj-head>
-  <mj-body background-color="#F7F4E9" width="600px">
-    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+  <mj-body background-color="#EDE5D7" width="600px">
+    <mj-wrapper>
+    <mj-section background-color="#170D0E" padding="30px 40px" border-radius="14px 14px 0 0">
       <mj-column>
-        <mj-text>{{#if first_name}}Ciao {{first_name}},{{else}}Ciao,{{/if}}</mj-text>
-        <mj-text>La tua richiesta di partnership per <b>{{party_name}}</b> e <b>{{listing_source_name}}</b> è stata approvata.</mj-text>
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="{{home_url}}" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">PROGRAMMA PARTNER</td></tr></table></mj-text>
       </mj-column>
     </mj-section>
+    <mj-section padding="44px 40px 48px">
+      <mj-column>
+        <mj-text mj-class="eyebrow">RICHIESTA APPROVATA</mj-text>
+        <mj-text mj-class="headline">Benvenuto nel <em>programma partner.</em></mj-text>
+        <mj-spacer />
+        <mj-text padding="0 0 12px" color="#170D0E">{{#if first_name}}Ciao {{first_name}},{{else}}Salve,{{/if}}</mj-text>
+        <mj-text>Ottime notizie: la tua richiesta di partnership è stata approvata. I tuoi annunci possono ora comparire su Aura Historia.</mj-text>
+        <mj-spacer />
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background-color:#FBF8F2;border:1px solid #E5DED4;border-radius:14px;"><tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;border-bottom:1px solid #E9E5E0;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">PARTNER</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;border-bottom:1px solid #E9E5E0;">{{party_name}}</td></tr><tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;border-bottom:1px solid #E9E5E0;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">FONTE DEGLI ANNUNCI</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;border-bottom:1px solid #E9E5E0;">{{listing_source_name}}</td></tr><tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">STATO</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;"><span style="display:inline-block;padding:5px 10px;border-radius:999px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.2;letter-spacing:0.12em;font-weight:400;background-color:#4A1520;color:#FBF8F2;">&#10003;&nbsp;APPROVATA</span></td></tr></table></mj-text>
+        <mj-spacer />
+<mj-text padding="0" font-size="0px" line-height="0"><table role="presentation" border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:separate;vertical-align:top;margin:0 6px 10px 0;"><tr><td bgcolor="#170D0E" style="background-color:#170D0E;border-radius:999px;padding:14px 24px;"><a href="{{partner_dashboard_url}}" style="display:inline-block;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;font-weight:500;line-height:20px;color:#FBF8F2;text-decoration:none;white-space:nowrap;">Apri l'area partner<span style="padding-left:8px;">&rarr;</span></a></td></tr></table></mj-text>
+        <mj-spacer />
+        <mj-text mj-class="note">Domande? Scrivici a <a href="mailto:contact@aura-historia.com" style="color:#170D0E;text-decoration:underline;text-underline-offset:3px;">contact@aura-historia.com</a>.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#170D0E" padding="36px 40px 40px" border-radius="0 0 14px 14px">
+      <mj-column>
+        <mj-text font-size="14px" color="#D8CABE">
+          <div style="padding-bottom:10px;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:20px;line-height:1;letter-spacing:0.22em;color:#F4EEE3;">AURA HISTORIA</div>
+          <div style="padding-bottom:16px;">Il mercato mondiale dell'antiquariato, in un'unica ricerca.</div>
+          <div style="padding-bottom:22px;line-height:2;"><a href="{{home_url}}" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
+          <div style="border-top:1px solid #362D2C;padding-top:22px;font-size:12px;color:#A8988D;">
+            <div style="padding-bottom:10px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#D8CABE;">NOTE LEGALI</div>
+            <div style="padding-bottom:10px;">Nome commerciale: Aura Historia &middot; Titolare: Julian Bruder Einzelunternehmen<br />Indirizzo: Hardenbergstraße 80, 04275 Leipzig, Germania<br />Contatto: contact@aura-historia.com &middot; Partita IVA: richiesta</div>
+            <div>© 2026 Aura Historia — Tutti i diritti riservati.</div>
+          </div>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    </mj-wrapper>
   </mj-body>
 </mjml>
