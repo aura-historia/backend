@@ -1,3 +1,4 @@
+use crate::claude_model::{ClaudeEffort, ClaudeModel, ClaudeThinking};
 use crate::{
     BatchGenerationOptions, LargeLanguageModel, LargeLanguageModelError,
     LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind, LlmInvocationMetrics, LlmModel,
@@ -22,13 +23,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Provider model selection supplied by the composition root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnthropicConfig {
-    model: String,
+    model: ClaudeModel,
 }
 
 impl AnthropicConfig {
     /// Select a Claude model supporting native structured output, such as
     /// `claude-opus-5-5`, `claude-sonnet-5-5`, or `claude-haiku-5-5`.
-    pub fn new(model: impl Into<String>) -> Self {
+    /// Pass a [`ClaudeModel`] to configure model-specific thinking and effort;
+    /// strings preserve provider defaults.
+    pub fn new(model: impl Into<ClaudeModel>) -> Self {
         Self {
             model: model.into(),
         }
@@ -65,7 +68,7 @@ impl AnthropicClaude {
         config: AnthropicConfig,
         api_key: impl AsRef<str>,
     ) -> Result<Self, LargeLanguageModelError> {
-        if config.model.trim().is_empty() || api_key.as_ref().trim().is_empty() {
+        if config.model.as_str().trim().is_empty() || api_key.as_ref().trim().is_empty() {
             return Err(LargeLanguageModelError::InvalidRequest {
                 source: static_error("Anthropic model and API key must be nonempty"),
             });
@@ -139,7 +142,7 @@ impl AnthropicClaude {
                 log_llm_invocation(
                     operation,
                     LlmProvider::Anthropic,
-                    log_model(&self.config.model),
+                    log_model(self.config.model.as_str()),
                     started_at.elapsed(),
                     metrics,
                 );
@@ -150,7 +153,7 @@ impl AnthropicClaude {
                     log_llm_invocation_failure(
                         operation,
                         LlmProvider::Anthropic,
-                        log_model(&self.config.model),
+                        log_model(self.config.model.as_str()),
                         started_at.elapsed(),
                         metrics,
                         kind.as_str(),
@@ -205,6 +208,8 @@ struct MessagesRequest<'a> {
     messages: [Message; 1],
     max_tokens: u16,
     output_config: OutputConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ClaudeThinking>,
 }
 
 impl<'a> MessagesRequest<'a> {
@@ -233,7 +238,7 @@ impl<'a> MessagesRequest<'a> {
             text: request.prompt,
         });
         Ok(Self {
-            model: &config.model,
+            model: config.model.as_str(),
             system: request.system_instruction,
             messages: [Message {
                 role: "user",
@@ -241,11 +246,13 @@ impl<'a> MessagesRequest<'a> {
             }],
             max_tokens: request.options.max_output_tokens,
             output_config: OutputConfig {
+                effort: config.model.effort(),
                 format: JsonOutputFormat {
                     kind: "json_schema",
                     schema: normalize_response_schema(request.response_json_schema)?,
                 },
             },
+            thinking: config.model.thinking(),
         })
     }
 }
@@ -274,6 +281,8 @@ struct ImageSource {
 #[derive(Serialize)]
 struct OutputConfig {
     format: JsonOutputFormat,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<ClaudeEffort>,
 }
 
 #[derive(Serialize)]
@@ -471,7 +480,10 @@ fn http_status_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{GenerationOptions, LlmOperation, StructuredResponseFailureKind};
+    use crate::{
+        ClaudeHaiku55Thinking, ClaudeReducedThinkingEffort, ClaudeSonnet55Thinking,
+        GenerationOptions, LlmOperation, StructuredResponseFailureKind,
+    };
     use std::num::NonZeroUsize;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -636,6 +648,7 @@ mod tests {
                 assert!(captured.body.get(absent).is_none(), "unexpected {absent}");
             }
             assert!(!captured.headers.contains("anthropic-beta:"));
+            assert!(captured.body["output_config"].get("effort").is_none());
             assert_eq!(
                 captured.body["output_config"]["format"],
                 serde_json::json!({
@@ -646,6 +659,117 @@ mod tests {
                     }
                 })
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_send_model_specific_adaptive_effort_with_structured_output() {
+        for (effort, wire) in [
+            (ClaudeEffort::Low, "low"),
+            (ClaudeEffort::Medium, "medium"),
+            (ClaudeEffort::High, "high"),
+            (ClaudeEffort::XHigh, "xhigh"),
+            (ClaudeEffort::Max, "max"),
+        ] {
+            for (selected, model_id, thinking) in [
+                (ClaudeModel::Opus55(effort), "claude-opus-5-5", None),
+                (
+                    ClaudeModel::Sonnet55(ClaudeSonnet55Thinking::Adaptive(effort)),
+                    "claude-sonnet-5-5",
+                    Some("adaptive"),
+                ),
+                (
+                    ClaudeModel::Haiku55(ClaudeHaiku55Thinking::Adaptive(effort)),
+                    "claude-haiku-5-5",
+                    Some("adaptive"),
+                ),
+            ] {
+                let (url, server) = serve_once(
+                    200,
+                    "",
+                    response(serde_json::json!({"matched": true})).to_string(),
+                    Duration::ZERO,
+                )
+                .await;
+                let mut model = model(url);
+                model.config = AnthropicConfig::new(selected);
+                assert_eq!(
+                    model.generate::<Output>(request("a URL")).await.unwrap(),
+                    Output { matched: true }
+                );
+                let captured = server.await.unwrap();
+                assert_eq!(captured.body["model"], model_id);
+                assert_eq!(captured.body["output_config"]["effort"], wire);
+                assert_eq!(
+                    captured.body["output_config"]["format"]["type"],
+                    "json_schema"
+                );
+                assert_eq!(captured.body["max_tokens"], 512);
+                assert!(captured.body.get("temperature").is_none());
+                match thinking {
+                    Some(mode) => {
+                        assert_eq!(captured.body["thinking"], serde_json::json!({"type": mode}))
+                    }
+                    None => assert!(captured.body.get("thinking").is_none()),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn should_serialize_reduced_thinking_with_only_supported_effort_levels() {
+        for (effort, wire) in [
+            (ClaudeReducedThinkingEffort::Low, "low"),
+            (ClaudeReducedThinkingEffort::Medium, "medium"),
+            (ClaudeReducedThinkingEffort::High, "high"),
+        ] {
+            for (model, model_id, mode) in [
+                (
+                    ClaudeModel::Sonnet55(ClaudeSonnet55Thinking::BetweenTools(effort)),
+                    "claude-sonnet-5-5",
+                    "between_tools",
+                ),
+                (
+                    ClaudeModel::Haiku55(ClaudeHaiku55Thinking::Disabled(effort)),
+                    "claude-haiku-5-5",
+                    "disabled",
+                ),
+            ] {
+                let config = AnthropicConfig::new(model);
+                let body = serde_json::to_value(
+                    MessagesRequest::try_new(&config, request(""), Vec::new()).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(body["model"], model_id);
+                assert_eq!(body["output_config"]["effort"], wire);
+                assert_eq!(body["thinking"], serde_json::json!({"type": mode}));
+            }
+        }
+    }
+
+    #[test]
+    fn should_preserve_provider_defaults_for_string_selected_claude_models() {
+        for model_id in [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5-unknown",
+            "configured-model",
+        ] {
+            let owned_model_id = model_id.to_owned();
+            for config in [
+                AnthropicConfig::new(model_id),
+                AnthropicConfig::new(owned_model_id.clone()),
+                AnthropicConfig::new(&owned_model_id),
+            ] {
+                let body = serde_json::to_value(
+                    MessagesRequest::try_new(&config, request(""), Vec::new()).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(body["model"], model_id);
+                assert!(body.get("thinking").is_none());
+                assert!(body["output_config"].get("effort").is_none());
+            }
         }
     }
 
@@ -961,7 +1085,10 @@ mod tests {
             Duration::from_millis(50),
         )
         .await;
-        let model = model(slow_url);
+        let mut model = model(slow_url);
+        model.config = AnthropicConfig::new(ClaudeModel::Sonnet55(
+            ClaudeSonnet55Thinking::BetweenTools(ClaudeReducedThinkingEffort::Low),
+        ));
         let mut invalid = request("invalid");
         invalid.options.max_output_tokens = 0;
         let results = model
@@ -976,7 +1103,12 @@ mod tests {
             results.next().unwrap(),
             Err(LargeLanguageModelError::InvalidRequest { .. })
         ));
-        slow_server.await.unwrap();
+        let captured = slow_server.await.unwrap();
+        assert_eq!(captured.body["output_config"]["effort"], "low");
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({"type": "between_tools"})
+        );
         assert!(
             model
                 .generate_batch::<Output>(Vec::new(), BatchGenerationOptions::default())
