@@ -40,6 +40,7 @@ impl std::fmt::Display for LlmOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmProvider {
     Google,
+    Anthropic,
     Configured,
 }
 
@@ -47,6 +48,7 @@ impl LlmProvider {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Google => "GOOGLE",
+            Self::Anthropic => "ANTHROPIC",
             Self::Configured => "CONFIGURED",
         }
     }
@@ -60,6 +62,9 @@ impl std::fmt::Display for LlmProvider {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmModel {
+    ClaudeSonnet55,
+    ClaudeOpus55,
+    ClaudeHaiku55,
     Gemini31FlashLite,
     Gemini31ProPreview,
     Gemini35Flash,
@@ -71,6 +76,9 @@ pub enum LlmModel {
 impl LlmModel {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ClaudeSonnet55 => "claude-sonnet-5-5",
+            Self::ClaudeOpus55 => "claude-opus-5-5",
+            Self::ClaudeHaiku55 => "claude-haiku-5-5",
             Self::Gemini31FlashLite => "gemini-3.1-flash-lite",
             Self::Gemini31ProPreview => "gemini-3.1-pro-preview",
             Self::Gemini35Flash => "gemini-3.5-flash",

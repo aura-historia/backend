@@ -20,4 +20,4 @@ url = { workspace = true }
 
 [dev-dependencies]
 schemars = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time"] }
