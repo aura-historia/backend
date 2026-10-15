@@ -1,3 +1,4 @@
+pub mod assessment;
 mod terms;
 use application::error::{BoxError, box_error};
 use listing_source_core::ListingSourceId;

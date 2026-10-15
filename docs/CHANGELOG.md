@@ -2,6 +2,19 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-15 — Shipping on listing responses (#2064)
+
+- Existing listing detail (ID/slug), search, similar, watchlist, saved-search match and auction catalogue responses
+  include effective advertised shipping/collection terms in `item.shipping`.
+- Authenticated users with a selected browsing destination also receive an evaluation in
+  `userState.shipping`; anonymous callers and users without a selected destination receive
+  generic terms. Delegated destination reads require `users:read`. Missing purchase inputs
+  remain explained unknowns; advertised prices are neither quotes nor complete landed costs.
+- Public terms omit dispatch/pickup sites; private results omit street text, coordinates
+  and saved-address identities. Authenticated responses/errors are `no-store`;
+  anonymous discovery caching is bounded by shipping evidence deadlines. Expired assertions
+  cannot establish current availability, and hidden/withdrawn entries expose no shipping.
+
 ## 2026-10-14 — Listing delivery assignments and overrides (#2063)
 
 - Added protected source-keyed delivery inspection and revision-checked PATCH, plus

@@ -516,6 +516,7 @@ mod tests {
         let mut view = product_details_view()?;
         let product_listing_id = view.item.product_listing_id;
         view.user_state = Some(ProductListingUserState {
+            shipping: None,
             watchlist: WatchlistUserState {
                 watching: true,
                 notifications: false,
@@ -661,6 +662,7 @@ mod tests {
     fn product_details_view() -> Result<PersonalizedProductListingDetailsView, url::ParseError> {
         Ok(Personalized {
             item: ProductListingDetailsView {
+                shipping: None,
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: Some(
                     ProductListingSlugId::raw("cabinet-abcdef").unwrap_or_else(|error| {

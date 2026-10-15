@@ -306,6 +306,10 @@ async fn handle_search(
         .await
     {
         Ok(result) => {
+            let ttl = crate::shipping::listing::cache_ttl(
+                result.items.iter().map(|i| i.item.shipping.as_ref()),
+                60,
+            );
             let items = result
                 .items
                 .into_iter()
@@ -322,7 +326,7 @@ async fn handle_search(
                 response,
                 &headers,
                 !geographic && matches!(&context.principal, Principal::Anonymous),
-                60,
+                ttl,
             )
         }
         Err(error) => ApiError::from(error).into_response(),

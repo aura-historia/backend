@@ -50,6 +50,7 @@ use url::Url;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDetailsData {
+    shipping: Option<crate::shipping::listing::AdvertisedShippingData>,
     product_listing_id: ProductListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     product_listing_title_slug_id: Option<ProductListingSlugId>,
@@ -85,6 +86,8 @@ pub(crate) struct ProductListingDetailsData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingUserStateData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shipping: Option<crate::shipping::listing::PersonalizedShippingData>,
     watchlist: WatchlistUserStateData,
     content_visibility: ContentVisibilityUserStateData,
     notification: NotificationUserStateData,
@@ -144,6 +147,7 @@ impl From<ListingSourceSummary> for ListingSourceSummaryData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingSummaryData {
+    shipping: Option<crate::shipping::listing::AdvertisedShippingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geography: Option<crate::geographic_search::ListingGeographyData>,
     product_listing_id: ProductListingId,
@@ -269,6 +273,9 @@ pub(crate) struct ProductListingAuctionData {
 impl ProductListingDetailsData {
     fn from_view(view: ProductListingDetailsView) -> Self {
         Self {
+            shipping: view
+                .shipping
+                .map(crate::shipping::listing::AdvertisedShippingData),
             product_listing_id: view.product_listing_id,
             product_listing_title_slug_id: view.product_listing_title_slug_id,
             event_id: view.event_id,
@@ -468,6 +475,9 @@ impl From<ProductListingPricingValuation> for ProductListingPricingValuationData
 impl From<ProductListingUserState> for ProductListingUserStateData {
     fn from(state: ProductListingUserState) -> Self {
         Self {
+            shipping: state
+                .shipping
+                .map(crate::shipping::listing::PersonalizedShippingData),
             watchlist: state.watchlist.into(),
             content_visibility: state.content_visibility.into(),
             notification: state.notification.into(),
@@ -516,6 +526,9 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
 impl ProductListingSummaryData {
     fn from_view(summary: ProductListingSummary) -> Self {
         Self {
+            shipping: summary
+                .shipping
+                .map(crate::shipping::listing::AdvertisedShippingData),
             product_listing_id: summary.product_listing_id,
             product_listing_title_slug_id: summary.product_listing_title_slug_id,
             event_id: summary.event_id,
@@ -583,6 +596,7 @@ pub(crate) fn product_response(
     principal: &Principal,
     request_headers: &HeaderMap,
 ) -> Response {
+    let ttl = crate::shipping::listing::cache_ttl([view.item.shipping.as_ref()], 120);
     let content_language = view
         .item
         .title
@@ -593,7 +607,7 @@ pub(crate) fn product_response(
         response,
         request_headers,
         matches!(principal, Principal::Anonymous),
-        120,
+        ttl,
     );
     let headers = response.headers_mut();
     if let Some(language) = content_language {

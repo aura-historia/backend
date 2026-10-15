@@ -907,7 +907,8 @@ fn domestic_requires_an_explicit_usable_origin_and_does_not_infer_one_from_a_war
             std::slice::from_ref(&warehouse)
         )
     );
-    // An explicit country rule does not depend on origin, even if the supplied origin is retired.
+    // Country matching needs no origin country, but an explicitly selected dispatch site
+    // must remain eligible for a current shipping assertion.
     let independent = coverage(
         CoverageCompleteness::Partial,
         vec![],
@@ -915,7 +916,7 @@ fn domestic_requires_an_explicit_usable_origin_and_does_not_infer_one_from_a_war
         Some(origin),
     );
     assert_eq!(
-        Some(Eligibility::Offered),
+        None,
         assess_terms(
             DeliveryTerms::new(Some(independent), None),
             ListingRateInputs::default(),
@@ -2015,5 +2016,62 @@ fn cross_source_predicate_facts_remain_undetermined_instead_of_proving_nonmember
     assert_eq!(
         PredicateResult::Undetermined(vec![Reason::SourceMismatch]),
         evaluate_applicability(&rule, &facts, &AssessmentInput::default())
+    );
+}
+
+#[test]
+fn country_rule_requires_its_explicit_dispatch_location_to_remain_eligible() {
+    use crate::fixtures::gallery;
+    use crate::{assessment::AssessmentReason, terms::ShippingEligibility};
+    use party_core::{party_id::PartyId, party_location::*, party_location_id::PartyLocationId};
+    let g = gallery();
+    let id = PartyLocationId::new();
+    let base = match g.profile.content().terms.shipping().unwrap() {
+        ShippingPolicy::Coverage(c) => c,
+        _ => unreachable!(),
+    };
+    let coverage = ShippingCoverage::new(
+        base.release(),
+        base.completeness(),
+        base.applicability().clone(),
+        base.exclusions().to_vec(),
+        base.zones().to_vec(),
+        Some(DeliverySite::PartyLocation(id)),
+    )
+    .unwrap();
+    let config = ListingDeliveryConfiguration::new(
+        g.source_id,
+        ProfileSelection::inline(DeliveryTerms::new(
+            Some(ShippingPolicy::coverage(coverage)),
+            None,
+        )),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let effective = EffectiveDeliveryTerms::resolve(&config, None, &[]);
+    let mut location = PartyLocation::create(
+        id,
+        PartyId::new(),
+        PartyLocationContent {
+            label: PartyLocationLabel::new("Dispatch".into()).unwrap(),
+            roles: Default::default(),
+            geography: None,
+            position: None,
+        },
+    );
+    assert_eq!(
+        Some(ShippingEligibility::Offered),
+        effective
+            .assess(&g.assessment_input(), &[location.clone()])
+            .eligibility
+    );
+    location.set_lifecycle(PartyLocationLifecycle::Retired);
+    let result = effective.assess(&g.assessment_input(), &[location]);
+    assert!(result.eligibility.is_none());
+    assert_eq!(vec![AssessmentReason::LocationRetired(id)], result.reasons);
+    assert_eq!(
+        vec![AssessmentReason::LocationAbsent(id)],
+        effective.assess(&g.assessment_input(), &[]).reasons
     );
 }

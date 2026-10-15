@@ -5,7 +5,21 @@ use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 use shipping_core::terms::DeliveryTerms;
 use shipping_json::ShippingTermsReferenceCodec;
 use uuid::Uuid;
-struct StoredReferences;
+pub(super) struct StoredReferences;
+impl shipping_json::listing_delivery::DeliveryReferenceCodec for StoredReferences {
+    fn decode_source(value: &str) -> Result<ListingSourceId, BoxError> {
+        ListingSourceId::try_from(native_id(value)?).map_err(box_error)
+    }
+    fn encode_source(value: ListingSourceId) -> String {
+        value.into_uuid().to_string()
+    }
+    fn decode_profile(value: &str) -> Result<shipping_core::profile::ShippingProfileId, BoxError> {
+        shipping_core::profile::ShippingProfileId::try_from(native_id(value)?).map_err(box_error)
+    }
+    fn encode_profile(value: shipping_core::profile::ShippingProfileId) -> String {
+        value.into_uuid().to_string()
+    }
+}
 fn native_id(value: &str) -> Result<Uuid, BoxError> {
     let id: Uuid = value.parse()?;
     if id.to_string() != value {

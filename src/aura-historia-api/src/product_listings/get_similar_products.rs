@@ -106,6 +106,10 @@ fn ready_response(
     principal: &crate::auth::TransportPrincipal,
     request_headers: &HeaderMap,
 ) -> Response {
+    let ttl = crate::shipping::listing::cache_ttl(
+        product_listings.iter().map(|i| i.item.shipping.as_ref()),
+        300,
+    );
     crate::transport::cache::anonymous_shared_success(
         Json(
             product_listings
@@ -116,7 +120,7 @@ fn ready_response(
         .into_response(),
         request_headers,
         matches!(principal, crate::auth::TransportPrincipal::Anonymous),
-        300,
+        ttl,
     )
 }
 
@@ -465,6 +469,7 @@ mod tests {
     fn product_summary() -> Result<PersonalizedProductListingSummary, url::ParseError> {
         Ok(Personalized {
             item: ProductListingSummary {
+                shipping: None,
                 geography: Default::default(),
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: Some(

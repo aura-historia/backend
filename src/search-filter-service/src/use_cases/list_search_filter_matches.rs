@@ -47,6 +47,12 @@ pub type ListSearchFilterMatchesResult =
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListSearchFilterMatchesError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        product_listing_service::shipping::ShippingReadError,
+    ),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -118,6 +124,7 @@ pub trait ListSearchFilterMatchesUseCase: Send + Sync {
 }
 
 pub struct ListSearchFilterMatchesHandler<U, M, P, F> {
+    shipping: product_listing_service::shipping::ShippingEnrichment,
     unit_of_work: U,
     matches: M,
     product_listings: P,
@@ -125,8 +132,15 @@ pub struct ListSearchFilterMatchesHandler<U, M, P, F> {
 }
 
 impl<U, M, P, F> ListSearchFilterMatchesHandler<U, M, P, F> {
-    pub fn new(unit_of_work: U, matches: M, product_listings: P, fx_rates: F) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        matches: M,
+        product_listings: P,
+        fx_rates: F,
+        shipping: product_listing_service::shipping::ShippingEnrichment,
+    ) -> Self {
         Self {
+            shipping,
             unit_of_work,
             matches,
             product_listings,
@@ -242,6 +256,9 @@ where
             }
         }
 
+        self.shipping
+            .details(context, &mut product_listings)
+            .await?;
         Ok(CursoredResult {
             items: product_listings,
             cursor: matches.cursor,
@@ -683,6 +700,7 @@ mod tests {
                 product_listings,
             },
             FxRateSnapshotFactoryFake(Arc::clone(state)),
+            product_listing_service::shipping::ShippingEnrichment::for_tests(),
         )
     }
 
@@ -703,6 +721,7 @@ mod tests {
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
         let expected_user_state = ProductListingUserState {
+            shipping: None,
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
             },

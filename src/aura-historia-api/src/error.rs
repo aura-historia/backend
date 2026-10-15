@@ -860,6 +860,7 @@ impl From<DeleteOwnedSearchFilterError> for ApiError {
 impl From<ListSearchFilterMatchesError> for ApiError {
     fn from(error: ListSearchFilterMatchesError) -> Self {
         match error {
+            ListSearchFilterMatchesError::Shipping(error) => error.into(),
             ListSearchFilterMatchesError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1530,6 +1531,7 @@ impl From<UpsertProductListingError> for ApiError {
 impl From<GetProductListingError> for ApiError {
     fn from(error: GetProductListingError) -> Self {
         match error {
+            GetProductListingError::Shipping(error) => error.into(),
             GetProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
             GetProductListingError::ProductListingDetailsQueryFailed
@@ -1577,6 +1579,7 @@ impl From<GetProductListingHistoryError> for ApiError {
 impl From<GetSimilarProductListingsError> for ApiError {
     fn from(error: GetSimilarProductListingsError) -> Self {
         match error {
+            GetSimilarProductListingsError::Shipping(error) => error.into(),
             GetSimilarProductListingsError::NotFound => {
                 ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                     .with_detail("ProductListing was not found.")
@@ -1610,6 +1613,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
 impl From<SearchProductListingsError> for ApiError {
     fn from(error: SearchProductListingsError) -> Self {
         match error {
+            SearchProductListingsError::Shipping(error) => error.into(),
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
@@ -2341,6 +2345,7 @@ impl From<DeleteAccessTokenError> for ApiError {
 impl From<ListWatchlistError> for ApiError {
     fn from(error: ListWatchlistError) -> Self {
         match error {
+            ListWatchlistError::Shipping(error) => error.into(),
             ListWatchlistError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
