@@ -531,6 +531,7 @@ mod tests {
             Currency::Ron,
             Currency::Mxn,
             Currency::Thb,
+            Currency::Ars,
         ];
         FxRateSnapshot::rehydrate(
             FxRateId::new(),

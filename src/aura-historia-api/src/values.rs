@@ -146,7 +146,7 @@ mod tests {
     fn should_round_trip_added_currency_codes_in_api_prices()
     -> Result<(), Box<dyn std::error::Error>> {
         for code in [
-            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB", "ARS",
         ] {
             let currency = Currency::from_code(code).ok_or("supported currency code")?;
             let json = serde_json::json!({"currency": currency.as_str(), "amount": 123});

@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-15 — Argentine peso support (#2095)
+
+- Currency fields now accept `ARS` (Argentine peso), including user preferences, ListingSource configuration and fallback currency, listing prices, and search filters. Amounts use two ISO 4217 minor-unit decimal places.
+
 ## 2026-10-14 — Keyless address and Party-location creation (#2078)
 
 - `POST /api/v1/me/addresses` and `POST /api/v1/parties/{party_id}/locations` accept creation without `Idempotency-Key`. Legacy headers are ignored, including invalid/repeated values, and are not echoed. Each accepted ordinary create assigns a new ID, even for equal content; keys provide no deduplication or result recovery.

@@ -242,6 +242,8 @@ pub(crate) struct SalePricesDocument {
     pub(crate) mxn: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) thb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ars: Option<u64>,
 }
 
 impl SalePricesDocument {
@@ -276,6 +278,7 @@ impl SalePricesDocument {
             Currency::Ron => self.ron,
             Currency::Mxn => self.mxn,
             Currency::Thb => self.thb,
+            Currency::Ars => self.ars,
         }
     }
 }
@@ -476,7 +479,9 @@ impl ProductListingDocument {
                 prices.sek, prices.dkk, prices.nok, prices.krw, prices.inr, prices.twd, prices.huf,
                 prices.ron, prices.mxn, prices.thb,
             ];
-            if expanded.iter().any(Option::is_some) && expanded.iter().any(Option::is_none) {
+            if (prices.ars.is_some() || expanded.iter().any(Option::is_some))
+                && expanded.iter().any(Option::is_none)
+            {
                 return Err(ProductListingDocumentValidationError::PartialExpandedSalePrices);
             }
         }
@@ -863,6 +868,7 @@ mod tests {
             ron: Some(100),
             mxn: Some(100),
             thb: Some(100),
+            ars: Some(100),
         });
 
         assert_eq!(valid, document.validate().is_ok());

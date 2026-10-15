@@ -71,7 +71,7 @@ async fn scrape_numeric_price(
 
 #[tokio::test]
 async fn should_capture_numeric_price_with_operational_fallback_currency() {
-    let product = scrape_numeric_price(Some(Currency::Zar)).await;
+    let product = scrape_numeric_price(Some(Currency::Ars)).await;
 
     assert_eq!(
         Some(&serde_json::json!("5500")),
@@ -82,7 +82,7 @@ async fn should_capture_numeric_price_with_operational_fallback_currency() {
         product.raw_input.raw_values().value().get("price")
     );
     assert_eq!(
-        Some(&serde_json::json!("ZAR")),
+        Some(&serde_json::json!("ARS")),
         product
             .raw_input
             .normalization_context()
