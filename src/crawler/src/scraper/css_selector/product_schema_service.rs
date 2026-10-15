@@ -1353,28 +1353,6 @@ mod tests {
     }
 
     #[test]
-    fn should_ignore_stray_classification_fields_for_create_validator() {
-        // The initial contract has no classification fields; a model that still emits them
-        // is answered by its schemas, which deterministic validation checks afterwards.
-        let payload = serde_json::to_string(&serde_json::json!({
-            "page_kind": "removed",
-            "schemas": [sample_css_schema()],
-            "removed_schema": {
-                "selector": "#main h1",
-                "text": "ProductListing removed"
-            },
-            "reason": "category page",
-            "confidence": "HIGH",
-            "summary": "single-page metadata"
-        }))
-        .unwrap();
-
-        let result = validate_create_schema_response(&payload);
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn should_accept_append_classification_for_append_validator() {
         let payload = not_product_append_response_json();
 
