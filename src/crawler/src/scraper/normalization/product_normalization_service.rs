@@ -8,7 +8,7 @@ use product_listing_normalization::{
     normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
     normalize_title, quick_check_availability,
 };
-use tracing::{debug};
+use tracing::debug;
 use url::Url;
 
 #[async_trait::async_trait]
