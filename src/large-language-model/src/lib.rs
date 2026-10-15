@@ -1,8 +1,16 @@
 use application::error::{BoxError, box_error};
 mod anthropic;
+mod claude_model;
+mod gemini_model;
 mod llm_logging;
 pub use anthropic::{AnthropicClaude, AnthropicConfig};
+pub use claude_model::{
+    ClaudeEffort, ClaudeHaiku55Thinking, ClaudeModel, ClaudeReducedThinkingEffort,
+    ClaudeSonnet55Thinking,
+};
 use futures::{StreamExt, stream};
+use gemini_model::GeminiThinkingConfig;
+pub use gemini_model::{GeminiModel, GeminiProThinkingLevel, GeminiThinkingLevel};
 use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
 pub use llm_logging::{
@@ -26,18 +34,20 @@ const DEFAULT_MAX_CONCURRENT_REQUESTS: NonZeroUsize = match NonZeroUsize::new(4)
 };
 const MAX_PROVIDER_ERROR_BODY_BYTES: usize = 8 * 1024;
 
+/// Vertex AI connection and model selection. Pass a [`GeminiModel`] for explicit
+/// thinking levels; string model IDs retain provider defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VertexAiConfig {
     project_id: String,
     location: String,
-    model: String,
+    model: GeminiModel,
 }
 
 impl VertexAiConfig {
     pub fn new(
         project_id: impl Into<String>,
         location: impl Into<String>,
-        model: impl Into<String>,
+        model: impl Into<GeminiModel>,
     ) -> Self {
         Self {
             project_id: project_id.into(),
@@ -55,10 +65,12 @@ impl VertexAiConfig {
     }
 
     fn model(&self) -> &str {
-        &self.model
+        self.model.as_str()
     }
 }
 
+/// Provider-neutral request options. Thinking belongs to [`GeminiModel`] or
+/// [`ClaudeModel`] so that a request cannot override model capability checks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GenerationOptions {
     pub temperature: f32,
@@ -395,7 +407,8 @@ impl VertexAiGemini {
         })?;
         let request_timeout = request.options.request_timeout;
         let url = build_generate_content_url(&self.config);
-        let provider_request = ProviderGenerateContentRequest::try_new(request, images)?;
+        let provider_request =
+            ProviderGenerateContentRequest::try_new(&self.config, request, images)?;
         let operation = provider_request.operation;
         let started_at = std::time::Instant::now();
         let response = self
@@ -999,6 +1012,7 @@ struct ProviderGenerateContentRequest {
 
 impl ProviderGenerateContentRequest {
     fn try_new(
+        config: &VertexAiConfig,
         request: StructuredGenerationRequest,
         images: Vec<FetchedImage>,
     ) -> Result<Self, LargeLanguageModelError> {
@@ -1021,6 +1035,7 @@ impl ProviderGenerateContentRequest {
                     max_output_tokens: request.options.max_output_tokens,
                     response_mime_type: "application/json",
                     response_json_schema,
+                    thinking_config: config.model.thinking_config(),
                 },
             },
         })
@@ -1114,6 +1129,8 @@ struct GenerationConfig {
     max_output_tokens: u16,
     response_mime_type: &'static str,
     response_json_schema: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<GeminiThinkingConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1422,11 +1439,97 @@ mod tests {
             },
         };
 
-        let request = ProviderGenerateContentRequest::try_new(request, Vec::new())
-            .unwrap_or_else(|error| panic!("request should normalize: {error}"));
+        let request = ProviderGenerateContentRequest::try_new(
+            &VertexAiConfig::new("project", "global", "configured-model"),
+            request,
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("request should normalize: {error}"));
 
         assert_eq!(0.7, request.body.generation_config.temperature);
         assert_eq!(512, request.body.generation_config.max_output_tokens);
+    }
+
+    #[test]
+    fn should_serialize_model_specific_gemini_thinking_levels() {
+        let mut cases = Vec::new();
+        for (level, wire) in [
+            (GeminiThinkingLevel::Minimal, "MINIMAL"),
+            (GeminiThinkingLevel::Low, "LOW"),
+            (GeminiThinkingLevel::Medium, "MEDIUM"),
+            (GeminiThinkingLevel::High, "HIGH"),
+        ] {
+            cases.push((
+                GeminiModel::FlashLite31(level),
+                "gemini-3.1-flash-lite",
+                wire,
+            ));
+            cases.push((GeminiModel::Flash35(level), "gemini-3.5-flash", wire));
+        }
+        for (level, wire) in [
+            (GeminiProThinkingLevel::Low, "LOW"),
+            (GeminiProThinkingLevel::Medium, "MEDIUM"),
+            (GeminiProThinkingLevel::High, "HIGH"),
+        ] {
+            cases.push((
+                GeminiModel::Pro31Preview(level),
+                "gemini-3.1-pro-preview",
+                wire,
+            ));
+        }
+        for (model, model_id, wire) in cases {
+            let config = VertexAiConfig::new("project", "global", model);
+            let provider = ProviderGenerateContentRequest::try_new(
+                &config,
+                request_with_response_json_schema(serde_json::json!({"type": "object"})),
+                Vec::new(),
+            )
+            .unwrap();
+            let body = serde_json::to_value(provider.body).unwrap();
+            assert!(
+                build_generate_content_url(&config)
+                    .ends_with(&format!("/{model_id}:generateContent"))
+            );
+            assert_eq!(log_model(config.model()).as_str(), model_id);
+            let options = &body["generationConfig"];
+            assert_eq!(
+                options["thinkingConfig"],
+                serde_json::json!({"thinkingLevel": wire})
+            );
+            assert_eq!(options["maxOutputTokens"], 32);
+            assert_eq!(options["temperature"], 0.0);
+            assert_eq!(options["responseMimeType"], "application/json");
+            assert_eq!(options["responseJsonSchema"]["type"], "object");
+        }
+    }
+
+    #[test]
+    fn should_omit_thinking_for_string_selected_gemini_models() {
+        for model_id in [
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-3.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3.5-flash-unknown",
+            "configured-model",
+        ] {
+            let owned_model_id = model_id.to_owned();
+            for config in [
+                VertexAiConfig::new("project", "global", model_id),
+                VertexAiConfig::new("project", "global", owned_model_id.clone()),
+                VertexAiConfig::new("project", "global", &owned_model_id),
+            ] {
+                let provider = ProviderGenerateContentRequest::try_new(
+                    &config,
+                    request_with_response_json_schema(serde_json::json!({"type": "object"})),
+                    Vec::new(),
+                )
+                .unwrap();
+                let body = serde_json::to_value(provider.body).unwrap();
+                assert_eq!(config.model(), model_id);
+                assert!(body["generationConfig"].get("thinkingConfig").is_none());
+            }
+        }
     }
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1526,8 +1629,12 @@ mod tests {
                 request_timeout: Duration::from_secs(60),
             },
         };
-        let provider = ProviderGenerateContentRequest::try_new(request, Vec::new())
-            .unwrap_or_else(|error| panic!("request should normalize: {error}"));
+        let provider = ProviderGenerateContentRequest::try_new(
+            &VertexAiConfig::new("project", "global", "configured-model"),
+            request,
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("request should normalize: {error}"));
         let body = serde_json::to_value(provider.body)
             .unwrap_or_else(|error| panic!("provider body should serialize: {error}"));
         assert_eq!(body["contents"][0]["role"], "user");
@@ -1562,7 +1669,11 @@ mod tests {
             },
         };
         assert!(matches!(
-            ProviderGenerateContentRequest::try_new(request, Vec::new()),
+            ProviderGenerateContentRequest::try_new(
+                &VertexAiConfig::new("project", "global", "configured-model"),
+                request,
+                Vec::new()
+            ),
             Err(LargeLanguageModelError::InvalidRequest { .. })
         ));
     }
@@ -1668,6 +1779,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("parent schema should serialize: {error}"));
 
         let provider = ProviderGenerateContentRequest::try_new(
+            &VertexAiConfig::new("project", "global", "configured-model"),
             request_with_response_json_schema(response_json_schema),
             Vec::new(),
         )
@@ -1687,6 +1799,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("nested schema should serialize: {error}"));
 
         let provider = ProviderGenerateContentRequest::try_new(
+            &VertexAiConfig::new("project", "global", "configured-model"),
             request_with_response_json_schema(response_json_schema),
             Vec::new(),
         )
