@@ -1,6 +1,8 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
-use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown};
+use crate::network::policy::{
+    NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown, exponential_cooldown_up_to,
+};
 use crate::spider::candidate_service::{SPIDER_RECRAWL_INTERVAL, SpiderCandidate};
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
@@ -43,12 +45,11 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
 /// truncation and is capped at that interval, so a domain too large for one
 /// crawl settles into the normal schedule instead of looping.
 fn truncated_crawl_cooldown(truncation_count: i32) -> Duration {
-    let exponent = u32::try_from(truncation_count.saturating_sub(1))
-        .unwrap_or(0)
-        .min(31);
-    TRUNCATED_CRAWL_RETRY_COOLDOWN
-        .saturating_mul(1_u32 << exponent)
-        .min(SPIDER_RECRAWL_INTERVAL)
+    exponential_cooldown_up_to(
+        TRUNCATED_CRAWL_RETRY_COOLDOWN,
+        u32::try_from(truncation_count).unwrap_or(0),
+        SPIDER_RECRAWL_INTERVAL,
+    )
 }
 
 fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
@@ -114,12 +115,18 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy)]
+enum SpiderSlotStatus {
+    Succeeded,
+    Truncated,
+    Failed,
+    /// Another spider worker holds the domain lock.
+    Deferred,
+}
+
 struct SpiderSlotOutcome {
     domain_id: CrawlerDomainId,
-    succeeded: bool,
-    truncated: bool,
-    skipped: bool,
-    deferred: bool,
+    status: SpiderSlotStatus,
 }
 
 fn spawn_spider_candidate(
@@ -157,10 +164,7 @@ fn spawn_spider_candidate(
                 );
                 return SpiderSlotOutcome {
                     domain_id,
-                    succeeded: false,
-                    truncated: false,
-                    skipped: false,
-                    deferred: true,
+                    status: SpiderSlotStatus::Deferred,
                 };
             };
 
@@ -186,10 +190,7 @@ fn spawn_spider_candidate(
                     }
                     SpiderSlotOutcome {
                         domain_id,
-                        succeeded: true,
-                        truncated: false,
-                        skipped: false,
-                        deferred: false,
+                        status: SpiderSlotStatus::Succeeded,
                     }
                 }
                 Ok(result) => {
@@ -223,10 +224,7 @@ fn spawn_spider_candidate(
                     );
                     SpiderSlotOutcome {
                         domain_id,
-                        succeeded: false,
-                        truncated: true,
-                        skipped: false,
-                        deferred: false,
+                        status: SpiderSlotStatus::Truncated,
                     }
                 }
                 Err(e) => {
@@ -325,10 +323,7 @@ fn spawn_spider_candidate(
                     }
                     SpiderSlotOutcome {
                         domain_id,
-                        succeeded: false,
-                        truncated: false,
-                        skipped: false,
-                        deferred: false,
+                        status: SpiderSlotStatus::Failed,
                     }
                 }
             }
@@ -359,7 +354,6 @@ impl CrawlerCronJob {
         let mut succeeded = 0usize;
         let mut truncated = 0usize;
         let mut failed = 0usize;
-        let mut skipped = 0usize;
         let mut started = false;
         let mut fetch_failed = false;
         let mut no_more_candidates = false;
@@ -436,16 +430,11 @@ impl CrawlerCronJob {
             match join_set.join_next().await {
                 Some(Ok(outcome)) => {
                     excluded_domain_ids.insert(outcome.domain_id);
-                    if outcome.deferred {
-                        deferred += 1;
-                    } else if outcome.succeeded {
-                        succeeded += 1;
-                    } else if outcome.truncated {
-                        truncated += 1;
-                    } else if outcome.skipped {
-                        skipped += 1;
-                    } else {
-                        failed += 1;
+                    match outcome.status {
+                        SpiderSlotStatus::Succeeded => succeeded += 1,
+                        SpiderSlotStatus::Truncated => truncated += 1,
+                        SpiderSlotStatus::Failed => failed += 1,
+                        SpiderSlotStatus::Deferred => deferred += 1,
                     }
                 }
                 Some(Err(e)) => {
@@ -459,13 +448,7 @@ impl CrawlerCronJob {
         let duration_ms = pass_start.elapsed().as_millis() as u64;
         info!(
             total,
-            succeeded,
-            truncated,
-            failed,
-            skipped,
-            deferred,
-            duration_ms,
-            "Spider scheduler pass complete"
+            succeeded, truncated, failed, deferred, duration_ms, "Spider scheduler pass complete"
         );
 
         self.spider_perf.record(total as u64, duration_ms);

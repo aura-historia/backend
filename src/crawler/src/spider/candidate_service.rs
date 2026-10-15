@@ -155,7 +155,12 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         domain_id: &CrawlerDomainId,
         completion: CrawlCompletion,
     ) -> Result<(), sqlx::Error> {
-        debug_assert!(completion.is_full(), "truncated crawls are not completed");
+        // Clearing failure state for a truncated crawl is exactly the #1912 bug.
+        if !completion.is_full() {
+            return Err(sqlx::Error::InvalidArgument(format!(
+                "{completion} is not a completed crawl outcome"
+            )));
+        }
         sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = 0,

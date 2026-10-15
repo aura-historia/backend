@@ -459,7 +459,11 @@ impl SpiderServiceImpl {
             self.log_progress(&state);
         }
 
-        let diagnostics = diagnostics_rx.await.unwrap_or_default();
+        // A filter task that died without reporting cannot vouch for a full crawl.
+        let diagnostics = diagnostics_rx.await.unwrap_or_else(|_| CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            ..CrawlDiagnostics::default()
+        });
         if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
         {
             return Err(error);

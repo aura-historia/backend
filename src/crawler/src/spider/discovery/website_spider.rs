@@ -887,8 +887,10 @@ impl SpiderImpl {
 
             diagnostics.robots_blocked = robots_blocked.count.load(Ordering::Relaxed);
             diagnostics.first_robots_blocked_url = robots_blocked.first_url.get().cloned();
-            if let Ok(outcome) = outcome_rx.await {
-                apply_library_outcome(&mut diagnostics, outcome);
+            match outcome_rx.await {
+                Ok(outcome) => apply_library_outcome(&mut diagnostics, outcome),
+                // The crawl task died without reporting; never call that full.
+                Err(_) => diagnostics.completion = CrawlCompletion::HardTimeoutTruncated,
             }
             apply_local_filter_outcome(&mut diagnostics);
             let _ = diagnostics_tx.send(diagnostics);

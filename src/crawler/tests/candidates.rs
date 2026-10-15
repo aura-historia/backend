@@ -585,6 +585,35 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
+async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-misused-completed.example.com",
+    )
+    .await;
+    let future = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
+    service
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, future)
+        .await
+        .unwrap();
+
+    let result = service
+        .mark_crawl_completed(&domain_id, CrawlCompletion::HardTimeoutTruncated)
+        .await;
+
+    assert!(result.is_err());
+    let (failure_count, error_kind, ..) = crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 2);
+    assert_eq!(error_kind.as_deref(), Some("RateLimited"));
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_crawl_outcome_should_reject_unknown_values() {
     let pool = get_postgres_client().await;
 
