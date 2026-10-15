@@ -4,7 +4,10 @@ use serde_json::json;
 use shipping_core::discovery::{EffectiveShipping, POLICY};
 use shipping_service::{
     assessment::{AssessmentDependencies, AssessmentReader},
-    projection::*,
+    projection::{
+        ShippingClaim, ShippingPage, ShippingProjectionError, ShippingProjectionStore,
+        ShippingProjectionStoreFactory, ShippingWorkId, ShippingWrite,
+    },
 };
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;

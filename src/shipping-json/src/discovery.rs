@@ -3,7 +3,10 @@ use application::error::{BoxError, static_error};
 use geo::{country_from_code, reference::ReferenceRelease};
 use money::{Currency, Price};
 use serde::{Deserialize, Serialize};
-use shipping_core::{discovery::*, terms::ShippingEligibility};
+use shipping_core::{
+    discovery::{CountryOffer, EffectiveShipping, POLICY, validate},
+    terms::ShippingEligibility,
+};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

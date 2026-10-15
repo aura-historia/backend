@@ -1,8 +1,9 @@
 //! Compact, destination-independent discovery facts. Never a copied delivery policy.
 use crate::{
-    assessment::{EffectiveDeliveryTerms, PredicateResult},
+    assessment::{EffectiveDeliveryTerms, PredicateResult, ShippingAssessment},
+    coverage::ShippingCoverage,
     inputs::AssessmentInput,
-    pricing::{ChargeBasis, ShippingPrice},
+    pricing::{ChargeBasis, ShippingPrice, ShippingRate},
     terms::{CollectionDependency, ShippingEligibility, ShippingPolicy},
 };
 use geo::{CountryCode, GeographicDescription, country_from_code, reference::ReferenceRelease};
@@ -60,68 +61,7 @@ pub fn derive(
             summary.conditional = false;
         }
         Some(ShippingPolicy::Coverage(coverage)) => {
-            summary.conditional = false;
-            for code in coverage.release().country_codes() {
-                let country =
-                    country_from_code(code, coverage.release()).expect("reference country");
-                let input = AssessmentInput {
-                    destination: GeographicDescription::new_in_release(
-                        coverage.release(),
-                        None,
-                        Some(country),
-                        None,
-                        None,
-                    )
-                    .expect("reference country"),
-                    ..Default::default()
-                };
-                // No quantity, basket, postcode, subdivision or selected variant is invented.
-                // The ordinary evaluator proves a whole-country offer, including earlier
-                // zones, exclusions, origin eligibility and known listing applicability.
-                let assessed = effective.assess(&input, locations);
-                if assessed.eligibility.is_none()
-                    || assessed.eligibility == Some(ShippingEligibility::SubjectToConfirmation)
-                {
-                    summary.conditional = true;
-                }
-                if let Some(zone) = assessed.selected_zone {
-                    for (index, service) in assessed.services.iter().enumerate() {
-                        if service.applicability != PredicateResult::Match
-                            || service.eligibility != Some(ShippingEligibility::Offered)
-                        {
-                            if !matches!(service.applicability, PredicateResult::NoMatch(_)) {
-                                summary.conditional = true;
-                            }
-                            continue;
-                        }
-                        if summary.country_offers.len() == MAX_COUNTRY_OFFERS {
-                            summary.conditional = true;
-                            continue;
-                        }
-                        let price = service.service.rate().and_then(|rate| {
-                            if rate.basis() != Some(ChargeBasis::PerItem) {
-                                return None;
-                            }
-                            match rate.price() {
-                                ShippingPrice::Fixed(price) => Some(price),
-                                ShippingPrice::Free(Some(currency)) => {
-                                    Some(Price::new(0_u64.into(), currency))
-                                }
-                                _ => None,
-                            }
-                        });
-                        if price.is_none() {
-                            summary.conditional = true;
-                        }
-                        summary.country_offers.push(CountryOffer {
-                            country,
-                            zone: zone as u16,
-                            service: index as u16,
-                            per_item_price: price,
-                        });
-                    }
-                }
-            }
+            derive_country_offers(effective, coverage, locations, &mut summary);
         }
         None => {}
     }
@@ -132,6 +72,84 @@ pub fn derive(
         summary.conditional = true;
     }
     summary
+}
+
+fn derive_country_offers(
+    effective: &EffectiveDeliveryTerms,
+    coverage: &ShippingCoverage,
+    locations: &[PartyLocation],
+    summary: &mut EffectiveShipping,
+) {
+    summary.conditional = false;
+    for code in coverage.release().country_codes() {
+        let country = country_from_code(code, coverage.release()).expect("reference country");
+        let input = AssessmentInput {
+            destination: GeographicDescription::new_in_release(
+                coverage.release(),
+                None,
+                Some(country),
+                None,
+                None,
+            )
+            .expect("reference country"),
+            ..Default::default()
+        };
+        // No quantity, basket, postcode, subdivision or selected variant is invented.
+        // The ordinary evaluator proves a whole-country offer, including earlier
+        // zones, exclusions, origin eligibility and known listing applicability.
+        let assessed = effective.assess(&input, locations);
+        if assessed.eligibility.is_none()
+            || assessed.eligibility == Some(ShippingEligibility::SubjectToConfirmation)
+        {
+            summary.conditional = true;
+        }
+        append_country_offers(&assessed, country, summary);
+    }
+}
+
+fn append_country_offers(
+    assessed: &ShippingAssessment,
+    country: CountryCode,
+    summary: &mut EffectiveShipping,
+) {
+    let Some(zone) = assessed.selected_zone else {
+        return;
+    };
+    for (index, service) in assessed.services.iter().enumerate() {
+        if service.applicability != PredicateResult::Match
+            || service.eligibility != Some(ShippingEligibility::Offered)
+        {
+            if !matches!(service.applicability, PredicateResult::NoMatch(_)) {
+                summary.conditional = true;
+            }
+            continue;
+        }
+        if summary.country_offers.len() == MAX_COUNTRY_OFFERS {
+            summary.conditional = true;
+            continue;
+        }
+        let price = service.service.rate().and_then(fixed_per_item_price);
+        if price.is_none() {
+            summary.conditional = true;
+        }
+        summary.country_offers.push(CountryOffer {
+            country,
+            zone: zone as u16,
+            service: index as u16,
+            per_item_price: price,
+        });
+    }
+}
+
+fn fixed_per_item_price(rate: &ShippingRate) -> Option<Price> {
+    if rate.basis() != Some(ChargeBasis::PerItem) {
+        return None;
+    }
+    match rate.price() {
+        ShippingPrice::Fixed(price) => Some(price),
+        ShippingPrice::Free(Some(currency)) => Some(Price::new(0_u64.into(), currency)),
+        _ => None,
+    }
 }
 
 /// Strict codecs use this after mapping their own representations.

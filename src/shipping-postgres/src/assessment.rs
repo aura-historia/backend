@@ -170,63 +170,9 @@ impl AssessmentReader for Reader<'_> {
         "#).bind(ids.iter().map(|i| i.into_uuid()).collect::<Vec<_>>()).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut listings = Vec::new();
         for row in rows {
-            match row.lifecycle.as_str() {
-                "ACTIVE" => {}
-                "WITHDRAWN" => continue,
-                _ => return Err(corrupt()),
+            if let Some(listing) = listing_dependency(row, at)? {
+                listings.push(listing);
             }
-            let source_id = ListingSourceId::try_from(row.listing_source_id).map_err(invalid)?;
-            let has_configuration = row.delivery_configuration.is_some();
-            let delivery = row
-                .delivery_configuration
-                .map(shipping_json::listing_delivery::decode::<super::terms::StoredReferences>)
-                .transpose()
-                .map_err(invalid_box)?
-                .unwrap_or_else(|| ListingDelivery::inherited(source_id));
-            if delivery.source_id() != source_id {
-                return Err(corrupt());
-            }
-            let integration_current = match delivery.integration() {
-                DeliveryIntegration::Source => true,
-                DeliveryIntegration::Provider { method, domain } => {
-                    row.enabled_methods.iter().any(|m| m == method.as_str())
-                        && match method {
-                            ListingIngestionMethod::Shopify => {
-                                row.shopify_domain.as_deref() == Some(domain.as_str())
-                            }
-                            ListingIngestionMethod::Woocommerce => {
-                                row.woocommerce_domain.as_deref() == Some(domain.as_str())
-                            }
-                            _ => false,
-                        }
-                }
-            };
-            let assertion = if has_configuration {
-                Some(evidence(
-                    row.delivery_verified_at.ok_or_else(corrupt)?,
-                    row.delivery_fresh_until,
-                    row.delivery_expires_at,
-                    at,
-                )?)
-            } else {
-                if row.delivery_verified_at.is_some()
-                    || row.delivery_fresh_until.is_some()
-                    || row.delivery_expires_at.is_some()
-                {
-                    return Err(corrupt());
-                }
-                None
-            };
-            listings.push(ListingDependency {
-                id: ProductListingId::try_from(row.product_listing_id).map_err(invalid)?,
-                source_id,
-                revision: revision(row.version)?,
-                source_revision: revision(row.source_revision)?,
-                operator_id: PartyId::try_from(row.operator_party_id).map_err(invalid)?,
-                delivery,
-                evidence: assertion,
-                integration_current,
-            });
         }
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
         if !self.read_only {
@@ -249,22 +195,7 @@ impl AssessmentReader for Reader<'_> {
                 revision: revision(rev)?,
             });
         }
-        let mut profile_ids = Vec::new();
-        for listing in &listings {
-            let id = match listing.delivery.selection() {
-                Some(ProfileSelection::Explicit(id)) => Some(*id),
-                Some(ProfileSelection::InheritSourceDefault) => defaults
-                    .iter()
-                    .find(|d| d.selection.source_id() == listing.source_id)
-                    .and_then(|d| d.selection.profile_id()),
-                _ => None,
-            };
-            if let Some(id) = id
-                && !profile_ids.contains(&id.into_uuid())
-            {
-                profile_ids.push(id.into_uuid());
-            }
-        }
+        let profile_ids = selected_profile_ids(&listings, &defaults);
         if !self.read_only {
             sqlx::query("SELECT shipping_profile_id FROM shipping_profiles WHERE shipping_profile_id=ANY($1) ORDER BY shipping_profile_id FOR SHARE")
                 .bind(&profile_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
@@ -276,52 +207,9 @@ impl AssessmentReader for Reader<'_> {
         "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut profiles = Vec::new();
         for row in rows {
-            let view = row.profile.view().map_err(invalid)?;
-            let integration = match (row.integration_method, row.integration_domain) {
-                (None, None) => DeliveryIntegration::Source,
-                (Some(method), Some(domain)) => {
-                    shipping_json::listing_delivery::decode_integration(
-                        serde_json::json!({"kind":"PROVIDER","method":method,"domain":domain}),
-                    )
-                    .map_err(invalid_box)?
-                }
-                _ => return Err(corrupt()),
-            };
-            profiles.push(ProfileDependency {
-                profile: ShippingProfile::rehydrate(
-                    view.id,
-                    view.source_id,
-                    view.revision,
-                    view.lifecycle,
-                    view.content,
-                )
-                .map_err(invalid)?,
-                management_revision: view.management_revision.into_inner(),
-                integration,
-                evidence: evidence(row.verified_at, row.fresh_until, row.expires_at, at)?,
-            });
+            profiles.push(profile_dependency(row, at)?);
         }
-        let mut location_ids = Vec::new();
-        for listing in &listings {
-            let default = defaults
-                .iter()
-                .find(|d| d.selection.source_id() == listing.source_id);
-            let matching: Vec<_> = profiles
-                .iter()
-                .filter(|p| p.profile.source_id() == listing.source_id)
-                .map(|p| p.profile.clone())
-                .collect();
-            let effective = EffectiveDeliveryTerms::resolve(
-                &listing.delivery.configuration(),
-                default.map(|d| &d.selection),
-                &matching,
-            );
-            for id in referenced_locations(effective.terms()) {
-                if !location_ids.contains(&id.into_uuid()) {
-                    location_ids.push(id.into_uuid());
-                }
-            }
-        }
+        let location_ids = referenced_location_ids(&listings, &defaults, &profiles);
         if !self.read_only {
             sqlx::query("SELECT party_location_id FROM party_locations WHERE party_location_id=ANY($1) ORDER BY party_location_id FOR SHARE")
                 .bind(&location_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
@@ -354,90 +242,7 @@ impl AssessmentReader for Reader<'_> {
         }
         let mut locations = Vec::new();
         for (row, resolution) in rows.into_iter().zip(resolutions) {
-            let geography = row
-                .geography
-                .map(serde_json::from_value::<GeographicDescriptionData>)
-                .transpose()
-                .map_err(invalid)?
-                .map(Option::<GeographicDescription>::try_from)
-                .transpose()
-                .map_err(invalid)?
-                .flatten();
-            let rev = revision(row.revision)?;
-            let input_revision =
-                PartyLocationInputRevision::try_from(row.input_revision).map_err(invalid)?;
-            if input_revision.into_inner() > rev {
-                return Err(corrupt());
-            }
-            if let Some(r) = &resolution
-                && (r.scope.kind() != ScopeKind::Party || r.scope.owner() != Some(row.party_id))
-            {
-                return Err(corrupt());
-            }
-            let resolved = resolution.as_ref().filter(|r| {
-                r.input_revision == input_revision.into_inner()
-                    && r.guard == rev
-                    && row.lifecycle == "ACTIVE"
-            });
-            let derived = resolved
-                .and_then(|r| r.accepted_geography())
-                .and_then(|g| g.description());
-            // Domestic comparison needs only a country. Submitted facts have precedence;
-            // no street, postcode, point or provider payload leaves this reader.
-            let submitted_country = geography
-                .as_ref()
-                .and_then(|g| g.country().or_else(|| g.subdivision().map(|s| s.country())));
-            let derived_country =
-                derived.and_then(|g| g.country().or_else(|| g.subdivision().map(|s| s.country())));
-            let (geography, resolution_generation) = if let Some(country) = submitted_country {
-                (
-                    GeographicDescription::new_in_release(
-                        geography
-                            .as_ref()
-                            .expect("submitted country")
-                            .reference_release(),
-                        None,
-                        Some(country),
-                        None,
-                        None,
-                    )
-                    .map_err(invalid)?,
-                    None,
-                )
-            } else if let Some(country) = derived_country {
-                (
-                    GeographicDescription::new_in_release(
-                        derived.expect("derived country").reference_release(),
-                        None,
-                        Some(country),
-                        None,
-                        None,
-                    )
-                    .map_err(invalid)?,
-                    resolved.map(|r| r.work.generation),
-                )
-            } else {
-                (None, None)
-            };
-            locations.push(LocationDependency {
-                location: PartyLocation::rehydrate(
-                    PartyLocationId::try_from(row.party_location_id).map_err(invalid)?,
-                    PartyId::try_from(row.party_id).map_err(invalid)?,
-                    PartyLocationContent {
-                        label: PartyLocationLabel::new("Delivery site".into()).map_err(invalid)?,
-                        roles: Default::default(),
-                        geography,
-                        position: None,
-                    },
-                    PartyLocationLifecycle::from_code(&row.lifecycle).ok_or_else(corrupt)?,
-                    input_revision,
-                ),
-                revision: rev,
-                resolution_generation,
-                resolution_id: resolution.as_ref().map(|r| r.work.id.into_uuid()),
-                resolution_valid_until: resolution_generation
-                    .and_then(|_| resolved.and_then(|r| r.valid_until)),
-            });
+            locations.push(location_dependency(row, resolution)?);
         }
         Ok(AssessmentDependencies {
             evaluated_at: at,
@@ -447,4 +252,237 @@ impl AssessmentReader for Reader<'_> {
             locations,
         })
     }
+}
+
+fn listing_dependency(
+    row: ListingRow,
+    at: OffsetDateTime,
+) -> Result<Option<ListingDependency>, AssessmentError> {
+    match row.lifecycle.as_str() {
+        "ACTIVE" => {}
+        "WITHDRAWN" => return Ok(None),
+        _ => return Err(corrupt()),
+    }
+    let source_id = ListingSourceId::try_from(row.listing_source_id).map_err(invalid)?;
+    let has_configuration = row.delivery_configuration.is_some();
+    let delivery = row
+        .delivery_configuration
+        .map(shipping_json::listing_delivery::decode::<super::terms::StoredReferences>)
+        .transpose()
+        .map_err(invalid_box)?
+        .unwrap_or_else(|| ListingDelivery::inherited(source_id));
+    if delivery.source_id() != source_id {
+        return Err(corrupt());
+    }
+    let integration_current = match delivery.integration() {
+        DeliveryIntegration::Source => true,
+        DeliveryIntegration::Provider { method, domain } => {
+            row.enabled_methods.iter().any(|m| m == method.as_str())
+                && match method {
+                    ListingIngestionMethod::Shopify => {
+                        row.shopify_domain.as_deref() == Some(domain.as_str())
+                    }
+                    ListingIngestionMethod::Woocommerce => {
+                        row.woocommerce_domain.as_deref() == Some(domain.as_str())
+                    }
+                    _ => false,
+                }
+        }
+    };
+    let assertion = if has_configuration {
+        Some(evidence(
+            row.delivery_verified_at.ok_or_else(corrupt)?,
+            row.delivery_fresh_until,
+            row.delivery_expires_at,
+            at,
+        )?)
+    } else {
+        if row.delivery_verified_at.is_some()
+            || row.delivery_fresh_until.is_some()
+            || row.delivery_expires_at.is_some()
+        {
+            return Err(corrupt());
+        }
+        None
+    };
+    Ok(Some(ListingDependency {
+        id: ProductListingId::try_from(row.product_listing_id).map_err(invalid)?,
+        source_id,
+        revision: revision(row.version)?,
+        source_revision: revision(row.source_revision)?,
+        operator_id: PartyId::try_from(row.operator_party_id).map_err(invalid)?,
+        delivery,
+        evidence: assertion,
+        integration_current,
+    }))
+}
+
+fn profile_dependency(
+    row: ProfileRow,
+    at: OffsetDateTime,
+) -> Result<ProfileDependency, AssessmentError> {
+    let view = row.profile.view().map_err(invalid)?;
+    let integration = match (row.integration_method, row.integration_domain) {
+        (None, None) => DeliveryIntegration::Source,
+        (Some(method), Some(domain)) => shipping_json::listing_delivery::decode_integration(
+            serde_json::json!({"kind":"PROVIDER","method":method,"domain":domain}),
+        )
+        .map_err(invalid_box)?,
+        _ => return Err(corrupt()),
+    };
+    Ok(ProfileDependency {
+        profile: ShippingProfile::rehydrate(
+            view.id,
+            view.source_id,
+            view.revision,
+            view.lifecycle,
+            view.content,
+        )
+        .map_err(invalid)?,
+        management_revision: view.management_revision.into_inner(),
+        integration,
+        evidence: evidence(row.verified_at, row.fresh_until, row.expires_at, at)?,
+    })
+}
+
+fn location_dependency(
+    row: LocationRow,
+    resolution: Option<geo_service::resolution::ResolutionView>,
+) -> Result<LocationDependency, AssessmentError> {
+    let geography = row
+        .geography
+        .map(serde_json::from_value::<GeographicDescriptionData>)
+        .transpose()
+        .map_err(invalid)?
+        .map(Option::<GeographicDescription>::try_from)
+        .transpose()
+        .map_err(invalid)?
+        .flatten();
+    let rev = revision(row.revision)?;
+    let input_revision =
+        PartyLocationInputRevision::try_from(row.input_revision).map_err(invalid)?;
+    if input_revision.into_inner() > rev {
+        return Err(corrupt());
+    }
+    if let Some(r) = &resolution
+        && (r.scope.kind() != ScopeKind::Party || r.scope.owner() != Some(row.party_id))
+    {
+        return Err(corrupt());
+    }
+    let resolved = resolution.as_ref().filter(|r| {
+        r.input_revision == input_revision.into_inner()
+            && r.guard == rev
+            && row.lifecycle == "ACTIVE"
+    });
+    let derived = resolved
+        .and_then(|r| r.accepted_geography())
+        .and_then(|g| g.description());
+    // Domestic comparison needs only a country. Submitted facts have precedence;
+    // no street, postcode, point or provider payload leaves this reader.
+    let submitted_country = geography
+        .as_ref()
+        .and_then(|g| g.country().or_else(|| g.subdivision().map(|s| s.country())));
+    let derived_country =
+        derived.and_then(|g| g.country().or_else(|| g.subdivision().map(|s| s.country())));
+    let (geography, resolution_generation) = if let Some(country) = submitted_country {
+        (
+            GeographicDescription::new_in_release(
+                geography
+                    .as_ref()
+                    .expect("submitted country")
+                    .reference_release(),
+                None,
+                Some(country),
+                None,
+                None,
+            )
+            .map_err(invalid)?,
+            None,
+        )
+    } else if let Some(country) = derived_country {
+        (
+            GeographicDescription::new_in_release(
+                derived.expect("derived country").reference_release(),
+                None,
+                Some(country),
+                None,
+                None,
+            )
+            .map_err(invalid)?,
+            resolved.map(|r| r.work.generation),
+        )
+    } else {
+        (None, None)
+    };
+    Ok(LocationDependency {
+        location: PartyLocation::rehydrate(
+            PartyLocationId::try_from(row.party_location_id).map_err(invalid)?,
+            PartyId::try_from(row.party_id).map_err(invalid)?,
+            PartyLocationContent {
+                label: PartyLocationLabel::new("Delivery site".into()).map_err(invalid)?,
+                roles: Default::default(),
+                geography,
+                position: None,
+            },
+            PartyLocationLifecycle::from_code(&row.lifecycle).ok_or_else(corrupt)?,
+            input_revision,
+        ),
+        revision: rev,
+        resolution_generation,
+        resolution_id: resolution.as_ref().map(|r| r.work.id.into_uuid()),
+        resolution_valid_until: resolution_generation
+            .and_then(|_| resolved.and_then(|r| r.valid_until)),
+    })
+}
+
+fn selected_profile_ids(
+    listings: &[ListingDependency],
+    defaults: &[DefaultDependency],
+) -> Vec<Uuid> {
+    let mut profile_ids = Vec::new();
+    for listing in listings {
+        let id = match listing.delivery.selection() {
+            Some(ProfileSelection::Explicit(id)) => Some(*id),
+            Some(ProfileSelection::InheritSourceDefault) => defaults
+                .iter()
+                .find(|d| d.selection.source_id() == listing.source_id)
+                .and_then(|d| d.selection.profile_id()),
+            _ => None,
+        };
+        if let Some(id) = id
+            && !profile_ids.contains(&id.into_uuid())
+        {
+            profile_ids.push(id.into_uuid());
+        }
+    }
+    profile_ids
+}
+
+fn referenced_location_ids(
+    listings: &[ListingDependency],
+    defaults: &[DefaultDependency],
+    profiles: &[ProfileDependency],
+) -> Vec<Uuid> {
+    let mut location_ids = Vec::new();
+    for listing in listings {
+        let default = defaults
+            .iter()
+            .find(|d| d.selection.source_id() == listing.source_id);
+        let matching: Vec<_> = profiles
+            .iter()
+            .filter(|p| p.profile.source_id() == listing.source_id)
+            .map(|p| p.profile.clone())
+            .collect();
+        let effective = EffectiveDeliveryTerms::resolve(
+            &listing.delivery.configuration(),
+            default.map(|d| &d.selection),
+            &matching,
+        );
+        for id in referenced_locations(effective.terms()) {
+            if !location_ids.contains(&id.into_uuid()) {
+                location_ids.push(id.into_uuid());
+            }
+        }
+    }
+    location_ids
 }

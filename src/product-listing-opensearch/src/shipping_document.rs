@@ -5,8 +5,7 @@ use shipping_core::discovery::{EffectiveShipping, POLICY};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ShippingDocument {
     policy: String,
-    #[serde(deserialize_with = "nullable")]
-    collection: Option<String>,
+    collection: Nullable<String>,
     shipping_prohibited: bool,
     conditional: bool,
     country_offers: Vec<CountryOfferDocument>,
@@ -17,8 +16,7 @@ struct CountryOfferDocument {
     country: String,
     zone: u16,
     service: u16,
-    #[serde(deserialize_with = "nullable")]
-    per_item_price: Option<AmountDocument>,
+    per_item_price: Nullable<AmountDocument>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,16 +24,26 @@ struct AmountDocument {
     amount: u64,
     currency: String,
 }
-fn nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
-    d: D,
-) -> Result<Option<T>, D::Error> {
-    Option::deserialize(d)
+/// Nullable values still require an explicit field in the persisted document.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Nullable<T> {
+    Value(T),
+    Null,
+}
+impl<T> From<Option<T>> for Nullable<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Self::Value(value),
+            None => Self::Null,
+        }
+    }
 }
 impl From<&EffectiveShipping> for ShippingDocument {
     fn from(s: &EffectiveShipping) -> Self {
         Self {
             policy: POLICY.into(),
-            collection: s.collection.map(|c| c.as_str().into()),
+            collection: s.collection.map(|c| c.as_str().into()).into(),
             shipping_prohibited: s.shipping_prohibited,
             conditional: s.conditional,
             country_offers: s
@@ -45,10 +53,13 @@ impl From<&EffectiveShipping> for ShippingDocument {
                     country: o.country.alpha2().into(),
                     zone: o.zone,
                     service: o.service,
-                    per_item_price: o.per_item_price.map(|p| AmountDocument {
-                        amount: u64::from(p.monetary_amount),
-                        currency: p.currency.as_str().into(),
-                    }),
+                    per_item_price: o
+                        .per_item_price
+                        .map(|p| AmountDocument {
+                            amount: u64::from(p.monetary_amount),
+                            currency: p.currency.as_str().into(),
+                        })
+                        .into(),
                 })
                 .collect(),
         }
@@ -66,6 +77,29 @@ impl ShippingDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nullable_shipping_fields_are_explicit_and_missing_fields_fail_closed() {
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/gallery-shipping.json")).unwrap();
+        let value = fixtures["paintingBefore"].clone();
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove("collection");
+        assert!(serde_json::from_value::<ShippingDocument>(missing).is_err());
+        let mut missing = value.clone();
+        missing["countryOffers"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("perItemPrice");
+        assert!(serde_json::from_value::<ShippingDocument>(missing).is_err());
+        let mut nullable = value;
+        nullable["collection"] = serde_json::Value::Null;
+        nullable["countryOffers"][0]["perItemPrice"] = serde_json::Value::Null;
+        let document: ShippingDocument = serde_json::from_value(nullable.clone()).unwrap();
+        assert!(document.validate());
+        assert_eq!(nullable, serde_json::to_value(document).unwrap());
+    }
+
     #[test]
     fn literal_safe_summary_matches_strict_camel_case_nested_mapping() {
         let pg: serde_json::Value = serde_json::from_str(include_str!(
