@@ -117,15 +117,20 @@ impl ScraperServiceImpl {
         Ok(schemas)
     }
 
+    /// Returns the removed-page notices the stored schemas select from the page; empty
+    /// when no stored schema matches.
     #[allow(clippy::result_large_err)]
-    async fn matching_removed_page_schemas(
+    async fn removed_page_notices(
         &self,
         listing_source_id: &ListingSourceId,
         html: &str,
-    ) -> Result<Vec<RemovedPageSchema>, ScraperError> {
-        let mut schemas = self.removed_page_schemas_for(listing_source_id).await?;
-        schemas.retain(|schema| schema.matches(html));
-        Ok(schemas)
+    ) -> Result<Vec<String>, ScraperError> {
+        Ok(self
+            .removed_page_schemas_for(listing_source_id)
+            .await?
+            .iter()
+            .flat_map(|schema| schema.matched_notices(html))
+            .collect())
     }
 
     /// Returns whether a cached product schema still deterministically prepares a
@@ -136,7 +141,7 @@ impl ScraperServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         html: &str,
-        matched_removed_schemas: &[RemovedPageSchema],
+        removed_page_notices: &[String],
         context: ProductNormalizationContext,
     ) -> Result<bool, ScraperError> {
         let Some(cached) = self
@@ -150,7 +155,7 @@ impl ScraperServiceImpl {
         Ok(page_has_product_evidence(
             &cached.product_schemas,
             html,
-            matched_removed_schemas,
+            removed_page_notices,
             &context,
         ))
     }
@@ -158,11 +163,11 @@ impl ScraperServiceImpl {
 
 /// A removed-page template match is only removal evidence while no cached schema
 /// still extracts a product that passes deterministic preparation. A candidate whose
-/// title is the matched removed-page text is the not-found notice, not a product.
+/// title is a matched removed-page notice is that notice, not a product.
 fn page_has_product_evidence(
     schemas: &[ProductCssSelectorSchema],
     html: &str,
-    matched_removed_schemas: &[RemovedPageSchema],
+    removed_page_notices: &[String],
     context: &ProductNormalizationContext,
 ) -> bool {
     let parsed = scraper::Html::parse_document(html);
@@ -170,9 +175,7 @@ fn page_has_product_evidence(
         .candidates
         .into_iter()
         .filter(|candidate| {
-            !matched_removed_schemas
-                .iter()
-                .any(|schema| schema.matches_value(&candidate.raw.title))
+            !RemovedPageSchema::is_matched_notice(removed_page_notices, &candidate.raw.title)
         })
         .any(|candidate| prepare_product(candidate.raw, context.clone()).is_ok())
 }
@@ -346,17 +349,15 @@ impl ScraperServiceImpl {
         }
         let html = fetched.html;
 
-        let matched_removed_schemas = self
-            .matching_removed_page_schemas(listing_source_id, &html)
-            .await?;
-        if !matched_removed_schemas.is_empty() {
+        let removed_page_notices = self.removed_page_notices(listing_source_id, &html).await?;
+        if !removed_page_notices.is_empty() {
             // Withdrawal needs unambiguous evidence: a removed-page template that also
             // matches a still-extractable product page preserves listing state.
             if self
                 .cached_schemas_extract_product(
                     listing_source_id,
                     &html,
-                    &matched_removed_schemas,
+                    &removed_page_notices,
                     ProductNormalizationContext {
                         effective_url: effective_url.clone(),
                         source_record_key: source_record_key.to_owned(),

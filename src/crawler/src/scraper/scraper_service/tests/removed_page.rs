@@ -205,6 +205,38 @@ async fn should_preserve_listing_when_removed_page_schema_matches_extractable_pr
 }
 
 #[tokio::test]
+async fn should_preserve_listing_when_broad_removed_page_regex_matches_product_page() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut removed = removed_schema_set(id);
+    removed.removed_page_schemas = vec![RemovedPageSchema {
+        selector: CssSelector::from("body"),
+        text: None,
+        regex: Some(".*".to_string()),
+    }];
+
+    let mut norm_svc = MockProductListingNormalizationService::new();
+    norm_svc.expect_normalize().never();
+
+    let service = service(
+        fetcher_returning(sample_html()),
+        schema_service_with_cached_schema(id),
+        norm_svc,
+        removed_repo_returning(removed),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::SchemaClassificationRejected { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn should_scrape_normal_product_page_when_removed_page_schema_does_not_match() {
     let id = listing_source_id();
     let url = product_url();

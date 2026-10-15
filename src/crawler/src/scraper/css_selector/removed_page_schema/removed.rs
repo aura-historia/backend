@@ -4,8 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::page_match::{
-    page_classification_regex_matches, page_classification_text_matches,
-    page_classification_value_contains_text, page_classification_value_matches_regex,
+    normalize_page_classification_text, page_classification_regex_matches,
+    page_classification_text_matches,
 };
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -20,23 +20,24 @@ pub struct RemovedPageSchema {
 
 impl RemovedPageSchema {
     pub fn matches(&self, html: &str) -> bool {
+        !self.matched_notices(html).is_empty()
+    }
+
+    /// Returns the normalized texts selected by this schema that carry its removed-page
+    /// text or regex; empty when the page does not match.
+    pub fn matched_notices(&self, html: &str) -> Vec<String> {
         match (self.text.as_deref(), self.regex.as_deref()) {
             (Some(text), None) => page_classification_text_matches(&self.selector, text, html),
             (None, Some(pattern)) => {
                 page_classification_regex_matches(&self.selector, pattern, html)
             }
-            _ => false,
+            _ => Vec::new(),
         }
     }
 
-    /// Returns whether an already-extracted value carries this schema's removed-page
-    /// text or regex, independent of the selector.
-    pub fn matches_value(&self, value: &str) -> bool {
-        match (self.text.as_deref(), self.regex.as_deref()) {
-            (Some(text), None) => page_classification_value_contains_text(value, text),
-            (None, Some(pattern)) => page_classification_value_matches_regex(value, pattern),
-            _ => false,
-        }
+    /// Returns whether an extracted value is exactly one of the matched notices.
+    pub fn is_matched_notice(notices: &[String], value: &str) -> bool {
+        notices.contains(&normalize_page_classification_text(value))
     }
 
     pub fn validate_for_llm_response(&self) -> Result<(), String> {
@@ -124,14 +125,43 @@ mod tests {
     }
 
     #[test]
-    fn should_match_extracted_value_by_text_or_regex() {
-        assert!(schema().matches_value("  SORRY, the page you're looking for couldn't be found "));
-        assert!(!schema().matches_value("Vintage Chair"));
-        assert!(
-            regex_schema(r"the .+ is not available anymore")
-                .matches_value("The table from 2020 is not available anymore.")
+    fn should_return_only_selected_texts_that_carry_the_removed_page_signal() {
+        let html = r#"<main id="mainCatCol">
+            <h1>  Sorry, the page you're looking for
+                couldn't be found </h1><h1>Related items</h1></main>"#;
+
+        let notices = schema().matched_notices(html);
+
+        assert_eq!(
+            notices,
+            vec!["sorry, the page you're looking for couldn't be found".to_string()]
         );
-        assert!(!regex_schema("[unclosed").matches_value("[unclosed"));
+        assert!(RemovedPageSchema::is_matched_notice(
+            &notices,
+            "SORRY, the page you're looking for couldn't be found"
+        ));
+        assert!(!RemovedPageSchema::is_matched_notice(
+            &notices,
+            "Biedermeier Chair"
+        ));
+    }
+
+    #[test]
+    fn should_not_treat_value_as_notice_when_broad_regex_selects_other_text() {
+        let html = r#"<body><h1>Biedermeier Chair</h1><p>In stock</p></body>"#;
+        let broad = RemovedPageSchema {
+            selector: CssSelector::from("body"),
+            text: None,
+            regex: Some(".*".to_string()),
+        };
+
+        let notices = broad.matched_notices(html);
+
+        assert!(!notices.is_empty());
+        assert!(!RemovedPageSchema::is_matched_notice(
+            &notices,
+            "Biedermeier Chair"
+        ));
     }
 
     #[test]

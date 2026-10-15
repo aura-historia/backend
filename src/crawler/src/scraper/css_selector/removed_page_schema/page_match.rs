@@ -24,49 +24,46 @@ fn selected_texts(selector: &CssSelector, html: &str) -> Option<Vec<String>> {
     rule.apply(&parsed).ok()
 }
 
+/// Normalized selector texts that contain `text`.
 pub(super) fn page_classification_text_matches(
     selector: &CssSelector,
     text: &str,
     html: &str,
-) -> bool {
-    let Some(values) = selected_texts(selector, html) else {
-        return false;
-    };
-    values
-        .iter()
-        .any(|value| page_classification_value_contains_text(value, text))
-}
-
-pub(super) fn page_classification_value_contains_text(value: &str, text: &str) -> bool {
+) -> Vec<String> {
     let expected = normalize_page_classification_text(text);
-    !expected.is_empty() && normalize_page_classification_text(value).contains(&expected)
+    if expected.is_empty() {
+        return Vec::new();
+    }
+
+    normalized_selected_texts(selector, html)
+        .into_iter()
+        .filter(|value| value.contains(&expected))
+        .collect()
 }
 
+/// Normalized selector texts that match `pattern`.
 pub(super) fn page_classification_regex_matches(
     selector: &CssSelector,
     pattern: &str,
     html: &str,
-) -> bool {
-    let Some(regex) = page_classification_regex(pattern) else {
-        return false;
-    };
-    let Some(values) = selected_texts(selector, html) else {
-        return false;
-    };
-
-    values
-        .iter()
-        .any(|value| regex.is_match(&normalize_page_classification_text(value)))
-}
-
-pub(super) fn page_classification_value_matches_regex(value: &str, pattern: &str) -> bool {
-    page_classification_regex(pattern)
-        .is_some_and(|regex| regex.is_match(&normalize_page_classification_text(value)))
-}
-
-fn page_classification_regex(pattern: &str) -> Option<Regex> {
+) -> Vec<String> {
     if pattern.trim().is_empty() {
-        return None;
+        return Vec::new();
     }
-    Regex::new(pattern).ok()
+    let Ok(regex) = Regex::new(pattern) else {
+        return Vec::new();
+    };
+
+    normalized_selected_texts(selector, html)
+        .into_iter()
+        .filter(|value| regex.is_match(value))
+        .collect()
+}
+
+fn normalized_selected_texts(selector: &CssSelector, html: &str) -> Vec<String> {
+    selected_texts(selector, html)
+        .unwrap_or_default()
+        .iter()
+        .map(|value| normalize_page_classification_text(value))
+        .collect()
 }
