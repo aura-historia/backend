@@ -5,8 +5,9 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-10-15 — Incremental typed shipping imports (#2065)
 
 - Existing profile/default and listing delivery commands accept optional import identity,
-  ownership, ordering and explicit observation metadata. Added source connection setup/read
-  and profile identity recovery; current source/integration authority gates application and replay.
+  ownership, ordering and explicit observation metadata. Stable object keys are recoverable
+  through the existing profile list. Existing source/integration lifecycle gates application and replay;
+  WooCommerce configuration accepts an optional explicit provider domain for shipping imports.
 - Manual components remain protected. Exact retries retain identity; conflicts require
   refetch/reconciliation. Missing catalog listings return retryable dependency outcomes.
 - New observations can refresh unchanged terms without a semantic listing change.

@@ -233,18 +233,22 @@ async fn gallery_retries_evidence_and_noops_preserve_independent_revisions() {
             .await,
         Err(ShippingError::StaleRevision)
     ));
-    let list = m.list.execute(&trusted(), source, None, 1).await.unwrap();
+    let list = m
+        .list
+        .execute(&trusted(), source, None, 1, None)
+        .await
+        .unwrap();
     assert_eq!(1, list.len());
     assert_eq!(original.id, list[0].id);
     assert!(
         m.list
-            .execute(&trusted(), source, Some(original.id), 100)
+            .execute(&trusted(), source, Some(original.id), 100, None)
             .await
             .unwrap()
             .is_empty()
     );
     assert!(matches!(
-        m.list.execute(&trusted(), source, None, 101).await,
+        m.list.execute(&trusted(), source, None, 101, None).await,
         Err(ShippingError::InvalidInput)
     ));
     assert_eq!(4, signals(&p, source).await);
@@ -934,21 +938,10 @@ async fn source_deletion_without_selection_still_creates_a_retained_fence() {
     assert_eq!(1, signals(&p, source).await);
 }
 
-fn import_manager(p: &PgPool) -> impl shipping_service::imports::ShippingImportManagementUseCase {
-    shipping_service::imports::ShippingImportManagementHandler::new(
-        SqlxUnitOfWork::new(p.clone()),
-        shipping_postgres::imports::SqlxShippingImportAccessFactory,
-        SqlxSourceLocationAccessFactory,
-    )
-}
-fn import_write(
-    revision: u64,
-    sequence: u64,
-    key: &str,
-) -> shipping_service::imports::ShippingImportWrite {
+fn import_write(sequence: u64, key: &str) -> shipping_service::imports::ShippingImportWrite {
     let at = time::OffsetDateTime::now_utc();
     shipping_service::imports::ShippingImportWrite {
-        connection_revision: revision,
+        integration: product_listing_core::delivery::DeliveryIntegration::Source,
         sequence,
         acquired_at: at,
         request_key: key.into(),
@@ -962,25 +955,11 @@ fn import_write(
 }
 #[aura_integration_test(services=[SCHEMA])]
 async fn manual_default_clear_protects_an_initially_absent_assertion() {
-    use product_listing_core::delivery::DeliveryIntegration;
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
     let m = manager(&p);
-    let connection = import_manager(&p)
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
     let mut create = command(source);
-    let mut write = import_write(connection.revision, 1, "create");
+    let mut write = import_write(1, "create");
     write.object_key = Some("policy".into());
     create.import = Some(write);
     let profile = m.create.execute(&trusted(), create).await.unwrap();
@@ -1004,7 +983,7 @@ async fn manual_default_clear_protects_an_initially_absent_assertion() {
             .execute(
                 &trusted(),
                 AssignDefaultCommand {
-                    import: Some(import_write(connection.revision, 2, "assign")),
+                    import: Some(import_write(2, "assign")),
                     source_id: source,
                     profile_id: profile.id,
                     expected_revision: cleared.revision,
@@ -1017,25 +996,11 @@ async fn manual_default_clear_protects_an_initially_absent_assertion() {
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn repeated_acquisition_with_a_new_request_key_cannot_extend_profile_validity() {
-    use product_listing_core::delivery::DeliveryIntegration;
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
     let m = manager(&p);
-    let connection = import_manager(&p)
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
     let mut create = command(source);
-    let mut write = import_write(connection.revision, 1, "create");
+    let mut write = import_write(1, "create");
     // PostgreSQL persists microseconds; preserve a sub-microsecond part in the request.
     let at = write
         .acquired_at
@@ -1060,34 +1025,31 @@ async fn repeated_acquisition_with_a_new_request_key_cannot_extend_profile_valid
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn incremental_profile_identity_replays_observations_manual_edits_and_disconnect() {
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
     let m = manager(&p);
-    let imports = import_manager(&p);
-    let conn = imports
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: product_listing_core::delivery::DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
     let mut create = command(source);
-    let mut write = import_write(conn.revision, 1, "create-v1");
+    let mut write = import_write(1, "create-v1");
     write.object_key = Some("website-policy".into());
     create.import = Some(write.clone());
     let first = m.create.execute(&trusted(), create.clone()).await.unwrap();
+    let recovered = m
+        .list
+        .execute(
+            &trusted(),
+            source,
+            None,
+            21,
+            Some(shipping_service::imports::ProfileImportIdentity {
+                object_key: "website-policy".into(),
+                integration: product_listing_core::delivery::DeliveryIntegration::Source,
+            }),
+        )
+        .await
+        .unwrap();
     assert_eq!(
-        first.id,
-        imports
-            .resolve_profile(&trusted(), source, conn.revision, "website-policy".into())
-            .await
-            .unwrap()
+        vec![first.id],
+        recovered.into_iter().map(|p| p.id).collect::<Vec<_>>()
     );
     assert_eq!(
         first,
@@ -1107,7 +1069,7 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
         Err(ShippingError::ImportIdentityExists)
     ));
     let mut replace = replacement(&first, 9500);
-    replace.import = Some(import_write(conn.revision, 2, "replace-v2"));
+    replace.import = Some(import_write(2, "replace-v2"));
     let updated = m
         .replace
         .execute(&trusted(), replace.clone())
@@ -1136,7 +1098,7 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
     .unwrap();
     // An ordinary equal write advances only request/order fences.
     let mut noop = replacement(&updated, 9500);
-    noop.import = Some(import_write(conn.revision, 3, "noop-v3"));
+    noop.import = Some(import_write(3, "noop-v3"));
     noop.import.as_mut().unwrap().observation = None;
     assert_eq!(updated, m.replace.execute(&trusted(), noop).await.unwrap());
     assert_eq!(
@@ -1151,7 +1113,7 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
     );
     // A genuinely new acquisition refreshes validity, without semantic/management changes.
     let mut observed = replacement(&updated, 9500);
-    observed.import = Some(import_write(conn.revision, 4, "observed-v4"));
+    observed.import = Some(import_write(4, "observed-v4"));
     let acquired = observed
         .import
         .as_ref()
@@ -1191,7 +1153,7 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
         .unwrap();
     assert_eq!(updated, equal_manual);
     let mut retry_after_equal = replacement(&equal_manual, 9500);
-    retry_after_equal.import = Some(import_write(conn.revision, 5, "after-equal-manual"));
+    retry_after_equal.import = Some(import_write(5, "after-equal-manual"));
     assert!(matches!(
         m.replace.execute(&trusted(), retry_after_equal).await,
         Err(ShippingError::ImportOwnershipConflict)
@@ -1203,51 +1165,37 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
         .await
         .unwrap();
     let mut stale = replacement(&human, 9500);
-    stale.import = Some(import_write(conn.revision, 5, "stale-v5"));
+    stale.import = Some(import_write(5, "stale-v5"));
     assert!(matches!(
         m.replace.execute(&trusted(), stale).await,
         Err(ShippingError::ImportOwnershipConflict)
     ));
-    let disconnected = imports
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: conn.revision,
-                integration: product_listing_core::delivery::DeliveryIntegration::Source,
-                active: false,
-            },
-        )
+    // Existing configuration lifecycle fences imports, including after returning to SOURCE.
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&p)
         .await
         .unwrap();
-    assert!(!disconnected.active);
     assert!(matches!(
         m.create.execute(&trusted(), create.clone()).await,
-        Err(ShippingError::ImportConnectionStale)
+        Err(ShippingError::ImportAuthorityStale)
     ));
-    let reconnected = imports
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: disconnected.revision,
-                integration: product_listing_core::delivery::DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
-    // A new connection label cannot turn an acquisition from the old epoch into fresh authority.
+    sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method='SHOPIFY'").bind(source.into_uuid()).execute(&p).await.unwrap();
     let mut relabeled = create.clone();
-    relabeled.creation_key = "new-epoch-create".into();
+    relabeled.creation_key = "new-create".into();
     let w = relabeled.import.as_mut().unwrap();
-    w.connection_revision = reconnected.revision;
-    w.request_key = "new-epoch-request".into();
+    w.request_key = "new-request".into();
     w.object_key = Some("second-policy".into());
     assert!(matches!(
         m.create.execute(&trusted(), relabeled).await,
-        Err(ShippingError::ImportConnectionStale)
+        Err(ShippingError::ImportAuthorityStale)
     ));
+    let mut fresh = command(source);
+    fresh.creation_key = "fresh-create".into();
+    let mut w = import_write(1, "fresh-create");
+    w.object_key = Some("second-policy".into());
+    fresh.import = Some(w);
+    m.create.execute(&trusted(), fresh).await.unwrap();
     sqlx::query("DELETE FROM listing_sources WHERE listing_source_id=$1")
         .bind(source.into_uuid())
         .execute(&p)
@@ -1269,9 +1217,8 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
     );
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn provider_profiles_bind_current_integration_and_delegates_cannot_reconnect() {
+async fn provider_profiles_bind_current_configuration_without_shipping_setup() {
     use product_listing_core::delivery::DeliveryIntegration;
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
     sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
@@ -1280,41 +1227,18 @@ async fn provider_profiles_bind_current_integration_and_delegates_cannot_reconne
         .await
         .unwrap();
     sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'synthetic.myshopify.com')").bind(source.into_uuid()).execute(&p).await.unwrap();
-    let imports = import_manager(&p);
+    let mut create = command(source);
+    let mut write = import_write(1, "provider-create");
+    write.object_key = Some("provider-profile-1".into());
+    create.import = Some(write);
     assert!(matches!(
-        imports
-            .change_connection(
-                &trusted(),
-                ChangeShippingConnectionCommand {
-                    source_id: source,
-                    expected_revision: 0,
-                    integration: DeliveryIntegration::Source,
-                    active: true
-                }
-            )
-            .await,
-        Err(ShippingError::ImportConnectionStale)
+        manager(&p).create.execute(&trusted(), create.clone()).await,
+        Err(ShippingError::ImportAuthorityStale)
     ));
-    let scope = DeliveryIntegration::Provider {
+    create.import.as_mut().unwrap().integration = DeliveryIntegration::Provider {
         method: listing_source_core::ListingIngestionMethod::Shopify,
         domain: "synthetic.myshopify.com".try_into().unwrap(),
     };
-    let conn = imports
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: scope.clone(),
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
-    let mut create = command(source);
-    let mut write = import_write(conn.revision, 1, "provider-create");
-    write.object_key = Some("provider-profile-1".into());
-    create.import = Some(write);
     let profile = manager(&p)
         .create
         .execute(&trusted(), create.clone())
@@ -1325,41 +1249,57 @@ async fn provider_profiles_bind_current_integration_and_delegates_cannot_reconne
         ("SHOPIFY".into(), "synthetic.myshopify.com".into()),
         binding
     );
-    let delegate = context(Principal::DelegatedUser {
-        user_id: user_core::user_id::UserId::new(),
-        capabilities: std::collections::BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
-    });
-    assert!(matches!(
-        imports
-            .change_connection(
-                &delegate,
-                ChangeShippingConnectionCommand {
-                    source_id: source,
-                    expected_revision: conn.revision,
-                    integration: scope,
-                    active: true
-                }
-            )
-            .await,
-        Err(ShippingError::SourceAccessDenied)
-    ));
     sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
     assert!(matches!(
-        manager(&p).create.execute(&trusted(), create).await,
-        Err(ShippingError::ImportConnectionStale)
+        manager(&p).create.execute(&trusted(), create.clone()).await,
+        Err(ShippingError::ImportAuthorityStale)
     ));
+    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='synthetic.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
+    assert!(matches!(
+        manager(&p).create.execute(&trusted(), create).await,
+        Err(ShippingError::ImportAuthorityStale)
+    ));
+    let mut refresh = replacement(&profile, 8000);
+    let mut write = import_write(2, "unobserved-reconnect");
+    write.integration = product_listing_core::delivery::DeliveryIntegration::Provider {
+        method: listing_source_core::ListingIngestionMethod::Shopify,
+        domain: "synthetic.myshopify.com".try_into().unwrap(),
+    };
+    write.observation = None;
+    refresh.import = Some(write);
+    assert!(matches!(
+        manager(&p).replace.execute(&trusted(), refresh).await,
+        Err(ShippingError::ImportAuthorityStale)
+    ));
+    let mut refresh = replacement(&profile, 8000);
+    let mut write = import_write(2, "fresh-reconnect");
+    write.integration = product_listing_core::delivery::DeliveryIntegration::Provider {
+        method: listing_source_core::ListingIngestionMethod::Shopify,
+        domain: "synthetic.myshopify.com".try_into().unwrap(),
+    };
+    refresh.import = Some(write);
+    assert_eq!(
+        profile,
+        manager(&p)
+            .replace
+            .execute(&trusted(), refresh)
+            .await
+            .unwrap()
+    ); // Native configuration cascades cannot duplicate the source invalidation signal.
+    sqlx::query("DELETE FROM listing_sources WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
 }
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original_validity() {
-    use product_listing_core::delivery::DeliveryIntegration;
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;
     let Principal::DelegatedUser { user_id, .. } = member(&p, owner, source).await else {
         unreachable!()
     };
-    let setup = context(Principal::User(user_id));
     let producer = context(Principal::DelegatedUser {
         user_id,
         capabilities: std::collections::BTreeSet::from([
@@ -1367,22 +1307,9 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original
             CredentialCapability::ListingSourcesWrite,
         ]),
     });
-    let imports = import_manager(&p);
     let m = manager(&p);
-    let conn = imports
-        .change_connection(
-            &setup,
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
     let mut create = command(source);
-    let mut w = import_write(conn.revision, 1, "create");
+    let mut w = import_write(1, "create");
     w.object_key = Some("policy".into());
     create.import = Some(w);
     let profile = m.create.execute(&producer, create.clone()).await.unwrap();
@@ -1404,7 +1331,7 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original
     .await
     .unwrap();
     let mut removal = lifecycle(&profile);
-    let mut w = import_write(conn.revision, 2, "retire");
+    let mut w = import_write(2, "retire");
     w.observation = None;
     removal.import = Some(w);
     let retired = m.retire.execute(&producer, removal.clone()).await.unwrap();
@@ -1437,36 +1364,16 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original
     sqlx::query("INSERT INTO partnership_listing_source_grants(partnership_id,listing_source_id) VALUES($1,$2)").bind(partnership).bind(source.into_uuid()).execute(&p).await.unwrap();
     assert!(matches!(
         m.create.execute(&producer, create).await,
-        Err(ShippingError::ImportConnectionStale)
+        Err(ShippingError::ImportAuthorityStale)
     ));
-    let conn = imports
-        .connection(&producer, source)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(!conn.active);
-    assert_eq!(2, conn.revision);
 }
 #[aura_integration_test(services=[SCHEMA])]
 async fn import_validity_signal_failure_rolls_back_profile_identity_and_request_fences() {
-    use shipping_service::imports::*;
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
-    let conn = import_manager(&p)
-        .change_connection(
-            &trusted(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: product_listing_core::delivery::DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
     sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE shipping_validity_changes ADD CONSTRAINT reject_observation_for_test CHECK(change_kind<>'OBSERVED' OR listing_source_id<>'{}'::uuid) NOT VALID",source.into_uuid()))).execute(&p).await.unwrap();
     let mut create = command(source);
-    let mut w = import_write(conn.revision, 1, "create");
+    let mut w = import_write(1, "create");
     w.object_key = Some("policy".into());
     create.import = Some(w);
     assert!(matches!(

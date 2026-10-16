@@ -214,7 +214,7 @@ impl AssessmentReader for Reader<'_> {
         }
         apply_import_validity(self.0, &mut listings, at).await?;
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
-        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT d.listing_source_id,CASE WHEN ((i.owner_hash IS NOT NULL AND NOT shipping_import_connection_current(d.listing_source_id,i.connection_revision)) OR i.expires_at<=$2) THEN NULL ELSE d.shipping_profile_id END,d.revision,d.source_deleted FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=ANY($1)").bind(&sources).bind(at).fetch_all(&mut *self.0).await.map_err(storage)?;
+        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT d.listing_source_id,CASE WHEN ((i.owner_hash IS NOT NULL AND NOT shipping_import_current(d.listing_source_id,i.source_revision)) OR i.expires_at<=$2) THEN NULL ELSE d.shipping_profile_id END,d.revision,d.source_deleted FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=ANY($1)").bind(&sources).bind(at).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut defaults = Vec::new();
         for (source, id, rev, deleted) in default_rows {
             if deleted || rev < 2 {
@@ -249,7 +249,7 @@ impl AssessmentReader for Reader<'_> {
         let rows = sqlx::query_as::<_, ProfileRow>(r#"
             SELECT shipping_profile_id,listing_source_id,management_revision,terms_revision,lifecycle,name,attributed_party_id,terms,
                 integration_method,integration_domain,verified_at,fresh_until,expires_at
-            FROM shipping_profiles p WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_connection_current(p.listing_source_id,i.connection_revision))
+            FROM shipping_profiles p WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision))
         "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut profiles = Vec::new();
         for row in rows {
@@ -428,7 +428,7 @@ async fn apply_import_validity(
         current: bool,
     }
     let ids: Vec<_> = listings.iter().map(|l| l.id.into_uuid()).collect();
-    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,i.fresh_until,i.expires_at,(i.owner_hash IS NULL OR shipping_import_connection_current(l.listing_source_id,i.connection_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1) AND (i.owner_hash IS NOT NULL OR i.verified_at IS NOT NULL)")
+    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,i.fresh_until,i.expires_at,(i.owner_hash IS NULL OR shipping_import_current(l.listing_source_id,i.source_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1) AND (i.owner_hash IS NOT NULL OR i.verified_at IS NOT NULL)")
         .bind(&ids).fetch_all(&mut *connection).await.map_err(storage)?;
     let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
     let defaults:Vec<(Uuid,Option<OffsetDateTime>,Option<OffsetDateTime>)>=sqlx::query_as("SELECT listing_source_id,fresh_until,expires_at FROM shipping_default_import_state WHERE listing_source_id=ANY($1) AND (owner_hash IS NOT NULL OR verified_at IS NOT NULL)").bind(&sources).fetch_all(&mut *connection).await.map_err(storage)?;

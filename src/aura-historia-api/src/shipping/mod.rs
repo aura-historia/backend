@@ -1,6 +1,4 @@
-mod imports;
 pub(crate) mod listing;
-pub use imports::{change_connection, get_connection, resolve_import_profile};
 mod terms;
 use crate::{
     auth::{TokenAuthenticator, protected_context},
@@ -39,7 +37,6 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ShippingState {
-    pub imports: Arc<dyn shipping_service::imports::ShippingImportManagementUseCase>,
     pub create: Arc<dyn CreateShippingProfileUseCase>,
     pub replace: Arc<dyn ReplaceShippingProfileUseCase>,
     pub retire: Arc<dyn RetireShippingProfileUseCase>,
@@ -134,6 +131,9 @@ struct ClearData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListQuery {
+    object_key: Option<String>,
+    integration_method: Option<String>,
+    integration_domain: Option<String>,
     after: Option<ShippingProfileId>,
     size: Option<u32>,
 }
@@ -236,8 +236,8 @@ impl From<ShippingError> for ApiError {
             | ShippingError::Profile(shipping_core::profile::ShippingProfileError::Invalid(_)) => {
                 bad()
             }
-            ShippingError::ImportConnectionStale => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_CONNECTION_STALE)
+            ShippingError::ImportAuthorityStale => {
+                Self::conflict(crate::error::SHIPPING_IMPORT_AUTHORITY_STALE)
             }
             ShippingError::ImportOwnershipConflict => {
                 Self::conflict(crate::error::SHIPPING_IMPORT_OWNERSHIP_CONFLICT)
@@ -429,12 +429,32 @@ pub async fn list(
     };
     let request = source_id(&source).and_then(|source| {
         let Query(q) = query.map_err(|_| bad())?;
-        Ok((source, q))
+        let identity = match (q.object_key, q.integration_method, q.integration_domain) {
+            (None, None, None) => None,
+            (Some(object_key), method, domain) => {
+                let integration = match (method, domain) {
+                    (None, None) => product_listing_core::delivery::DeliveryIntegration::Source,
+                    (Some(method), Some(domain)) => {
+                        shipping_json::listing_delivery::decode_integration(
+                            serde_json::json!({"kind":"PROVIDER","method":method,"domain":domain}),
+                        )
+                        .map_err(|_| bad())?
+                    }
+                    _ => return Err(bad()),
+                };
+                Some(shipping_service::imports::ProfileImportIdentity {
+                    object_key,
+                    integration,
+                })
+            }
+            _ => return Err(bad()),
+        };
+        Ok((source, q.after, q.size, identity))
     });
     match request {
-        Ok((source, q)) => match s
+        Ok((source, after, size, identity)) => match s
             .list
-            .execute(&ctx, source, q.after, q.size.unwrap_or(21))
+            .execute(&ctx, source, after, size.unwrap_or(21), identity)
             .await
         {
             Ok(v) => Json(v.into_iter().map(SummaryData::from).collect::<Vec<_>>()).into_response(),

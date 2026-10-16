@@ -89,14 +89,6 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
     sqlx::query("INSERT INTO parties(party_id,party_slug_id,name) VALUES($1,'api-shipping-gallery','Gallery')").bind(owner.into_uuid()).execute(&p).await.unwrap();
     sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES($1,'api-shipping-source','Gallery',$2)").bind(source.into_uuid()).bind(owner.into_uuid()).execute(&p).await.unwrap();
     let router = app(AppState::new().with_shipping(ShippingState {
-        imports: Arc::new(
-            shipping_service::imports::ShippingImportManagementHandler::new(
-                SqlxUnitOfWork::new(p.clone()),
-                shipping_postgres::imports::SqlxShippingImportAccessFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-
         create: Arc::new(CreateShippingProfileHandler::new(
             SqlxUnitOfWork::new(p.clone()),
             SqlxShippingRepositoryFactory,
@@ -312,33 +304,6 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
 
     let fixture: Value =
         serde_json::from_str(include_str!("../../../docs/fixtures/shipping-imports.json")).unwrap();
-    let connection_path = format!("/api/v1/listing-sources/{source}/shipping-import-connection");
-    assert_eq!(
-        (StatusCode::OK, Value::Null),
-        request(&router, "GET", &connection_path, Some("admin"), Value::Null).await
-    );
-    assert_eq!(
-        StatusCode::FORBIDDEN,
-        request(
-            &router,
-            "PUT",
-            &connection_path,
-            Some("admin"),
-            fixture["connection"].clone()
-        )
-        .await
-        .0
-    );
-    let (status, connection) = request(
-        &router,
-        "PUT",
-        &connection_path,
-        Some("operator"),
-        fixture["connection"].clone(),
-    )
-    .await;
-    assert_eq!(StatusCode::OK, status, "{connection}");
-    assert_eq!(1, connection["revision"]);
     let mut imported = fixture["create"].clone();
     let now = time::OffsetDateTime::now_utc();
     let stamp = |t: time::OffsetDateTime| {
@@ -359,27 +324,43 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
             .await
             .1
     );
-    let identity = format!("{path}/import-identity?connectionRevision=1&objectKey=website-policy");
+    let identity = format!("{path}?objectKey=website-policy");
     let (status, recovered) = request(&router, "GET", &identity, Some("admin"), Value::Null).await;
     assert_eq!(StatusCode::OK, status, "{recovered}");
-    assert_eq!(created["shippingProfileId"], recovered["shippingProfileId"]);
+    assert_eq!(
+        created["shippingProfileId"],
+        recovered[0]["shippingProfileId"]
+    );
     let mut conflicting = imported.clone();
     conflicting["content"]["name"] = json!("Changed request");
     let (status, error) = request(&router, "POST", &path, Some("admin"), conflicting).await;
     assert_eq!(StatusCode::CONFLICT, status);
     assert_eq!("SHIPPING_IMPORT_REQUEST_CONFLICT", error["error"]);
-    let (status, revoked) = request(
-        &router,
-        "PUT",
-        &connection_path,
-        Some("operator"),
-        json!({"expectedRevision":1,"integration":{"kind":"SOURCE"},"active":false}),
-    )
-    .await;
-    assert_eq!(StatusCode::OK, status, "{revoked}");
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
     let (status, error) = request(&router, "POST", &path, Some("admin"), imported).await;
     assert_eq!(StatusCode::CONFLICT, status);
-    assert_eq!("SHIPPING_IMPORT_CONNECTION_STALE", error["error"]);
+    assert_eq!("SHIPPING_IMPORT_AUTHORITY_STALE", error["error"]);
+    // A delegated producer uses the existing configured provider directly.
+    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'synthetic.myshopify.com')").bind(source.into_uuid()).execute(&p).await.unwrap();
+    let mut provider = fixture["providerCreate"].clone();
+    let now = time::OffsetDateTime::now_utc();
+    provider["import"]["acquiredAt"] = json!(stamp(now));
+    provider["import"]["observation"] = json!({"freshUntil":stamp(now+time::Duration::days(1)),"expiresAt":stamp(now+time::Duration::days(7))});
+    let (status, provider) = request(&router, "POST", &path, Some("admin"), provider).await;
+    assert_eq!(StatusCode::OK, status, "{provider}");
+    let lookup = format!(
+        "{path}?objectKey=provider-policy&integrationMethod=SHOPIFY&integrationDomain=synthetic.myshopify.com"
+    );
+    let (status, recovered) = request(&router, "GET", &lookup, Some("admin"), Value::Null).await;
+    assert_eq!(StatusCode::OK, status);
+    assert_eq!(
+        provider["shippingProfileId"],
+        recovered[0]["shippingProfileId"]
+    );
     sqlx::query("UPDATE shipping_profiles SET terms=jsonb_set(terms,'{schema}','\"SHIP_TERMS_FUTURE\"') WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
     let (status, error) = request(&router, "GET", &detail, Some("admin"), Value::Null).await;
     assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, status);

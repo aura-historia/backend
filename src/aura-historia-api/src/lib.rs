@@ -1017,8 +1017,6 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-import-connection", get(shipping::get_connection).put(shipping::change_connection))
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/import-identity", get(shipping::resolve_import_profile))
                 .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles", get(shipping::list).post(shipping::create))
                 .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", get(shipping::get).put(shipping::replace).delete(shipping::retire))
                 .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", axum::routing::post(shipping::restore))
@@ -1973,14 +1971,6 @@ async fn app_state_from_config_and_pool(
             authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         };
     let shipping_state = shipping::ShippingState {
-        imports: Arc::new(
-            shipping_service::imports::ShippingImportManagementHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::imports::SqlxShippingImportAccessFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-
         create: Arc::new(
             shipping_service::use_cases::CreateShippingProfileHandler::new(
                 unit_of_work.clone(),

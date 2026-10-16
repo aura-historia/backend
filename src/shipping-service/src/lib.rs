@@ -35,8 +35,8 @@ pub enum ShippingError {
     CreationKeyConflict,
     #[error("catalog listing dependency has not arrived; retain and retry this record")]
     ImportDependencyMissing,
-    #[error("shipping import connection is no longer current")]
-    ImportConnectionStale,
+    #[error("shipping import authority is no longer current")]
+    ImportAuthorityStale,
     #[error("shipping assertion is managed by another owner")]
     ImportOwnershipConflict,
     #[error("shipping import request key was reused with different input")]

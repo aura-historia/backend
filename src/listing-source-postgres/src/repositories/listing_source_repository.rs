@@ -302,11 +302,12 @@ async fn write_configuration(
                 sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id,domain,currency,language) VALUES ($1,$2,$3,$4)").bind(id).bind(domain.as_str()).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
             }
             ListingIngestionConfiguration::Woocommerce {
+                domain,
                 webhook_secret,
                 currency,
                 language,
             } => {
-                sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id,webhook_secret,currency,language) VALUES ($1,$2,$3,$4)").bind(id).bind(webhook_secret.as_str()).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
+                sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id,webhook_secret,currency,language,shipping_integration_domain) VALUES ($1,$2,$3,$4,$5)").bind(id).bind(webhook_secret.as_str()).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).bind(domain.as_ref().map(Domain::as_str)).execute(&mut *connection).await.map_err(db_write)?;
             }
             ListingIngestionConfiguration::WebCrawl { fallback_currency } => {
                 sqlx::query("INSERT INTO listing_source_web_crawl_ingestion_configurations (listing_source_id,fallback_currency) VALUES ($1,$2)").bind(id).bind(fallback_currency.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
@@ -348,8 +349,9 @@ async fn read_configuration(
                 });
             }
             ListingIngestionMethod::Woocommerce => {
-                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT webhook_secret,currency,language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))?;
+                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>,Option<String>)>("SELECT webhook_secret,currency,language,shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))?;
                 configs.push(ListingIngestionConfiguration::Woocommerce {
+                    domain: row.3.map(Domain::try_from).transpose().map_err(invalid)?,
                     webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(row.0)
                         .map_err(invalid)?,
                     currency: parse_optional_currency(row.1.as_deref())?,
@@ -623,6 +625,7 @@ mod tests {
                 language: None,
             },
             ListingIngestionMethod::Woocommerce => ListingIngestionConfiguration::Woocommerce {
+                domain: None,
                 webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
                     "test-secret",
                 )
@@ -696,6 +699,7 @@ mod tests {
                 language: Some(localization::Language::En),
             },
             ListingIngestionConfiguration::Woocommerce {
+                domain: None,
                 webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
                     "test-webhook-secret",
                 )
@@ -1485,7 +1489,7 @@ mod tests {
         );
     }
     #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-    async fn unrelated_source_edit_preserves_shipping_connection_and_woocommerce_binding() {
+    async fn unrelated_source_edit_preserves_import_authority_and_woocommerce_binding() {
         let pool = get_postgres_client().await;
         let (id, _) = insert_basic_source(&pool, "Shipping source").await;
         sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'WOOCOMMERCE')")
@@ -1494,7 +1498,13 @@ mod tests {
             .await
             .unwrap();
         sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations(listing_source_id,webhook_secret,shipping_integration_domain) VALUES($1,'synthetic-secret','synthetic.example')").bind(id.into_uuid()).execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO shipping_import_connections(listing_source_id,revision,actor,integration_method,integration_domain,active,connected_at) VALUES($1,1,'system:SYSTEM','WOOCOMMERCE','synthetic.example',true,now())").bind(id.into_uuid()).execute(&pool).await.unwrap();
+        let revision: i64 = sqlx::query_scalar(
+            "SELECT revision FROM shipping_import_authority WHERE listing_source_id=$1",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let uow = platform_postgres::SqlxUnitOfWork::new(pool.clone());
         let mut tx = uow.begin().await.unwrap();
         let stored = SqlxListingSourceRepositoryFactory::new()
@@ -1514,8 +1524,9 @@ mod tests {
         let binding:String=sqlx::query_scalar("SELECT shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id.into_uuid()).fetch_one(&pool).await.unwrap();
         assert_eq!("synthetic.example", binding);
         assert!(
-            sqlx::query_scalar::<_, bool>("SELECT shipping_import_connection_current($1,1)")
+            sqlx::query_scalar::<_, bool>("SELECT shipping_import_current($1,$2)")
                 .bind(id.into_uuid())
+                .bind(revision)
                 .fetch_one(&pool)
                 .await
                 .unwrap()
@@ -1535,8 +1546,9 @@ mod tests {
             .unwrap();
         tx.commit().await.unwrap();
         assert!(
-            !sqlx::query_scalar::<_, bool>("SELECT shipping_import_connection_current($1,1)")
+            !sqlx::query_scalar::<_, bool>("SELECT shipping_import_current($1,$2)")
                 .bind(id.into_uuid())
+                .bind(revision)
                 .fetch_one(&pool)
                 .await
                 .unwrap()

@@ -51,7 +51,7 @@ impl DeliveryReferenceCodec for PublicDeliveryReferences {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ImportData {
-    connection_revision: u64,
+    integration: Value,
     sequence: u64,
     acquired_at: String,
     request_key: String,
@@ -86,7 +86,7 @@ impl ImportData {
             })
             .transpose()?;
         let write = shipping_service::imports::ShippingImportWrite {
-            connection_revision: self.connection_revision,
+            integration: invalid(listing_delivery::decode_integration(self.integration))?,
             sequence: self.sequence,
             acquired_at,
             request_key: self.request_key,
@@ -114,7 +114,7 @@ impl ImportData {
             })
             .transpose()?;
         Ok(Self {
-            connection_revision: w.connection_revision,
+            integration: invalid(listing_delivery::encode_integration(&w.integration))?,
             sequence: w.sequence,
             acquired_at: w
                 .acquired_at

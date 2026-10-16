@@ -1055,6 +1055,7 @@ pub trait ListShippingProfilesUseCase: Send + Sync {
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<crate::imports::ProfileImportIdentity>,
     ) -> Result<Vec<ProfileSummary>, ShippingError>;
 }
 pub struct ListShippingProfilesHandler<U, Q, A> {
@@ -1082,17 +1083,27 @@ impl<U: UnitOfWork, Q: ShippingReaderFactory<U::Tx>, A: SourceLocationAccessFact
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<crate::imports::ProfileImportIdentity>,
     ) -> Result<Vec<ProfileSummary>, ShippingError> {
         capability(context, false)?;
         if !(1..=100).contains(&limit) {
             return Err(ShippingError::InvalidInput);
         }
+        if let Some(identity) = &identity {
+            crate::imports::validate_key(&identity.object_key)?;
+        }
+        let actor = import_actor(context);
         let mut tx = self.uow.begin().await?;
         authorize(&self.access, &mut tx, context, source).await?;
         let views = self
             .readers
             .in_transaction(&mut tx)
-            .list(source, after, limit)
+            .list(
+                source,
+                after,
+                limit,
+                identity.as_ref().map(|identity| (actor.as_str(), identity)),
+            )
             .await?;
         tx.commit().await?;
         Ok(views)

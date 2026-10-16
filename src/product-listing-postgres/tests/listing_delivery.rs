@@ -905,14 +905,10 @@ async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability
     assert_eq!(2, events(&pool, &key).await);
 }
 
-fn import_metadata(
-    revision: u64,
-    sequence: u64,
-    key: &str,
-) -> shipping_service::imports::ShippingImportWrite {
+fn import_metadata(sequence: u64, key: &str) -> shipping_service::imports::ShippingImportWrite {
     let at = time::OffsetDateTime::now_utc();
     shipping_service::imports::ShippingImportWrite {
-        connection_revision: revision,
+        integration: DeliveryIntegration::Source,
         sequence,
         acquired_at: at,
         request_key: key.into(),
@@ -940,25 +936,8 @@ async fn dependencies(
 }
 #[aura_integration_test(services=[SCHEMA])]
 async fn explicit_manual_absence_is_protected_before_the_first_import() {
-    use shipping_service::imports::*;
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
-    let connection = ShippingImportManagementHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        shipping_postgres::imports::SqlxShippingImportAccessFactory,
-        listing_source_postgres::SqlxSourceLocationAccessFactory,
-    )
-    .change_connection(
-        &context(),
-        ChangeShippingConnectionCommand {
-            source_id: source,
-            expected_revision: 0,
-            integration: DeliveryIntegration::Source,
-            active: true,
-        },
-    )
-    .await
-    .unwrap();
     let cases = [
         PatchField::Clear,
         PatchField::Set(ProductListingDeliveryPatch {
@@ -997,11 +976,7 @@ async fn explicit_manual_absence_is_protected_before_the_first_import() {
         let before = events(&pool, &key).await;
         let mut imported = command;
         imported.expected_version = manual.version;
-        imported.import = Some(import_metadata(
-            connection.revision,
-            1,
-            &format!("import-{index}"),
-        ));
+        imported.import = Some(import_metadata(1, &format!("import-{index}")));
         assert!(matches!(
             changer(&pool).execute(&context(), imported).await,
             Err(ProductListingDeliveryError::Import(
@@ -1014,25 +989,8 @@ async fn explicit_manual_absence_is_protected_before_the_first_import() {
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn implicit_source_selection_does_not_block_imports_of_independent_components() {
-    use shipping_service::imports::*;
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
-    let connection = ShippingImportManagementHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        shipping_postgres::imports::SqlxShippingImportAccessFactory,
-        listing_source_postgres::SqlxSourceLocationAccessFactory,
-    )
-    .change_connection(
-        &context(),
-        ChangeShippingConnectionCommand {
-            source_id: source,
-            expected_revision: 0,
-            integration: DeliveryIntegration::Source,
-            active: true,
-        },
-    )
-    .await
-    .unwrap();
     let key = listing(&pool, source, "manual-prohibition").await;
     let manual = apply(
         &pool,
@@ -1044,7 +1002,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
         },
     )
     .await;
-    let mut unobserved = import_metadata(connection.revision, 1, "unobserved-selection");
+    let mut unobserved = import_metadata(1, "unobserved-selection");
     unobserved.observation = None;
     assert!(matches!(
         changer(&pool)
@@ -1069,7 +1027,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
-                import: Some(import_metadata(connection.revision, 1, "selection")),
+                import: Some(import_metadata(1, "selection")),
                 product_key: key.clone(),
                 expected_version: manual.version,
                 delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -1093,7 +1051,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
-                import: Some(import_metadata(connection.revision, 2, "collection")),
+                import: Some(import_metadata(2, "collection")),
                 product_key: key.clone(),
                 expected_version: manual.version,
                 delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -1104,7 +1062,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
         )
         .await
         .unwrap();
-    let mut removal = import_metadata(connection.revision, 3, "remove-collection-override");
+    let mut removal = import_metadata(3, "remove-collection-override");
     removal.observation = None;
     let removed = changer(&pool)
         .execute(
@@ -1133,27 +1091,9 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
 #[aura_integration_test(services=[SCHEMA])]
 async fn incremental_imports_preserve_manual_components_and_bound_validity_without_listing_events()
 {
-    use shipping_service::imports::*;
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
-    let imports = ShippingImportManagementHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        shipping_postgres::imports::SqlxShippingImportAccessFactory,
-        listing_source_postgres::SqlxSourceLocationAccessFactory,
-    );
-    let conn = imports
-        .change_connection(
-            &context(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: DeliveryIntegration::Source,
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
-    let mut metadata = import_metadata(conn.revision, 1, "create-profile");
+    let mut metadata = import_metadata(1, "create-profile");
     metadata.object_key = Some("main-policy".into());
     let profile = CreateShippingProfileHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
@@ -1184,7 +1124,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     .execute(
         &context(),
         AssignDefaultCommand {
-            import: Some(import_metadata(conn.revision, 2, "default")),
+            import: Some(import_metadata(2, "default")),
             source_id: source,
             profile_id: profile.id,
             expected_revision: ShippingDefaultRevision::INITIAL,
@@ -1205,7 +1145,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     )
     .await;
     let command = ChangeProductListingDeliveryCommand {
-        import: Some(import_metadata(conn.revision, 3, "membership")),
+        import: Some(import_metadata(3, "membership")),
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -1229,7 +1169,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     let before = events(&pool, &key).await;
     let mut observed = command.clone();
     observed.expected_version = applied.version;
-    observed.import = Some(import_metadata(conn.revision, 4, "membership-observed"));
+    observed.import = Some(import_metadata(4, "membership-observed"));
     let refreshed = changer(&pool).execute(&context(), observed).await.unwrap();
     assert_eq!(ChangeOutcome::Unchanged, refreshed.outcome);
     assert_eq!(before, events(&pool, &key).await);
@@ -1259,7 +1199,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     .execute(
         &context(),
         ReplaceProfileCommand {
-            import: Some(import_metadata(conn.revision, 5, "price")),
+            import: Some(import_metadata(5, "price")),
             source_id: source,
             profile_id: profile.id,
             expected_revision: profile.management_revision,
@@ -1311,7 +1251,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     );
     let mut renewed = command.clone();
     renewed.expected_version = applied.version;
-    renewed.import = Some(import_metadata(conn.revision, 5, "membership-renewed"));
+    renewed.import = Some(import_metadata(5, "membership-renewed"));
     assert_eq!(
         ChangeOutcome::Unchanged,
         changer(&pool)
@@ -1323,7 +1263,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     // A missing catalog record is a retained retryable dependency, never an implicit create.
     let mut missing = command.clone();
     missing.product_key = ProductListingKey::new(source, "not-yet-imported".try_into().unwrap());
-    missing.import = Some(import_metadata(conn.revision, 6, "missing"));
+    missing.import = Some(import_metadata(6, "missing"));
     assert!(matches!(
         changer(&pool).execute(&context(), missing).await,
         Err(ProductListingDeliveryError::Import(
@@ -1413,7 +1353,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     .await;
     let mut stale = command;
     stale.expected_version = human.version;
-    stale.import = Some(import_metadata(conn.revision, 7, "stale"));
+    stale.import = Some(import_metadata(7, "stale"));
     assert!(matches!(
         changer(&pool).execute(&context(), stale).await,
         Err(ProductListingDeliveryError::Import(
@@ -1427,16 +1367,9 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
         shipping_service::assessment::EvidenceStatus::Expired,
         d.profiles[0].evidence.status(d.evaluated_at)
     );
-    imports
-        .change_connection(
-            &context(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: conn.revision,
-                integration: DeliveryIntegration::Source,
-                active: false,
-            },
-        )
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&pool)
         .await
         .unwrap();
     let d = dependencies(&pool, &ids).await;
@@ -1444,7 +1377,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
         worker.execute(envelope()).await,
         Err(ProductListingIngestionError::Delivery(
             ProductListingDeliveryError::Import(
-                shipping_service::ShippingError::ImportConnectionStale
+                shipping_service::ShippingError::ImportAuthorityStale
             )
         ))
     ));
@@ -1467,7 +1400,6 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn integration_replacement_requires_new_acquisition_and_explicit_owned_component_removal() {
-    use shipping_service::imports::*;
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
     sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
@@ -1476,33 +1408,22 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
         .await
         .unwrap();
     sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'original.myshopify.com')").bind(source.into_uuid()).execute(&pool).await.unwrap();
-    let imports = ShippingImportManagementHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        shipping_postgres::imports::SqlxShippingImportAccessFactory,
-        listing_source_postgres::SqlxSourceLocationAccessFactory,
-    );
     let scope = |domain: &str| DeliveryIntegration::Provider {
         method: listing_source_core::ListingIngestionMethod::Shopify,
         domain: domain.try_into().unwrap(),
     };
-    let original = imports
-        .change_connection(
-            &context(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: 0,
-                integration: scope("original.myshopify.com"),
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
+    let scoped_metadata = |integration, sequence, key: &str| {
+        let mut metadata = import_metadata(sequence, key);
+        metadata.integration = integration;
+        metadata
+    };
+    let original = scope("original.myshopify.com");
     let creator = CreateShippingProfileHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         shipping_postgres::SqlxShippingRepositoryFactory,
         listing_source_postgres::SqlxSourceLocationAccessFactory,
     );
-    let mut metadata = import_metadata(original.revision, 1, "original-create");
+    let mut metadata = scoped_metadata(original.clone(), 1, "original-create");
     metadata.object_key = Some("provider-policy".into());
     let command = CreateProfileCommand {
         import: Some(metadata),
@@ -1518,11 +1439,11 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
     let old_profile = creator.execute(&context(), command.clone()).await.unwrap();
     let key = listing(&pool, source, "existing-provider-item").await;
     let assignment = ChangeProductListingDeliveryCommand {
-        import: Some(import_metadata(original.revision, 2, "original-assignment")),
+        import: Some(scoped_metadata(original.clone(), 2, "original-assignment")),
         product_key: key.clone(),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
-            integration: original.integration.clone(),
+            integration: original.clone(),
             selection: PatchField::Set(ProfileSelection::Explicit(old_profile.id)),
             ..Default::default()
         }),
@@ -1535,27 +1456,11 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
     assert!(matches!(
         changer(&pool).execute(&context(), assignment).await,
         Err(ProductListingDeliveryError::Import(
-            shipping_service::ShippingError::ImportConnectionStale
+            shipping_service::ShippingError::ImportAuthorityStale
         ))
     ));
-    let fenced = imports
-        .connection(&context(), source)
-        .await
-        .unwrap()
-        .unwrap();
-    let replacement = imports
-        .change_connection(
-            &context(),
-            ChangeShippingConnectionCommand {
-                source_id: source,
-                expected_revision: fenced.revision,
-                integration: scope("replacement.myshopify.com"),
-                active: true,
-            },
-        )
-        .await
-        .unwrap();
-    let mut removal = import_metadata(replacement.revision, 1, "remove-old-membership");
+    let replacement = scope("replacement.myshopify.com");
+    let mut removal = scoped_metadata(replacement.clone(), 1, "remove-old-membership");
     removal.observation = None;
     let cleared = changer(&pool)
         .execute(
@@ -1573,36 +1478,45 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
     assert!(d.listings[0].delivery.selection().is_none());
     let mut current = command;
     current.creation_key = "replacement-create".into();
-    let mut metadata = import_metadata(replacement.revision, 2, "replacement-create");
+    let mut metadata = scoped_metadata(replacement.clone(), 2, "replacement-create");
     metadata.object_key = Some("provider-policy".into());
     current.import = Some(metadata);
     let new_profile = creator.execute(&context(), current).await.unwrap();
     assert_ne!(old_profile.id, new_profile.id);
+    let recovered = shipping_service::use_cases::ListShippingProfilesHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingReaderFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context(),
+        source,
+        None,
+        21,
+        Some(shipping_service::imports::ProfileImportIdentity {
+            object_key: "provider-policy".into(),
+            integration: replacement.clone(),
+        }),
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        new_profile.id,
-        imports
-            .resolve_profile(
-                &context(),
-                source,
-                replacement.revision,
-                "provider-policy".into()
-            )
-            .await
-            .unwrap()
+        vec![new_profile.id],
+        recovered.into_iter().map(|p| p.id).collect::<Vec<_>>()
     );
     let applied = changer(&pool)
         .execute(
             &context(),
             ChangeProductListingDeliveryCommand {
-                import: Some(import_metadata(
-                    replacement.revision,
+                import: Some(scoped_metadata(
+                    replacement.clone(),
                     3,
                     "replacement-assignment",
                 )),
                 product_key: key.clone(),
                 expected_version: cleared.version,
                 delivery: PatchField::Set(ProductListingDeliveryPatch {
-                    integration: replacement.integration,
+                    integration: replacement,
                     selection: PatchField::Set(ProfileSelection::Explicit(new_profile.id)),
                     ..Default::default()
                 }),

@@ -20,6 +20,7 @@ pub enum ListingIngestionConfiguration {
         language: Option<Language>,
     },
     Woocommerce {
+        domain: Option<Domain>,
         webhook_secret: WoocommerceWebhookSecret,
         currency: Option<Currency>,
         language: Option<Language>,
@@ -47,6 +48,7 @@ impl ListingIngestionConfiguration {
 pub enum ListingIngestionConfigurationUpdate {
     Configuration(ListingIngestionConfiguration),
     Woocommerce {
+        domain: PatchField<Domain>,
         webhook_secret: PatchField<WoocommerceWebhookSecret>,
         currency: Option<Currency>,
         language: Option<Language>,
@@ -83,6 +85,7 @@ impl UpdateListingSourceIngestionConfigurations {
                     configurations.push(configuration.clone());
                 }
                 ListingIngestionConfigurationUpdate::Woocommerce {
+                    domain,
                     webhook_secret,
                     currency,
                     language,
@@ -104,7 +107,23 @@ impl UpdateListingSourceIngestionConfigurations {
                         PatchField::Clear => None,
                     }
                     .ok_or(ListingIngestionConfigurationMismatch)?;
+                    let domain = match domain {
+                        PatchField::Unchanged => {
+                            existing
+                                .0
+                                .iter()
+                                .find_map(|configuration| match configuration {
+                                    ListingIngestionConfiguration::Woocommerce {
+                                        domain, ..
+                                    } => domain.clone(),
+                                    _ => None,
+                                })
+                        }
+                        PatchField::Set(domain) => Some(domain.clone()),
+                        PatchField::Clear => None,
+                    };
                     configurations.push(ListingIngestionConfiguration::Woocommerce {
+                        domain,
                         webhook_secret: secret,
                         currency: *currency,
                         language: *language,
@@ -285,6 +304,7 @@ mod tests {
     fn update_replacement_preserves_omitted_woocommerce_secret() {
         let existing = ListingSourceIngestionConfigurations(vec![
             ListingIngestionConfiguration::Woocommerce {
+                domain: Some(Domain::try_from("synthetic.example".to_owned()).unwrap()),
                 webhook_secret: secret("old-secret"),
                 currency: Some(Currency::Eur),
                 language: Language::from_code("de"),
@@ -292,6 +312,7 @@ mod tests {
         ]);
         let update = UpdateListingSourceIngestionConfigurations(vec![
             ListingIngestionConfigurationUpdate::Woocommerce {
+                domain: PatchField::Unchanged,
                 webhook_secret: PatchField::Unchanged,
                 currency: Some(Currency::Usd),
                 language: Language::from_code("en"),
@@ -304,6 +325,7 @@ mod tests {
         assert_eq!(
             ListingSourceIngestionConfigurations(vec![
                 ListingIngestionConfiguration::Woocommerce {
+                    domain: Some(Domain::try_from("synthetic.example".to_owned()).unwrap()),
                     webhook_secret: secret("old-secret"),
                     currency: Some(Currency::Usd),
                     language: Language::from_code("en"),
@@ -317,6 +339,7 @@ mod tests {
     fn update_requires_secret_when_adding_woocommerce_and_rejects_clear() {
         let omitted = UpdateListingSourceIngestionConfigurations(vec![
             ListingIngestionConfigurationUpdate::Woocommerce {
+                domain: PatchField::Unchanged,
                 webhook_secret: PatchField::Unchanged,
                 currency: None,
                 language: None,
@@ -330,6 +353,7 @@ mod tests {
 
         let existing = ListingSourceIngestionConfigurations(vec![
             ListingIngestionConfiguration::Woocommerce {
+                domain: None,
                 webhook_secret: secret("old-secret"),
                 currency: None,
                 language: None,
@@ -337,6 +361,7 @@ mod tests {
         ]);
         let cleared = UpdateListingSourceIngestionConfigurations(vec![
             ListingIngestionConfigurationUpdate::Woocommerce {
+                domain: PatchField::Unchanged,
                 webhook_secret: PatchField::Clear,
                 currency: None,
                 language: None,

@@ -116,6 +116,7 @@ pub trait ShippingReader: Send {
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<(&str, &crate::imports::ProfileImportIdentity)>,
     ) -> Result<Vec<ProfileSummary>, ShippingError>;
     async fn get_default(&mut self, source: ListingSourceId) -> Result<DefaultView, ShippingError>;
 }

@@ -1,11 +1,4 @@
 {
-  "connection": {
-    "expectedRevision": 0,
-    "integration": {
-      "kind": "SOURCE"
-    },
-    "active": true
-  },
   "create": {
     "creationKey": "create-policy",
     "content": {
@@ -95,7 +88,6 @@
     },
     "evidence": [],
     "import": {
-      "connectionRevision": 1,
       "sequence": 1,
       "requestKey": "create-policy-v1",
       "objectKey": "website-policy",
@@ -103,20 +95,25 @@
         "freshUntil": "2026-10-16T10:00:00Z",
         "expiresAt": "2026-10-22T10:00:00Z"
       },
-      "acquiredAt": "2026-10-15T10:00:00Z"
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "SOURCE"
+      }
     }
   },
   "membership": {
     "expectedVersion": 1,
     "import": {
-      "connectionRevision": 1,
       "sequence": 2,
       "requestKey": "membership-v1",
       "observation": {
         "freshUntil": "2026-10-16T10:00:00Z",
         "expiresAt": "2026-10-22T10:00:00Z"
       },
-      "acquiredAt": "2026-10-15T10:00:00Z"
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "SOURCE"
+      }
     },
     "delivery": {
       "state": "SET",
@@ -145,14 +142,18 @@
   "providerMembership": {
     "expectedVersion": 1,
     "import": {
-      "connectionRevision": 1,
       "sequence": 2,
       "requestKey": "provider-membership-v1",
       "observation": {
         "freshUntil": "2026-10-16T10:00:00Z",
         "expiresAt": "2026-10-22T10:00:00Z"
       },
-      "acquiredAt": "2026-10-15T10:00:00Z"
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "PROVIDER",
+        "method": "SHOPIFY",
+        "domain": "synthetic.myshopify.com"
+      }
     },
     "delivery": {
       "state": "SET",
@@ -289,15 +290,6 @@
     "expectedVersion": 1,
     "outcome": "UNCHANGED"
   },
-  "providerConnection": {
-    "expectedRevision": 0,
-    "integration": {
-      "kind": "PROVIDER",
-      "method": "SHOPIFY",
-      "domain": "synthetic.myshopify.com"
-    },
-    "active": true
-  },
   "providerCreate": {
     "creationKey": "create-provider-policy",
     "content": {
@@ -387,7 +379,6 @@
     },
     "evidence": [],
     "import": {
-      "connectionRevision": 1,
       "sequence": 1,
       "requestKey": "provider-create-v1",
       "objectKey": "provider-policy",
@@ -395,7 +386,15 @@
         "freshUntil": "2026-10-16T10:00:00Z",
         "expiresAt": "2026-10-22T10:00:00Z"
       },
-      "acquiredAt": "2026-10-15T10:00:00Z"
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "PROVIDER",
+        "method": "SHOPIFY",
+        "domain": "synthetic.myshopify.com"
+      }
     }
+  },
+  "providerConfiguration": {
+    "domain": "synthetic.myshopify.com"
   }
 }

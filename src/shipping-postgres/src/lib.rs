@@ -586,17 +586,43 @@ impl ShippingReader for Reader<'_> {
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<(&str, &shipping_service::imports::ProfileImportIdentity)>,
     ) -> Result<Vec<ProfileSummary>, ShippingError> {
+        use sha2::{Digest, Sha256};
+        let (producer, object) = identity
+            .map(|(actor, identity)| {
+                let (method, domain) = match &identity.integration {
+                    product_listing_core::delivery::DeliveryIntegration::Source => (None, None),
+                    product_listing_core::delivery::DeliveryIntegration::Provider {
+                        method,
+                        domain,
+                    } => (
+                        Some(method.as_str().to_owned()),
+                        Some(domain.as_str().to_owned()),
+                    ),
+                };
+                Ok::<_, ShippingError>((
+                    imports::producer_hash(actor, &method, &domain)?,
+                    Sha256::digest(identity.object_key.as_bytes()).to_vec(),
+                ))
+            })
+            .transpose()?
+            .map_or((None, None), |(producer, object)| {
+                (Some(producer), Some(object))
+            });
         sqlx::query_as::<_, SummaryRow>(
             r#"
             SELECT shipping_profile_id,listing_source_id,name,management_revision,terms_revision,lifecycle FROM
-            shipping_profiles WHERE listing_source_id=$1 AND ($2::uuid IS NULL OR shipping_profile_id>$2) ORDER
-            BY shipping_profile_id LIMIT $3
+            shipping_profiles WHERE listing_source_id=$1 AND ($2::uuid IS NULL OR shipping_profile_id>$2) AND ($4::bytea IS NULL OR shipping_profile_id=(SELECT shipping_profile_id FROM shipping_profile_import_state
+            WHERE listing_source_id=$1 AND producer_hash=$4 AND object_hash=$5))
+            ORDER BY shipping_profile_id LIMIT $3
         "#,
         )
         .bind(source.into_uuid())
         .bind(after.map(|p|p.into_uuid()))
         .bind(i64::from(limit))
+        .bind(producer)
+        .bind(object)
         .fetch_all(&mut *self.0)
         .await
         .map_err(sql_error)?.into_iter().map(SummaryRow::view).collect()

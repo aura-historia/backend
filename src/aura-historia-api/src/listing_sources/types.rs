@@ -150,6 +150,8 @@ pub(crate) enum CreateListingIngestionConfigurationData {
     },
     #[serde(rename = "WOOCOMMERCE")]
     Woocommerce {
+        #[serde(default)]
+        domain: Option<String>,
         #[serde(rename = "webhookSecret")]
         webhook_secret: String,
         #[serde(default)]
@@ -181,10 +183,15 @@ impl TryFrom<CreateListingIngestionConfigurationData> for ListingIngestionConfig
                 language: parse_language(language)?,
             }),
             CreateListingIngestionConfigurationData::Woocommerce {
+                domain,
                 webhook_secret,
                 currency,
                 language,
             } => Ok(Self::Woocommerce {
+                domain: domain
+                    .map(Domain::try_from)
+                    .transpose()
+                    .map_err(|_| invalid_body("domain"))?,
                 webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
                     webhook_secret,
                 )
@@ -215,6 +222,8 @@ pub(crate) enum UpdateListingIngestionConfigurationData {
     },
     #[serde(rename = "WOOCOMMERCE")]
     Woocommerce {
+        #[serde(default)]
+        domain: PatchValue<String>,
         #[serde(default, rename = "webhookSecret")]
         webhook_secret: PatchValue<String>,
         #[serde(default)]
@@ -248,10 +257,18 @@ impl TryFrom<UpdateListingIngestionConfigurationData> for ListingIngestionConfig
                 },
             )),
             UpdateListingIngestionConfigurationData::Woocommerce {
+                domain,
                 webhook_secret,
                 currency,
                 language,
             } => Ok(Self::Woocommerce {
+                domain: match domain {
+                    PatchValue::Omitted => PatchField::Unchanged,
+                    PatchValue::Null => PatchField::Clear,
+                    PatchValue::Value(domain) => PatchField::Set(
+                        Domain::try_from(domain).map_err(|_| invalid_body("domain"))?,
+                    ),
+                },
                 webhook_secret: match webhook_secret {
                     PatchValue::Omitted => PatchField::Unchanged,
                     PatchValue::Null => PatchField::Clear,

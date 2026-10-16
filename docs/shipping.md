@@ -312,20 +312,19 @@ There is no whole-source activation: create/update profiles before assigning the
 retain/retry each failed record independently.
 
 [OpenAPI](swagger.yaml) owns the optional import field on existing profile/default and
-listing delivery commands, source connection setup, and producer-object identity lookup.
-First-party operator setup binds the authenticated producer identity and current integration.
-Delegated producers cannot create/replace acquisition epochs. Shopify must match its
-configured domain; WooCommerce explicitly binds its shipping integration domain during
-setup. Source presentation URLs never establish that identity. Producers reacquire after
-connectedAt; queued data cannot gain authority by adopting a new connection revision.
-A lost setup reply is recovered through connection GET, then reconciled.
+listing delivery commands. Producers create and replace profiles through ordinary POST/PUT;
+there is no shipping connection setup. Import integration scope must match the source's
+existing configuration: Shopify uses its configured domain; WooCommerce uses the optional
+explicit domain on its existing ingestion configuration API. Source presentation URLs never
+establish provider identity. SOURCE imports are restricted to non-native sources.
 
 objectKey identifies a profile within its immutable source/producer/integration namespace;
-requestKey identifies one exact validated operation within an acquisition epoch. Creation
-uses both this stable object identity and the existing original-request creationKey.
-Resolve an existing object before replacing it; reuse is never an arbitrary upsert.
+requestKey identifies one exact operation in that namespace. Creation also retains the
+existing original-request creationKey. Recover identities through the existing profile
+list's objectKey filter; provider lookup also supplies integrationMethod/integrationDomain.
+The normal summary array contains zero or one profile, including retired/manual profiles.
 Exact committed retries return current committed state without repeating effects for
-90 days; changed request-key reuse conflicts permanently. Current source/grant/connection
+90 days; changed request-key reuse conflicts permanently. Current source/grant/integration
 authority is checked before replay, including the outer asynchronous command receipt.
 Address-free hashed identity/request fences survive source deletion and replay expiry.
 No raw provider payload, capture receipt or reconciliation session is retained.
@@ -341,7 +340,8 @@ component's edit does not claim selection ownership. Changed components, includi
 remain protected through current source locks
 and optimistic management/default/listing revisions. Other components remain independent.
 Reconnection permits newly acquired work by the same producer to reconcile its previous
-assertions; it cannot reclaim a manual component. After integration replacement, the same
+assertions through a fresh observation; an ordinary no-op cannot restore their eligibility.
+It cannot reclaim a manual component. After integration replacement, the same
 producer explicitly clears its old scoped listing assertions before assigning new scoped
 profiles/facts. Profile object identity stays integration-scoped; old class/variant facts
 never move implicitly. Provider membership without a reliable
@@ -352,16 +352,16 @@ semantically replaced, including a first claim of an equal implicit selection.
 Explicit removal of owned components does not require or renew an observation.
 acquiredAt is acquisition time; freshUntil and expiresAt are
 reviewed deadlines, ordered after acquisition, with expiry at most 30 days later.
-Acquisitions must follow connection setup and cannot be future dated or already expired.
+Acquisitions must follow the latest source/integration authority change and cannot be future dated or already expired.
 A new acquisition of unchanged content/evidence explicitly supplies observation to refresh
 validity without changing terms/management/listing revisions or emitting a listing semantic
 event. Evidence-only corrections, lifecycle commands, retries and ordinary equal writes do
 not renew validity. A correction that changes only evidence cannot carry an observation.
 Acquisition ordering uses PostgreSQL's microsecond precision; a new request key cannot
 turn the same acquisition into a fresh observation.
-Increasing producer sequence fences delayed work per touched component and epoch;
+Increasing producer sequence fences delayed work per touched component and source lifecycle;
 receive time establishes no provider order. After a conflict, refetch and reconcile actual
-facts and ownership; never attach a new revision/epoch to an old payload.
+facts and ownership; never attach a new revision or acquisition timestamp to an old payload.
 
 Current snapshot reads exclude disconnected imported profiles/defaults and independently
 expire listing components, preserving manual overrides. Imported membership expiry removes
@@ -369,12 +369,15 @@ selection authority and blocks fallback. The listing evidence summary uses the o
 component acquisition/freshness; validityDeadline caps shared cache lifetime at the next
 imported component/default transition. Profile windows retain the B04 expiry contract.
 Source deletion, operator replacement, ingestion configuration removal/rebinding, source
-grant/member revocation and user/partnership authority changes fence the connection.
-Regranting or returning to the same domain does not revive its old epoch. Explicit
+grant/member revocation and user/partnership authority changes advance an internal source
+revision and acquisition boundary. Producers never read or supply that revision.
+These authority changes conservatively invalidate imported assertions for the source;
+manual components remain eligible. Regranting or returning to the same domain does not
+revive old imports. Explicit
 revocation is immediate in authoritative reads; the 30-day maximum expiry bounds abandoned
 producer cleanup. Normal anonymous discovery cache limits still apply pending B09 fan-out.
 
-The migration adds only acquisition epochs, profile identity/ownership, default ownership,
+Persistence retains the source lifecycle boundary, profile identity/ownership, default ownership,
 listing component ownership/windows, hashed request fences and immutable
 shipping_validity_changes. Each exists respectively to reject old authority, recover stable
 identity, protect concurrent manual edits, expire components independently, recognize exact
@@ -389,14 +392,14 @@ independent revision, kind and recorded time; they carry no terms, addresses or 
 | 404 SHIPPING_IMPORT_DEPENDENCY_MISSING | Keep the record and retry after its catalog listing exists; no product is created/restored. |
 | Missing profile / ineligible reference | Create/restore the owned profile first, then retry assignment with reconciled current state. |
 | 409 SHIPPING_IMPORT_IDENTITY_EXISTS | Resolve the producer object key, read its profile and reconcile. |
-| Other import/revision 409 | Refetch current state/connection; reconcile or discard superseded acquisition. |
+| Other import/revision 409 | Refetch current state/configuration; reconcile or discard superseded acquisition. |
 | 503 / lost response | Retry the identical request and keys; a missing response does not establish rollback. |
 
 [Canonical request/response fixtures](fixtures/shipping-imports.json) are exercised by
 the API and queue codec tests. For S01, regenerate the Shopify app's pinned
 @hey-api/openapi-ts client from this specification. For W01, update its pinned
-OpenAPI Generator input and operation allowlist with connection GET/PUT, identity lookup,
-profile create/get/replace/lifecycle, default commands, and changeProductListingDelivery
+OpenAPI Generator input and operation allowlist with profile list/create/get/replace/lifecycle,
+default commands, existing provider configuration, and changeProductListingDelivery
 (or its existing asynchronous submission). Preserve the producer backfill pattern of
 retaining the exact pending request/key until confirmed admission/application; only
 successful complete provider reads generate explicit removals. External-agent SOURCE

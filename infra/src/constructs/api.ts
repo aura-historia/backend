@@ -106,8 +106,6 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-import-connection", ["GET", "PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/import-identity", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
@@ -562,7 +560,6 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
     };
   }
   if (path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
-      path === "/api/v1/listing-sources/{listing_source_id}/shipping-import-connection" ||
       path === "/api/v1/listing-sources/{listing_source_id}/shipping-default" ||
       path.startsWith("/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
     return {
