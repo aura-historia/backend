@@ -326,7 +326,9 @@ fn env_flag(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::listing_source_registration::MockListingSourceRegistrationSource;
+    use crate::service::listing_source_registration::{
+        ListingSourceSyncError, RegisteredListingSource,
+    };
     use crate::service::raw_capture::MockProductListingRawCaptureService;
     use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
     use rstest::rstest;
@@ -353,6 +355,27 @@ mod tests {
         }
     }
 
+    /// A crawl scope without ListingSources, so the cron loop finds no work.
+    struct EmptyListingSources;
+
+    #[async_trait::async_trait]
+    impl ListingSourceRegistrationSource for EmptyListingSources {
+        async fn fetch_registered_listing_sources(
+            &self,
+        ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
+            Ok(Vec::new())
+        }
+    }
+
+    // Tests that touch the process environment or the shared Postgres container are serialized,
+    // so no test reads the environment while another one changes it.
+    fn set_env(name: &str, value: Option<&str>) {
+        match value {
+            Some(value) => unsafe { std::env::set_var(name, value) },
+            None => unsafe { std::env::remove_var(name) },
+        }
+    }
+
     const TEST_FLAG: &str = "CRAWLER_RUNTIME_TEST_FLAG";
 
     #[rstest]
@@ -365,21 +388,136 @@ mod tests {
     #[case::unset(None, false)]
     #[serial]
     fn should_read_review_gate_flag(#[case] value: Option<&str>, #[case] expected: bool) {
-        match value {
-            Some(value) => unsafe { std::env::set_var(TEST_FLAG, value) },
-            None => unsafe { std::env::remove_var(TEST_FLAG) },
-        }
+        set_env(TEST_FLAG, value);
 
         let enabled = env_flag(TEST_FLAG);
-        unsafe { std::env::remove_var(TEST_FLAG) };
+        set_env(TEST_FLAG, None);
 
         assert_eq!(enabled, expected);
     }
 
+    #[test]
+    #[serial]
+    fn should_read_runtime_config_from_env() {
+        set_env("CRAWLER_REVIEW_REQUIRED", Some("true"));
+        set_env("CRAWLER_REVIEW_URL_PATTERN_REQUIRED", None);
+        set_env("VERTEX_AI_PROJECT_ID", Some("test-project"));
+        set_env("VERTEX_AI_LOCATION", Some("europe-west3"));
+
+        let config = CrawlerRuntimeConfig::from_env();
+        for name in [
+            "CRAWLER_REVIEW_REQUIRED",
+            "VERTEX_AI_PROJECT_ID",
+            "VERTEX_AI_LOCATION",
+        ] {
+            set_env(name, None);
+        }
+
+        let config = config.unwrap_or_else(|error| panic!("runtime config from env: {error}"));
+        assert!(config.review_required);
+        assert!(!config.url_pattern_review_required);
+        assert_eq!(
+            config.vertex_ai,
+            CrawlerVertexAiConfig::new("test-project", "europe-west3")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn should_reject_runtime_config_without_vertex_ai_project() {
+        set_env("VERTEX_AI_PROJECT_ID", None);
+        set_env("VERTEX_AI_LOCATION", Some("europe-west3"));
+
+        let config = CrawlerRuntimeConfig::from_env();
+        set_env("VERTEX_AI_LOCATION", None);
+
+        assert!(matches!(
+            config,
+            Err(CrawlerVertexAiConfigError::MissingEnvironment {
+                name: "VERTEX_AI_PROJECT_ID"
+            })
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn should_fail_fast_when_vertex_ai_credentials_are_unavailable() {
+        let configured_credentials = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
+        let missing_credentials = std::env::temp_dir().join(format!(
+            "crawler-runtime-missing-credentials-{}.json",
+            uuid::Uuid::new_v4().simple()
+        ));
+        set_env(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            missing_credentials.to_str(),
+        );
+
+        let result = std::panic::catch_unwind(|| {
+            CrawlerLlmModels::vertex_ai(&runtime_config());
+        });
+        set_env(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            configured_credentials.as_deref(),
+        );
+
+        let panic = result.expect_err("model creation must fail without credentials");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        assert!(
+            message.starts_with("failed to initialize Vertex AI model for schema generation"),
+            "unexpected panic: {message}"
+        );
+    }
+
     #[tokio::test]
+    #[serial]
     async fn should_build_runtime_on_freshly_migrated_crawler_database() {
-        // The lib test container hosts the business schema, so the crawler schema gets its own
-        // database and is migrated exactly as the binaries do it.
+        let (admin_pool, pool) = migrated_crawler_database().await;
+        let applied_migrations: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count applied crawler migrations: {error}"));
+
+        let runtime = build(
+            pool.clone(),
+            profile(review_config()),
+            runtime_config(),
+            unused_models(),
+        );
+        drop(runtime);
+        pool.close().await;
+        admin_pool.close().await;
+
+        assert!(applied_migrations > 0);
+    }
+
+    #[tokio::test]
+    #[serial]
+    #[should_panic(expected = "crawler review server task panicked")]
+    async fn should_stop_when_the_review_server_cannot_start() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap_or_else(|error| panic!("reserve review console port: {error}"));
+        let mut review_config = review_config();
+        review_config.bind_addr = occupied
+            .local_addr()
+            .unwrap_or_else(|error| panic!("read reserved review console port: {error}"));
+
+        build(
+            pool,
+            profile(review_config),
+            runtime_config(),
+            unused_models(),
+        )
+        .run()
+        .await;
+    }
+
+    /// Creates a dedicated database and migrates it like the binaries do; the lib test
+    /// container's default database hosts the business schema.
+    async fn migrated_crawler_database() -> (PgPool, PgPool) {
         let admin_pool = get_postgres_client().await;
         let database = format!("crawler_runtime_{}", uuid::Uuid::new_v4().simple());
         sqlx::query(AssertSqlSafe(format!("CREATE DATABASE {database}")))
@@ -398,40 +536,43 @@ mod tests {
             .unwrap_or_else(|error| panic!("connect to crawler runtime test database: {error}"));
 
         apply_local_migrations(&pool).await;
-        let applied_migrations: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("count applied crawler migrations: {error}"));
+        (admin_pool, pool)
+    }
 
-        let runtime = build(
-            pool.clone(),
-            CrawlerRuntimeProfile {
-                cron_config: CrawlerCronConfig::default(),
-                review_config: ReviewServerConfig::from_env()
-                    .unwrap_or_else(|error| panic!("default review config: {error}")),
-                listing_source_source: Box::new(MockListingSourceRegistrationSource::new()),
-                raw_capture: Box::new(MockProductListingRawCaptureService::new()),
-            },
-            CrawlerRuntimeConfig {
-                review_required: true,
-                url_pattern_review_required: true,
-                vertex_ai: CrawlerVertexAiConfig::new("test-project", "europe-west3"),
-                vertex_ai_models: CrawlerVertexAiModels {
-                    product_schema: "schema-model".to_owned(),
-                    url_classification: "classification-model".to_owned(),
-                },
-                llm_rate_limit: CrawlerLlmRateLimitConfig::default(),
-            },
-            CrawlerLlmModels {
-                product_schema: UnusedLlm,
-                fresh_product_schema: UnusedLlm,
-                url_classification: UnusedLlm,
-            },
-        );
-        drop(runtime);
-        pool.close().await;
-        admin_pool.close().await;
+    fn review_config() -> ReviewServerConfig {
+        set_env("CRAWLER_REVIEW_BIND_ADDR", None);
+        set_env("CRAWLER_REVIEW_AUTH_TOKEN", None);
+        ReviewServerConfig::from_env()
+            .unwrap_or_else(|error| panic!("default review config: {error}"))
+    }
 
-        assert!(applied_migrations > 0);
+    fn profile(review_config: ReviewServerConfig) -> CrawlerRuntimeProfile {
+        CrawlerRuntimeProfile {
+            cron_config: CrawlerCronConfig::default(),
+            review_config,
+            listing_source_source: Box::new(EmptyListingSources),
+            raw_capture: Box::new(MockProductListingRawCaptureService::new()),
+        }
+    }
+
+    fn runtime_config() -> CrawlerRuntimeConfig {
+        CrawlerRuntimeConfig {
+            review_required: true,
+            url_pattern_review_required: true,
+            vertex_ai: CrawlerVertexAiConfig::new("test-project", "europe-west3"),
+            vertex_ai_models: CrawlerVertexAiModels {
+                product_schema: "schema-model".to_owned(),
+                url_classification: "classification-model".to_owned(),
+            },
+            llm_rate_limit: CrawlerLlmRateLimitConfig::default(),
+        }
+    }
+
+    fn unused_models() -> CrawlerLlmModels<UnusedLlm> {
+        CrawlerLlmModels {
+            product_schema: UnusedLlm,
+            fresh_product_schema: UnusedLlm,
+            url_classification: UnusedLlm,
+        }
     }
 }
