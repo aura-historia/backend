@@ -49,7 +49,9 @@ use crawler::local_db::{
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::server::ReviewServerConfig;
-use crawler::runtime::{CrawlerRuntimeProfile, apply_local_migrations};
+use crawler::runtime::{
+    CrawlerLlmModels, CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations,
+};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
 use crawler::service::cron::CrawlerCronConfig;
@@ -186,7 +188,10 @@ async fn main() {
             "Crawler dev seeded demo ListingSources. Press Ctrl+C to stop."
         );
 
-        crawler::runtime::run(
+        let runtime_config = CrawlerRuntimeConfig::from_env()
+            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+        let models = CrawlerLlmModels::vertex_ai(&runtime_config);
+        crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
                 cron_config: config,
@@ -198,7 +203,10 @@ async fn main() {
                     "scraped_raw_observations.json",
                 )),
             },
+            runtime_config,
+            models,
         )
+        .run()
         .await;
     }
     .instrument(tracing::info_span!(

@@ -1,9 +1,11 @@
 //! Composition root shared by the long-running crawler binaries.
 //!
 //! `server` and `dev` prepare their crawler-local database and pass a [`CrawlerRuntimeProfile`]
-//! carrying only what differs between them. [`run`] wires everything else once — repositories,
-//! the schema service, scraper, spider, URL classification, the LLM governor, the review server
-//! and the cron job — and runs the review server and cron loop until either stops.
+//! carrying only what differs between them. [`CrawlerRuntimeConfig::from_env`] reads the shared
+//! settings, [`CrawlerLlmModels::vertex_ai`] creates the provider models, and [`build`] wires
+//! everything else once — repositories, the schema service, scraper, spider, URL classification,
+//! the LLM governor, the review server and the cron job. [`CrawlerRuntime::run`] then runs the
+//! review server and cron loop until either stops.
 //!
 //! Startup failures panic with a descriptive message, matching the production server's
 //! fail-fast startup.
@@ -33,7 +35,8 @@ use crate::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crate::spider::discovery::website_spider::SpiderImpl;
 use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiConfigError, CrawlerVertexAiModels};
+use large_language_model::{LargeLanguageModel, VertexAiGemini};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::info;
@@ -48,6 +51,73 @@ pub struct CrawlerRuntimeProfile {
     pub raw_capture: Box<dyn ProductListingRawCaptureService>,
 }
 
+/// Environment settings shared by every crawler entry point.
+pub struct CrawlerRuntimeConfig {
+    pub review_required: bool,
+    pub url_pattern_review_required: bool,
+    pub vertex_ai: CrawlerVertexAiConfig,
+    pub vertex_ai_models: CrawlerVertexAiModels,
+    pub llm_rate_limit: CrawlerLlmRateLimitConfig,
+}
+
+impl CrawlerRuntimeConfig {
+    /// Reads the review gates, Vertex AI selection and LLM rate limits, then logs the LLM
+    /// governor configuration that [`build`] applies.
+    pub fn from_env() -> Result<Self, CrawlerVertexAiConfigError> {
+        let review_required = env_flag("CRAWLER_REVIEW_REQUIRED");
+        let url_pattern_review_required = env_flag("CRAWLER_REVIEW_URL_PATTERN_REQUIRED");
+        let vertex_ai = CrawlerVertexAiConfig::from_env()?;
+        let vertex_ai_models = CrawlerVertexAiModels::from_env();
+        let llm_rate_limit = CrawlerLlmRateLimitConfig::from_env();
+
+        info!(
+            llm_provider = "vertex_ai",
+            schema_model = %vertex_ai_models.product_schema,
+            url_classification_model = %vertex_ai_models.url_classification,
+            max_concurrent_requests = llm_rate_limit.max_concurrent_requests,
+            min_request_interval_ms = llm_rate_limit.min_request_interval.as_millis(),
+            "Crawler LLM governor configured"
+        );
+
+        Ok(Self {
+            review_required,
+            url_pattern_review_required,
+            vertex_ai,
+            vertex_ai_models,
+            llm_rate_limit,
+        })
+    }
+}
+
+/// The language models the crawler pipeline uses.
+pub struct CrawlerLlmModels<Llm> {
+    pub product_schema: Llm,
+    pub fresh_product_schema: Llm,
+    pub url_classification: Llm,
+}
+
+impl CrawlerLlmModels<VertexAiGemini> {
+    /// Creates the Vertex AI models selected by `config`. Provider and model choices stay here;
+    /// crawler services depend only on the generic LargeLanguageModel capability.
+    pub fn vertex_ai(config: &CrawlerRuntimeConfig) -> Self {
+        let models = &config.vertex_ai_models;
+        Self {
+            product_schema: config
+                .vertex_ai
+                .create_model(models.product_schema.clone())
+                .expect("failed to initialize Vertex AI model for schema generation"),
+            fresh_product_schema: config
+                .vertex_ai
+                .create_model(models.product_schema.clone())
+                .expect("failed to initialize Vertex AI model for fresh schema generation"),
+            url_classification: config
+                .vertex_ai
+                .create_model(models.url_classification.clone())
+                .expect("failed to initialize Vertex AI model for URL classification"),
+        }
+    }
+}
+
 /// Applies pending crawler-local migrations. Runs at startup so deploying a new binary is the
 /// only step required to update the crawler schema.
 pub async fn apply_local_migrations(pool: &PgPool) {
@@ -58,42 +128,47 @@ pub async fn apply_local_migrations(pool: &PgPool) {
     info!("Crawler-local database migrations applied successfully");
 }
 
-/// Wires the crawler pipeline on a migrated crawler-local `pool` and runs the review server and
-/// cron loop until either task ends.
-pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
+/// The wired review server and cron job, ready to run.
+pub struct CrawlerRuntime {
+    review_server: ReviewServer,
+    cron_job: CrawlerCronJob,
+}
+
+/// Wires the crawler pipeline on a migrated crawler-local `pool`.
+pub fn build<Llm>(
+    pool: PgPool,
+    profile: CrawlerRuntimeProfile,
+    config: CrawlerRuntimeConfig,
+    models: CrawlerLlmModels<Llm>,
+) -> CrawlerRuntime
+where
+    Llm: LargeLanguageModel + 'static,
+{
     let CrawlerRuntimeProfile {
-        cron_config: config,
+        cron_config,
         review_config,
         listing_source_source,
         raw_capture,
     } = profile;
+    let CrawlerRuntimeConfig {
+        review_required,
+        url_pattern_review_required,
+        vertex_ai_models,
+        llm_rate_limit,
+        ..
+    } = config;
 
-    let review_required = env_flag("CRAWLER_REVIEW_REQUIRED");
-    let url_pattern_review_required = env_flag("CRAWLER_REVIEW_URL_PATTERN_REQUIRED");
     let review_repo = CrawlerReviewRepository::new(pool.clone());
-
-    // Wire scraper + spider dependencies. Provider and model choices stay here; crawler services
-    // depend only on the generic LargeLanguageModel capability.
-    let vertex_ai_config = CrawlerVertexAiConfig::from_env()
-        .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
-    let vertex_ai_models = CrawlerVertexAiModels::from_env();
-    let llm_governor = llm_governor(&vertex_ai_models);
+    let llm_governor = Arc::new(CrawlerLlmGovernor::new(llm_rate_limit));
 
     let normalization_svc = ProductListingNormalizationServiceImpl::new();
-
-    let create_schema_llm = vertex_ai_config
-        .create_model(vertex_ai_models.product_schema.clone())
-        .expect("failed to initialize Vertex AI model for schema generation");
-    let single_schema_llm = vertex_ai_config
-        .create_model(vertex_ai_models.product_schema.clone())
-        .expect("failed to initialize Vertex AI model for fresh schema generation");
 
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
         Box::new(pool.clone()),
     )));
     let schema_svc = ProductListingSchemaServiceImpl::new(
-        create_schema_llm,
-        single_schema_llm,
+        models.product_schema,
+        models.fresh_product_schema,
         schema_repo,
         Some(Arc::clone(&llm_governor)),
     );
@@ -104,12 +179,12 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
     let scraper_candidates = Box::new(
         ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
             pool.clone(),
-            config.scraper_max_llm_calls_per_listing_source,
+            cron_config.scraper_max_llm_calls_per_listing_source,
         ),
     );
 
     let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
-        config.scraper_auto_throttle_config(),
+        cron_config.scraper_auto_throttle_config(),
     ));
     let scraper_svc = Box::new(
         ScraperServiceImpl::new_with_schema_seed_pages(
@@ -119,11 +194,11 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
             Arc::new(
                 ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                     pool.clone(),
-                    config.scraper_max_llm_calls_per_listing_source,
+                    cron_config.scraper_max_llm_calls_per_listing_source,
                 ),
             ),
-            config.scraper_schema_seed_pages,
-            config.scraper_max_llm_calls_per_listing_source,
+            cron_config.scraper_schema_seed_pages,
+            cron_config.scraper_max_llm_calls_per_listing_source,
         )
         .with_removed_page_schema_repository(removed_page_schema_repo)
         .with_review_gate(review_repo.clone(), review_required),
@@ -132,11 +207,8 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
     let url_pattern_repo = Box::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
 
-    let classification_llm = vertex_ai_config
-        .create_model(vertex_ai_models.url_classification.clone())
-        .expect("failed to initialize Vertex AI model for URL classification");
     let class_svc = Box::new(UrlClassificationServiceImpl::new(
-        classification_llm,
+        models.url_classification,
         Some(Arc::clone(&llm_governor)),
     ));
 
@@ -150,7 +222,7 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
     let spider_config = SpiderServiceConfig {
         ..Default::default()
     };
-    let website_spider = Box::new(SpiderImpl::new(config.spider_website_config()));
+    let website_spider = Box::new(SpiderImpl::new(cron_config.spider_website_config()));
 
     let spider_svc = Box::new(SpiderServiceImpl::new(
         spider_config,
@@ -166,16 +238,17 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
     let listing_source_registration =
         ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
 
-    let db_max_connections = config.effective_db_max_connections();
-    let scraper_max_llm_calls_per_listing_source = config.scraper_max_llm_calls_per_listing_source;
-    let push_batch_size = config.effective_push_batch_size();
-    let push_queue_capacity = config.effective_push_queue_capacity();
-    let push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis();
-    let push_max_concurrency = config.effective_push_max_concurrency();
-    let business_db_max_connections = config.effective_business_db_max_connections();
+    let db_max_connections = cron_config.effective_db_max_connections();
+    let scraper_max_llm_calls_per_listing_source =
+        cron_config.scraper_max_llm_calls_per_listing_source;
+    let push_batch_size = cron_config.effective_push_batch_size();
+    let push_queue_capacity = cron_config.effective_push_queue_capacity();
+    let push_max_batch_age_ms = cron_config.effective_push_max_batch_age().as_millis();
+    let push_max_concurrency = cron_config.effective_push_max_concurrency();
+    let business_db_max_connections = cron_config.effective_business_db_max_connections();
 
     let cron_job = CrawlerCronJob::new(
-        config,
+        cron_config,
         Arc::new(LocalLockManager::new()),
         spider_candidates,
         spider_svc,
@@ -185,7 +258,6 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
         raw_capture,
     );
 
-    // Run forever.
     info!(
         db_max_connections,
         scraper_max_llm_calls_per_listing_source,
@@ -209,41 +281,39 @@ pub async fn run(pool: PgPool, profile: CrawlerRuntimeProfile) {
         ))),
         review_config,
     );
-    let review_handle = tokio::spawn(async move {
-        review_server
-            .run()
-            .await
-            .expect("crawler review server failed")
-    });
-    let cron_handle = tokio::spawn(async move {
-        cron_job.run_loop().await;
-    });
 
-    tokio::select! {
-        result = review_handle => {
-            result.expect("crawler review server task panicked");
-        }
-        result = cron_handle => {
-            result.expect("crawler cron task panicked");
-        }
+    CrawlerRuntime {
+        review_server,
+        cron_job,
     }
 }
 
-/// Builds the process-wide governor that bounds every crawler LLM call.
-fn llm_governor(vertex_ai_models: &CrawlerVertexAiModels) -> Arc<CrawlerLlmGovernor> {
-    let llm_rate_limit_config = CrawlerLlmRateLimitConfig::from_env();
-    let llm_governor = Arc::new(CrawlerLlmGovernor::new(llm_rate_limit_config));
+impl CrawlerRuntime {
+    /// Runs the review server and cron loop until either task ends.
+    pub async fn run(self) {
+        let Self {
+            review_server,
+            cron_job,
+        } = self;
+        let review_handle = tokio::spawn(async move {
+            review_server
+                .run()
+                .await
+                .expect("crawler review server failed")
+        });
+        let cron_handle = tokio::spawn(async move {
+            cron_job.run_loop().await;
+        });
 
-    info!(
-        llm_provider = "vertex_ai",
-        schema_model = %vertex_ai_models.product_schema,
-        url_classification_model = %vertex_ai_models.url_classification,
-        max_concurrent_requests = llm_rate_limit_config.max_concurrent_requests,
-        min_request_interval_ms = llm_rate_limit_config.min_request_interval.as_millis(),
-        "Crawler LLM governor configured"
-    );
-
-    llm_governor
+        tokio::select! {
+            result = review_handle => {
+                result.expect("crawler review server task panicked");
+            }
+            result = cron_handle => {
+                result.expect("crawler cron task panicked");
+            }
+        }
+    }
 }
 
 /// Reads a boolean review-gate switch; unset or unrecognized values keep the gate off.
@@ -251,4 +321,117 @@ fn env_flag(name: &str) -> bool {
     std::env::var(name)
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::listing_source_registration::MockListingSourceRegistrationSource;
+    use crate::service::raw_capture::MockProductListingRawCaptureService;
+    use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
+    use rstest::rstest;
+    use serial_test::serial;
+    use sqlx::AssertSqlSafe;
+    use sqlx::postgres::PgPoolOptions;
+    use test_api::get_postgres_client;
+
+    /// A model that fails if the pipeline unexpectedly calls it.
+    struct UnusedLlm;
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for UnusedLlm {
+        async fn generate<Output>(
+            &self,
+            _: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            Err(LargeLanguageModelError::Permanent {
+                source: application::error::static_error("LLM should not be called in this test"),
+            })
+        }
+    }
+
+    const TEST_FLAG: &str = "CRAWLER_RUNTIME_TEST_FLAG";
+
+    #[rstest]
+    #[case::true_lowercase(Some("true"), true)]
+    #[case::true_uppercase(Some("TRUE"), true)]
+    #[case::one(Some("1"), true)]
+    #[case::yes(Some("yes"), true)]
+    #[case::false_value(Some("false"), false)]
+    #[case::garbage(Some("enabled"), false)]
+    #[case::unset(None, false)]
+    #[serial]
+    fn should_read_review_gate_flag(#[case] value: Option<&str>, #[case] expected: bool) {
+        match value {
+            Some(value) => unsafe { std::env::set_var(TEST_FLAG, value) },
+            None => unsafe { std::env::remove_var(TEST_FLAG) },
+        }
+
+        let enabled = env_flag(TEST_FLAG);
+        unsafe { std::env::remove_var(TEST_FLAG) };
+
+        assert_eq!(enabled, expected);
+    }
+
+    #[tokio::test]
+    async fn should_build_runtime_on_freshly_migrated_crawler_database() {
+        // The lib test container hosts the business schema, so the crawler schema gets its own
+        // database and is migrated exactly as the binaries do it.
+        let admin_pool = get_postgres_client().await;
+        let database = format!("crawler_runtime_{}", uuid::Uuid::new_v4().simple());
+        sqlx::query(AssertSqlSafe(format!("CREATE DATABASE {database}")))
+            .execute(&admin_pool)
+            .await
+            .unwrap_or_else(|error| panic!("create crawler runtime test database: {error}"));
+        let pool = PgPoolOptions::new()
+            .connect_with(
+                admin_pool
+                    .connect_options()
+                    .as_ref()
+                    .clone()
+                    .database(&database),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("connect to crawler runtime test database: {error}"));
+
+        apply_local_migrations(&pool).await;
+        let applied_migrations: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count applied crawler migrations: {error}"));
+
+        let runtime = build(
+            pool.clone(),
+            CrawlerRuntimeProfile {
+                cron_config: CrawlerCronConfig::default(),
+                review_config: ReviewServerConfig::from_env()
+                    .unwrap_or_else(|error| panic!("default review config: {error}")),
+                listing_source_source: Box::new(MockListingSourceRegistrationSource::new()),
+                raw_capture: Box::new(MockProductListingRawCaptureService::new()),
+            },
+            CrawlerRuntimeConfig {
+                review_required: true,
+                url_pattern_review_required: true,
+                vertex_ai: CrawlerVertexAiConfig::new("test-project", "europe-west3"),
+                vertex_ai_models: CrawlerVertexAiModels {
+                    product_schema: "schema-model".to_owned(),
+                    url_classification: "classification-model".to_owned(),
+                },
+                llm_rate_limit: CrawlerLlmRateLimitConfig::default(),
+            },
+            CrawlerLlmModels {
+                product_schema: UnusedLlm,
+                fresh_product_schema: UnusedLlm,
+                url_classification: UnusedLlm,
+            },
+        );
+        drop(runtime);
+        pool.close().await;
+        admin_pool.close().await;
+
+        assert!(applied_migrations > 0);
+    }
 }
