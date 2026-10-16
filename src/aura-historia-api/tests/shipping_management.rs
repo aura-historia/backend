@@ -30,7 +30,7 @@ impl TokenAuthenticator for Auth {
         _: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         let capabilities = match token {
-            "admin" => [
+            "admin" | "operator" => [
                 CredentialCapability::ListingSourcesRead,
                 CredentialCapability::ListingSourcesWrite,
             ]
@@ -40,7 +40,11 @@ impl TokenAuthenticator for Auth {
         };
         Ok(TransportPrincipal::User {
             user_id: self.0,
-            auth_method: AuthMethod::AuraAccessToken,
+            auth_method: if token == "operator" {
+                AuthMethod::CognitoJwt
+            } else {
+                AuthMethod::AuraAccessToken
+            },
             capabilities,
         })
     }
@@ -297,6 +301,84 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
             .await
             .0
     );
+
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../docs/fixtures/shipping-imports.json")).unwrap();
+    let mut imported = fixture["create"].clone();
+    let now = time::OffsetDateTime::now_utc();
+    let stamp = |t: time::OffsetDateTime| {
+        t.format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+    };
+    imported["import"]["acquiredAt"] = json!(stamp(now));
+    imported["import"]["observation"] = json!({"freshUntil":stamp(now+time::Duration::days(1)),"expiresAt":stamp(now+time::Duration::days(7))});
+    let (status, created) = request(&router, "POST", &path, Some("admin"), imported.clone()).await;
+    assert_eq!(StatusCode::OK, status, "{created}");
+    let mut expected = fixture["committedProfile"].clone();
+    expected["shippingProfileId"] = created["shippingProfileId"].clone();
+    expected["listingSourceId"] = json!(source);
+    assert_eq!(expected, created);
+    assert_eq!(
+        created,
+        request(&router, "POST", &path, Some("admin"), imported.clone())
+            .await
+            .1
+    );
+    let identity = format!("{path}?objectKey=website-policy");
+    let (status, recovered) = request(&router, "GET", &identity, Some("admin"), Value::Null).await;
+    assert_eq!(StatusCode::OK, status, "{recovered}");
+    assert_eq!(
+        created["shippingProfileId"],
+        recovered[0]["shippingProfileId"]
+    );
+    let mut conflicting = imported.clone();
+    conflicting["content"]["name"] = json!("Changed request");
+    let (status, error) = request(&router, "POST", &path, Some("admin"), conflicting).await;
+    assert_eq!(StatusCode::CONFLICT, status);
+    assert_eq!("SHIPPING_IMPORT_REQUEST_CONFLICT", error["error"]);
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
+        .bind(source.into_uuid())
+        .execute(&p)
+        .await
+        .unwrap();
+    let (status, error) = request(&router, "POST", &path, Some("admin"), imported).await;
+    assert_eq!(StatusCode::CONFLICT, status);
+    assert_eq!("SHIPPING_IMPORT_AUTHORITY_STALE", error["error"]);
+    // Both producers push typed terms using source authorization and an enabled method.
+    for method in ["SHOPIFY", "WOOCOMMERCE"] {
+        if method == "WOOCOMMERCE" {
+            sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'WOOCOMMERCE')")
+                .bind(source.into_uuid())
+                .execute(&p)
+                .await
+                .unwrap();
+        }
+        let mut provider = fixture["providerCreate"].clone();
+        let now = time::OffsetDateTime::now_utc();
+        provider["creationKey"] = json!(format!("provider-create-{method}"));
+        provider["import"]["requestKey"] = json!(format!("provider-request-{method}"));
+        provider["import"]["integration"] = json!({"kind":"PROVIDER","method":method});
+        provider["import"]["acquiredAt"] = json!(stamp(now));
+        provider["import"]["observation"] = json!({"freshUntil":stamp(now+time::Duration::days(1)),"expiresAt":stamp(now+time::Duration::days(7))});
+        let mut invalid = provider.clone();
+        invalid["import"]["integration"]["domain"] = json!("synthetic.example");
+        assert_eq!(
+            StatusCode::BAD_REQUEST,
+            request(&router, "POST", &path, Some("admin"), invalid)
+                .await
+                .0
+        );
+        let (status, provider) = request(&router, "POST", &path, Some("admin"), provider).await;
+        assert_eq!(StatusCode::OK, status, "{provider}");
+        let lookup = format!("{path}?objectKey=provider-policy&integrationMethod={method}");
+        let (status, recovered) =
+            request(&router, "GET", &lookup, Some("admin"), Value::Null).await;
+        assert_eq!(StatusCode::OK, status);
+        assert_eq!(
+            provider["shippingProfileId"],
+            recovered[0]["shippingProfileId"]
+        );
+    }
     sqlx::query("UPDATE shipping_profiles SET terms=jsonb_set(terms,'{schema}','\"SHIP_TERMS_FUTURE\"') WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
     let (status, error) = request(&router, "GET", &detail, Some("admin"), Value::Null).await;
     assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, status);

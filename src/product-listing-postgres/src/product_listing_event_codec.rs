@@ -398,7 +398,7 @@ impl TryFrom<DiscoveredDto> for ProductListingEventPayload {
         ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
             delivery: value
                 .delivery
-                .map(crate::delivery_codec::decode)
+                .map(crate::delivery_codec::decode_historical)
                 .transpose()
                 .map_err(|source| ProductListingEventCodecError::InvalidField {
                     field: "delivery",
@@ -558,14 +558,14 @@ impl ChangedDto {
                 .map(|v| {
                     Ok::<_, ProductListingEventCodecError>((
                         v.previous
-                            .map(crate::delivery_codec::decode)
+                            .map(crate::delivery_codec::decode_historical)
                             .transpose()
                             .map_err(|source| ProductListingEventCodecError::InvalidField {
                                 field: "delivery",
                                 source,
                             })?,
                         v.current
-                            .map(crate::delivery_codec::decode)
+                            .map(crate::delivery_codec::decode_historical)
                             .transpose()
                             .map_err(|source| ProductListingEventCodecError::InvalidField {
                                 field: "delivery",
@@ -2224,8 +2224,28 @@ mod tests {
         let mut equal = wire.clone();
         equal["delivery"]["previous"] = equal["delivery"]["current"].clone();
         assert!(decode("PRODUCT_LISTING_CHANGED", 2, &equal).is_err());
+        let mut legacy = wire.clone();
+        legacy["delivery"]["current"]["schema"] = json!("LISTING_DELIVERY_V1");
+        assert_eq!(
+            payload,
+            decode("PRODUCT_LISTING_CHANGED", 2, &legacy).unwrap()
+        );
+        legacy["delivery"]["current"]["integration"] =
+            json!({"kind":"PROVIDER","method":"WOOCOMMERCE","domain":"synthetic.example"});
+        let legacy_payload = decode("PRODUCT_LISTING_CHANGED", 2, &legacy).unwrap();
+        let current = encode(&legacy_payload).unwrap();
+        assert_eq!(
+            "LISTING_DELIVERY_V2",
+            current["delivery"]["current"]["schema"]
+        );
+        assert_eq!(
+            json!({"kind":"PROVIDER","method":"WOOCOMMERCE"}),
+            current["delivery"]["current"]["integration"]
+        );
+        legacy["delivery"]["current"]["integration"]["domain"] = json!("invalid/domain");
+        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &legacy).is_err());
         let mut future = wire;
-        future["delivery"]["current"]["schema"] = json!("LISTING_DELIVERY_V2");
+        future["delivery"]["current"]["schema"] = json!("LISTING_DELIVERY_V999");
         assert!(decode("PRODUCT_LISTING_CHANGED", 2, &future).is_err());
     }
 }

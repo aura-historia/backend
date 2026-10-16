@@ -143,6 +143,7 @@ async fn api_sync_and_async_share_typed_semantics_retry_ids_and_protected_errors
     );
     let source = ListingSourceId::new();
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: ProductListingKey::new(source, "painting".try_into().unwrap()),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Set(ProductListingDeliveryPatch {
@@ -251,6 +252,7 @@ async fn async_failures_retain_admission_reports_and_bound_echoed_listing_identi
     let source = ListingSourceId::new();
     let listing = "x".repeat(150);
     let command = ChangeProductListingDeliveryCommand {
+        import: None,
         product_key: ProductListingKey::new(source, listing.as_str().try_into().unwrap()),
         expected_version: ProductListingStorageVersion::INITIAL,
         delivery: PatchField::Unchanged,

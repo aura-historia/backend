@@ -1,5 +1,5 @@
 //! Listing-owned delivery assertions. Provider lookup absence never selects a default.
-use listing_source_core::{Domain, ListingIngestionMethod, ListingSourceId};
+use listing_source_core::{ListingIngestionMethod, ListingSourceId};
 use shipping_core::{
     InvalidShippingValue,
     inputs::ListingRateInputs,
@@ -12,7 +12,6 @@ pub enum DeliveryIntegration {
     Source,
     Provider {
         method: ListingIngestionMethod,
-        domain: Domain,
     },
 }
 
@@ -32,11 +31,11 @@ impl ListingDelivery {
         rate_inputs: ListingRateInputs,
         overrides: DeliveryOverrides,
     ) -> Result<Self, InvalidShippingValue> {
-        if let DeliveryIntegration::Provider { method, domain } = &integration
-            && (!matches!(
+        if let DeliveryIntegration::Provider { method } = &integration
+            && !matches!(
                 method,
                 ListingIngestionMethod::Shopify | ListingIngestionMethod::Woocommerce
-            ) || domain.as_str().len() > 253)
+            )
         {
             return Err(InvalidShippingValue::Bounds);
         }

@@ -1,3 +1,6 @@
+use crate::imports::{
+    ShippingImportAccess, ShippingImportOperation, ShippingImportSubject, ShippingImportWrite,
+};
 use crate::{
     ShippingError,
     ports::{
@@ -73,6 +76,7 @@ pub struct DefaultView {
 }
 #[derive(Debug, Clone)]
 pub struct CreateProfileCommand {
+    pub import: Option<ShippingImportWrite>,
     pub source_id: ListingSourceId,
     pub creation_key: String,
     pub content: ShippingProfileContent,
@@ -80,31 +84,35 @@ pub struct CreateProfileCommand {
 }
 #[derive(Debug, Clone)]
 pub struct ReplaceProfileCommand {
+    pub import: Option<ShippingImportWrite>,
     pub source_id: ListingSourceId,
     pub profile_id: ShippingProfileId,
     pub expected_revision: ShippingManagementRevision,
     pub content: ShippingProfileContent,
     pub evidence: Vec<ShippingEvidence>,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ProfileLifecycleCommand {
+    pub import: Option<ShippingImportWrite>,
     pub source_id: ListingSourceId,
     pub profile_id: ShippingProfileId,
     pub expected_revision: ShippingManagementRevision,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct AssignDefaultCommand {
+    pub import: Option<ShippingImportWrite>,
     pub source_id: ListingSourceId,
     pub profile_id: ShippingProfileId,
     pub expected_revision: ShippingDefaultRevision,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ClearDefaultCommand {
+    pub import: Option<ShippingImportWrite>,
     pub source_id: ListingSourceId,
     pub expected_revision: ShippingDefaultRevision,
 }
 
-fn capability(context: &OperationContext, write: bool) -> Result<(), ShippingError> {
+pub(crate) fn capability(context: &OperationContext, write: bool) -> Result<(), ShippingError> {
     context
         .require_credential_capability(if write {
             CredentialCapability::ListingSourcesWrite
@@ -139,7 +147,7 @@ fn validate_evidence(evidence: &[ShippingEvidence]) -> Result<(), ShippingError>
     }
     Ok(())
 }
-fn caller(context: &OperationContext) -> String {
+pub fn import_actor(context: &OperationContext) -> String {
     let kind = match context.principal {
         Principal::User(_) | Principal::DelegatedUser { .. } => "user",
         _ => context.principal.kind(),
@@ -211,6 +219,58 @@ struct ShippingWriteHandler<U, R, A> {
 impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccessFactory<U::Tx>>
     ShippingWriteHandler<U, R, A>
 {
+    async fn default_reply(
+        &self,
+        tx: &mut U::Tx,
+        source: ListingSourceId,
+        stored: &StoredDefault,
+    ) -> Result<DefaultView, ShippingError> {
+        let eligibility = if let Some(id) = stored.selection.profile_id() {
+            Some(
+                match self
+                    .repositories
+                    .in_transaction(tx)
+                    .find_for_update(source, id)
+                    .await
+                {
+                    Ok(p) => match p.profile.lifecycle() {
+                        ShippingProfileLifecycle::Active => DefaultEligibility::Active,
+                        ShippingProfileLifecycle::Retired => DefaultEligibility::Retired,
+                    },
+                    Err(ShippingError::ProfileNotFound) => DefaultEligibility::Missing,
+                    Err(e) => return Err(e),
+                },
+            )
+        } else {
+            None
+        };
+        Ok(DefaultView {
+            source_id: source,
+            revision: stored.revision,
+            profile_id: stored.selection.profile_id(),
+            eligibility,
+        })
+    }
+    async fn finish_write(
+        &self,
+        tx: &mut U::Tx,
+        context: &OperationContext,
+        source: ListingSourceId,
+        write: Option<&ShippingImportWrite>,
+        operation: &ShippingImportOperation<'_>,
+        subject: ShippingImportSubject,
+    ) -> Result<(), ShippingError> {
+        let mut repository = self.repositories.in_transaction(tx);
+        let mut imports = repository.imports();
+        match write {
+            Some(write) => {
+                imports
+                    .complete(context, source, write, operation, subject)
+                    .await
+            }
+            None => imports.manual_takeover(source, operation, subject).await,
+        }
+    }
     async fn save_changed(
         &self,
         tx: &mut U::Tx,
@@ -228,7 +288,7 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             stored.management_revision = expected.next();
             self.repositories
                 .in_transaction(tx)
-                .save(&stored, expected, &caller(context))
+                .save(&stored, expected, &import_actor(context))
                 .await?;
         }
         Ok(stored.into())
@@ -243,12 +303,38 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         validate_revision(command.expected_revision.into_inner())?;
         let mut tx = self.uow.begin().await?;
         let owner = authorize(&self.access, &mut tx, context, command.source_id).await?;
+        let operation = ShippingImportOperation::ProfileLifecycle {
+            command: &command,
+            restore,
+        };
+        let replay = if let Some(write) = &command.import {
+            write.validate()?;
+            self.repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .prepare(context, command.source_id, write, &operation)
+                .await?
+                .replay
+        } else {
+            false
+        };
         let mut stored = self
             .repositories
             .in_transaction(&mut tx)
             .find_for_update(command.source_id, command.profile_id)
             .await?;
+        if replay {
+            tx.commit().await?;
+            return Ok(stored.into());
+        }
         profile_expected(&stored, command.expected_revision)?;
+        if command
+            .import
+            .as_ref()
+            .is_some_and(|w| w.observation.is_some())
+        {
+            return Err(ShippingError::InvalidInput);
+        }
         if restore {
             validate_sites(
                 &mut self.access.in_transaction(&mut tx),
@@ -266,6 +352,15 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         let result = self
             .save_changed(&mut tx, stored, command.expected_revision, context, changed)
             .await?;
+        self.finish_write(
+            &mut tx,
+            context,
+            command.source_id,
+            command.import.as_ref(),
+            &operation,
+            ShippingImportSubject::Profile(command.profile_id),
+        )
+        .await?;
         tx.commit().await?;
         audit(
             context,
@@ -334,11 +429,45 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             return Err(ShippingError::InvalidInput);
         }
         validate_evidence(&command.evidence)?;
-        let profile =
-            ShippingProfile::create(ShippingProfileId::new(), command.source_id, command.content)?;
+        let profile = ShippingProfile::create(
+            ShippingProfileId::new(),
+            command.source_id,
+            command.content.clone(),
+        )?;
         let mut tx = handler.uow.begin().await?;
         let owner = authorize(&handler.access, &mut tx, context, command.source_id).await?;
-        let caller = caller(context);
+        let operation = ShippingImportOperation::CreateProfile {
+            creation_key: &command.creation_key,
+            content: &command.content,
+            evidence: &command.evidence,
+        };
+        if let Some(write) = &command.import {
+            write.validate()?;
+            let prepared = handler
+                .repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .prepare(context, command.source_id, write, &operation)
+                .await?;
+            if prepared.replay {
+                let stored = handler
+                    .repositories
+                    .in_transaction(&mut tx)
+                    .find_for_update(
+                        command.source_id,
+                        prepared
+                            .profile_id
+                            .ok_or(ShippingError::ImportRequestConflict)?,
+                    )
+                    .await?;
+                tx.commit().await?;
+                return Ok(stored.into());
+            }
+            if write.object_key.is_none() || write.observation.is_none() {
+                return Err(ShippingError::InvalidInput);
+            }
+        }
+        let caller = import_actor(context);
         let retry = handler
             .repositories
             .in_transaction(&mut tx)
@@ -351,6 +480,9 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             )
             .await?;
         if let Some(stored) = retry {
+            if command.import.is_some() {
+                return Err(ShippingError::ImportRequestConflict);
+            }
             tx.commit().await?;
             audit(
                 context,
@@ -366,13 +498,27 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         let stored = StoredProfile {
             profile,
             management_revision: ShippingManagementRevision::INITIAL,
-            evidence: command.evidence,
+            evidence: command.evidence.clone(),
         };
         handler
             .repositories
             .in_transaction(&mut tx)
             .insert(&stored, &caller, &command.creation_key)
             .await?;
+        if let Some(write) = &command.import {
+            handler
+                .repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .complete(
+                    context,
+                    command.source_id,
+                    write,
+                    &operation,
+                    ShippingImportSubject::Profile(stored.profile.id()),
+                )
+                .await?;
+        }
         tx.commit().await?;
         audit(
             context,
@@ -424,13 +570,51 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         validate_evidence(&command.evidence)?;
         let mut tx = handler.uow.begin().await?;
         let owner = authorize(&handler.access, &mut tx, context, command.source_id).await?;
+        let operation = ShippingImportOperation::ReplaceProfile(&command);
+        let replay = if let Some(write) = &command.import {
+            write.validate()?;
+            handler
+                .repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .prepare(context, command.source_id, write, &operation)
+                .await?
+                .replay
+        } else {
+            false
+        };
         let mut stored = handler
             .repositories
             .in_transaction(&mut tx)
             .find_for_update(command.source_id, command.profile_id)
             .await?;
+        if replay {
+            tx.commit().await?;
+            return Ok(stored.into());
+        }
         profile_expected(&stored, command.expected_revision)?;
-        let terms_changed = stored.profile.replace_content(command.content)?.changed();
+        if command
+            .import
+            .as_ref()
+            .is_some_and(|w| w.observation.is_some())
+            && stored.profile.lifecycle() == ShippingProfileLifecycle::Retired
+        {
+            return Err(ShippingProfileError::Retired.into());
+        }
+        let normalized_changed = stored.profile.content().terms != command.content.terms;
+        let evidence_only = !normalized_changed
+            && (stored.profile.content() != &command.content
+                || stored.evidence != command.evidence);
+        if let Some(write) = &command.import
+            && ((normalized_changed && write.observation.is_none())
+                || (evidence_only && write.observation.is_some()))
+        {
+            return Err(ShippingError::InvalidInput);
+        }
+        let terms_changed = stored
+            .profile
+            .replace_content(command.content.clone())?
+            .changed();
         validate_sites(
             &mut handler.access.in_transaction(&mut tx),
             owner,
@@ -441,10 +625,20 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         if evidence_changed && stored.profile.lifecycle() == ShippingProfileLifecycle::Retired {
             return Err(ShippingProfileError::Retired.into());
         }
-        stored.evidence = command.evidence;
+        stored.evidence = command.evidence.clone();
         let changed = terms_changed || evidence_changed;
         let result = handler
             .save_changed(&mut tx, stored, command.expected_revision, context, changed)
+            .await?;
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::Profile(command.profile_id),
+            )
             .await?;
         tx.commit().await?;
         audit(
@@ -570,12 +764,34 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         validate_revision(command.expected_revision.into_inner())?;
         let mut tx = handler.uow.begin().await?;
         let owner = authorize(&handler.access, &mut tx, context, command.source_id).await?;
+        let operation = ShippingImportOperation::AssignDefault(&command);
+        let replay = if let Some(write) = &command.import {
+            write.validate()?;
+            handler
+                .repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .prepare(context, command.source_id, write, &operation)
+                .await?
+                .replay
+        } else {
+            false
+        };
         let mut stored = handler
             .repositories
             .in_transaction(&mut tx)
             .default_for_update(command.source_id)
             .await?;
-        default_expected(&stored, command.expected_revision)?;
+        if !replay {
+            default_expected(&stored, command.expected_revision)?;
+        }
+        if replay {
+            let view = handler
+                .default_reply(&mut tx, command.source_id, &stored)
+                .await?;
+            tx.commit().await?;
+            return Ok(view);
+        }
         let profile = handler
             .repositories
             .in_transaction(&mut tx)
@@ -588,6 +804,14 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         )
         .await?;
         let changed = stored.selection.select(Some(&profile.profile))?.changed();
+        if changed
+            && command
+                .import
+                .as_ref()
+                .is_some_and(|w| w.observation.is_none())
+        {
+            return Err(ShippingError::InvalidInput);
+        }
         if changed {
             if stored.revision.into_inner() >= i64::MAX as u64 {
                 return Err(ShippingError::RevisionExhausted);
@@ -596,7 +820,7 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             handler
                 .repositories
                 .in_transaction(&mut tx)
-                .save_default(&stored, command.expected_revision, &caller(context))
+                .save_default(&stored, command.expected_revision, &import_actor(context))
                 .await?;
         }
         let view = DefaultView {
@@ -605,6 +829,16 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             profile_id: stored.selection.profile_id(),
             eligibility: Some(DefaultEligibility::Active),
         };
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::SourceDefault,
+            )
+            .await?;
         tx.commit().await?;
         audit(
             context,
@@ -655,12 +889,41 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         validate_revision(command.expected_revision.into_inner())?;
         let mut tx = handler.uow.begin().await?;
         authorize(&handler.access, &mut tx, context, command.source_id).await?;
+        let operation = ShippingImportOperation::ClearDefault(&command);
+        let replay = if let Some(write) = &command.import {
+            write.validate()?;
+            handler
+                .repositories
+                .in_transaction(&mut tx)
+                .imports()
+                .prepare(context, command.source_id, write, &operation)
+                .await?
+                .replay
+        } else {
+            false
+        };
         let mut stored = handler
             .repositories
             .in_transaction(&mut tx)
             .default_for_update(command.source_id)
             .await?;
-        default_expected(&stored, command.expected_revision)?;
+        if !replay {
+            default_expected(&stored, command.expected_revision)?;
+        }
+        if replay {
+            let view = handler
+                .default_reply(&mut tx, command.source_id, &stored)
+                .await?;
+            tx.commit().await?;
+            return Ok(view);
+        }
+        if command
+            .import
+            .as_ref()
+            .is_some_and(|w| w.observation.is_some())
+        {
+            return Err(ShippingError::InvalidInput);
+        }
         let changed = stored.selection.select(None)?.changed();
         if changed {
             if stored.revision.into_inner() >= i64::MAX as u64 {
@@ -670,7 +933,7 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             handler
                 .repositories
                 .in_transaction(&mut tx)
-                .save_default(&stored, command.expected_revision, &caller(context))
+                .save_default(&stored, command.expected_revision, &import_actor(context))
                 .await?;
         }
         let view = DefaultView {
@@ -679,6 +942,16 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             profile_id: None,
             eligibility: None,
         };
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::SourceDefault,
+            )
+            .await?;
         tx.commit().await?;
         audit(
             context,
@@ -743,6 +1016,7 @@ pub trait ListShippingProfilesUseCase: Send + Sync {
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<crate::imports::ProfileImportIdentity>,
     ) -> Result<Vec<ProfileSummary>, ShippingError>;
 }
 pub struct ListShippingProfilesHandler<U, Q, A> {
@@ -770,17 +1044,27 @@ impl<U: UnitOfWork, Q: ShippingReaderFactory<U::Tx>, A: SourceLocationAccessFact
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<crate::imports::ProfileImportIdentity>,
     ) -> Result<Vec<ProfileSummary>, ShippingError> {
         capability(context, false)?;
         if !(1..=100).contains(&limit) {
             return Err(ShippingError::InvalidInput);
         }
+        if let Some(identity) = &identity {
+            crate::imports::validate_key(&identity.object_key)?;
+        }
+        let actor = import_actor(context);
         let mut tx = self.uow.begin().await?;
         authorize(&self.access, &mut tx, context, source).await?;
         let views = self
             .readers
             .in_transaction(&mut tx)
-            .list(source, after, limit)
+            .list(
+                source,
+                after,
+                limit,
+                identity.as_ref().map(|identity| (actor.as_str(), identity)),
+            )
             .await?;
         tx.commit().await?;
         Ok(views)

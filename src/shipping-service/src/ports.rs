@@ -60,6 +60,7 @@ pub struct StoredDefault {
 
 #[async_trait::async_trait]
 pub trait ShippingRepository: Send {
+    fn imports(&mut self) -> impl crate::imports::ShippingImportAccess + '_;
     /// Immutable retry identity; source authorization must already be locked.
     async fn creation_retry(
         &mut self,
@@ -115,6 +116,7 @@ pub trait ShippingReader: Send {
         source: ListingSourceId,
         after: Option<ShippingProfileId>,
         limit: u32,
+        identity: Option<(&str, &crate::imports::ProfileImportIdentity)>,
     ) -> Result<Vec<ProfileSummary>, ShippingError>;
     async fn get_default(&mut self, source: ListingSourceId) -> Result<DefaultView, ShippingError>;
 }

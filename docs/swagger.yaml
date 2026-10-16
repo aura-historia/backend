@@ -16762,12 +16762,26 @@ paths:
         schema:
           type: string
           pattern: ^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      - name: objectKey
+        in: query
+        description: Exact stable object key belonging to the authenticated producer. Omit integrationMethod for SOURCE identity.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+      - name: integrationMethod
+        in: query
+        description: Enabled provider method for objectKey lookup; requires objectKey.
+        schema:
+          type: string
+          enum: [SHOPIFY, WOOCOMMERCE]
       description: Requires an unsuspended administrator or an active partnership member of the operator
         Party with the exact source grant. Delegated credentials also require listing-sources:read for reads,
         listing-sources:write for commands. All authority is revalidated in the transaction. Responses/errors
         are no-store. Terms are advertised arrangements, never authorized quotes. Active and retired summaries
         in ascending UUID order. Use the final shippingProfileId as after to continue; an empty page is
-        terminal. No terms or evidence hydration.
+        terminal. objectKey filters by stable authenticated producer identity and returns zero or one summary, including retired or manually taken-over profiles. No terms or evidence hydration.
       responses:
         '200':
           description: Committed advertised shipping management result.
@@ -17819,6 +17833,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         charge:
           allOf:
@@ -17844,6 +17859,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         applicability:
           type: string
@@ -17877,6 +17893,11 @@ components:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
           nullable: true
+        validityDeadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next imported component or default freshness/expiry transition; also caps anonymous cache lifetime.
         listingEvidence:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssertionEvidence'
@@ -17916,7 +17937,7 @@ components:
         evaluatedAt: {type: string, format: date-time}
         eligibility:
           type: string
-          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION]
+          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION, null]
           nullable: true
         selectedZone:
           type: integer
@@ -17938,6 +17959,8 @@ components:
       additionalProperties: false
       required: [expectedVersion, delivery]
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedVersion: {type: integer, minimum: 1, maximum: 9223372036854775807}
         delivery:
           oneOf:
@@ -17964,11 +17987,10 @@ components:
           kind: {type: string, enum: [SOURCE]}
       - type: object
         additionalProperties: false
-        required: [kind, method, domain]
+        required: [kind, method]
         properties:
           kind: {type: string, enum: [PROVIDER]}
           method: {type: string, enum: [SHOPIFY, WOOCOMMERCE]}
-          domain: {type: string, minLength: 1, maxLength: 253, description: Canonical lowercase source integration domain; noncanonical encodings are rejected.}
     ListingDeliverySelectionData:
       oneOf:
       - type: object
@@ -18026,7 +18048,7 @@ components:
       additionalProperties: false
       required: [schema, source_id, integration, selection, rate_inputs, shipping, collection]
       properties:
-        schema: {type: string, enum: [LISTING_DELIVERY_V1]}
+        schema: {type: string, enum: [LISTING_DELIVERY_V2]}
         source_id:
           type: string
           pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
@@ -18062,7 +18084,7 @@ components:
           type: string
           pattern: '^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$'
         expectedVersion: {type: integer, minimum: 1}
-        outcome: {type: string, enum: [CHANGED, UNCHANGED]}
+        outcome: {type: string, enum: [CHANGED, UNCHANGED], description: "Canonical listing change; UNCHANGED can still commit an explicit observation or manual ownership handoff."}
     ProductListingDeliveryHistoryChangeData:
       type: object
       additionalProperties: false
@@ -18136,6 +18158,70 @@ components:
               state: {type: string, enum: [SET]}
               value:
                 $ref: '#/components/schemas/ListingDeliveryCollectionOverrideData'
+    ShippingImportObservationData:
+      type: object
+      additionalProperties: false
+      required:
+      - freshUntil
+      - expiresAt
+      properties:
+        freshUntil:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+      description: Explicit successful new acquisition. acquiredAt <= freshUntil <= expiresAt; acquiredAt
+        cannot be in the future, expiry must be future and at most 30 days after acquisition. Replays and ordinary writes
+        without observation never refresh validity. Evidence-only corrections and lifecycle/removal commands cannot
+        supply observation.
+    ShippingImportWriteData:
+      type: object
+      additionalProperties: false
+      required:
+      - integration
+      - sequence
+      - acquiredAt
+      - requestKey
+      properties:
+        acquiredAt:
+          type: string
+          format: date-time
+          description: Successful acquisition time for every command, including removal/correction; must follow the latest source/integration authority change.
+        integration:
+          $ref: '#/components/schemas/ListingDeliveryIntegrationData'
+        sequence:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+        requestKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+        objectKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+          nullable: true
+        observation:
+          allOf:
+          - $ref: '#/components/schemas/ShippingImportObservationData'
+          nullable: true
+      description: 'Optional import semantics on existing commands. objectKey is required only on profile creation;
+        it identifies a stable source/producer/integration object independently of requestKey. sequence increases per
+        touched component within the current source lifecycle; it is producer acquisition order, never receive time. Omitted observation
+        does not renew validity. Creation, changed normalized profile terms, changed default assignment and changed
+        listing assertions and first claims of equal implicit selections require observation; explicit owned-component
+        removals do not renew validity. Acquisition ordering uses microsecond precision. Equal terms with observation explicitly refresh validity without semantic
+        revision changes. Exact requestKey replay returns current committed state without effects for 90 days; changed
+        reuse conflicts permanently. Current source/grant/integration authority is rechecked even on replay. Imports
+        cannot modify manually owned components. 409 codes: SHIPPING_IMPORT_AUTHORITY_STALE, SHIPPING_IMPORT_OWNERSHIP_CONFLICT,
+        SHIPPING_IMPORT_REQUEST_CONFLICT, SHIPPING_IMPORT_OUT_OF_ORDER, SHIPPING_IMPORT_IDENTITY_EXISTS. Refetch and
+        reconcile conflicts; never rebase an old payload onto the newest revision. Missing catalog listing is retryable
+        404 SHIPPING_IMPORT_DEPENDENCY_MISSING; retain the record until catalog creation commits. No shipping write
+        creates or restores catalog products.'
     ShippingCurrencyCode:
       type: string
       enum:
@@ -18276,6 +18362,7 @@ components:
           enum:
           - CALENDAR
           - BUSINESS
+          - null
           nullable: true
         trigger:
           type: string
@@ -18285,6 +18372,7 @@ components:
           - PAYMENT
           - DISPATCH
           - READY_FOR_COLLECTION
+          - null
           nullable: true
       description: Ordered duration bounds; handling, transit and total are independent assertions.
     ShippingLeadTimesData:
@@ -18474,6 +18562,7 @@ components:
           - PER_LOT
           - PER_SHIPMENT
           - PER_SELLER_ORDER
+          - null
           nullable: true
         qualifying_scope:
           type: string
@@ -18482,6 +18571,7 @@ components:
           - LOT
           - SHIPMENT
           - SELLER_ORDER
+          - null
           nullable: true
         components:
           type: object
@@ -18517,6 +18607,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         rate:
           allOf:
@@ -18984,6 +19075,7 @@ components:
           - OFFERED
           - NOT_OFFERED
           - SUBJECT_TO_CONFIRMATION
+          - null
           nullable: true
         site:
           allOf:
@@ -19059,6 +19151,8 @@ components:
       - content
       - evidence
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         creationKey:
           type: string
           minLength: 1
@@ -19080,6 +19174,8 @@ components:
       - content
       - evidence
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19101,6 +19197,8 @@ components:
       required:
       - expectedRevision
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19112,6 +19210,8 @@ components:
       - expectedRevision
       - shippingProfileId
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19125,6 +19225,8 @@ components:
       required:
       - expectedRevision
       properties:
+        import:
+          $ref: '#/components/schemas/ShippingImportWriteData'
         expectedRevision:
           type: integer
           minimum: 1
@@ -19221,6 +19323,7 @@ components:
           - ACTIVE
           - RETIRED
           - MISSING
+          - null
           nullable: true
       description: Initial absent state has revision 1. Clear retains an advancing revision tombstone; retirement
         retains the selected identity and ineligible status. No implicit fallback.

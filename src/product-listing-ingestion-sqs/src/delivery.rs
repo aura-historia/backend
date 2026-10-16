@@ -47,10 +47,91 @@ impl DeliveryReferenceCodec for PublicDeliveryReferences {
         v.to_string()
     }
 }
+/// Shared public and queue protocol; timestamps always use RFC3339, never receipt time.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportData {
+    integration: Value,
+    sequence: u64,
+    acquired_at: String,
+    request_key: String,
+    #[serde(default)]
+    object_key: Option<String>,
+    #[serde(default)]
+    observation: Option<ObservationData>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ObservationData {
+    fresh_until: String,
+    expires_at: String,
+}
+impl ImportData {
+    pub fn into_command(
+        self,
+    ) -> Result<shipping_service::imports::ShippingImportWrite, CodecError> {
+        use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+        let acquired_at =
+            OffsetDateTime::parse(&self.acquired_at, &Rfc3339).map_err(|_| CodecError::Invalid)?;
+        let observation = self
+            .observation
+            .map(|v| {
+                Ok::<_, CodecError>(shipping_service::imports::ShippingObservation {
+                    acquired_at,
+                    fresh_until: OffsetDateTime::parse(&v.fresh_until, &Rfc3339)
+                        .map_err(|_| CodecError::Invalid)?,
+                    expires_at: OffsetDateTime::parse(&v.expires_at, &Rfc3339)
+                        .map_err(|_| CodecError::Invalid)?,
+                })
+            })
+            .transpose()?;
+        let write = shipping_service::imports::ShippingImportWrite {
+            integration: invalid(listing_delivery::decode_integration(self.integration))?,
+            sequence: self.sequence,
+            acquired_at,
+            request_key: self.request_key,
+            object_key: self.object_key,
+            observation,
+        };
+        write.validate().map_err(|_| CodecError::Invalid)?;
+        Ok(write)
+    }
+    fn from_command(
+        w: &shipping_service::imports::ShippingImportWrite,
+    ) -> Result<Self, CodecError> {
+        let observation = w
+            .observation
+            .as_ref()
+            .map(|v| {
+                let format = |t: time::OffsetDateTime| {
+                    t.format(&time::format_description::well_known::Rfc3339)
+                        .map_err(|_| CodecError::Invalid)
+                };
+                Ok::<_, CodecError>(ObservationData {
+                    fresh_until: format(v.fresh_until)?,
+                    expires_at: format(v.expires_at)?,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            integration: invalid(listing_delivery::encode_integration(&w.integration))?,
+            sequence: w.sequence,
+            acquired_at: w
+                .acquired_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|_| CodecError::Invalid)?,
+            request_key: w.request_key.clone(),
+            object_key: w.object_key.clone(),
+            observation,
+        })
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CommandData {
     expected_version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import: Option<ImportData>,
     delivery: WirePatch<PatchData>,
 }
 #[derive(Serialize, Deserialize)]
@@ -108,6 +189,7 @@ fn decode_data(
         })
     })?;
     let command = ChangeProductListingDeliveryCommand {
+        import: data.import.map(ImportData::into_command).transpose()?,
         product_key: key,
         expected_version: ProductListingStorageVersion::try_from(data.expected_version)
             .map_err(|_| CodecError::Invalid)?,
@@ -151,6 +233,11 @@ pub fn encode_command(c: &ChangeProductListingDeliveryCommand) -> Result<Value, 
     };
     serde_json::to_value(CommandData {
         expected_version: c.expected_version.into_inner(),
+        import: c
+            .import
+            .as_ref()
+            .map(ImportData::from_command)
+            .transpose()?,
         delivery,
     })
     .map_err(|_| CodecError::Invalid)
@@ -171,6 +258,7 @@ mod tests {
     };
     fn command() -> ChangeProductListingDeliveryCommand {
         ChangeProductListingDeliveryCommand {
+            import: None,
             product_key: ProductListingKey::new(
                 ListingSourceId::new(),
                 "painting".try_into().unwrap(),
@@ -319,5 +407,32 @@ mod tests {
             1,
         );
         assert!(decode_command_text(&duplicate, c.product_key).is_err());
+    }
+    #[test]
+    fn canonical_incremental_import_fixtures_roundtrip_and_reject_invalid_metadata() {
+        let fixtures: Value =
+            serde_json::from_str(include_str!("../../../docs/fixtures/shipping-imports.json"))
+                .unwrap();
+        let key = ProductListingKey::new(
+            "ls_01h455vb4pex5vy7enb1p677v1".parse().unwrap(),
+            "synthetic-painting".try_into().unwrap(),
+        );
+        for name in ["membership", "providerMembership"] {
+            let command = decode_command(fixtures[name].clone(), key.clone()).unwrap();
+            assert!(command.import.is_some());
+            assert_eq!(
+                command,
+                decode_command(encode_command(&command).unwrap(), key.clone()).unwrap()
+            );
+            let mut invalid = fixtures[name].clone();
+            invalid["import"]["sequence"] = serde_json::json!(0);
+            assert!(decode_command(invalid, key.clone()).is_err());
+            let mut invalid = fixtures[name].clone();
+            invalid["import"]["acquiredAt"] = serde_json::json!("not-a-timestamp");
+            assert!(decode_command(invalid, key.clone()).is_err());
+            let mut invalid = fixtures[name].clone();
+            invalid["import"]["providerPayload"] = serde_json::json!({});
+            assert!(decode_command(invalid, key.clone()).is_err());
+        }
     }
 }

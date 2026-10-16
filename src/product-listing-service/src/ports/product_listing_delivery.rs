@@ -6,6 +6,30 @@ use product_listing_core::{delivery::ListingDelivery, product_listing_id::Produc
 /// Current source/grant, integration, profile and location validation, held through commit.
 #[async_trait::async_trait]
 pub trait ProductListingDeliveryReferences: Send {
+    async fn manual_takeover(
+        &mut self,
+        _command: &crate::use_cases::ChangeProductListingDeliveryCommand,
+        _id: product_listing_core::product_listing_id::ProductListingId,
+    ) -> Result<(), ProductListingDeliveryError> {
+        Ok(())
+    }
+
+    async fn prepare_import(
+        &mut self,
+        _context: &OperationContext,
+        _command: &crate::use_cases::ChangeProductListingDeliveryCommand,
+    ) -> Result<bool, ProductListingDeliveryError> {
+        Err(ProductListingDeliveryError::Unavailable)
+    }
+    async fn complete_import(
+        &mut self,
+        _context: &OperationContext,
+        _command: &crate::use_cases::ChangeProductListingDeliveryCommand,
+        _id: product_listing_core::product_listing_id::ProductListingId,
+    ) -> Result<(), ProductListingDeliveryError> {
+        Err(ProductListingDeliveryError::Unavailable)
+    }
+
     async fn authorize(
         &mut self,
         context: &OperationContext,

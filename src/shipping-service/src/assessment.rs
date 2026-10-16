@@ -106,6 +106,7 @@ pub struct ListingDependency {
     pub operator_id: party_core::party_id::PartyId,
     pub delivery: ListingDelivery,
     pub evidence: Option<AssertionEvidence>,
+    pub validity_deadline: Option<OffsetDateTime>,
     pub integration_current: bool,
 }
 pub struct ProfileDependency {
@@ -166,6 +167,7 @@ pub struct ListingAssessmentView {
     pub default_revision: Option<u64>,
     pub profile: Option<ProfileAssessmentBasis>,
     pub listing_evidence: Option<AssertionEvidence>,
+    pub validity_deadline: Option<OffsetDateTime>,
     pub evaluated_at: OffsetDateTime,
     pub input: AssessmentInput,
     pub effective: EffectiveDeliveryTerms,
@@ -423,6 +425,7 @@ where
                     evidence: p.evidence,
                 }),
                 listing_evidence: listing.evidence,
+                validity_deadline: listing.validity_deadline,
                 evaluated_at: dependencies.evaluated_at,
                 input: request.input,
                 generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
@@ -600,6 +603,7 @@ mod tests {
                 )
                 .unwrap(),
                 evidence: Some(evidence),
+                validity_deadline: None,
                 integration_current: true,
             })
             .collect();

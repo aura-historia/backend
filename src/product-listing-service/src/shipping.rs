@@ -28,6 +28,7 @@ pub struct AdvertisedShipping {
     pub default_revision: Option<u64>,
     pub profile: Option<ProfileAssessmentBasis>,
     pub listing_evidence: Option<AssertionEvidence>,
+    pub validity_deadline: Option<OffsetDateTime>,
     pub evaluated_at: OffsetDateTime,
     pub notices: Vec<&'static str>,
 }
@@ -126,6 +127,7 @@ impl ShippingEnrichment {
                             default_revision: item.default_revision,
                             profile: item.profile,
                             listing_evidence: item.listing_evidence,
+                            validity_deadline: item.validity_deadline,
                             evaluated_at: item.evaluated_at,
                             notices: item.notices,
                         },

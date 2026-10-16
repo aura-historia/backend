@@ -61,6 +61,7 @@ fn error(e: ProductListingDeliveryError) -> ApiError {
         ProductListingDeliveryError::AuthenticationRequired => {
             ApiError::unauthorized(INVALID_CREDENTIALS)
         }
+        ProductListingDeliveryError::Import(source) => source.into(),
         ProductListingDeliveryError::Forbidden => ApiError::forbidden(FORBIDDEN),
         ProductListingDeliveryError::SourceNotFound => {
             ApiError::not_found(LISTING_SOURCE_NOT_FOUND)

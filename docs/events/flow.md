@@ -310,3 +310,15 @@ Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly
 object payload only when compact derived values change. It routes to product projection,
 with no watchlist/price noise or enrichment loop. Work continuations and crash recovery
 are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).
+
+
+### Shipping observation validity
+
+Incremental shipping imports commit address-free shipping_validity_changes with their
+assertion windows/ownership. OBSERVED is independent of management/terms/listing semantic
+revisions; AUTHORITY_CHANGED follows existing source/configuration or grant lifecycle changes.
+Subject identity is a profile, source default, listing or source; defaults and sources use the
+source ID. The subject kind, ID and revision identify an immutable signal. The owning
+[shipping contract](../shipping.md#incremental-typed-imports) defines application/replay and
+expiry. B09 consumers must reread current state and tolerate duplicate/out-of-order signals;
+no new router/projection worker is activated by this contract.

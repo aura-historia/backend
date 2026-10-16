@@ -2028,6 +2028,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
     .execute(
         &context,
         CreateProfileCommand {
+            import: None,
             source_id: source,
             creation_key: "public-shipping".into(),
             content: shipping_core::profile::ShippingProfileContent {
@@ -2049,6 +2050,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
     .execute(
         &context,
         AssignDefaultCommand {
+            import: None,
             source_id: source,
             profile_id: profile.id,
             expected_revision: ShippingDefaultRevision::INITIAL,

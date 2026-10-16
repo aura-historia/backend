@@ -182,7 +182,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         configuration: &ListingSourceIngestionConfigurations,
         expected: ListingSourceStorageVersion,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
-        let _existing_configuration =
+        let existing_configuration =
             read_configuration(self.connection, source.id().into_uuid()).await?;
         configuration.validate_for(source).map_err(|_| {
             ListingSourceRepositoryError::InvalidPersistedState {
@@ -196,31 +196,35 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
         let row=sqlx::query_as::<_,SourceRow>("UPDATE listing_sources SET name=$1,operator_party_id=$2,url=$3,image=$4,referral_configuration=$5,version=version+1,updated=now() WHERE listing_source_id=$6 AND version=$7 RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration,version,created,updated").bind(source.name().as_ref()).bind(source.operator_party_id().into_uuid()).bind(source.presentation().url.as_ref().map(Url::as_str)).bind(source.presentation().image.as_ref().map(Url::as_str)).bind(referral_configuration).bind(source.id().into_uuid()).bind(expected).fetch_optional(&mut *self.connection).await.map_err(db_write)?.ok_or(ListingSourceRepositoryError::ConcurrencyConflict)?;
-        sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
+        // Preserve acquisition bindings when an unrelated source edit retains identical
+        // integration configuration. Real configuration replacement still fences imports.
+        if &existing_configuration != configuration {
+            sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
+                .bind(source.id().into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(db_write)?;
+            sqlx::query(
+                "DELETE FROM listing_source_web_crawl_ingestion_configurations WHERE listing_source_id=$1",
+            )
             .bind(source.id().into_uuid())
             .execute(&mut *self.connection)
             .await
             .map_err(db_write)?;
-        sqlx::query(
-            "DELETE FROM listing_source_web_crawl_ingestion_configurations WHERE listing_source_id=$1",
-        )
-        .bind(source.id().into_uuid())
-        .execute(&mut *self.connection)
-        .await
-        .map_err(db_write)?;
-        sqlx::query("DELETE FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id=$1")
+            sqlx::query("DELETE FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id=$1")
+                .bind(source.id().into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(db_write)?;
+            sqlx::query(
+                "DELETE FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1",
+            )
             .bind(source.id().into_uuid())
             .execute(&mut *self.connection)
             .await
             .map_err(db_write)?;
-        sqlx::query(
-            "DELETE FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1",
-        )
-        .bind(source.id().into_uuid())
-        .execute(&mut *self.connection)
-        .await
-        .map_err(db_write)?;
-        write_configuration(self.connection, source.id(), configuration).await?;
+            write_configuration(self.connection, source.id(), configuration).await?;
+        }
         load(self.connection, row).await
     }
 }
@@ -1478,6 +1482,72 @@ mod tests {
         assert_eq!(
             Some(serde_json::json!({"kind":"PARTNERIZE","camref":"1101l3AbC"})),
             referral_json(Some(&configuration))
+        );
+    }
+    #[aura_integration_test(services=[BUSINESS_SCHEMA])]
+    async fn unrelated_source_edit_preserves_import_authority_and_woocommerce_configuration() {
+        let pool = get_postgres_client().await;
+        let (id, _) = insert_basic_source(&pool, "Shipping source").await;
+        sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'WOOCOMMERCE')")
+            .bind(id.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations(listing_source_id,webhook_secret) VALUES($1,'synthetic-secret')").bind(id.into_uuid()).execute(&pool).await.unwrap();
+        let revision: i64 = sqlx::query_scalar(
+            "SELECT revision FROM shipping_import_authority WHERE listing_source_id=$1",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let uow = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+        let mut tx = uow.begin().await.unwrap();
+        let stored = SqlxListingSourceRepositoryFactory::new()
+            .in_transaction(&mut tx)
+            .find_by_id(id)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut source = stored.source;
+        source.rename("Renamed source".try_into().unwrap());
+        let renamed = SqlxListingSourceRepositoryFactory::new()
+            .in_transaction(&mut tx)
+            .update(&source, &stored.configuration, stored.version)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let binding:String=sqlx::query_scalar("SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id.into_uuid()).fetch_one(&pool).await.unwrap();
+        assert_eq!("synthetic-secret", binding);
+        assert!(
+            sqlx::query_scalar::<_, bool>("SELECT shipping_import_current($1,$2)")
+                .bind(id.into_uuid())
+                .bind(revision)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        );
+        source.replace_ingestion_methods(HashSet::from([ListingIngestionMethod::PartnerApi]));
+        let mut tx = uow.begin().await.unwrap();
+        SqlxListingSourceRepositoryFactory::new()
+            .in_transaction(&mut tx)
+            .update(
+                &source,
+                &ListingSourceIngestionConfigurations(vec![
+                    ListingIngestionConfiguration::PartnerApi,
+                ]),
+                renamed.version,
+            )
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert!(
+            !sqlx::query_scalar::<_, bool>("SELECT shipping_import_current($1,$2)")
+                .bind(id.into_uuid())
+                .bind(revision)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
         );
     }
 }
