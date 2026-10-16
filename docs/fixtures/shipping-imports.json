@@ -151,8 +151,7 @@
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "PROVIDER",
-        "method": "SHOPIFY",
-        "domain": "synthetic.myshopify.com"
+        "method": "SHOPIFY"
       }
     },
     "delivery": {
@@ -160,8 +159,7 @@
       "value": {
         "integration": {
           "kind": "PROVIDER",
-          "method": "SHOPIFY",
-          "domain": "synthetic.myshopify.com"
+          "method": "SHOPIFY"
         },
         "selection": {
           "state": "SET",
@@ -389,12 +387,8 @@
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "PROVIDER",
-        "method": "SHOPIFY",
-        "domain": "synthetic.myshopify.com"
+        "method": "SHOPIFY"
       }
     }
-  },
-  "providerConfiguration": {
-    "domain": "synthetic.myshopify.com"
   }
 }

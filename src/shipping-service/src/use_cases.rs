@@ -251,6 +251,26 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             eligibility,
         })
     }
+    async fn finish_write(
+        &self,
+        tx: &mut U::Tx,
+        context: &OperationContext,
+        source: ListingSourceId,
+        write: Option<&ShippingImportWrite>,
+        operation: &ShippingImportOperation<'_>,
+        subject: ShippingImportSubject,
+    ) -> Result<(), ShippingError> {
+        let mut repository = self.repositories.in_transaction(tx);
+        let mut imports = repository.imports();
+        match write {
+            Some(write) => {
+                imports
+                    .complete(context, source, write, operation, subject)
+                    .await
+            }
+            None => imports.manual_takeover(source, operation, subject).await,
+        }
+    }
     async fn save_changed(
         &self,
         tx: &mut U::Tx,
@@ -332,29 +352,15 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         let result = self
             .save_changed(&mut tx, stored, command.expected_revision, context, changed)
             .await?;
-        if let Some(write) = &command.import {
-            self.repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .complete(
-                    context,
-                    command.source_id,
-                    write,
-                    &operation,
-                    ShippingImportSubject::Profile(command.profile_id),
-                )
-                .await?;
-        } else {
-            self.repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .manual_takeover(
-                    command.source_id,
-                    &operation,
-                    ShippingImportSubject::Profile(command.profile_id),
-                )
-                .await?;
-        }
+        self.finish_write(
+            &mut tx,
+            context,
+            command.source_id,
+            command.import.as_ref(),
+            &operation,
+            ShippingImportSubject::Profile(command.profile_id),
+        )
+        .await?;
         tx.commit().await?;
         audit(
             context,
@@ -624,31 +630,16 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
         let result = handler
             .save_changed(&mut tx, stored, command.expected_revision, context, changed)
             .await?;
-        if let Some(write) = &command.import {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .complete(
-                    context,
-                    command.source_id,
-                    write,
-                    &operation,
-                    ShippingImportSubject::Profile(command.profile_id),
-                )
-                .await?;
-        } else {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .manual_takeover(
-                    command.source_id,
-                    &operation,
-                    ShippingImportSubject::Profile(command.profile_id),
-                )
-                .await?;
-        }
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::Profile(command.profile_id),
+            )
+            .await?;
         tx.commit().await?;
         audit(
             context,
@@ -838,31 +829,16 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             profile_id: stored.selection.profile_id(),
             eligibility: Some(DefaultEligibility::Active),
         };
-        if let Some(write) = &command.import {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .complete(
-                    context,
-                    command.source_id,
-                    write,
-                    &operation,
-                    ShippingImportSubject::SourceDefault,
-                )
-                .await?;
-        } else {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .manual_takeover(
-                    command.source_id,
-                    &operation,
-                    ShippingImportSubject::SourceDefault,
-                )
-                .await?;
-        }
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::SourceDefault,
+            )
+            .await?;
         tx.commit().await?;
         audit(
             context,
@@ -966,31 +942,16 @@ impl<U: UnitOfWork, R: ShippingRepositoryFactory<U::Tx>, A: SourceLocationAccess
             profile_id: None,
             eligibility: None,
         };
-        if let Some(write) = &command.import {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .complete(
-                    context,
-                    command.source_id,
-                    write,
-                    &operation,
-                    ShippingImportSubject::SourceDefault,
-                )
-                .await?;
-        } else {
-            handler
-                .repositories
-                .in_transaction(&mut tx)
-                .imports()
-                .manual_takeover(
-                    command.source_id,
-                    &operation,
-                    ShippingImportSubject::SourceDefault,
-                )
-                .await?;
-        }
+        handler
+            .finish_write(
+                &mut tx,
+                context,
+                command.source_id,
+                command.import.as_ref(),
+                &operation,
+                ShippingImportSubject::SourceDefault,
+            )
+            .await?;
         tx.commit().await?;
         audit(
             context,

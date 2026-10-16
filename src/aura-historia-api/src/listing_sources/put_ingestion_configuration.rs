@@ -13,7 +13,6 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PutWoocommerceConfigurationData {
-    domain: Option<String>,
     webhook_secret: String,
     currency: Option<String>,
     language: Option<String>,
@@ -45,10 +44,6 @@ pub async fn put_woocommerce_configuration(
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
-    let domain = match data.domain.map(Domain::try_from).transpose() {
-        Ok(domain) => domain,
-        Err(_) => return no_store(invalid_field("domain").into_response()),
-    };
     let webhook_secret = match WoocommerceWebhookSecret::try_from(data.webhook_secret) {
         Ok(value) => value,
         Err(_) => return no_store(invalid_field("webhookSecret").into_response()),
@@ -63,7 +58,6 @@ pub async fn put_woocommerce_configuration(
             &context,
             listing_source_id,
             ListingIngestionConfiguration::Woocommerce {
-                domain,
                 webhook_secret,
                 currency,
                 language,

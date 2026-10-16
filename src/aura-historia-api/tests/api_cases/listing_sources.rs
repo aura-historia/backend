@@ -1687,7 +1687,6 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
         .bearer_auth(token.clone())
         .json(&json!({
             "webhookSecret": "  provider-secret\t",
-            "domain": "Merchant.Example",
             "currency": "EUR",
             "language": "de"
         }))
@@ -1703,20 +1702,14 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     );
     assert!(woo.bytes().await.is_ok_and(|body| body.is_empty()));
 
-    let stored = sqlx::query_as::<_, (String, String)>(
-        "SELECT webhook_secret,shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    let stored_secret = sqlx::query_scalar::<_, String>(
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.into_uuid())
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read stored WooCommerce secret: {error}"));
-    assert_eq!(
-        (
-            "  provider-secret\t".to_owned(),
-            "merchant.example".to_owned()
-        ),
-        stored
-    );
+    assert_eq!("  provider-secret\t", stored_secret);
     let unrelated = sqlx::query_as::<_, (Option<String>, String)>(
         "SELECT web_crawl.fallback_currency, shopify.domain FROM listing_source_web_crawl_ingestion_configurations web_crawl JOIN listing_source_shopify_ingestion_configurations shopify USING (listing_source_id) WHERE web_crawl.listing_source_id = $1",
     )
@@ -1760,14 +1753,14 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     );
     assert!(replacement.bytes().await.is_ok_and(|body| body.is_empty()));
 
-    let cleared = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
-        "SELECT currency, language, shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    let cleared = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT currency, language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.into_uuid())
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read replaced WooCommerce configuration: {error}"));
-    assert_eq!((None, None, None), cleared);
+    assert_eq!((None, None), cleared);
     let same_woocommerce = client
         .put(format!("{base}/woocommerce"))
         .bearer_auth(token.clone())
@@ -1815,7 +1808,7 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     .unwrap_or_else(|error| panic!("failed to verify cleared Shopify values: {error}"));
     assert_eq!((None, None), stored_shopify_optional_values);
     let woo_after_shopify_replacement = sqlx::query_scalar::<_, String>(
-        "SELECT webhook_secret,shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.into_uuid())
     .fetch_one(&pool)
@@ -1879,10 +1872,6 @@ async fn should_reject_invalid_partner_provider_put_payloads() {
         ("woocommerce", json!({})),
         ("woocommerce", json!({"webhookSecret": null})),
         ("woocommerce", json!({"webhookSecret": ""})),
-        (
-            "woocommerce",
-            json!({"webhookSecret": "valid-secret", "domain": "https://merchant.example"}),
-        ),
         ("woocommerce", json!({"webhookSecret": " \t"})),
         (
             "woocommerce",

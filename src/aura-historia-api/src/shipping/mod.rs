@@ -133,7 +133,6 @@ struct ClearData {
 pub struct ListQuery {
     object_key: Option<String>,
     integration_method: Option<String>,
-    integration_domain: Option<String>,
     after: Option<ShippingProfileId>,
     size: Option<u32>,
 }
@@ -429,18 +428,15 @@ pub async fn list(
     };
     let request = source_id(&source).and_then(|source| {
         let Query(q) = query.map_err(|_| bad())?;
-        let identity = match (q.object_key, q.integration_method, q.integration_domain) {
-            (None, None, None) => None,
-            (Some(object_key), method, domain) => {
-                let integration = match (method, domain) {
-                    (None, None) => product_listing_core::delivery::DeliveryIntegration::Source,
-                    (Some(method), Some(domain)) => {
-                        shipping_json::listing_delivery::decode_integration(
-                            serde_json::json!({"kind":"PROVIDER","method":method,"domain":domain}),
-                        )
-                        .map_err(|_| bad())?
-                    }
-                    _ => return Err(bad()),
+        let identity = match (q.object_key, q.integration_method) {
+            (None, None) => None,
+            (Some(object_key), method) => {
+                let integration = match method {
+                    None => product_listing_core::delivery::DeliveryIntegration::Source,
+                    Some(method) => shipping_json::listing_delivery::decode_integration(
+                        serde_json::json!({"kind":"PROVIDER","method":method}),
+                    )
+                    .map_err(|_| bad())?,
                 };
                 Some(shipping_service::imports::ProfileImportIdentity {
                     object_key,

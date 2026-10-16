@@ -1,3 +1,15 @@
+-- Shipping is pushed by authenticated producers. Provider addresses are not shipping identity.
+ALTER TABLE shipping_profiles DROP CONSTRAINT shipping_profiles_integration_pair;
+ALTER TABLE shipping_profiles DROP COLUMN integration_domain;
+ALTER TABLE shipping_profiles ADD CONSTRAINT shipping_profiles_integration_method_valid
+ CHECK(integration_method IS NULL OR integration_method IN ('SHOPIFY','WOOCOMMERCE'));
+ALTER TABLE listing_source_woocommerce_ingestion_configurations DROP COLUMN shipping_integration_domain;
+-- Canonical stored V2 scope is source/provider method. Strip obsolete V1 address metadata.
+UPDATE product_listings SET delivery_configuration=jsonb_set(
+ jsonb_set(delivery_configuration,'{integration}',(delivery_configuration->'integration')-'domain'),
+ '{schema}','"LISTING_DELIVERY_V2"'::jsonb)
+ WHERE delivery_configuration->>'schema'='LISTING_DELIVERY_V1';
+
 -- Existing source/configuration lifecycle owns import authority; no shipping connection setup.
 -- Kept outside the source row to preserve Party/source/user/grant lock order on revocation.
 CREATE TABLE shipping_import_authority (
@@ -100,13 +112,8 @@ BEGIN
 END $$;
 CREATE FUNCTION shipping_import_source_fence() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
- IF TG_OP='UPDATE' THEN
-  IF TG_TABLE_NAME='listing_source_shopify_ingestion_configurations' THEN
-   IF NEW.domain IS NOT DISTINCT FROM OLD.domain THEN RETURN NEW; END IF;
-  ELSIF TG_TABLE_NAME='listing_source_woocommerce_ingestion_configurations' THEN
-   IF NEW.shipping_integration_domain IS NOT DISTINCT FROM OLD.shipping_integration_domain
-      AND NEW.webhook_secret IS NOT DISTINCT FROM OLD.webhook_secret THEN RETURN NEW; END IF;
-  END IF;
+ IF TG_OP='UPDATE' AND TG_TABLE_NAME<>'listing_sources' THEN
+  IF NEW IS NOT DISTINCT FROM OLD THEN RETURN NEW; END IF;
  END IF;
  IF TG_OP='DELETE' THEN
   IF TG_TABLE_NAME='listing_sources' THEN
@@ -122,8 +129,8 @@ END $$;
 CREATE TRIGGER shipping_import_source_deleted BEFORE DELETE ON listing_sources FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
 CREATE TRIGGER shipping_import_source_rebound AFTER UPDATE OF operator_party_id ON listing_sources FOR EACH ROW WHEN(OLD.operator_party_id IS DISTINCT FROM NEW.operator_party_id) EXECUTE FUNCTION shipping_import_source_fence();
 CREATE TRIGGER shipping_import_method_changed AFTER INSERT OR DELETE ON listing_source_ingestion_methods FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
-CREATE TRIGGER shipping_import_shopify_rebound AFTER INSERT OR DELETE OR UPDATE OF domain ON listing_source_shopify_ingestion_configurations FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
-CREATE TRIGGER shipping_import_woocommerce_rebound AFTER INSERT OR DELETE OR UPDATE OF shipping_integration_domain,webhook_secret ON listing_source_woocommerce_ingestion_configurations FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
+CREATE TRIGGER shipping_import_shopify_rebound AFTER INSERT OR DELETE OR UPDATE ON listing_source_shopify_ingestion_configurations FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
+CREATE TRIGGER shipping_import_woocommerce_rebound AFTER INSERT OR DELETE OR UPDATE ON listing_source_woocommerce_ingestion_configurations FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
 CREATE TRIGGER shipping_import_grant_revoked BEFORE DELETE ON partnership_listing_source_grants FOR EACH ROW EXECUTE FUNCTION shipping_import_source_fence();
 CREATE FUNCTION shipping_import_member_fence() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE source_id uuid;

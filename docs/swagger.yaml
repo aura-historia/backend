@@ -16764,7 +16764,7 @@ paths:
           pattern: ^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$
       - name: objectKey
         in: query
-        description: Exact stable object key belonging to the authenticated producer. Omit integrationMethod/integrationDomain for SOURCE identity.
+        description: Exact stable object key belonging to the authenticated producer. Omit integrationMethod for SOURCE identity.
         schema:
           type: string
           minLength: 1
@@ -16772,15 +16772,10 @@ paths:
           pattern: ^[!-~]+$
       - name: integrationMethod
         in: query
-        description: Provider identity scope; requires objectKey and integrationDomain.
+        description: Enabled provider method for objectKey lookup; requires objectKey.
         schema:
           type: string
           enum: [SHOPIFY, WOOCOMMERCE]
-      - name: integrationDomain
-        in: query
-        description: Provider identity domain; requires objectKey and integrationMethod.
-        schema:
-          type: string
       description: Requires an unsuspended administrator or an active partnership member of the operator
         Party with the exact source grant. Delegated credentials also require listing-sources:read for reads,
         listing-sources:write for commands. All authority is revalidated in the transaction. Responses/errors
@@ -17992,11 +17987,10 @@ components:
           kind: {type: string, enum: [SOURCE]}
       - type: object
         additionalProperties: false
-        required: [kind, method, domain]
+        required: [kind, method]
         properties:
           kind: {type: string, enum: [PROVIDER]}
           method: {type: string, enum: [SHOPIFY, WOOCOMMERCE]}
-          domain: {type: string, minLength: 1, maxLength: 253, description: Canonical lowercase source integration domain; noncanonical encodings are rejected.}
     ListingDeliverySelectionData:
       oneOf:
       - type: object
@@ -18054,7 +18048,7 @@ components:
       additionalProperties: false
       required: [schema, source_id, integration, selection, rate_inputs, shipping, collection]
       properties:
-        schema: {type: string, enum: [LISTING_DELIVERY_V1]}
+        schema: {type: string, enum: [LISTING_DELIVERY_V2]}
         source_id:
           type: string
           pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
@@ -23893,10 +23887,6 @@ components:
       required:
         - webhookSecret
       properties:
-        domain:
-          type: string
-          nullable: true
-          description: Valid provider domain required to enable provider-scoped shipping imports. Omission/null leaves shipping imports unbound. Source presentation URLs do not establish integration identity.
         webhookSecret:
           type: string
           writeOnly: true
@@ -23978,10 +23968,6 @@ components:
               type: string
               enum:
                 - WOOCOMMERCE
-            domain:
-              type: string
-              nullable: true
-              description: Explicit provider identity for shipping imports.
             webhookSecret:
               type: string
               writeOnly: true
@@ -24114,10 +24100,6 @@ components:
             type:
               type: string
               enum: [WOOCOMMERCE]
-            domain:
-              type: string
-              nullable: true
-              description: Explicit provider identity for shipping imports. Omission preserves the current domain; null clears it.
             webhookSecret:
               type: string
               writeOnly: true

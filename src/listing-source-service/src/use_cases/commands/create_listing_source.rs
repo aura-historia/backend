@@ -511,7 +511,6 @@ mod tests {
 
             ingestion_configuration: ListingSourceIngestionConfigurations(vec![
                 ListingIngestionConfiguration::Woocommerce {
-                    domain: None,
                     webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
                         "secret",
                     )

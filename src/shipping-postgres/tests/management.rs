@@ -1217,80 +1217,90 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
     );
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn provider_profiles_bind_current_configuration_without_shipping_setup() {
+async fn native_producers_push_shipping_without_domain_configuration() {
+    use listing_source_core::ListingIngestionMethod;
     use product_listing_core::delivery::DeliveryIntegration;
     let p = get_postgres_client().await;
-    let (_, source) = source(&p).await;
-    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
-        .bind(source.into_uuid())
-        .execute(&p)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'synthetic.myshopify.com')").bind(source.into_uuid()).execute(&p).await.unwrap();
-    let mut create = command(source);
-    let mut write = import_write(1, "provider-create");
-    write.object_key = Some("provider-profile-1".into());
-    create.import = Some(write);
-    assert!(matches!(
-        manager(&p).create.execute(&trusted(), create.clone()).await,
-        Err(ShippingError::ImportAuthorityStale)
-    ));
-    create.import.as_mut().unwrap().integration = DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: "synthetic.myshopify.com".try_into().unwrap(),
-    };
-    let profile = manager(&p)
-        .create
-        .execute(&trusted(), create.clone())
-        .await
-        .unwrap();
-    let binding:(String,String)=sqlx::query_as("SELECT integration_method,integration_domain FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.id.into_uuid()).fetch_one(&p).await.unwrap();
-    assert_eq!(
-        ("SHOPIFY".into(), "synthetic.myshopify.com".into()),
-        binding
-    );
-    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
-    assert!(matches!(
-        manager(&p).create.execute(&trusted(), create.clone()).await,
-        Err(ShippingError::ImportAuthorityStale)
-    ));
-    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='synthetic.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&p).await.unwrap();
-    assert!(matches!(
-        manager(&p).create.execute(&trusted(), create).await,
-        Err(ShippingError::ImportAuthorityStale)
-    ));
-    let mut refresh = replacement(&profile, 8000);
-    let mut write = import_write(2, "unobserved-reconnect");
-    write.integration = product_listing_core::delivery::DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: "synthetic.myshopify.com".try_into().unwrap(),
-    };
-    write.observation = None;
-    refresh.import = Some(write);
-    assert!(matches!(
-        manager(&p).replace.execute(&trusted(), refresh).await,
-        Err(ShippingError::ImportAuthorityStale)
-    ));
-    let mut refresh = replacement(&profile, 8000);
-    let mut write = import_write(2, "fresh-reconnect");
-    write.integration = product_listing_core::delivery::DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: "synthetic.myshopify.com".try_into().unwrap(),
-    };
-    refresh.import = Some(write);
-    assert_eq!(
-        profile,
-        manager(&p)
-            .replace
-            .execute(&trusted(), refresh)
+    for method in [
+        ListingIngestionMethod::Shopify,
+        ListingIngestionMethod::Woocommerce,
+    ] {
+        let (_, source) = source(&p).await;
+        sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,$2)")
+            .bind(source.into_uuid())
+            .bind(method.as_str())
+            .execute(&p)
             .await
-            .unwrap()
-    ); // Native configuration cascades cannot duplicate the source invalidation signal.
-    sqlx::query("DELETE FROM listing_sources WHERE listing_source_id=$1")
-        .bind(source.into_uuid())
-        .execute(&p)
+            .unwrap();
+        let mut create = command(source);
+        let mut write = import_write(1, "provider-create");
+        write.object_key = Some("provider-profile-1".into());
+        create.import = Some(write);
+        assert!(matches!(
+            manager(&p).create.execute(&trusted(), create.clone()).await,
+            Err(ShippingError::ImportAuthorityStale)
+        ));
+        let scope = DeliveryIntegration::Provider { method };
+        create.import.as_mut().unwrap().integration = scope.clone();
+        let profile = manager(&p)
+            .create
+            .execute(&trusted(), create.clone())
+            .await
+            .unwrap();
+        let binding: String = sqlx::query_scalar(
+            "SELECT integration_method FROM shipping_profiles WHERE shipping_profile_id=$1",
+        )
+        .bind(profile.id.into_uuid())
+        .fetch_one(&p)
         .await
         .unwrap();
+        assert_eq!(method.as_str(), binding);
+        sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
+            .bind(source.into_uuid())
+            .execute(&p)
+            .await
+            .unwrap();
+        assert!(matches!(
+            manager(&p).create.execute(&trusted(), create.clone()).await,
+            Err(ShippingError::ImportAuthorityStale)
+        ));
+        sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,$2)")
+            .bind(source.into_uuid())
+            .bind(method.as_str())
+            .execute(&p)
+            .await
+            .unwrap();
+        assert!(matches!(
+            manager(&p).create.execute(&trusted(), create).await,
+            Err(ShippingError::ImportAuthorityStale)
+        ));
+        let mut refresh = replacement(&profile, 8000);
+        let mut write = import_write(2, "unobserved-reconnect");
+        write.integration = scope.clone();
+        write.observation = None;
+        refresh.import = Some(write);
+        assert!(matches!(
+            manager(&p).replace.execute(&trusted(), refresh).await,
+            Err(ShippingError::ImportAuthorityStale)
+        ));
+        let mut refresh = replacement(&profile, 8000);
+        let mut write = import_write(2, "fresh-reconnect");
+        write.integration = scope;
+        refresh.import = Some(write);
+        assert_eq!(
+            profile,
+            manager(&p)
+                .replace
+                .execute(&trusted(), refresh)
+                .await
+                .unwrap()
+        );
+        sqlx::query("DELETE FROM listing_sources WHERE listing_source_id=$1")
+            .bind(source.into_uuid())
+            .execute(&p)
+            .await
+            .unwrap();
+    }
 }
 
 #[aura_integration_test(services=[SCHEMA])]

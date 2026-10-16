@@ -448,7 +448,6 @@ mod tests {
         PutListingSourceIngestionConfigurationCommand {
             listing_source_id: id,
             configuration: ListingIngestionConfiguration::Woocommerce {
-                domain: None,
                 webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
                     "test-secret",
                 )

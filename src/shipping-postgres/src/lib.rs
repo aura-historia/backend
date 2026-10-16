@@ -591,18 +591,14 @@ impl ShippingReader for Reader<'_> {
         use sha2::{Digest, Sha256};
         let (producer, object) = identity
             .map(|(actor, identity)| {
-                let (method, domain) = match &identity.integration {
-                    product_listing_core::delivery::DeliveryIntegration::Source => (None, None),
-                    product_listing_core::delivery::DeliveryIntegration::Provider {
-                        method,
-                        domain,
-                    } => (
-                        Some(method.as_str().to_owned()),
-                        Some(domain.as_str().to_owned()),
-                    ),
+                let method = match &identity.integration {
+                    product_listing_core::delivery::DeliveryIntegration::Source => None,
+                    product_listing_core::delivery::DeliveryIntegration::Provider { method } => {
+                        Some(method.as_str().to_owned())
+                    }
                 };
                 Ok::<_, ShippingError>((
-                    imports::producer_hash(actor, &method, &domain)?,
+                    imports::producer_hash(actor, &method)?,
                     Sha256::digest(identity.object_key.as_bytes()).to_vec(),
                 ))
             })

@@ -1,6 +1,6 @@
 //! Versioned listing configuration protocol with adapter-owned references.
 use super::*;
-use listing_source_core::{Domain, ListingIngestionMethod};
+use listing_source_core::ListingIngestionMethod;
 use product_listing_core::delivery::{DeliveryIntegration, ListingDelivery};
 use shipping_core::{
     inputs::{ClassMembership, FactCompleteness, ListingRateInputs},
@@ -18,7 +18,7 @@ pub trait DeliveryReferenceCodec: ShippingTermsReferenceCodec {
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum IntegrationData {
     Source {},
-    Provider { method: String, domain: String },
+    Provider { method: String },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
@@ -69,24 +69,23 @@ struct DeliveryData {
 pub fn decode_integration(value: serde_json::Value) -> Result<DeliveryIntegration, BoxError> {
     Ok(match serde_json::from_value::<IntegrationData>(value)? {
         IntegrationData::Source {} => DeliveryIntegration::Source,
-        IntegrationData::Provider { method, domain } => {
-            let parsed = Domain::try_from(domain.as_str())?;
-            if parsed.as_str() != domain || domain.len() > 253 {
+        IntegrationData::Provider { method } => {
+            let method = method.parse::<ListingIngestionMethod>()?;
+            if !matches!(
+                method,
+                ListingIngestionMethod::Shopify | ListingIngestionMethod::Woocommerce
+            ) {
                 return Err(bad());
             }
-            DeliveryIntegration::Provider {
-                method: method.parse::<ListingIngestionMethod>()?,
-                domain: parsed,
-            }
+            DeliveryIntegration::Provider { method }
         }
     })
 }
 pub fn encode_integration(value: &DeliveryIntegration) -> Result<serde_json::Value, BoxError> {
     serde_json::to_value(match value {
         DeliveryIntegration::Source => IntegrationData::Source {},
-        DeliveryIntegration::Provider { method, domain } => IntegrationData::Provider {
+        DeliveryIntegration::Provider { method } => IntegrationData::Provider {
             method: method.as_str().into(),
-            domain: domain.to_string(),
         },
     })
     .map_err(box_error)
@@ -216,7 +215,7 @@ pub fn decode<C: DeliveryReferenceCodec>(
 ) -> Result<ListingDelivery, BoxError> {
     // Fixed schema requires every nullable field and rejects unexpected fields.
     let d: DeliveryData = serde_json::from_value(v)?;
-    if d.schema != "LISTING_DELIVERY_V1" {
+    if d.schema != "LISTING_DELIVERY_V2" {
         return Err(bad());
     }
     let source = C::decode_source(&d.source_id)?;
@@ -239,7 +238,7 @@ pub fn encode<C: DeliveryReferenceCodec>(
     v: &ListingDelivery,
 ) -> Result<serde_json::Value, BoxError> {
     Ok(
-        serde_json::json!({"schema":"LISTING_DELIVERY_V1", "source_id":C::encode_source(v.source_id()),
+        serde_json::json!({"schema":"LISTING_DELIVERY_V2", "source_id":C::encode_source(v.source_id()),
             "integration":encode_integration(v.integration())?,
             "selection":v.selection().map(encode_selection::<C>).transpose()?,
             "rate_inputs":encode_inputs(v.rate_inputs())?,
@@ -254,18 +253,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn integration_domains_must_be_canonical_in_versioned_protocols() {
-        let canonical = serde_json::json!({
-            "kind": "PROVIDER",
-            "method": "SHOPIFY",
-            "domain": "synthetic.myshopify.com",
-        });
-        let integration = decode_integration(canonical.clone()).unwrap();
-        assert_eq!(canonical, encode_integration(&integration).unwrap());
-        for domain in ["Synthetic.MyShopify.com", "synthetic。myshopify.com"] {
-            let mut invalid = canonical.clone();
-            invalid["domain"] = serde_json::json!(domain);
+    fn provider_scope_uses_only_the_enabled_native_method() {
+        for method in ["SHOPIFY", "WOOCOMMERCE"] {
+            let canonical = serde_json::json!({"kind":"PROVIDER","method":method});
+            let integration = decode_integration(canonical.clone()).unwrap();
+            assert_eq!(canonical, encode_integration(&integration).unwrap());
+            let mut invalid = canonical;
+            invalid["domain"] = serde_json::json!("synthetic.example");
             assert!(decode_integration(invalid).is_err());
         }
+        assert!(
+            decode_integration(serde_json::json!({"kind":"PROVIDER","method":"WEB_CRAWL"}))
+                .is_err()
+        );
     }
 }

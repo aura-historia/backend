@@ -111,21 +111,21 @@ removal changes a merchant's advertised no-shipping assertion.
 
 [ProductListing](product-listing.md#listing-delivery-assertions) owns canonical item writes,
 optimistic revisions and semantic events. Configuration is stored with its listing in
-`LISTING_DELIVERY_V1`; source/profile references use native UUIDs in storage and TypeIDs
+`LISTING_DELIVERY_V2`; source/profile references use native UUIDs in storage and TypeIDs
 in transport. Every field, including nullable selection and rate inputs, is required;
 invalid references, unknown fields/versions and constructor failures fail closed.
 Whole shipping and collection components use the existing strict terms protocol.
 
 Source-authored profiles and provider profiles have distinct integration scopes. Provider
-scope is the exact enabled method/domain for the source. Shopify uses its configured
-shop domain; WooCommerce requires an explicitly configured shipping integration domain,
-never the source presentation URL. Provider acquisition/configuration owns that binding.
-Profile selection must match that scope as well as immutable source ownership. Source management creates source-authored
-profiles; provider acquisition must explicitly bind provider profiles before selecting them.
-Opaque class/variant identities inherit this scope; edits cannot change the scope while
-retaining old facts. A provider assignment without a reliable selection keeps inheritance
-blocked. Clearing it never silently assigns a source default. Provider acquisition binds
-these scopes through the incremental typed import contract below.
+scope is the enabled native method (Shopify or WooCommerce) within the authenticated listing
+source. Producers acquire and interpret provider data externally, then push typed profiles,
+rates, classifications and memberships through Aura APIs. Backend shipping paths neither
+accept provider domains nor perform provider HTTP requests. Provider addresses are not
+shipping identity. The V2 persistence migration removes obsolete V1 domain metadata.
+Profile selection must match the source/provider scope. Opaque class/variant identities
+inherit that scope; edits cannot change the provider method while retaining old facts.
+A provider assignment without a reliable selection keeps inheritance blocked. Clearing it
+never silently assigns a source default.
 
 Listing writes validate current active profiles and compatible explicit PartyLocations,
 including equal commands using absent default configuration, under the existing source/grant locks. Whole-configuration
@@ -312,16 +312,16 @@ There is no whole-source activation: create/update profiles before assigning the
 retain/retry each failed record independently.
 
 [OpenAPI](swagger.yaml) owns the optional import field on existing profile/default and
-listing delivery commands. Producers create and replace profiles through ordinary POST/PUT;
-there is no shipping connection setup. Import integration scope must match the source's
-existing configuration: Shopify uses its configured domain; WooCommerce uses the optional
-explicit domain on its existing ingestion configuration API. Source presentation URLs never
-establish provider identity. SOURCE imports are restricted to non-native sources.
+listing delivery commands. Producers create and replace profiles through ordinary POST/PUT.
+Import integration scope must match an enabled native method on the source. SOURCE imports
+are restricted to non-native sources. Acquisition and provider mapping belong in the Shopify
+app, WooCommerce plugin or external non-native producer; the backend validates, stores and
+assesses their pushed typed assertions.
 
 objectKey identifies a profile within its immutable source/producer/integration namespace;
 requestKey identifies one exact operation in that namespace. Creation also retains the
 existing original-request creationKey. Recover identities through the existing profile
-list's objectKey filter; provider lookup also supplies integrationMethod/integrationDomain.
+list's objectKey filter; provider lookup also supplies integrationMethod.
 The normal summary array contains zero or one profile, including retired/manual profiles.
 Exact committed retries return current committed state without repeating effects for
 90 days; changed request-key reuse conflicts permanently. Current source/grant/integration
@@ -372,7 +372,7 @@ Source deletion, operator replacement, ingestion configuration removal/rebinding
 grant/member revocation and user/partnership authority changes advance an internal source
 revision and acquisition boundary. Producers never read or supply that revision.
 These authority changes conservatively invalidate imported assertions for the source;
-manual components remain eligible. Regranting or returning to the same domain does not
+manual components remain eligible. Regranting or reenabling the same provider method does not
 revive old imports. Explicit
 revocation is immediate in authoritative reads; the 30-day maximum expiry bounds abandoned
 producer cleanup. Normal anonymous discovery cache limits still apply pending B09 fan-out.

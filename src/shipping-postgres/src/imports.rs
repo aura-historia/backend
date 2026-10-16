@@ -146,27 +146,21 @@ struct ImportScope {
     revision: i64,
     actor: String,
     integration_method: Option<String>,
-    integration_domain: Option<String>,
 }
 impl ImportScope {
     fn owner(&self) -> Vec<u8> {
         hash(self.actor.as_bytes())
     }
     fn producer(&self) -> Result<Vec<u8>, ShippingError> {
-        producer_hash(
-            &self.actor,
-            &self.integration_method,
-            &self.integration_domain,
-        )
+        producer_hash(&self.actor, &self.integration_method)
     }
 }
 pub(crate) fn producer_hash(
     actor: &str,
     method: &Option<String>,
-    domain: &Option<String>,
 ) -> Result<Vec<u8>, ShippingError> {
     Ok(hash(
-        serde_json::to_vec(&json!([actor, method, domain])).map_err(invalid)?,
+        serde_json::to_vec(&json!([actor, method])).map_err(invalid)?,
     ))
 }
 #[derive(FromRow)]
@@ -249,16 +243,13 @@ impl Repository<'_> {
         if write.acquired_at < changed_at || write.acquired_at > OffsetDateTime::now_utc() {
             return Err(ShippingError::ImportAuthorityStale);
         }
-        let (method, domain) = match &write.integration {
-            DeliveryIntegration::Source => (None, None),
-            DeliveryIntegration::Provider { method, domain } => (
-                Some(method.as_str().to_owned()),
-                Some(domain.as_str().to_owned()),
-            ),
+        let method = match &write.integration {
+            DeliveryIntegration::Source => None,
+            DeliveryIntegration::Provider { method } => Some(method.as_str().to_owned()),
         };
         let eligible: bool = sqlx::query_scalar(
-            "SELECT CASE WHEN $2::text IS NULL THEN NOT EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method IN ('SHOPIFY','WOOCOMMERCE')) ELSE EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method=$2) AND CASE $2 WHEN 'SHOPIFY' THEN EXISTS(SELECT 1 FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id=$1 AND domain=$3) WHEN 'WOOCOMMERCE' THEN EXISTS(SELECT 1 FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1 AND shipping_integration_domain=$3) ELSE false END END"
-        ).bind(source.into_uuid()).bind(&method).bind(&domain).fetch_one(&mut *self.0).await.map_err(sql_error)?;
+            "SELECT CASE WHEN $2::text IS NULL THEN NOT EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method IN ('SHOPIFY','WOOCOMMERCE')) ELSE $2 IN ('SHOPIFY','WOOCOMMERCE') AND EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method=$2) END"
+        ).bind(source.into_uuid()).bind(&method).fetch_one(&mut *self.0).await.map_err(sql_error)?;
         if !eligible {
             return Err(ShippingError::ImportAuthorityStale);
         }
@@ -266,7 +257,6 @@ impl Repository<'_> {
             revision,
             actor: shipping_service::use_cases::import_actor(context),
             integration_method: method,
-            integration_domain: domain,
         })
     }
     async fn signal(
@@ -359,7 +349,7 @@ impl ShippingImportAccess for Repository<'_> {
                 }
             }
             ShippingImportOperation::ReplaceProfile(c) => {
-                let row=sqlx::query_as::<_,OwnerRow>("SELECT i.owner_hash,i.source_revision,i.sequence,p.verified_at FROM shipping_profile_import_state i JOIN shipping_profiles p USING(shipping_profile_id) WHERE i.shipping_profile_id=$1 AND i.listing_source_id=$2 AND p.integration_method IS NOT DISTINCT FROM $3 AND p.integration_domain IS NOT DISTINCT FROM $4 FOR UPDATE OF i,p").bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).bind(&scope.integration_domain).fetch_optional(&mut *self.0).await.map_err(sql_error)?;
+                let row=sqlx::query_as::<_,OwnerRow>("SELECT i.owner_hash,i.source_revision,i.sequence,p.verified_at FROM shipping_profile_import_state i JOIN shipping_profiles p USING(shipping_profile_id) WHERE i.shipping_profile_id=$1 AND i.listing_source_id=$2 AND p.integration_method IS NOT DISTINCT FROM $3 FOR UPDATE OF i,p").bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).fetch_optional(&mut *self.0).await.map_err(sql_error)?;
                 check_owner(row, true, &owner, write, scope.revision, false)?;
             }
             ShippingImportOperation::ProfileLifecycle { command: c, .. } => {
@@ -379,8 +369,8 @@ impl ShippingImportAccess for Repository<'_> {
                     matches!(op, ShippingImportOperation::ClearDefault(_)),
                 )?;
                 if let ShippingImportOperation::AssignDefault(c) = op {
-                    let compatible:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shipping_profiles p WHERE p.shipping_profile_id=$1 AND p.listing_source_id=$2 AND p.current_source_id=$2 AND p.lifecycle='ACTIVE' AND p.integration_method IS NOT DISTINCT FROM $3 AND p.integration_domain IS NOT DISTINCT FROM $4 AND (p.expires_at IS NULL OR p.expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision)))")
-                        .bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).bind(&scope.integration_domain).fetch_one(&mut *self.0).await.map_err(sql_error)?;
+                    let compatible:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shipping_profiles p WHERE p.shipping_profile_id=$1 AND p.listing_source_id=$2 AND p.current_source_id=$2 AND p.lifecycle='ACTIVE' AND p.integration_method IS NOT DISTINCT FROM $3 AND (p.expires_at IS NULL OR p.expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision)))")
+                        .bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).fetch_one(&mut *self.0).await.map_err(sql_error)?;
                     if !compatible {
                         return Err(ShippingError::ImportAuthorityStale);
                     }
@@ -461,7 +451,7 @@ impl ShippingImportAccess for Repository<'_> {
                 if let ShippingImportOperation::CreateProfile { .. } = op {
                     sqlx::query("INSERT INTO shipping_profile_import_state(shipping_profile_id,listing_source_id,producer_hash,object_hash,owner_hash,source_revision,sequence) VALUES($1,$2,$3,$4,$5,$6,$7)")
                         .bind(id.into_uuid()).bind(source.into_uuid()).bind(&producer).bind(hash(write.object_key.as_ref().ok_or(ShippingError::InvalidInput)?)).bind(&owner).bind(scope.revision).bind(write.sequence as i64).execute(&mut *self.0).await.map_err(sql_error)?;
-                    sqlx::query("UPDATE shipping_profiles SET integration_method=$2,integration_domain=$3 WHERE shipping_profile_id=$1").bind(id.into_uuid()).bind(&scope.integration_method).bind(&scope.integration_domain).execute(&mut *self.0).await.map_err(sql_error)?;
+                    sqlx::query("UPDATE shipping_profiles SET integration_method=$2 WHERE shipping_profile_id=$1").bind(id.into_uuid()).bind(&scope.integration_method).execute(&mut *self.0).await.map_err(sql_error)?;
                 }
                 sqlx::query("UPDATE shipping_profile_import_state SET owner_hash=$2,source_revision=CASE WHEN $6 THEN source_revision ELSE $3 END,sequence=$4,observation_revision=observation_revision+$5 WHERE shipping_profile_id=$1")
                     .bind(id.into_uuid()).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(matches!(op, ShippingImportOperation::ProfileLifecycle { .. })).execute(&mut *self.0).await.map_err(sql_error)?;

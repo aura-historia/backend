@@ -65,7 +65,8 @@ They never create/restore listings or edit identity, text, pricing, images or Au
 A missing configuration means source-authored default inheritance. A retained provider
 configuration with no selection means unresolved assignment and evaluates without an
 inherited policy; failed or uninitialized lookup must retain that state. Integration
-scope is source-authored or the explicit provider method/domain belonging to this source.
+scope is source-authored or the enabled provider method within this source. Native producers push their own typed
+shipping data; shipping configuration contains no provider domain or provider-fetch instruction.
 Class/variant codes are opaque within that scope. Changing integration requires deliberate
 replacement after assertion removal, never relabeling retained facts. No Aura taxonomy or
 first-priced variant establishes shipping membership.

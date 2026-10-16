@@ -484,7 +484,6 @@ mod tests {
         let source = listing_source_core::ListingSourceId::new();
         let provider = DeliveryIntegration::Provider {
             method: listing_source_core::ListingIngestionMethod::Shopify,
-            domain: listing_source_core::Domain::try_from("synthetic.myshopify.com").unwrap(),
         };
         let pending = ProductListingDeliveryPatch {
             integration: provider.clone(),

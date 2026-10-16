@@ -2,7 +2,7 @@
 use application::error::{BoxError, box_error};
 use geo::{GeographicDescription, data::geography_data::GeographicDescriptionData};
 use geo_service::resolution::{ResolutionReader, ResolutionSubject, RetentionPurpose, ScopeKind};
-use listing_source_core::{ListingIngestionMethod, ListingSourceId};
+use listing_source_core::ListingSourceId;
 use party_core::{party_id::PartyId, party_location::*, party_location_id::PartyLocationId};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
@@ -88,15 +88,12 @@ struct ListingRow {
     delivery_fresh_until: Option<OffsetDateTime>,
     delivery_expires_at: Option<OffsetDateTime>,
     enabled_methods: Vec<String>,
-    shopify_domain: Option<String>,
-    woocommerce_domain: Option<String>,
 }
 #[derive(FromRow)]
 struct ProfileRow {
     #[sqlx(flatten)]
     profile: super::ProfileRow,
     integration_method: Option<String>,
-    integration_domain: Option<String>,
     verified_at: OffsetDateTime,
     fresh_until: Option<OffsetDateTime>,
     expires_at: Option<OffsetDateTime>,
@@ -144,11 +141,8 @@ impl AssessmentReader for Reader<'_> {
         let rows = sqlx::query_as::<_, ListingRow>(r#"
             SELECT l.product_listing_id,l.listing_source_id,l.version,l.lifecycle,l.delivery_configuration,s.version AS source_revision,s.operator_party_id,
                 l.delivery_verified_at,l.delivery_fresh_until,l.delivery_expires_at,
-                ARRAY(SELECT ingestion_method FROM listing_source_ingestion_methods m WHERE m.listing_source_id=l.listing_source_id) AS enabled_methods,
-                sh.domain AS shopify_domain,w.shipping_integration_domain AS woocommerce_domain
+                ARRAY(SELECT ingestion_method FROM listing_source_ingestion_methods m WHERE m.listing_source_id=l.listing_source_id) AS enabled_methods
             FROM product_listings l JOIN listing_sources s USING(listing_source_id)
-            LEFT JOIN listing_source_shopify_ingestion_configurations sh USING(listing_source_id)
-            LEFT JOIN listing_source_woocommerce_ingestion_configurations w USING(listing_source_id)
             WHERE l.product_listing_id=ANY($1)
         "#).bind(ids.iter().map(|i| i.into_uuid()).collect::<Vec<_>>()).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut listings = Vec::new();
@@ -171,17 +165,8 @@ impl AssessmentReader for Reader<'_> {
             }
             let integration_current = match delivery.integration() {
                 DeliveryIntegration::Source => true,
-                DeliveryIntegration::Provider { method, domain } => {
+                DeliveryIntegration::Provider { method } => {
                     row.enabled_methods.iter().any(|m| m == method.as_str())
-                        && match method {
-                            ListingIngestionMethod::Shopify => {
-                                row.shopify_domain.as_deref() == Some(domain.as_str())
-                            }
-                            ListingIngestionMethod::Woocommerce => {
-                                row.woocommerce_domain.as_deref() == Some(domain.as_str())
-                            }
-                            _ => false,
-                        }
                 }
             };
             let assertion = if has_configuration {
@@ -248,21 +233,18 @@ impl AssessmentReader for Reader<'_> {
         }
         let rows = sqlx::query_as::<_, ProfileRow>(r#"
             SELECT shipping_profile_id,listing_source_id,management_revision,terms_revision,lifecycle,name,attributed_party_id,terms,
-                integration_method,integration_domain,verified_at,fresh_until,expires_at
+                integration_method,verified_at,fresh_until,expires_at
             FROM shipping_profiles p WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision))
         "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut profiles = Vec::new();
         for row in rows {
             let view = row.profile.view().map_err(invalid)?;
-            let integration = match (row.integration_method, row.integration_domain) {
-                (None, None) => DeliveryIntegration::Source,
-                (Some(method), Some(domain)) => {
-                    shipping_json::listing_delivery::decode_integration(
-                        serde_json::json!({"kind":"PROVIDER","method":method,"domain":domain}),
-                    )
-                    .map_err(invalid_box)?
-                }
-                _ => return Err(corrupt()),
+            let integration = match row.integration_method {
+                None => DeliveryIntegration::Source,
+                Some(method) => shipping_json::listing_delivery::decode_integration(
+                    serde_json::json!({"kind":"PROVIDER","method":method}),
+                )
+                .map_err(invalid_box)?,
             };
             profiles.push(ProfileDependency {
                 profile: ShippingProfile::rehydrate(

@@ -531,10 +531,8 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
     let source = seed_source(&pool).await;
     let key = listing(&pool, source, "provider-product").await;
     sqlx::query("INSERT INTO listing_source_ingestion_methods(listing_source_id,ingestion_method) VALUES($1,'SHOPIFY')").bind(source.into_uuid()).execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'synthetic.myshopify.com')").bind(source.into_uuid()).execute(&pool).await.unwrap();
     let integration = DeliveryIntegration::Provider {
         method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: listing_source_core::Domain::try_from("synthetic.myshopify.com").unwrap(),
     };
     let pending = apply(
         &pool,
@@ -567,8 +565,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
         ProfileSelection::SuppressInheritance
     ));
     let foreign_integration = DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: listing_source_core::Domain::try_from("foreign.myshopify.com").unwrap(),
+        method: listing_source_core::ListingIngestionMethod::Woocommerce,
     };
     assert!(matches!(
         changer(&pool)
@@ -670,7 +667,16 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
         .selection()
         .is_none()
     );
-    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'WOOCOMMERCE')")
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     // Reliable removal is possible after the old integration identity becomes ineligible.
     let removal = changer(&pool)
         .execute(
@@ -686,8 +692,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
         .unwrap();
     assert_eq!(ChangeOutcome::Unchanged, removal.outcome);
     let new_integration = DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: listing_source_core::Domain::try_from("replacement.myshopify.com").unwrap(),
+        method: listing_source_core::ListingIngestionMethod::Woocommerce,
     };
     let inputs = shipping_core::inputs::ListingRateInputs::new(
         None,
@@ -1407,17 +1412,13 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations(listing_source_id,domain) VALUES($1,'original.myshopify.com')").bind(source.into_uuid()).execute(&pool).await.unwrap();
-    let scope = |domain: &str| DeliveryIntegration::Provider {
-        method: listing_source_core::ListingIngestionMethod::Shopify,
-        domain: domain.try_into().unwrap(),
-    };
+    let scope = |method| DeliveryIntegration::Provider { method };
     let scoped_metadata = |integration, sequence, key: &str| {
         let mut metadata = import_metadata(sequence, key);
         metadata.integration = integration;
         metadata
     };
-    let original = scope("original.myshopify.com");
+    let original = scope(listing_source_core::ListingIngestionMethod::Shopify);
     let creator = CreateShippingProfileHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         shipping_postgres::SqlxShippingRepositoryFactory,
@@ -1452,14 +1453,23 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
         .execute(&context(), assignment.clone())
         .await
         .unwrap();
-    sqlx::query("UPDATE listing_source_shopify_ingestion_configurations SET domain='replacement.myshopify.com' WHERE listing_source_id=$1").bind(source.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'WOOCOMMERCE')")
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(matches!(
         changer(&pool).execute(&context(), assignment).await,
         Err(ProductListingDeliveryError::Import(
             shipping_service::ShippingError::ImportAuthorityStale
         ))
     ));
-    let replacement = scope("replacement.myshopify.com");
+    let replacement = scope(listing_source_core::ListingIngestionMethod::Woocommerce);
     let mut removal = scoped_metadata(replacement.clone(), 1, "remove-old-membership");
     removal.observation = None;
     let cleared = changer(&pool)
@@ -1528,4 +1538,69 @@ async fn integration_replacement_requires_new_acquisition_and_explicit_owned_com
     let d = dependencies(&pool, &[applied.product_listing_id]).await;
     assert!(d.listings[0].integration_current);
     assert_eq!(new_profile.id, d.profiles[0].profile.id());
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn shipping_migration_removes_legacy_domains_without_changing_listing_identity() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let profile = create_profile(&pool, source, 8000).await;
+    let key = listing(&pool, source, "legacy-provider-shipping").await;
+    let before = view(&pool, &key).await;
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    // Restore the relevant prior schema inside this rolled-back, isolated test transaction.
+    sqlx::raw_sql("ALTER TABLE shipping_profiles DROP CONSTRAINT shipping_profiles_integration_method_valid; ALTER TABLE shipping_profiles ADD COLUMN integration_domain text; ALTER TABLE shipping_profiles ADD CONSTRAINT shipping_profiles_integration_pair CHECK(true); ALTER TABLE listing_source_woocommerce_ingestion_configurations ADD COLUMN shipping_integration_domain text;")
+        .execute(tx.connection()).await.unwrap();
+    sqlx::query("UPDATE shipping_profiles SET integration_method='WOOCOMMERCE',integration_domain='synthetic.example' WHERE shipping_profile_id=$1")
+        .bind(profile.id.into_uuid()).execute(tx.connection()).await.unwrap();
+    let legacy = serde_json::json!({
+        "schema":"LISTING_DELIVERY_V1","source_id":source.into_uuid().to_string(),
+        "integration":{"kind":"PROVIDER","method":"WOOCOMMERCE","domain":"synthetic.example"},
+        "selection":{"kind":"EXPLICIT","profile_id":profile.id.into_uuid().to_string()},
+        "rate_inputs":{"classes":null,"variants":null},
+        "shipping":{"kind":"INHERIT"},"collection":{"kind":"INHERIT"}
+    });
+    sqlx::query("UPDATE product_listings SET delivery_configuration=$2,delivery_verified_at=now() WHERE product_listing_id=$1")
+        .bind(before.product_listing_id.into_uuid()).bind(legacy).execute(tx.connection()).await.unwrap();
+    let migration =
+        include_str!("../../../migrations/20261015120000_shipping_incremental_imports.sql");
+    let upgrade = migration
+        .split("-- Existing source/configuration lifecycle")
+        .next()
+        .unwrap();
+    sqlx::raw_sql(upgrade)
+        .execute(tx.connection())
+        .await
+        .unwrap();
+    let stored = SqlxProductListingRepositoryFactory
+        .in_transaction(&mut tx)
+        .find_by_id(before.product_listing_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.version, stored.version);
+    let delivery = stored.value.delivery().unwrap();
+    assert_eq!(
+        &DeliveryIntegration::Provider {
+            method: listing_source_core::ListingIngestionMethod::Woocommerce
+        },
+        delivery.integration()
+    );
+    assert_eq!(
+        Some(&ProfileSelection::Explicit(profile.id)),
+        delivery.selection()
+    );
+    let value: serde_json::Value = sqlx::query_scalar(
+        "SELECT delivery_configuration FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(before.product_listing_id.into_uuid())
+    .fetch_one(tx.connection())
+    .await
+    .unwrap();
+    assert_eq!("LISTING_DELIVERY_V2", value["schema"]);
+    assert!(value["integration"].get("domain").is_none());
+    let obsolete: i64 = sqlx::query_scalar("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND ((table_name='shipping_profiles' AND column_name='integration_domain') OR (table_name='listing_source_woocommerce_ingestion_configurations' AND column_name='shipping_integration_domain'))")
+        .fetch_one(tx.connection()).await.unwrap();
+    assert_eq!(0, obsolete);
+    drop(tx);
 }

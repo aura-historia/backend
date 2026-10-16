@@ -195,15 +195,10 @@ impl ProductListingDeliveryReferences for References<'_> {
         .await
         .map_err(fail)?;
         let owner = PartyId::try_from(owner).map_err(fail)?;
-        if let DeliveryIntegration::Provider { method, domain } = d.integration() {
+        if let DeliveryIntegration::Provider { method } = d.integration() {
             let enabled:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method=$2)")
                 .bind(source.into_uuid()).bind(method.as_str()).fetch_one(self.0.connection()).await.map_err(fail)?;
-            let current:Option<String>=match method {
-                listing_source_core::ListingIngestionMethod::Shopify=>sqlx::query_scalar("SELECT domain FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id=$1 FOR SHARE").bind(source.into_uuid()).fetch_optional(self.0.connection()).await.map_err(fail)?,
-                listing_source_core::ListingIngestionMethod::Woocommerce=>sqlx::query_scalar::<_,Option<String>>("SELECT shipping_integration_domain FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1 FOR SHARE").bind(source.into_uuid()).fetch_optional(self.0.connection()).await.map_err(fail)?.flatten(),
-                _=>None,
-            };
-            if !enabled || current.as_deref() != Some(domain.as_str()) {
+            if !enabled {
                 return Err(ProductListingDeliveryError::IntegrationMismatch);
             }
         }
@@ -215,19 +210,18 @@ impl ProductListingDeliveryReferences for References<'_> {
             },_=>None,
         };
         let base = if let Some(id) = profile {
-            let row:Option<(String,Option<String>,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,integration_domain,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 AND (expires_at IS NULL OR expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=shipping_profiles.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(shipping_profiles.listing_source_id,i.source_revision)) FOR SHARE")
+            let row:Option<(String,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 AND (expires_at IS NULL OR expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=shipping_profiles.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(shipping_profiles.listing_source_id,i.source_revision)) FOR SHARE")
                 .bind(id).bind(source.into_uuid()).fetch_optional(self.0.connection()).await.map_err(fail)?;
-            let (lifecycle, method, domain, terms) =
+            let (lifecycle, method, terms) =
                 row.ok_or(ProductListingDeliveryError::ReferenceIneligible)?;
             if lifecycle != "ACTIVE" {
                 return Err(ProductListingDeliveryError::ReferenceIneligible);
             }
             let same = match d.integration() {
-                DeliveryIntegration::Source => method.is_none() && domain.is_none(),
-                DeliveryIntegration::Provider {
-                    method: m,
-                    domain: d,
-                } => method.as_deref() == Some(m.as_str()) && domain.as_deref() == Some(d.as_str()),
+                DeliveryIntegration::Source => method.is_none(),
+                DeliveryIntegration::Provider { method: m } => {
+                    method.as_deref() == Some(m.as_str())
+                }
             };
             if !same {
                 return Err(ProductListingDeliveryError::IntegrationMismatch);
