@@ -117,6 +117,10 @@ async fn main() {
     init_logging();
 
     async {
+        // Fail fast on missing Vertex AI settings before starting Docker or touching the database.
+        let runtime_config = CrawlerRuntimeConfig::from_env()
+            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
             scraper_interval: Duration::from_secs(30),
@@ -188,8 +192,6 @@ async fn main() {
             "Crawler dev seeded demo ListingSources. Press Ctrl+C to stop."
         );
 
-        let runtime_config = CrawlerRuntimeConfig::from_env()
-            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
         let models = CrawlerLlmModels::vertex_ai(&runtime_config);
         crawler::runtime::build(
             pool,
