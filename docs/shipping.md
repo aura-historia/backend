@@ -122,6 +122,8 @@ source. Producers acquire and interpret provider data externally, then push type
 rates, classifications and memberships through Aura APIs. Backend shipping paths neither
 accept provider domains nor perform provider HTTP requests. Provider addresses are not
 shipping identity. The V2 persistence migration removes obsolete V1 domain metadata.
+Immutable event readers retain strict V1 decoding and discard its obsolete metadata; new
+shipping writes and current configuration use V2.
 Profile selection must match the source/provider scope. Opaque class/variant identities
 inherit that scope; edits cannot change the provider method while retaining old facts.
 A provider assignment without a reliable selection keeps inheritance blocked. Clearing it
