@@ -32,7 +32,10 @@
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
-//! Scraped products are written to `scraped_products.json` instead of calling the ProductListing upsert use case.
+//! The pipeline is wired by [`crawler::runtime`], shared with `server`. This binary only supplies
+//! the demo ListingSources, short cron intervals, the tokenless local review console, and a file
+//! sink: changed raw observations are written to `scraped_raw_observations.json` instead of
+//! calling the ProductListing raw-capture use case.
 
 use listing_source_core::ListingSourceId;
 use std::env;
@@ -40,40 +43,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{
     DEMO_DB_NAME, bootstrap_local_database,
     crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl, demo_db_url,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
-use crawler::review::repository::CrawlerReviewRepository;
-use crawler::review::server::{ReviewServer, ReviewServerConfig};
-use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
-use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
-use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
-use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
-use crawler::scraper::scraper_service::{
-    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+use crawler::review::server::ReviewServerConfig;
+use crawler::runtime::{
+    CrawlerLlmModels, CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations,
 };
-use crawler::service::crawler_domain_configuration::{
-    CrawlerDomainAdministrationHandler, CrawlerDomainConfigurationRepository,
-};
-use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
+use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
+use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
-use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
-use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
-use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
-use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
-use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
-use crawler::spider::discovery::website_spider::SpiderImpl;
-use crawler::spider::local_lock::LocalLockManager;
-use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 
 use tracing::{Instrument, error, info};
 
@@ -92,18 +78,6 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
     ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
         Ok(self.listing_sources.clone())
     }
-}
-
-fn crawler_review_required() -> bool {
-    env::var("CRAWLER_REVIEW_REQUIRED")
-        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
-        .unwrap_or(false)
-}
-
-fn crawler_review_url_pattern_required() -> bool {
-    env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
-        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
-        .unwrap_or(false)
 }
 
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
@@ -137,24 +111,15 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     .collect()
 }
 
-// ---------------------------------------------------------------------------
-// CLI flag parsing
-// ---------------------------------------------------------------------------
-
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
     async {
-        let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
-            Ok(config) => config,
-            Err(error) => {
-                error!(%error, "Failed to load Vertex AI configuration");
-                return;
-            }
-        };
-        let vertex_ai_models = CrawlerVertexAiModels::from_env();
+        // Fail fast on missing Vertex AI settings before starting Docker or touching the database.
+        let runtime_config = CrawlerRuntimeConfig::from_env()
+            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
 
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
@@ -183,126 +148,9 @@ async fn main() {
             }
         };
 
-        if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
-            error!(error = ?error, "Failed to apply database migrations");
-            return;
-        }
-        info!("Database migrations applied successfully");
+        apply_local_migrations(&pool).await;
 
-        let review_required = crawler_review_required();
-        let url_pattern_review_required = crawler_review_url_pattern_required();
-        let review_config = ReviewServerConfig::from_env()
-            .expect("CRAWLER_REVIEW_BIND_ADDR must be host:port")
-            .allow_local_mutations_without_token();
-        let review_repo = CrawlerReviewRepository::new(pool.clone());
-
-        info!(
-            llm_provider = "vertex_ai",
-            schema_model = %vertex_ai_models.product_schema,
-            url_classification_model = %vertex_ai_models.url_classification,
-            review_required,
-            url_pattern_review_required,
-            review_bind_addr = %review_config.bind_addr,
-            "Wiring crawler dependencies..."
-        );
-        let llm_governor = Arc::new(CrawlerLlmGovernor::new(
-            CrawlerLlmRateLimitConfig::from_env(),
-        ));
-
-        let normalization_svc = ProductListingNormalizationServiceImpl::new();
-
-        let create_schema_llm =
-            match vertex_ai_config.create_model(vertex_ai_models.product_schema.clone()) {
-                Ok(model) => model,
-                Err(error) => {
-                    error!(%error, "Failed to initialize Vertex AI model for schema generation");
-                    return;
-                }
-            };
-        let single_schema_llm = match vertex_ai_config
-            .create_model(vertex_ai_models.product_schema.clone())
-        {
-            Ok(model) => model,
-            Err(error) => {
-                error!(%error, "Failed to initialize Vertex AI model for fresh schema generation");
-                return;
-            }
-        };
-
-        let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
-            Box::new(pool.clone()),
-        )));
-        let schema_svc = ProductListingSchemaServiceImpl::new(
-            create_schema_llm,
-            single_schema_llm,
-            schema_repo,
-            Some(Arc::clone(&llm_governor)),
-        );
-        let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(Box::leak(
-            Box::new(pool.clone()),
-        )));
-
-        let scraper_candidates = Box::new(
-            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
-                pool.clone(),
-                config.scraper_max_llm_calls_per_listing_source,
-            ),
-        );
-
-        let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
-            config.scraper_auto_throttle_config(),
-        ));
-        let scraper_svc = Box::new(
-            ScraperServiceImpl::new_with_schema_seed_pages(
-                fetcher,
-                Box::new(schema_svc),
-                Box::new(normalization_svc),
-                Arc::new(
-                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
-                        pool.clone(),
-                        config.scraper_max_llm_calls_per_listing_source,
-                    ),
-                ),
-                config.scraper_schema_seed_pages,
-                config.scraper_max_llm_calls_per_listing_source,
-            )
-            .with_removed_page_schema_repository(removed_page_schema_repo)
-            .with_review_gate(review_repo.clone(), review_required),
-        );
-
-        let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
-        let url_pattern_repo = Box::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
-
-        let classification_llm =
-            match vertex_ai_config.create_model(vertex_ai_models.url_classification.clone()) {
-                Ok(model) => model,
-                Err(error) => {
-                    error!(%error, "Failed to initialize Vertex AI model for URL classification");
-                    return;
-                }
-            };
-        let class_svc = Box::new(UrlClassificationServiceImpl::new(
-            classification_llm,
-            Some(Arc::clone(&llm_governor)),
-        ));
-        let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
-            Arc::new(*url_pattern_repo),
-            class_svc,
-            review_repo.clone(),
-            url_pattern_review_required,
-        ));
-
-        let spider_svc = Box::new(SpiderServiceImpl::new(
-            SpiderServiceConfig {
-                db_batch_size: 40,
-                ..Default::default()
-            },
-            Box::new(SpiderImpl::new(config.spider_website_config())),
-            pattern_svc,
-            url_metadata_repo.clone(),
-        ));
-        let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
-
+        // Seed the demo ListingSources and their crawler domains before the first cron cycle.
         let listing_source_source = Box::new(DemoListingSourceSource {
             listing_sources: demo_listing_sources(),
         });
@@ -333,57 +181,35 @@ async fn main() {
                 return;
             }
         }
-        let raw_capture = Box::new(FileProductListingRawCaptureService::new(
-            "scraped_raw_observations.json",
-        ));
 
-        let cron_job = CrawlerCronJob::new(
-            config,
-            Arc::new(LocalLockManager::new()),
-            spider_candidates,
-            spider_svc,
-            scraper_candidates,
-            scraper_svc,
-            listing_source_registration,
-            raw_capture,
-        );
+        let review_config = ReviewServerConfig::from_env()
+            .expect("CRAWLER_REVIEW_BIND_ADDR must be host:port")
+            .allow_local_mutations_without_token();
 
         info!(
             listing_source_count = demo_listing_sources().len(),
-            llm_provider = "vertex_ai",
-            schema_model = %vertex_ai_models.product_schema,
-            url_classification_model = %vertex_ai_models.url_classification,
-            review_required,
-            url_pattern_review_required,
-            review_bind_addr = %review_config.bind_addr,
             review_local_mutations_without_token = review_config.local_mutations_without_token(),
-            "Crawler dev is fully initialized. Starting background tasks. Press Ctrl+C to stop."
+            "Crawler dev seeded demo ListingSources. Press Ctrl+C to stop."
         );
-        let review_server = ReviewServer::new(
-            review_repo,
-            Arc::new(CrawlerDomainAdministrationHandler::new(
-                domain_configuration,
-            )),
-            review_config,
-        );
-        let review_handle = tokio::spawn(async move {
-            review_server
-                .run()
-                .await
-                .expect("crawler review server failed")
-        });
-        let cron_handle = tokio::spawn(async move {
-            cron_job.run_loop().await;
-        });
 
-        tokio::select! {
-            result = review_handle => {
-                result.expect("crawler review server task panicked");
-            }
-            result = cron_handle => {
-                result.expect("crawler cron task panicked");
-            }
-        }
+        let models = CrawlerLlmModels::vertex_ai(&runtime_config);
+        crawler::runtime::build(
+            pool,
+            CrawlerRuntimeProfile {
+                cron_config: config,
+                review_config,
+                listing_source_source: Box::new(DemoListingSourceSource {
+                    listing_sources: demo_listing_sources(),
+                }),
+                raw_capture: Box::new(FileProductListingRawCaptureService::new(
+                    "scraped_raw_observations.json",
+                )),
+            },
+            runtime_config,
+            models,
+        )
+        .run()
+        .await;
     }
     .instrument(tracing::info_span!(
         "crawler_dev",
