@@ -12,8 +12,7 @@ pub(super) fn normalize_page_classification_text(value: &str) -> String {
         .to_lowercase()
 }
 
-fn selected_texts(selector: &CssSelector, html: &str) -> Option<Vec<String>> {
-    let parsed = Html::parse_document(html);
+fn selected_texts(selector: &CssSelector, html: &Html) -> Option<Vec<String>> {
     let rule = ExtractionRule {
         selector: selector.clone(),
         additional_selectors: vec![],
@@ -21,14 +20,14 @@ fn selected_texts(selector: &CssSelector, html: &str) -> Option<Vec<String>> {
         cardinality: ExtractionCardinality::All,
     };
 
-    rule.apply(&parsed).ok()
+    rule.apply(html).ok()
 }
 
 /// Normalized selector texts that contain `text`.
 pub(super) fn page_classification_text_matches(
     selector: &CssSelector,
     text: &str,
-    html: &str,
+    html: &Html,
 ) -> Vec<String> {
     let expected = normalize_page_classification_text(text);
     if expected.is_empty() {
@@ -45,7 +44,7 @@ pub(super) fn page_classification_text_matches(
 pub(super) fn page_classification_regex_matches(
     selector: &CssSelector,
     pattern: &str,
-    html: &str,
+    html: &Html,
 ) -> Vec<String> {
     if pattern.trim().is_empty() {
         return Vec::new();
@@ -60,7 +59,7 @@ pub(super) fn page_classification_regex_matches(
         .collect()
 }
 
-fn normalized_selected_texts(selector: &CssSelector, html: &str) -> Vec<String> {
+fn normalized_selected_texts(selector: &CssSelector, html: &Html) -> Vec<String> {
     selected_texts(selector, html)
         .unwrap_or_default()
         .iter()

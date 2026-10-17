@@ -3,4 +3,4 @@ mod page_match;
 mod removed;
 
 pub use listing_sources_removed::ListingSourceRemovedPageSchema;
-pub use removed::RemovedPageSchema;
+pub use removed::{RemovedPageMatch, RemovedPageSchema};

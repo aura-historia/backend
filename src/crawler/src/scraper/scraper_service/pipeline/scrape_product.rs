@@ -1,10 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::scraper::normalization::product_normalization_service::{
-    ProductNormalizationContext, prepare_product,
-};
+use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
+use crate::scraper::normalization::product_normalization_service::ProductNormalizationContext;
 use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
@@ -13,7 +10,6 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
-use crate::scraper::scraper_service::extraction::schema_candidates::collect_applicable_candidates;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
@@ -117,32 +113,38 @@ impl ScraperServiceImpl {
         Ok(schemas)
     }
 
-    /// Returns the removed-page notices the stored schemas select from the page; empty
-    /// when no stored schema matches.
+    /// Returns the stored removed-page schemas that match the page, with the notices
+    /// they selected; empty when none matches. The page is parsed once for all of them.
     #[allow(clippy::result_large_err)]
-    async fn removed_page_notices(
+    async fn removed_page_matches(
         &self,
         listing_source_id: &ListingSourceId,
         html: &str,
-    ) -> Result<Vec<String>, ScraperError> {
-        Ok(self
-            .removed_page_schemas_for(listing_source_id)
-            .await?
-            .iter()
-            .flat_map(|schema| schema.matched_notices(html))
+    ) -> Result<Vec<RemovedPageMatch>, ScraperError> {
+        let schemas = self.removed_page_schemas_for(listing_source_id).await?;
+        if schemas.is_empty() {
+            return Ok(Vec::new());
+        }
+        // `scraper::Html` is `!Send`; it is dropped before this function returns.
+        let parsed = scraper::Html::parse_document(html);
+        Ok(schemas
+            .into_iter()
+            .filter_map(|schema| schema.match_page(&parsed))
             .collect())
     }
 
-    /// Returns whether a cached product schema still deterministically prepares a
-    /// product from the page. Only reads the schema cache; it never generates schemas
-    /// or spends LLM budget.
+    /// Returns whether a cached product schema still extracts a product from the page
+    /// through the same candidate preparation the scraper uses for extraction. A
+    /// candidate whose title is a matched removed-page notice is that notice, not a
+    /// product. Only reads the schema cache; it never generates schemas or spends LLM
+    /// budget.
     #[allow(clippy::result_large_err)]
     async fn cached_schemas_extract_product(
         &self,
         listing_source_id: &ListingSourceId,
         html: &str,
-        removed_page_notices: &[String],
-        context: ProductNormalizationContext,
+        removed_page_matches: &[RemovedPageMatch],
+        context: &ProductNormalizationContext,
     ) -> Result<bool, ScraperError> {
         let Some(cached) = self
             .schema_service
@@ -152,32 +154,15 @@ impl ScraperServiceImpl {
             return Ok(false);
         };
 
-        Ok(page_has_product_evidence(
-            &cached.product_schemas,
-            html,
-            removed_page_notices,
-            &context,
-        ))
+        let prepared = self
+            .prepare_cached_candidates(&cached.product_schemas, html, context)
+            .await?;
+        Ok(prepared.candidates.iter().any(|candidate| {
+            !removed_page_matches
+                .iter()
+                .any(|matched| matched.is_notice(&candidate.raw.title))
+        }))
     }
-}
-
-/// A removed-page template match is only removal evidence while no cached schema
-/// still extracts a product that passes deterministic preparation. A candidate whose
-/// title is a matched removed-page notice is that notice, not a product.
-fn page_has_product_evidence(
-    schemas: &[ProductCssSelectorSchema],
-    html: &str,
-    removed_page_notices: &[String],
-    context: &ProductNormalizationContext,
-) -> bool {
-    let parsed = scraper::Html::parse_document(html);
-    collect_applicable_candidates(schemas, &parsed)
-        .candidates
-        .into_iter()
-        .filter(|candidate| {
-            !RemovedPageSchema::is_matched_notice(removed_page_notices, &candidate.raw.title)
-        })
-        .any(|candidate| prepare_product(candidate.raw, context.clone()).is_ok())
 }
 
 #[async_trait::async_trait]
@@ -349,16 +334,16 @@ impl ScraperServiceImpl {
         }
         let html = fetched.html;
 
-        let removed_page_notices = self.removed_page_notices(listing_source_id, &html).await?;
-        if !removed_page_notices.is_empty() {
+        let removed_page_matches = self.removed_page_matches(listing_source_id, &html).await?;
+        if !removed_page_matches.is_empty() {
             // Withdrawal needs unambiguous evidence: a removed-page template that also
             // matches a still-extractable product page preserves listing state.
             if self
                 .cached_schemas_extract_product(
                     listing_source_id,
                     &html,
-                    &removed_page_notices,
-                    ProductNormalizationContext {
+                    &removed_page_matches,
+                    &ProductNormalizationContext {
                         effective_url: effective_url.clone(),
                         source_record_key: source_record_key.to_owned(),
                         fallback_currency,

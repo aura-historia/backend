@@ -169,6 +169,113 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_
 }
 
 #[tokio::test]
+async fn should_mark_product_removed_when_container_level_removed_page_selector_matches() {
+    let id = listing_source_id();
+    let url = product_url();
+    // The stored removed-page selector picks the whole container, so the matched
+    // notice is the container text, while the cached schema reads the title from the
+    // not-found heading inside it.
+    let html = r#"<html><body><main id="mainCatCol">
+        <h1>Sorry, the page you're looking for couldn't be found</h1>
+        <div class="related"><span id="product-id">SKU-9</span>
+        <span id="state">In Stock</span><img src="/images/related.jpg"></div>
+        </main></body></html>"#;
+
+    let service = service(
+        fetcher_returning(html.to_string()),
+        schema_service_with_cached_schema(id),
+        MockProductListingNormalizationService::new(),
+        removed_repo_returning(removed_schema_set_for(
+            id,
+            "#mainCatCol",
+            "couldn't be found",
+        )),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut removed = removed_schema_set(id);
+    removed.removed_page_schemas = vec![RemovedPageSchema {
+        selector: CssSelector::from("#mainCatCol h1"),
+        text: None,
+        regex: Some(r"couldn't be found".to_string()),
+    }];
+
+    let service = service(
+        fetcher_returning(SOFT_404_HTML.to_string()),
+        schema_service_with_cached_schema(id),
+        MockProductListingNormalizationService::new(),
+        removed_repo_returning(removed),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_preserve_listing_when_product_image_needs_crawler_image_filtering() {
+    let id = listing_source_id();
+    let url = product_url();
+    // The image attribute carries a control character. The scraper's candidate
+    // preparation tolerates it (the URL join strips it or the candidate is dropped);
+    // the guard must judge the page the same way instead of treating the candidate
+    // as non-product.
+    let html = sample_html()
+        .replace(
+            r#"src="/images/chair-640x640.jpg""#,
+            "src=\"/images/chair\t640.jpg\"",
+        )
+        .replace(
+            "<main>",
+            r#"<div class="error-template" hidden>Page not found</div><main>"#,
+        );
+
+    let mut norm_svc = MockProductListingNormalizationService::new();
+    norm_svc.expect_normalize().never();
+
+    let service = service(
+        fetcher_returning(html),
+        schema_service_with_cached_schema(id),
+        norm_svc,
+        removed_repo_returning(removed_schema_set_for(
+            id,
+            ".error-template",
+            "Page not found",
+        )),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::SchemaClassificationRejected { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn should_preserve_listing_when_removed_page_schema_matches_extractable_product_page() {
     let id = listing_source_id();
     let url = product_url();
