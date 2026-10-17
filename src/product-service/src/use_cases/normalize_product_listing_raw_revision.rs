@@ -10,6 +10,7 @@ use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use product_listing_normalization::error::NormalizationFailureScope;
+use product_listing_normalization::shipping::ShippingQuickCheck;
 use product_listing_normalization::{
     ListingAvailabilityQuickCheck, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
     ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
@@ -20,6 +21,9 @@ use product_listing_service::canonical_product_listing_write::{
     CanonicalProductListingNonAuctionUpsert, CanonicalProductListingWriteError,
     CanonicalProductListingWriter,
 };
+use product_listing_service::crawler_shipping::{
+    ApplyCrawlerShippingUseCase, CrawlerShippingObservation,
+};
 use product_listing_service::ports::{
     ProductListingEventAppenderFactory, ProductListingRawRevisionId, ProductListingRawStreamId,
     ProductListingRepositoryFactory,
@@ -27,7 +31,7 @@ use product_listing_service::ports::{
 use std::time::Instant;
 use time::OffsetDateTime;
 
-pub const NORMALIZER_VERSION: u16 = 6;
+pub const NORMALIZER_VERSION: u16 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NormalizeProductListingRawRevisionMode {
@@ -169,6 +173,7 @@ pub trait NormalizeProductListingRawRevisionUseCase: Send + Sync {
 }
 
 pub struct NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
+    crawler_shipping: Option<std::sync::Arc<dyn ApplyCrawlerShippingUseCase>>,
     unit_of_work: U,
     raw_normalizations: W,
     products: R,
@@ -187,6 +192,7 @@ impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
         pending_streams: P,
     ) -> Self {
         Self {
+            crawler_shipping: None,
             unit_of_work,
             raw_normalizations,
             products,
@@ -194,6 +200,14 @@ impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
             pending_streams,
             normalizer: ProductListingRawValuesNormalizer::new(),
         }
+    }
+
+    pub fn with_crawler_shipping(
+        mut self,
+        shipping: std::sync::Arc<dyn ApplyCrawlerShippingUseCase>,
+    ) -> Self {
+        self.crawler_shipping = Some(shipping);
+        self
     }
 }
 
@@ -258,8 +272,15 @@ where
             {
                 continue;
             }
+            let mut shipping_observation = None;
             let completion = match self
-                .complete_work_in_transaction(&mut tx, work.head, revision, &normalized)
+                .complete_work_in_transaction(
+                    &mut tx,
+                    work.head,
+                    revision,
+                    &normalized,
+                    &mut shipping_observation,
+                )
                 .await
             {
                 Ok(completion) => completion,
@@ -284,6 +305,18 @@ where
                     NormalizeProductListingRawRevisionError::CommitTransactionFailed { source },
                 );
             }
+            // Shipping is optional and commits independently after the catalog and raw progress.
+            // Its command keeps the version from that transaction, even after a lost response.
+            if let (Some(shipping), Some(observation)) =
+                (&self.crawler_shipping, shipping_observation)
+            {
+                let raw_revision_id = observation.raw_revision_id;
+                let outcome = match shipping.execute(observation).await {
+                    Ok(outcome) => outcome,
+                    Err(error) => error.diagnostic_code(),
+                };
+                tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
+            }
             results.push(result);
         }
         StreamDrainResult::completed(results)
@@ -295,6 +328,7 @@ where
         head: ProductListingRawNormalizationHead,
         revision: crate::ports::ProductListingRawRevision,
         normalized: &ProductListingRawValuesNormalizationOutcome,
+        shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
     {
         match normalized {
@@ -413,6 +447,19 @@ where
                 );
                 completion.next_product_listing_id = Some(write.product_listing_id);
                 completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
+                if let ShippingQuickCheck::Resolved(assertions) = &resolved.shipping {
+                    *shipping_observation = Some(CrawlerShippingObservation {
+                        raw_revision_id: revision.product_listing_raw_revision_id,
+                        product_key:
+                            product_listing_core::product_listing_id::ProductListingKey::new(
+                                head.listing_source_id,
+                                resolved.source_listing_id.clone(),
+                            ),
+                        expected_version: write.version,
+                        acquired_at: revision.acquired_at,
+                        assertions: assertions.clone(),
+                    });
+                }
                 Ok(completion)
             }
         }
@@ -927,6 +974,7 @@ mod tests {
         input: ProductListingNormalizationInput,
     ) -> crate::ports::ProductListingRawRevision {
         crate::ports::ProductListingRawRevision {
+            acquired_at: None,
             product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
             product_listing_raw_stream_id: stream_id,
             revision,
@@ -1444,6 +1492,7 @@ mod tests {
                     Some(source_listing_id),
                 ),
                 revisions: VecDeque::from([crate::ports::ProductListingRawRevision {
+                    acquired_at: None,
                     product_listing_raw_revision_id: revision_id,
                     product_listing_raw_stream_id: stream_id,
                     revision: 1,
@@ -1532,6 +1581,7 @@ mod tests {
                     Some(source_listing_id),
                 ),
                 revisions: VecDeque::from([crate::ports::ProductListingRawRevision {
+                    acquired_at: None,
                     product_listing_raw_revision_id: revision_id,
                     product_listing_raw_stream_id: stream_id,
                     revision: 1,

@@ -25,6 +25,10 @@ pub struct ProductListingRawCaptureItem {
 }
 
 impl ProductListingRawCaptureItem {
+    pub fn acquired_at(mut self, acquired_at: time::OffsetDateTime) -> Self {
+        self.command.source_occurred_at = Some(acquired_at);
+        self
+    }
     pub fn crawler(
         listing_source_id: ListingSourceId,
         source_record_key: &str,

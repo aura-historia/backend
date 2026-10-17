@@ -10,6 +10,24 @@ A matching page hash and effective schema-set fingerprint can skip extraction. O
 
 Availability normalization is synchronous and deterministic in `product-listing-normalization`. Only a resolved `SoldOut` changes the crawler disposition. Description language may inherit title language only when the title itself supplied the detected language.
 
+Shipping interpretation runs in downstream raw normalization using the same pure crate. It
+combines item-specific `rawShipment`/`rawShipmentNote` text with description context;
+contradictory or unsupported delivery clauses veto the observation. Duration ranges
+remain complete text with their units and dispatch/delivery context.
+Selectors must exclude shared footers and site policies. Explicit phrases cover all 14
+catalog languages; phrase tables, language fixtures and input bounds are executable in
+[`shipping.rs`](../../src/product-listing-normalization/src/shipping.rs). Interpretation
+uses no LLM, interpretation agent or model fallback, and adds no schema-generation calls
+or native description ingestion.
+
+Successful page fetch time travels as the crawler capture's `source_occurred_at`, outside
+the content hash. Schema evaluation, normalization, capture retries and queue delivery keep
+that acquisition time. Historical captures without it remain readable and cannot establish
+shipping observations. Matching page/input hashes retain the existing capture deduplication:
+they do not advance shipping observation time. A new immutable raw revision can observe
+unchanged shipping assertions when other captured item content changed. See the
+[shipping contract](../shipping.md#deterministic-crawler-item-assertions) for application rules.
+
 ## Schema lifecycle
 
 Fresh generation begins only after cached candidates are exhausted. It creates a new schema from the current page; it never edits a cached schema. A generated schema persists only after it applies and normalizes successfully.

@@ -24,14 +24,6 @@ const SHIPPING_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
         key: "rawShipmentNote",
         description: "shipping note, limitation, region, pickup-only text, or special delivery condition",
     },
-    RawAttributeDefinition {
-        key: "rawShipmentMin",
-        description: "visible lower bound of a shipping or delivery time range",
-    },
-    RawAttributeDefinition {
-        key: "rawShipmentMax",
-        description: "visible upper bound of a shipping or delivery time range",
-    },
 ];
 
 const CONDITION_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[

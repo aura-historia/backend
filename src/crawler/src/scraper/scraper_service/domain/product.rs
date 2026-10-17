@@ -14,6 +14,8 @@ use url::Url;
 /// metadata needed to mark the URL as scraped after durable raw capture.
 #[derive(Debug)]
 pub struct ScrapedProduct {
+    /// Successful page acquisition, before schema evaluation or normalization.
+    pub acquired_at: time::OffsetDateTime,
     /// Complete source-neutral normalization input. The worker later performs canonical writes.
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,

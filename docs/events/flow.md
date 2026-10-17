@@ -51,6 +51,10 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   and commits terminal progress with any canonical change. Invalid candidate data
   may be terminally rejected; dependency/configuration failures leave work pending.
   Capped or unfinished drains are not complete. There is no scheduled raw-backlog reconciler.
+- Optional [crawler shipping assertions](../shipping.md#deterministic-crawler-item-assertions)
+  apply through the existing delivery use case after catalog normalization commits.
+  Their failures do not undo terminal raw progress. Existing shipping change and validity
+  signals retain their ordinary transaction boundaries.
 - Async partner commands and mapped Shopify/WooCommerce observations use a separate
   ProductListing FIFO. The consumer commits canonical state/event or raw capture
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)

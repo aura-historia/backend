@@ -22,6 +22,24 @@ use shipping_core::{
     terms::{DeliverySite, DeliveryTerms, ShippingPolicy},
 };
 use sqlx::PgConnection;
+
+#[derive(Clone)]
+pub struct SqlxCrawlerShippingSourceReader(sqlx::PgPool);
+impl SqlxCrawlerShippingSourceReader {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self(pool)
+    }
+}
+#[async_trait::async_trait]
+impl CrawlerShippingSourceReader for SqlxCrawlerShippingSourceReader {
+    async fn is_non_native(
+        &self,
+        source: ListingSourceId,
+    ) -> Result<bool, ProductListingDeliveryError> {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_sources WHERE listing_source_id=$1) AND NOT EXISTS(SELECT 1 FROM listing_source_ingestion_methods WHERE listing_source_id=$1 AND ingestion_method IN ('SHOPIFY','WOOCOMMERCE'))")
+            .bind(source.into_uuid()).fetch_one(&self.0).await.map_err(fail)
+    }
+}
 #[derive(Clone, Copy, Default)]
 pub struct SqlxProductListingDeliveryReferencesFactory;
 #[derive(Clone, Copy, Default)]

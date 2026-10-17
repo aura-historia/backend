@@ -706,7 +706,8 @@ async fn handle_successful_scrape(
                 &candidate.source_record_key,
                 scraped.raw_input,
                 provenance,
-            ),
+            )
+            .acquired_at(scraped.acquired_at),
             on_success: RawCaptureSuccessAction::MarkScraped(meta),
             on_failure: RawCaptureFailureAction::None,
         }),
@@ -2091,6 +2092,7 @@ mod tests {
             .return_once(move |_| {
                 Box::pin(async move {
                     scrape_outcome(Ok(Some(ScrapedProduct {
+                    acquired_at: time::OffsetDateTime::now_utc(),
                     raw_input,
                     availability:
                         product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion,
@@ -2343,6 +2345,7 @@ mod tests {
             assert_eq!(request.expected_last_captured_raw_input_sha256.as_deref(), Some(&[3; 32][..]));
             Box::pin(async move {
                 scrape_outcome(Ok(Some(ScrapedProduct {
+                    acquired_at: time::OffsetDateTime::now_utc(),
                     raw_input,
                     availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
                         product_listing_core::listing_availability::ListingAvailability::SoldOut,
@@ -2376,6 +2379,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_capture_redirected_observation_on_the_original_raw_stream() {
+        let acquired_at = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
         let original_url = url::Url::parse("https://example.com/product/old").unwrap();
         let effective_url = url::Url::parse("https://example.com/product/new").unwrap();
         let candidate = scraper_candidate("ListingSource", original_url.clone());
@@ -2398,6 +2402,7 @@ mod tests {
             &candidate,
             &ctx,
             ScrapedProduct {
+                acquired_at,
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
@@ -2411,6 +2416,7 @@ mod tests {
         .await;
 
         let request = outcome.capture.expect("redirect must queue raw capture");
+        assert_eq!(Some(acquired_at), request.item.command.source_occurred_at);
         assert_eq!(
             request.item.command.source_record_key,
             original_url.as_str(),
@@ -2623,6 +2629,7 @@ mod tests {
                         let raw_input = crawler_verified_removal_input(&url)
                             .unwrap_or_else(|error| panic!("test raw input: {error}"));
                         scrape_outcome(Ok(Some(ScrapedProduct {
+                            acquired_at: time::OffsetDateTime::now_utc(),
                             raw_input,
                             availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
                                 product_listing_core::listing_availability::ListingAvailability::SoldOut,

@@ -67,7 +67,7 @@ backend-cleanup-lambda = ["application", "geo-postgres", "geo-service", "oauth-p
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
 product-listing-core = ["geo", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros", "shipping-core"]
-product-listing-normalization = ["lingua", "localization", "money", "product-listing-core", "regex", "serde", "serde_json", "sha2", "strum", "strum_macros", "time", "url"]
+product-listing-normalization = ["lingua", "localization", "money", "product-listing-core", "shipping-core", "regex", "serde", "serde_json", "sha2", "strum", "strum_macros", "time", "url"]
 product-listing-ingestion-sqs = ["shipping-service", "application", "async-trait", "aws-sdk-sqs", "indexmap", "listing-source-core", "localization", "money", "product-listing-core", "product-listing-normalization", "product-listing-service", "serde", "serde_json", "sha2", "thiserror", "time", "tokio", "url", "user-core", "shipping-json", "shipping-core", "party-core"]
 product-service = ["application", "domain-primitives", "indexmap", "listing-source-core", "product-listing-core", "product-listing-normalization", "product-listing-service"]
 
