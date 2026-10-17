@@ -466,12 +466,17 @@ mod listing_orderability {
     }
 }
 
-fn required_option<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+// Persisted nullable members must be present, matching the shipping terms codec.
+#[derive(Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+struct RequiredNullable<T>(Option<T>);
+
+fn required_option<'de, D, T>(d: D) -> Result<RequiredNullable<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    Option::deserialize(d)
+    Option::deserialize(d).map(RequiredNullable)
 }
 
 // This JSON stays in the private saved-filter row, outside ordinary CDC.
@@ -481,11 +486,11 @@ struct ShippingSearchJson {
     interpretation: String,
     reference_release: String,
     #[serde(deserialize_with = "required_option")]
-    country: Option<String>,
+    country: RequiredNullable<String>,
     #[serde(deserialize_with = "required_option")]
-    service: Option<String>,
+    service: RequiredNullable<String>,
     #[serde(deserialize_with = "required_option")]
-    maximum_per_item: Option<ShippingAmountJson>,
+    maximum_per_item: RequiredNullable<ShippingAmountJson>,
     collection_offered: bool,
 }
 impl std::fmt::Debug for ShippingSearchJson {
@@ -505,12 +510,12 @@ impl From<&ShippingSearch> for ShippingSearchJson {
         Self {
             interpretation: ShippingSearch::INTERPRETATION.into(),
             reference_release: q.reference_release().as_str().into(),
-            country: q.country().map(|c| c.alpha2().into()),
-            service: q.service().map(|s| s.as_str().into()),
-            maximum_per_item: q.maximum_per_item().map(|p| ShippingAmountJson {
+            country: RequiredNullable(q.country().map(|c| c.alpha2().into())),
+            service: RequiredNullable(q.service().map(|s| s.as_str().into())),
+            maximum_per_item: RequiredNullable(q.maximum_per_item().map(|p| ShippingAmountJson {
                 amount: p.monetary_amount.into(),
                 currency: p.currency,
-            }),
+            })),
             collection_offered: q.collection_offered(),
         }
     }
@@ -524,11 +529,13 @@ impl ShippingSearchJson {
             .map_err(|_| InvalidShippingSearch)?;
         let country = self
             .country
+            .0
             .map(|c| geo::country_from_code(&c, release))
             .transpose()
             .map_err(|_| InvalidShippingSearch)?;
         let service = self
             .service
+            .0
             .map(shipping_core::terms::ShippingServiceCode::new)
             .transpose()
             .map_err(|_| InvalidShippingSearch)?;
@@ -537,6 +544,7 @@ impl ShippingSearchJson {
             country,
             service,
             self.maximum_per_item
+                .0
                 .map(|p| money::Price::new(p.amount.into(), p.currency)),
             self.collection_offered,
         )
