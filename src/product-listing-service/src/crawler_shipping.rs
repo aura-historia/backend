@@ -28,10 +28,7 @@ use shipping_core::{
     time::LeadTimes,
 };
 use shipping_service::imports::{ShippingImportWrite, ShippingObservation};
-use time::{Duration, OffsetDateTime};
-
-const CRAWLER_SHIPPING_FRESH_FOR: Duration = Duration::days(1);
-const CRAWLER_SHIPPING_VALID_FOR: Duration = Duration::days(7);
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct CrawlerShippingObservation {
@@ -115,10 +112,7 @@ fn command(
     let Some(acquired_at) = observation.acquired_at else {
         return Ok(None);
     };
-    let Some(expires_at) = acquired_at.checked_add(CRAWLER_SHIPPING_VALID_FOR) else {
-        return Ok(None);
-    };
-    if acquired_at > now || expires_at <= now {
+    if acquired_at > now {
         return Ok(None);
     }
     let sequence = u64::try_from(acquired_at.unix_timestamp_nanos() / 1000)
@@ -176,11 +170,7 @@ fn command(
             acquired_at,
             request_key: format!("crawler-shipping:{}", observation.raw_revision_id),
             object_key: None,
-            observation: Some(ShippingObservation {
-                acquired_at,
-                fresh_until: acquired_at + CRAWLER_SHIPPING_FRESH_FOR,
-                expires_at,
-            }),
+            observation: Some(ShippingObservation { acquired_at }),
         }),
         delivery: PatchField::Set(ProductListingDeliveryPatch {
             integration: DeliveryIntegration::Source,
@@ -201,6 +191,7 @@ mod tests {
     use super::*;
     use crate::use_cases::ChangeProductListingDeliveryResult;
     use std::sync::{Arc, Mutex};
+    use time::Duration;
 
     fn observation(text: &str) -> CrawlerShippingObservation {
         let product_listing_normalization::shipping::ShippingQuickCheck::Resolved(assertions) =
@@ -268,10 +259,6 @@ mod tests {
             import.acquired_at,
             import.observation.as_ref().unwrap().acquired_at
         );
-        assert_eq!(
-            import.acquired_at + CRAWLER_SHIPPING_VALID_FOR,
-            import.observation.as_ref().unwrap().expires_at
-        );
         let PatchField::Set(patch) = &calls[0].delivery else {
             panic!("patch");
         };
@@ -285,7 +272,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn native_missing_historical_expired_and_unscoped_observations_do_not_write() {
+    async fn native_missing_acquisition_future_and_unscoped_observations_do_not_write() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let o = observation("This item is collection only");
         assert_eq!(
@@ -296,11 +283,7 @@ mod tests {
                 .unwrap()
         );
         let handler = ApplyCrawlerShippingHandler::new(Source(true), Delivery(calls.clone()));
-        for acquired_at in [
-            None,
-            Some(OffsetDateTime::now_utc() - Duration::days(8)),
-            Some(OffsetDateTime::now_utc() + Duration::days(1)),
-        ] {
+        for acquired_at in [None, Some(OffsetDateTime::now_utc() + Duration::days(1))] {
             let mut old = o.clone();
             old.acquired_at = acquired_at;
             assert_eq!(
@@ -343,15 +326,19 @@ mod tests {
     }
 
     #[test]
-    fn reprocessing_cannot_renew_observation_deadlines() {
+    fn reprocessing_preserves_acquisition_without_an_age_cutoff() {
         let o = observation("This item is collection only");
         let acquired_at = o.acquired_at.unwrap();
-        let first = command(&o, acquired_at + Duration::hours(1)).unwrap();
-        let reprocessed = command(&o, acquired_at + Duration::days(3)).unwrap();
+        let first = command(&o, acquired_at + Duration::hours(1))
+            .unwrap()
+            .unwrap();
+        let reprocessed = command(&o, acquired_at + Duration::days(365))
+            .unwrap()
+            .unwrap();
         assert_eq!(first, reprocessed);
         assert_eq!(
-            None,
-            command(&o, acquired_at + CRAWLER_SHIPPING_VALID_FOR).unwrap()
+            acquired_at,
+            reprocessed.import.unwrap().observation.unwrap().acquired_at
         );
     }
 }

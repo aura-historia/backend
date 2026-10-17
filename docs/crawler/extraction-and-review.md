@@ -24,8 +24,8 @@ Successful page fetch time travels as the crawler capture's `source_occurred_at`
 the content hash. Schema evaluation, normalization, capture retries and queue delivery keep
 that acquisition time. Historical captures without it remain readable and cannot establish
 shipping observations. Matching page/input hashes retain the existing capture deduplication:
-they do not renew shipping freshness. A new immutable raw revision can observe unchanged
-shipping assertions when other captured item content changed. See the
+they do not advance shipping observation time. A new immutable raw revision can observe
+unchanged shipping assertions when other captured item content changed. See the
 [shipping contract](../shipping.md#deterministic-crawler-item-assertions) for application rules.
 
 ## Schema lifecycle

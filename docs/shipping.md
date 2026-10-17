@@ -489,10 +489,11 @@ prefaced by a label.
 Application uses the existing delivery use case and producer ownership/authority fences.
 The command retains the catalog transaction's optimistic revision, raw-revision request
 identity and original successful scrape acquisition time. Its sequence is that time in
-Unix microseconds. Freshness lasts one day and eligibility expires seven days after
-acquisition. A new captured acquisition can refresh equal supported assertions without
-a shipping semantic event; reprocessing and retries keep the original deadlines. Missing
-historical acquisition evidence cannot establish freshness. The
+Unix microseconds. The [incremental import contract](#incremental-typed-imports) governs
+continuing eligibility and observation ordering. A new captured acquisition can update
+observation time for equal supported assertions without a shipping semantic event;
+reprocessing and retries retain the original acquisition. Missing historical acquisition
+evidence cannot establish an observation. The
 [extraction contract](crawler/extraction-and-review.md#extraction-contract) owns capture
 deduplication and timestamp custody.
 

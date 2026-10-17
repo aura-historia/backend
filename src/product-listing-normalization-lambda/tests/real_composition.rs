@@ -455,13 +455,21 @@ fn crawler_write(
 async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_dependency() {
     let pool = get_postgres_client().await;
     let source = seed_listing_source(&pool).await.unwrap();
-    let write = crawler_write(
+    let mut write = crawler_write(
         source,
         "shipping",
         Some("Collection only. Shipping is not available for this item."),
         100,
     );
-    let acquired_at = write.source_occurred_at.unwrap();
+    // Age alone does not invalidate an acquisition under the continuing-assertion contract.
+    let acquired_at = time::OffsetDateTime::now_utc() - time::Duration::days(45);
+    write.source_occurred_at = Some(acquired_at);
+    sqlx::query("UPDATE shipping_import_authority SET changed_at=$2 WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .bind(acquired_at - time::Duration::days(1))
+        .execute(&pool)
+        .await
+        .unwrap();
     let normalized = product_listing_normalization::ProductListingRawValuesNormalizer::new()
         .normalize(&write.input);
     assert!(
@@ -507,14 +515,13 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
         delivery["shipping"]
     );
     assert_eq!(json!({"kind":"INHERIT"}), delivery["collection"]);
-    let window: (time::OffsetDateTime, time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,expires_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
+    let observation: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(
         acquired_at.unix_timestamp_nanos() / 1000,
-        window.0.unix_timestamp_nanos() / 1000
+        observation.0.unix_timestamp_nanos() / 1000
     );
-    assert_eq!(time::Duration::days(7), window.1 - window.0);
-    assert_eq!(1, window.2);
+    assert_eq!(1, observation.1);
     let events_before = count(&pool, "product_listing_events").await.unwrap();
     assert!(
         failure_ids(
@@ -547,7 +554,7 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
     assert!(
         failure_ids(
             handler(
-                event([("fresh", job_body(same_shipping).unwrap())]),
+                event([("new-acquisition", job_body(same_shipping).unwrap())]),
                 use_case.as_ref()
             )
             .await
@@ -559,12 +566,12 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
         events_before + 1,
         count(&pool, "product_listing_events").await.unwrap()
     );
-    let refreshed: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
+    let observed_again: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
         .fetch_one(&pool).await.unwrap();
-    assert!(refreshed.0 > window.0);
-    assert_eq!(2, refreshed.1);
+    assert!(observed_again.0 > observation.0);
+    assert_eq!(2, observed_again.1);
 
-    // Missing extraction and unknown text neither clear the override nor renew its freshness.
+    // Missing extraction and unknown text neither clear the override nor advance observation time.
     for (text, price) in [(None, 120), (Some("Shipping EUR 80"), 130)] {
         let next = capture(&pool, crawler_write(source, "shipping", text, price))
             .await
@@ -583,7 +590,7 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
     }
     let preserved: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
         .fetch_one(&pool).await.unwrap();
-    assert_eq!(refreshed, preserved);
+    assert_eq!(observed_again, preserved);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -627,7 +634,7 @@ async fn unicode_crawler_shipping_crosses_the_raw_worker_and_delivery_boundaries
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn native_historical_and_expired_crawler_shipping_preserve_catalog_ingestion() {
+async fn native_missing_acquisition_and_stale_authority_preserve_catalog_ingestion() {
     let pool = get_postgres_client().await;
     let use_case = compose_normalization_use_case(pool.clone());
     for (index, method) in [Some("SHOPIFY"), Some("WOOCOMMERCE"), None, None]
@@ -644,6 +651,7 @@ async fn native_historical_and_expired_crawler_shipping_preserve_catalog_ingesti
             write.source_occurred_at = None;
         }
         if index == 3 {
+            // This acquisition predates the source's current authority, independently of age.
             write.source_occurred_at =
                 Some(time::OffsetDateTime::now_utc() - time::Duration::days(8));
         }
