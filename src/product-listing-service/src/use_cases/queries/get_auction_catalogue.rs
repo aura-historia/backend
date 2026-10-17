@@ -15,6 +15,7 @@ use application::{
 };
 use auction_core::AuctionId;
 use auction_service::ports::{PublicAuctionDetailsReadError, PublicAuctionDetailsReader};
+use fxrate_core::FxRateSnapshot;
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -144,11 +145,13 @@ where
                 cursor,
             })
             .await?;
-        let mut items = present_catalogue_items(
+        let valuation_at = OffsetDateTime::now_utc();
+        let (mut items, current_snapshot) = present_catalogue_items(
             page.items,
             &self.fx_rates,
             &mut transaction,
             request.currency,
+            valuation_at,
         )
         .await?;
         transaction.commit().await.map_err(|source| {
@@ -157,7 +160,15 @@ where
             }
         })?;
 
-        self.shipping.details(context, &mut items).await?;
+        self.shipping
+            .details(
+                context,
+                &mut items,
+                request.currency,
+                current_snapshot.as_ref(),
+                valuation_at,
+            )
+            .await?;
         Ok(CursoredResult {
             items,
             cursor: page.cursor,
@@ -171,12 +182,19 @@ async fn present_catalogue_items<Tx, F>(
     fx_rates: &F,
     transaction: &mut Tx,
     currency: Currency,
-) -> Result<Vec<PersonalizedProductListingDetailsView>, GetAuctionCatalogueError>
+    valuation_at: OffsetDateTime,
+) -> Result<
+    (
+        Vec<PersonalizedProductListingDetailsView>,
+        Option<FxRateSnapshot>,
+    ),
+    GetAuctionCatalogueError,
+>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
 {
     if factual_items.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
     let sale_snapshot_ids = factual_items
         .iter()
@@ -188,7 +206,7 @@ where
     let mut repository = fx_rates.in_transaction(transaction);
     let current_snapshot = if requires_current_snapshot {
         repository
-            .find_latest_at_or_before(OffsetDateTime::now_utc())
+            .find_latest_at_or_before(valuation_at)
             .await?
             .ok_or(GetAuctionCatalogueError::PricingFxSnapshotMissing)
             .map(Some)?
@@ -201,7 +219,7 @@ where
         .map(|snapshot| (snapshot.id(), snapshot))
         .collect::<HashMap<_, _>>();
 
-    factual_items
+    let items = factual_items
         .into_iter()
         .map(|factual| {
             let snapshot = applicable_sale_observation(&factual.item)
@@ -232,7 +250,8 @@ where
             }
             Ok(view)
         })
-        .collect()
+        .collect::<Result<Vec<_>, GetAuctionCatalogueError>>()?;
+    Ok((items, current_snapshot))
 }
 
 fn validate_cursor(

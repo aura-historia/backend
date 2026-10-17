@@ -589,11 +589,14 @@ where
                 source: box_error(source),
             }
         })?;
+        let compiled_search = CompiledProductListingSearch::new(search, price_filter_plan.clone())
+            .map_err(
+                |source| RunPeriodicSearchFilterMatchingError::FxSnapshotInvalid {
+                    source: box_error(source),
+                },
+            )?;
         let request = ProductListingSearchReadRequest {
-            compiled_search: CompiledProductListingSearch {
-                search,
-                price_filter_plan: price_filter_plan.clone(),
-            },
+            compiled_search,
             sort: None,
             cursor: Some(Cursor {
                 size: self.policy.hybrid_scan_limit.get() as u64,
@@ -758,6 +761,19 @@ where
                         product_listing_id: source.product_listing_id,
                         origin_event_id: source.event_id,
                         price_match_valuation: valuation,
+                        shipping_match_valuation: filter
+                            .search
+                            .shipping
+                            .as_ref()
+                            .filter(|query| query.fx_converted())
+                            .and_then(|query| query.maximum_per_item())
+                            .map(
+                                |maximum_per_item| search_filter_core::ShippingMatchValuation {
+                                    fx_rate_id: snapshot.id(),
+                                    captured_at: snapshot.captured_at(),
+                                    maximum_per_item,
+                                },
+                            ),
                         feedback: None,
                     });
                 }
@@ -1901,6 +1917,7 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
+            shipping_match_valuation: None,
             feedback: None,
         }
     }

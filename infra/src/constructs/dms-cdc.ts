@@ -242,6 +242,10 @@ function tableMappings(): Record<string, unknown> {
       removedColumns: [
         "price_valuation_basis",
         "price_fx_rate_id",
+        "shipping_fx_rate_id",
+        "shipping_fx_captured_at",
+        "shipping_target_currency",
+        "shipping_maximum_minor",
         "user_search_filter_name",
         "feedback",
         "created",

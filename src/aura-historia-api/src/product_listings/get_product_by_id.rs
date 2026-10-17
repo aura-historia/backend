@@ -533,6 +533,7 @@ mod tests {
                 user_search_filter_id: Some(search_filter_id),
                 user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
                 match_feedback: Some(false),
+                shipping_match_valuation: None,
             },
         });
         let (app, calls) = app(view, false, Some(user_id));

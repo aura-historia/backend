@@ -2,6 +2,17 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Shipping display conversion and explicit FX filters (#2143)
+
+- Listing shipping includes converted advertised rates with currency, snapshot ID and capture
+  time alongside unchanged source terms. Price knowledge and charge basis are preserved.
+- `shipping.interpretation: WHOLE_COUNTRY_PER_ITEM_FX_V1` opts a per-item maximum into
+  conversion using its declared target currency. Existing requests/saved filters keep
+  source-currency behavior; pagination pins its original FX snapshot.
+- Saved FX filters pin target and interpretation independently of destinations. Periodic
+  matching can discover FX-only crossings; matches expose their immutable shipping FX basis.
+  See [shipping](shipping.md#shipping-display-currency) for failure and cache behavior.
+
 ## 2026-10-17 — Shipping discovery and private saved destinations (#2070)
 
 - Listing search and saved filters accept whole-country delivery, optional service, exact

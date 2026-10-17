@@ -184,7 +184,8 @@ resurrect deleted state. Tombstones must outlive physical-delete version memory.
 [Rebuild and deletion recovery](../durable-worker-runbook.md#projection-fences-and-rebuild)
 require authoritative facts and fenced writers, not an index reset.
 
-FX capture alone does not trigger matching, projection or notification.
+FX capture alone does not enqueue matching, projection or notification; scheduled matching
+can discover explicitly opted-in shipping FX threshold crossings on its next evaluation.
 
 ## Provider and scheduled flows
 
@@ -229,8 +230,11 @@ of classifier scores. Current authoritative event checks fence obsolete projecti
 
 Shipping filters revisit indexed membership each evaluation without the automatic lower
 listing-updated replay bound: profile/default changes can affect older listings without a
-canonical price/availability change. Explicit saved date bounds and the evaluation cutoff
-remain in force. This uses the current scheduled matcher and shipping enrichment projection, with no event-percolator
+canonical price/availability change. Explicit FX-aware shipping maximums also reevaluate
+older listings against the run's persisted window-end snapshot, so an FX-only threshold
+crossing can create a new match. FX capture itself emits no listing/shipping event and
+requires no profile rewrite, projection fan-out or reindex. Explicit saved date bounds
+and the evaluation cutoff remain in force. This uses the current scheduled matcher and shipping enrichment projection, with no event-percolator
 queue. Private destination snapshots follow the [shipping contract](../shipping.md#shipping-search-and-saved-destinations).
 
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
@@ -268,8 +272,12 @@ A run excludes overlapping execution and uses projection lag and replay overlap.
 work has bounded concurrency outside transactions; cancellation/timeouts and failed filters
 remain incomplete task outcomes. The final short transaction rechecks filter version,
 state/progress and current listing event before idempotent insertion. Matching pins persisted
-FX at the window end and retains historical sale-observation valuations. Persisted match
-INSERTs feed the existing CDC notification route independently of external notification
+FX at the window end and retains historical sale-observation valuations. An opted-in
+shipping match separately retains immutable FX ID/capture time and target maximum, without
+changing its private destination snapshot. Shipping valuation columns remain excluded from
+CDC; notification wake-ups still carry match identifiers only. Existing source-currency predicates retain their
+meaning. Subsequent FX captures do not rewrite matches or repeat their notifications.
+Persisted match INSERTs feed the existing CDC notification route independently of external notification
 eligibility and monthly quotas.
 
 The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)

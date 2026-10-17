@@ -210,11 +210,12 @@ where
             .await?
             .ok_or(GetSimilarProductListingsError::PricingFxSnapshotMissing)?;
         let price_filter_plan =
-            ProductListingPriceFilterPlan::compile(snapshot, request.currency, None).map_err(
-                |source| GetSimilarProductListingsError::PricingFxSnapshotInvalid {
-                    source: box_error(source),
-                },
-            )?;
+            ProductListingPriceFilterPlan::compile(snapshot.clone(), request.currency, None)
+                .map_err(
+                    |source| GetSimilarProductListingsError::PricingFxSnapshotInvalid {
+                        source: box_error(source),
+                    },
+                )?;
 
         tx.commit().await.map_err(|source| {
             GetSimilarProductListingsError::CommitTransactionFailed(Box::new(source))
@@ -245,7 +246,9 @@ where
             .await
             .map_err(GetSimilarProductListingsError::from)?;
 
-        self.shipping.summaries(context, &mut products).await?;
+        self.shipping
+            .summaries(context, &mut products, request.currency, &snapshot)
+            .await?;
         Ok(GetSimilarProductListingsResult::Ready(products))
     }
 }

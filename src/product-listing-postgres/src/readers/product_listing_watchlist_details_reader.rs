@@ -651,6 +651,7 @@ fn search_filter_user_state(
             .clone()
             .map(UserSearchFilterName::from),
         match_feedback: row.selected_match_feedback,
+        shipping_match_valuation: None,
     })
 }
 

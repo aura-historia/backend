@@ -31,7 +31,7 @@ use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version";
-pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback, created, updated";
+pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor, user_search_filter_name, feedback, created, updated";
 
 #[derive(Debug)]
 pub(crate) enum SearchFilterRowMappingError {
@@ -39,6 +39,7 @@ pub(crate) enum SearchFilterRowMappingError {
     InvalidState,
     InvalidMatchingEvidencePolicy,
     InvalidPriceMatchValuation,
+    InvalidShippingMatchValuation,
     InvalidObjectId(domain_primitives::object_id::ObjectIdError),
 }
 
@@ -55,6 +56,9 @@ impl fmt::Display for SearchFilterRowMappingError {
             Self::InvalidPriceMatchValuation => {
                 formatter.write_str("persisted price match valuation is invalid")
             }
+            Self::InvalidShippingMatchValuation => {
+                formatter.write_str("persisted shipping match valuation is invalid")
+            }
             Self::InvalidObjectId(_) => formatter.write_str("persisted object ID is invalid"),
         }
     }
@@ -67,7 +71,8 @@ impl Error for SearchFilterRowMappingError {
             Self::NameTooLong
             | Self::InvalidState
             | Self::InvalidMatchingEvidencePolicy
-            | Self::InvalidPriceMatchValuation => None,
+            | Self::InvalidPriceMatchValuation
+            | Self::InvalidShippingMatchValuation => None,
         }
     }
 }
@@ -223,6 +228,10 @@ pub(crate) struct MatchRow {
     pub origin_event_id: uuid::Uuid,
     pub price_valuation_basis: Option<String>,
     pub price_fx_rate_id: Option<uuid::Uuid>,
+    pub shipping_fx_rate_id: Option<uuid::Uuid>,
+    pub shipping_fx_captured_at: Option<OffsetDateTime>,
+    pub shipping_target_currency: Option<String>,
+    pub shipping_maximum_minor: Option<i64>,
     pub user_search_filter_name: Option<String>,
     pub feedback: Option<bool>,
     pub created: OffsetDateTime,
@@ -231,6 +240,7 @@ pub(crate) struct MatchRow {
 impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
     type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
+        let shipping_match_valuation = shipping_match_valuation(&row)?;
         Ok(Self {
             product_match: SearchFilterProductListingMatch {
                 user_id: UserId::try_from(row.user_id)?,
@@ -242,6 +252,7 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
                     row.price_valuation_basis.as_deref(),
                     row.price_fx_rate_id,
                 )?,
+                shipping_match_valuation,
                 feedback: row.feedback,
             },
             created: row.created,
@@ -253,7 +264,9 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
     type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
         price_match_valuation(row.price_valuation_basis.as_deref(), row.price_fx_rate_id)?;
+        let shipping_match_valuation = shipping_match_valuation(&row)?;
         Ok(Self {
+            shipping_match_valuation,
             user_id: UserId::try_from(row.user_id)?,
             search_filter_id: UserSearchFilterId::try_from(row.user_search_filter_id)?,
             search_filter_name: row.user_search_filter_name.map(name).transpose()?,
@@ -263,6 +276,32 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
             created: row.created,
             updated: row.updated,
         })
+    }
+}
+
+fn shipping_match_valuation(
+    row: &MatchRow,
+) -> Result<Option<search_filter_core::ShippingMatchValuation>, SearchFilterRowMappingError> {
+    use SearchFilterRowMappingError::InvalidShippingMatchValuation;
+    match (
+        row.shipping_fx_rate_id,
+        row.shipping_fx_captured_at,
+        row.shipping_target_currency.as_deref(),
+        row.shipping_maximum_minor,
+    ) {
+        (None, None, None, None) => Ok(None),
+        (Some(id), Some(captured_at), Some(currency), Some(maximum)) => {
+            let currency = Currency::iter()
+                .find(|c| c.as_str() == currency)
+                .ok_or(InvalidShippingMatchValuation)?;
+            let amount = u64::try_from(maximum).map_err(|_| InvalidShippingMatchValuation)?;
+            Ok(Some(search_filter_core::ShippingMatchValuation {
+                fx_rate_id: FxRateId::try_from(id)?,
+                captured_at,
+                maximum_per_item: money::Price::new(amount.into(), currency),
+            }))
+        }
+        _ => Err(InvalidShippingMatchValuation),
     }
 }
 
@@ -508,7 +547,7 @@ struct ShippingAmountJson {
 impl From<&ShippingSearch> for ShippingSearchJson {
     fn from(q: &ShippingSearch) -> Self {
         Self {
-            interpretation: ShippingSearch::INTERPRETATION.into(),
+            interpretation: q.interpretation().into(),
             reference_release: q.reference_release().as_str().into(),
             country: RequiredNullable(q.country().map(|c| c.alpha2().into())),
             service: RequiredNullable(q.service().map(|s| s.as_str().into())),
@@ -522,7 +561,9 @@ impl From<&ShippingSearch> for ShippingSearchJson {
 }
 impl ShippingSearchJson {
     fn into_query(self) -> Result<ShippingSearch, InvalidShippingSearch> {
-        if self.interpretation != ShippingSearch::INTERPRETATION {
+        if self.interpretation != ShippingSearch::INTERPRETATION
+            && self.interpretation != ShippingSearch::FX_INTERPRETATION
+        {
             return Err(InvalidShippingSearch);
         }
         let release = geo::reference::ReferenceRelease::from_code(&self.reference_release)
@@ -539,7 +580,7 @@ impl ShippingSearchJson {
             .map(shipping_core::terms::ShippingServiceCode::new)
             .transpose()
             .map_err(|_| InvalidShippingSearch)?;
-        ShippingSearch::new(
+        let query = ShippingSearch::new(
             release,
             country,
             service,
@@ -547,7 +588,12 @@ impl ShippingSearchJson {
                 .0
                 .map(|p| money::Price::new(p.amount.into(), p.currency)),
             self.collection_offered,
-        )
+        )?;
+        if self.interpretation == ShippingSearch::FX_INTERPRETATION {
+            query.with_fx_conversion()
+        } else {
+            Ok(query)
+        }
     }
 }
 
@@ -840,6 +886,10 @@ mod tests {
             origin_event_id: EventId::new().into_uuid(),
             price_valuation_basis: None,
             price_fx_rate_id: None,
+            shipping_fx_rate_id: None,
+            shipping_fx_captured_at: None,
+            shipping_target_currency: None,
+            shipping_maximum_minor: None,
             user_search_filter_name: Some("filter".to_owned()),
             feedback: None,
             created: OffsetDateTime::UNIX_EPOCH,
@@ -1380,5 +1430,39 @@ mod tests {
         object.insert("unexpected".into(), serde_json::Value::Null);
 
         assert!(product_search_from_json(json).is_err());
+    }
+    #[test]
+    fn fx_shipping_snapshot_and_match_provenance_round_trip_and_fail_closed() {
+        let query = ShippingSearch::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            Some(geo::CountryCode::DEU),
+            None,
+            Some(money::Price::new(75_u64.into(), Currency::Jpy)),
+            false,
+        )
+        .unwrap()
+        .with_fx_conversion()
+        .unwrap();
+        let mut search = ProductListingSearch::new(Language::En, Currency::Usd);
+        search.shipping = Some(query);
+        let encoded = product_search_to_json(&search).unwrap();
+        assert_eq!(
+            ShippingSearch::FX_INTERPRETATION,
+            encoded["shipping"]["interpretation"]
+        );
+        assert_eq!(search, product_search_from_json(encoded).unwrap());
+        let mut row = match_row();
+        row.shipping_fx_rate_id = Some(FxRateId::new().into_uuid());
+        assert!(shipping_match_valuation(&row).is_err());
+        row.shipping_fx_captured_at = Some(OffsetDateTime::UNIX_EPOCH);
+        row.shipping_target_currency = Some("JPY".into());
+        row.shipping_maximum_minor = Some(75);
+        let valuation = shipping_match_valuation(&row).unwrap().unwrap();
+        assert_eq!(Currency::Jpy, valuation.maximum_per_item.currency);
+        row.shipping_target_currency = Some("jpy".into());
+        assert!(shipping_match_valuation(&row).is_err());
+        row.shipping_target_currency = Some("JPY".into());
+        row.shipping_maximum_minor = Some(-1);
+        assert!(shipping_match_valuation(&row).is_err());
     }
 }

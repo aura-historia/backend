@@ -254,6 +254,14 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "user_id",
     ]);
 
+    const matchRemovedColumns = mappings.rules
+      .filter((rule) => rule["rule-type"] === "transformation"
+        && (rule["object-locator"] as Record<string, string>)["table-name"] === "search_filter_matches"
+        && rule["rule-action"] === "remove-column")
+      .map((rule) => (rule["object-locator"] as Record<string, string>)["column-name"]);
+    expect(matchRemovedColumns).toEqual(expect.arrayContaining([
+      "shipping_fx_rate_id", "shipping_fx_captured_at", "shipping_target_currency", "shipping_maximum_minor",
+    ]));
     const removedColumns = mappings.rules
       .filter((rule) => rule["rule-action"] === "remove-column")
       .map((rule) => {

@@ -49,10 +49,9 @@ impl TryFrom<ShippingSearchData> for ShippingSearch {
             .transpose()
             .map_err(|_| "unsupported shipping reference release")?
             .unwrap_or(ReferenceRelease::CURRENT);
-        if d.interpretation
-            .as_deref()
-            .is_some_and(|p| p != ShippingSearch::INTERPRETATION)
-        {
+        if d.interpretation.as_deref().is_some_and(|p| {
+            p != ShippingSearch::INTERPRETATION && p != ShippingSearch::FX_INTERPRETATION
+        }) {
             return Err("unsupported shipping interpretation");
         }
         let country = match d.destination {
@@ -66,15 +65,22 @@ impl TryFrom<ShippingSearchData> for ShippingSearch {
             .map(ShippingServiceCode::new)
             .transpose()
             .map_err(|_| "invalid shipping service")?;
-        Self::new(release, country, service, d.maximum_per_item.map(|p| Price::new(p.amount.into(), p.currency)), d.collection_offered)
-            .map_err(|_| "shipping requires a country or collection offered; service and per-item maximum require a country")
+        let query = Self::new(release, country, service, d.maximum_per_item.map(|p| Price::new(p.amount.into(), p.currency)), d.collection_offered)
+            .map_err(|_| "shipping requires a country or collection offered; service and per-item maximum require a country")?;
+        if d.interpretation.as_deref() == Some(ShippingSearch::FX_INTERPRETATION) {
+            query
+                .with_fx_conversion()
+                .map_err(|_| "FX shipping interpretation requires a maximum")
+        } else {
+            Ok(query)
+        }
     }
 }
 impl From<ShippingSearch> for ShippingSearchData {
     fn from(q: ShippingSearch) -> Self {
         Self {
             reference_release: Some(q.reference_release().as_str().into()),
-            interpretation: Some(ShippingSearch::INTERPRETATION.into()),
+            interpretation: Some(q.interpretation().into()),
             destination: q.country().map(|c| DestinationData::Country {
                 country: c.alpha2().into(),
             }),
@@ -203,6 +209,7 @@ mod tests {
     fn invalid_or_unsupported_shipping_inputs_fail_closed() {
         for data in [
             json!({}),
+            json!({"destination":{"kind":"COUNTRY","country":"DE"},"interpretation":"WHOLE_COUNTRY_PER_ITEM_FX_V1"}),
             json!({"maximumPerItem":{"amount":9000,"currency":"EUR"}}),
             json!({"destination":{"kind":"COUNTRY","country":"DE"},"maximumPerItem":{"amount":-1,"currency":"EUR"}}),
             json!({"destination":{"kind":"COUNTRY","country":"DE"},"maximumPerItem":{"amount":0,"currency":"eur"}}),
@@ -241,5 +248,20 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<AcceptShippingDestinationData>(data).is_err());
         }
+    }
+    #[test]
+    fn fx_mode_round_trips_its_explicit_target_independently_of_browsing_currency() {
+        let data: ShippingSearchData = serde_qs::from_str("destination[kind]=COUNTRY&destination[country]=DE&interpretation=WHOLE_COUNTRY_PER_ITEM_FX_V1&maximumPerItem[amount]=75&maximumPerItem[currency]=JPY").unwrap();
+        let query = parse(Some(data), false).unwrap().unwrap();
+        assert!(query.fx_converted());
+        assert_eq!(Currency::Jpy, query.maximum_per_item().unwrap().currency);
+        let saved = serde_json::to_value(ShippingSearchData::from(query.clone())).unwrap();
+        assert_eq!(ShippingSearch::FX_INTERPRETATION, saved["interpretation"]);
+        assert_eq!(
+            query,
+            parse(Some(serde_json::from_value(saved).unwrap()), true)
+                .unwrap()
+                .unwrap()
+        );
     }
 }
