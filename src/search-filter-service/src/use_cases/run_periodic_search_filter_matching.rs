@@ -1684,7 +1684,10 @@ mod tests {
             min: None,
             max: Some(next),
         });
-        assert_eq!(expected, periodic_search(&candidate, next, Duration::minutes(5)).unwrap());
+        assert_eq!(
+            expected,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
         candidate.search.updated_query = Some(RangeQuery {
             min: Some(candidate.created),
             max: Some(candidate.created + Duration::hours(1)),
@@ -1703,7 +1706,13 @@ mod tests {
             max: Some(next + Duration::hours(1)),
         });
         let search = periodic_search(&candidate, next, Duration::minutes(5)).unwrap();
-        assert_eq!(Some(RangeQuery { min: Some(candidate.created), max: Some(next) }), search.updated_query);
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(candidate.created),
+                max: Some(next)
+            }),
+            search.updated_query
+        );
     }
 
     fn geographic_filter() -> PeriodicSearchFilterCandidate {
