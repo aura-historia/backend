@@ -17824,9 +17824,12 @@ components:
           - null
           nullable: true
         charge:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/DeliveryAssessmentCharge'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         reasons:
           type: array
           items:
@@ -17872,7 +17875,7 @@ components:
         have no entry. Conversion supplies no quantity, applicability, binding quote or complete landed cost.
       properties:
         currency: {$ref: '#/components/schemas/CurrencyData'}
-        fxRateId: {type: string, description: Immutable persisted browsing FX snapshot, pinned for search continuation.}
+        fxRateId: {type: string, description: 'Immutable persisted browsing FX snapshot, pinned for search continuation.'}
         capturedAt: {type: string, format: date-time}
         rates:
           type: array
@@ -17920,24 +17923,34 @@ components:
         resolution retains endpoint errors; shipping enrichment uses SHIPPING_TEMPORARILY_UNAVAILABLE
         or SHIPPING_STORAGE_ERROR. No provider is called. Currency and query predicates isolate
         anonymous caches; credential-bearing responses and errors remain private, no-store.
-      required: [terms, listingRevision, sourceRevision, defaultRevision, profile, listingEvidence, evaluatedAt, shippingReasons, collectionReasons, notices]
+      required: [terms, display, listingRevision, sourceRevision, defaultRevision, profile, listingEvidence, evaluatedAt, shippingReasons, collectionReasons, notices]
       properties:
         display:
-          allOf: [{$ref: '#/components/schemas/ShippingDisplayData'}]
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ShippingDisplayData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         terms:
           $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
         listingRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
         sourceRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
         defaultRevision: {type: integer, minimum: 1, maximum: 9223372036854775807, nullable: true}
         profile:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         listingEvidence:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/DeliveryAssertionEvidence'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         evaluatedAt: {type: string, format: date-time}
         shippingReasons:
           type: array
@@ -17967,9 +17980,12 @@ components:
         destination:
           $ref: '#/components/schemas/DeliveryAssessmentGeography'
         attribution:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/DeliveryAssessmentAttribution'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         evaluatedAt: {type: string, format: date-time}
         eligibility:
           type: string
@@ -18084,16 +18100,19 @@ components:
       additionalProperties: false
       required: [schema, source_id, integration, selection, rate_inputs, shipping, collection]
       properties:
-        schema: {type: string, enum: [LISTING_DELIVERY_V2]}
+        schema: {type: string, enum: [LISTING_DELIVERY_V1]}
         source_id:
           type: string
           pattern: '^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$'
         integration:
           $ref: '#/components/schemas/ListingDeliveryIntegrationData'
         selection:
-          nullable: true
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ListingDeliverySelectionData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         rate_inputs:
           $ref: '#/components/schemas/ListingDeliveryRateInputsData'
         shipping:
@@ -18109,9 +18128,12 @@ components:
           pattern: '^pl_[0-7][0-9a-hjkmnp-tv-z]{25}$'
         expectedVersion: {type: integer, minimum: 1}
         delivery:
-          nullable: true
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ListingDeliveryConfigurationData'
+          - type: object
+            nullable: true
+            enum:
+            - null
     ProductListingDeliveryResultData:
       type: object
       required: [productListingId, expectedVersion, outcome]
@@ -18232,15 +18254,18 @@ components:
           pattern: ^[!-~]+$
           nullable: true
         observation:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingImportObservationData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
       description: 'Optional import semantics on existing commands. objectKey is required only on profile creation;
         it identifies a stable source/producer/integration object independently of requestKey. sequence increases per
         touched component within the current source lifecycle; it is producer acquisition order, never receive time. Omitted observation
-        does not renew validity. Creation, changed normalized profile terms, changed default assignment and changed
+        does not renew observation time. Creation, changed normalized profile terms, changed default assignment and changed
         listing assertions and first claims of equal implicit selections require observation; explicit owned-component
-        removals do not renew validity. Acquisition ordering uses microsecond precision. Equal terms with observation explicitly refresh validity without semantic
+        removals do not renew observation time. Acquisition ordering uses microsecond precision. Equal terms with observation explicitly refresh acquisition evidence without semantic
         revision changes. Exact requestKey replay returns current committed state without effects for 90 days; changed
         reuse conflicts permanently. Current source/grant/integration authority is rechecked even on replay. Imports
         cannot modify manually owned components. 409 codes: SHIPPING_IMPORT_AUTHORITY_STALE, SHIPPING_IMPORT_OWNERSHIP_CONFLICT,
@@ -18350,13 +18375,19 @@ components:
           minItems: 1
           nullable: true
         quantity:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingQuantityData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         threshold:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingThresholdData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
       description: Class and variant codes are scoped to the path ListingSource; absence must be explicit
         null.
     ShippingTimeData:
@@ -18410,17 +18441,26 @@ components:
       - total
       properties:
         handling:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingTimeData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         transit:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingTimeData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         total:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingTimeData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingActorDataListingSource:
       type: object
       additionalProperties: false
@@ -18478,9 +18518,12 @@ components:
           enum:
           - FREE
         currency:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingCurrencyCode'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingPriceDataFixed:
       type: object
       additionalProperties: false
@@ -18535,9 +18578,12 @@ components:
           enum:
           - EXTERNALLY_CALCULATED
         currency:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingCurrencyCode'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingPriceDataOnRequest:
       type: object
       additionalProperties: false
@@ -18550,9 +18596,12 @@ components:
           enum:
           - ON_REQUEST
         currency:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingCurrencyCode'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingPriceData:
       oneOf:
       - $ref: '#/components/schemas/ShippingPriceDataFree'
@@ -18636,9 +18685,12 @@ components:
           - null
           nullable: true
         rate:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingRateData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         lead_times:
           $ref: '#/components/schemas/ShippingLeadTimesData'
         features:
@@ -18655,13 +18707,19 @@ components:
           minItems: 0
           uniqueItems: true
         arranger:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingActorData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         performer:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingActorData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingPostalFormDataExact:
       type: object
       additionalProperties: false
@@ -18925,13 +18983,19 @@ components:
           enum:
           - ASSERTED
         geography:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingSiteGeographyData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         position:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingSitePositionData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingSiteData:
       oneOf:
       - $ref: '#/components/schemas/ShippingSiteDataPartyLocation'
@@ -18999,9 +19063,12 @@ components:
           maxItems: 64
           minItems: 0
         dispatch_origin:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingSiteData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     ShippingPolicyDataProhibited:
       type: object
       additionalProperties: false
@@ -19104,13 +19171,19 @@ components:
           - null
           nullable: true
         site:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingSiteData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         arrangement:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingCollectionArrangementData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
     AdvertisedDeliveryTermsData:
       type: object
       additionalProperties: false
@@ -19124,13 +19197,19 @@ components:
           enum:
           - SHIP_TERMS_V1
         shipping:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingPolicyData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         collection:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/ShippingCollectionData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
       description: Strict versioned advertised terms. All fields, including nullable fields, are required;
         unknown fields/codes are rejected. Absence, explicit prohibition and retirement have different meanings.
         This contract supplies no quote.
@@ -19538,9 +19617,12 @@ components:
         - updated
       properties:
         shipping:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/AdvertisedListingShippingData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -19571,9 +19653,12 @@ components:
         priceValuation:
           $ref: "#/components/schemas/ProductListingSummaryPriceValuationData"
         availability:
-          allOf:
-            - $ref: "#/components/schemas/ListingAvailabilityData"
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ListingAvailabilityData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         lifecycle:
           $ref: "#/components/schemas/ListingLifecycleData"
         url:
@@ -19587,9 +19672,12 @@ components:
           items:
             $ref: "#/components/schemas/ProductListingImageData"
         contentPolicy:
-          allOf:
-            - $ref: "#/components/schemas/ContentPolicyData"
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ContentPolicyData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         updated:
           type: string
           format: date-time
@@ -19649,9 +19737,12 @@ components:
         - updated
       properties:
         shipping:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/AdvertisedListingShippingData'
-          nullable: true
+          - type: object
+            nullable: true
+            enum:
+            - null
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -19698,9 +19789,12 @@ components:
             valuation:
               $ref: "#/components/schemas/ProductListingPricingValuationData"
         availability:
-          allOf:
-            - $ref: "#/components/schemas/ListingAvailabilityData"
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ListingAvailabilityData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         lifecycle:
           $ref: "#/components/schemas/ListingLifecycleData"
         url:
@@ -19714,18 +19808,28 @@ components:
           items:
             $ref: "#/components/schemas/ProductListingImageData"
         contentPolicy:
-          allOf:
-            - $ref: "#/components/schemas/ContentPolicyData"
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ContentPolicyData'
+          - type: object
+            nullable: true
+            enum:
+            - null
         auction:
-          allOf:
-            - $ref: "#/components/schemas/AuctionSummaryData"
-          nullable: true
-          description: Current parent Auction presentation from the joined PostgreSQL detail read. Null when the listing has no parent Auction.
+          anyOf:
+          - $ref: '#/components/schemas/AuctionSummaryData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+          description: Current parent Auction presentation from the joined PostgreSQL detail read. Null when the
+            listing has no parent Auction.
         lot:
-          allOf:
-            - $ref: "#/components/schemas/ProductListingLotData"
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ProductListingLotData'
+          - type: object
+            nullable: true
+            enum:
+            - null
           description: Listing-owned lot facts. Null when the listing has no lot facts.
         created:
           type: string
@@ -20834,9 +20938,14 @@ components:
       description: ProductListing search criteria used by saved search filters.
       properties:
         shipping:
-          allOf: [{$ref: '#/components/schemas/ShippingSearchData'}]
-          nullable: true
-          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country values pin their reference release and interpretation independently of browsing preferences.
+          anyOf:
+          - $ref: '#/components/schemas/ShippingSearchData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country
+            values pin their reference release and interpretation independently of browsing preferences.
         language:
           $ref: "#/components/schemas/LanguageData"
         currency:
@@ -21007,9 +21116,14 @@ components:
         must be supplied together or all be `null`.
       properties:
         shipping:
-          allOf: [{$ref: '#/components/schemas/ShippingSearchData'}]
-          nullable: true
-          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country values pin their reference release and interpretation independently of browsing preferences.
+          anyOf:
+          - $ref: '#/components/schemas/ShippingSearchData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country
+            values pin their reference release and interpretation independently of browsing preferences.
         language:
           $ref: "#/components/schemas/LanguageData"
           nullable: true

@@ -62,8 +62,9 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing history and ready similar results | 300 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
-responses containing advertised shipping cap this TTL at the next evidence freshness or
-expiry deadline; destination personalization remains private and uncached.
+responses containing advertised shipping cap this TTL at referenced geographic provider
+evidence retention deadlines; shipping observation age does not expire terms. Destination
+personalization remains private and uncached.
 The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin`,
 `Host` and **all query strings**, and enables gzip/Brotli variation. Cookies are
 forwarded but not keyed: never add cookie-dependent data to a shared representation.

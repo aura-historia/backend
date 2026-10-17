@@ -51,9 +51,3 @@ pub(crate) fn encode(
 ) -> Result<serde_json::Value, BoxError> {
     shipping_json::listing_delivery::encode::<StoredDeliveryReferences>(v)
 }
-
-pub(crate) fn decode_historical(
-    value: serde_json::Value,
-) -> Result<product_listing_core::delivery::ListingDelivery, BoxError> {
-    shipping_json::listing_delivery::decode_historical::<StoredDeliveryReferences>(value)
-}

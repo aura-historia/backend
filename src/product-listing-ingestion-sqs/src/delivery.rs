@@ -304,7 +304,7 @@ mod tests {
         let first = crate::codec::envelope(&message).unwrap();
         let body = crate::codec::encode(&message).unwrap();
         assert_eq!(
-            serde_json::json!(3),
+            serde_json::json!(2),
             serde_json::from_str::<Value>(&body).unwrap()["schemaVersion"]
         );
         assert_eq!(
@@ -329,7 +329,7 @@ mod tests {
         let mut wrong: Value = serde_json::from_str(&body).unwrap();
         wrong["schemaVersion"] = serde_json::json!(1);
         assert!(crate::codec::decode(&wrong.to_string()).is_err());
-        wrong["schemaVersion"] = serde_json::json!(2);
+        wrong["schemaVersion"] = serde_json::json!(3);
         assert!(crate::codec::decode(&wrong.to_string()).is_err());
         let mut changed = message;
         let ProductListingIngestionIntent::ChangeDelivery(ref mut c) = changed.intent else {

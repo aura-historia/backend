@@ -1298,6 +1298,74 @@ async fn native_producers_push_shipping_without_domain_configuration() {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
+async fn native_profile_lifecycle_cannot_cross_integration_scope() {
+    use listing_source_core::ListingIngestionMethod;
+    use product_listing_core::delivery::DeliveryIntegration;
+
+    let p = get_postgres_client().await;
+    let (_, source) = source(&p).await;
+    for method in [
+        ListingIngestionMethod::Shopify,
+        ListingIngestionMethod::Woocommerce,
+    ] {
+        sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,$2)")
+            .bind(source.into_uuid())
+            .bind(method.as_str())
+            .execute(&p)
+            .await
+            .unwrap();
+    }
+    let m = manager(&p);
+    let mut create = command(source);
+    let mut write = import_write(1, "shopify-create");
+    write.integration = DeliveryIntegration::Provider {
+        method: ListingIngestionMethod::Shopify,
+    };
+    write.object_key = Some("profile".into());
+    create.import = Some(write);
+    let profile = m.create.execute(&trusted(), create).await.unwrap();
+
+    let mut retire = lifecycle(&profile);
+    let mut write = import_write(2, "woocommerce-retire");
+    write.integration = DeliveryIntegration::Provider {
+        method: ListingIngestionMethod::Woocommerce,
+    };
+    write.observation = None;
+    retire.import = Some(write);
+    assert!(matches!(
+        m.retire.execute(&trusted(), retire.clone()).await,
+        Err(ShippingError::ImportOwnershipConflict)
+    ));
+
+    retire.import.as_mut().unwrap().integration = DeliveryIntegration::Provider {
+        method: ListingIngestionMethod::Shopify,
+    };
+    let retired = m.retire.execute(&trusted(), retire).await.unwrap();
+    let mut restore = lifecycle(&retired);
+    let mut write = import_write(3, "woocommerce-restore");
+    write.integration = DeliveryIntegration::Provider {
+        method: ListingIngestionMethod::Woocommerce,
+    };
+    write.observation = None;
+    restore.import = Some(write);
+    assert!(matches!(
+        m.restore.execute(&trusted(), restore.clone()).await,
+        Err(ShippingError::ImportOwnershipConflict)
+    ));
+    restore.import.as_mut().unwrap().integration = DeliveryIntegration::Provider {
+        method: ListingIngestionMethod::Shopify,
+    };
+    assert_eq!(
+        ShippingProfileLifecycle::Active,
+        m.restore
+            .execute(&trusted(), restore)
+            .await
+            .unwrap()
+            .lifecycle
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
 async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_observation() {
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;

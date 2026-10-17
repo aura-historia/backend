@@ -430,7 +430,8 @@ async fn apply_import_authority(
         current: bool,
     }
     let ids: Vec<_> = listings.iter().map(|l| l.id.into_uuid()).collect();
-    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,(i.owner_hash IS NULL OR shipping_import_current(l.listing_source_id,i.source_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1) AND (i.owner_hash IS NOT NULL OR i.verified_at IS NOT NULL)")
+    // Manual ownership rows without prior imported observations still protect overrides.
+    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,(i.owner_hash IS NULL OR shipping_import_current(l.listing_source_id,i.source_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1)")
         .bind(&ids).fetch_all(&mut *connection).await.map_err(storage)?;
     for listing in listings {
         let mut selection = listing.delivery.selection().cloned();
