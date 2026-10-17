@@ -577,7 +577,7 @@ async fn current_profile_changes_overrides_observation_age_and_suspension_are_re
         updated["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]
             ["price"]["amount"]["amount_minor"]
     );
-    let cabinet = json!({"schema":"LISTING_DELIVERY_V2","source_id":source.into_uuid().to_string(),"integration":{"kind":"SOURCE"},"selection":{"kind":"INHERIT_SOURCE_DEFAULT"},"rate_inputs":{"classes":null,"variants":null},"shipping":{"kind":"REPLACE","value":{"kind":"PROHIBITED"}},"collection":{"kind":"INHERIT"}});
+    let cabinet = json!({"schema":"LISTING_DELIVERY_V1","source_id":source.into_uuid().to_string(),"integration":{"kind":"SOURCE"},"selection":{"kind":"INHERIT_SOURCE_DEFAULT"},"rate_inputs":{"classes":null,"variants":null},"shipping":{"kind":"REPLACE","value":{"kind":"PROHIBITED"}},"collection":{"kind":"INHERIT"}});
     sqlx::query(
         "UPDATE product_listings SET delivery_configuration=$2 WHERE product_listing_id=$1",
     )

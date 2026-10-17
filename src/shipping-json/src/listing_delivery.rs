@@ -215,7 +215,7 @@ pub fn decode<C: DeliveryReferenceCodec>(
 ) -> Result<ListingDelivery, BoxError> {
     // Fixed schema requires every nullable field and rejects unexpected fields.
     let d: DeliveryData = serde_json::from_value(v)?;
-    if d.schema != "LISTING_DELIVERY_V2" {
+    if d.schema != "LISTING_DELIVERY_V1" {
         return Err(bad());
     }
     let source = C::decode_source(&d.source_id)?;
@@ -234,34 +234,11 @@ pub fn decode<C: DeliveryReferenceCodec>(
     )
     .map_err(box_error)
 }
-/// Immutable events can contain the prior stored protocol. Obsolete address metadata is
-/// validated and discarded here; it never participates in current scope or new writes.
-pub fn decode_historical<C: DeliveryReferenceCodec>(
-    mut value: serde_json::Value,
-) -> Result<ListingDelivery, BoxError> {
-    if value.get("schema").and_then(serde_json::Value::as_str) == Some("LISTING_DELIVERY_V1") {
-        let integration = value
-            .get_mut("integration")
-            .and_then(serde_json::Value::as_object_mut)
-            .ok_or_else(bad)?;
-        if integration.get("kind").and_then(serde_json::Value::as_str) == Some("PROVIDER") {
-            let legacy = integration.remove("domain").ok_or_else(bad)?;
-            let legacy = legacy.as_str().ok_or_else(bad)?;
-            let parsed = listing_source_core::Domain::try_from(legacy)?;
-            if parsed.as_str() != legacy || legacy.len() > 253 {
-                return Err(bad());
-            }
-        }
-        value["schema"] = serde_json::json!("LISTING_DELIVERY_V2");
-    }
-    decode::<C>(value)
-}
-
 pub fn encode<C: DeliveryReferenceCodec>(
     v: &ListingDelivery,
 ) -> Result<serde_json::Value, BoxError> {
     Ok(
-        serde_json::json!({"schema":"LISTING_DELIVERY_V2", "source_id":C::encode_source(v.source_id()),
+        serde_json::json!({"schema":"LISTING_DELIVERY_V1", "source_id":C::encode_source(v.source_id()),
             "integration":encode_integration(v.integration())?,
             "selection":v.selection().map(encode_selection::<C>).transpose()?,
             "rate_inputs":encode_inputs(v.rate_inputs())?,

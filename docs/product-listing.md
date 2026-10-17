@@ -63,31 +63,15 @@ validated in the same transaction. Stale commands, including semantic no-ops, co
 They never create/restore listings or edit identity, text, pricing, images or Auction facts.
 
 A missing configuration means source-authored default inheritance. A retained provider
-configuration with no selection means unresolved assignment and evaluates without an
-inherited policy; failed or uninitialized lookup must retain that state. Integration
-scope is source-authored or the enabled provider method within this source. Native producers push their own typed
-shipping data; shipping configuration contains no provider domain or provider-fetch instruction.
-Class/variant codes are opaque within that scope. Changing integration requires deliberate
-replacement after assertion removal, never relabeling retained facts. No Aura taxonomy or
-first-priced variant establishes shipping membership.
+configuration without selection blocks inheritance. Scoped class/variant identities,
+whole-component override semantics and explicit clear/inherit behavior follow the
+[shipping selection contract](shipping.md#identity-ownership-and-selection); catalog fields
+never infer them.
 
-Commands distinguish `UNCHANGED`, `SET` and `CLEAR`. Whole-configuration clear returns
-source-authored listings to default inheritance; provider clear retains its integration
-with unresolved selection. Selection clear removes the reliable assignment; explicit
-`SUPPRESS_INHERITANCE` deliberately suppresses it; selecting `INHERIT_SOURCE_DEFAULT`
-unsuppresses it. Component clear removes its effective assertion; setting `INHERIT`
-removes an item override. `REPLACE` replaces one entire shipping or collection policy.
-A partial collection replacement supplies no missing address from the prior block.
-A shipping prohibition suppresses every shipping offer while independent applicable
-collection survives. Stored rate inputs never copy a computed profile amount.
-
-Canonical delivery changes coalesce into the ordinary semantic listing event. Public
-history reports only `DELIVERY_CHANGED`, without protected terms or sites. Shared profile
-changes emit their own shipping signal and never invent a listing semantic revision.
-Shipping display and opt-in currency-aware maximums use the persisted browsing/search FX
-snapshot, independently of historical sale valuation. Advertised source terms remain
-authoritative; FX captures require no listing event or projection rewrite. See the
-[shipping conversion contract](shipping.md#shipping-display-currency).
+Canonical delivery changes coalesce into the ordinary semantic event. Public history
+reports only `DELIVERY_CHANGED`, without terms or sites. Shared profile and FX changes do
+not invent listing semantic revisions; [shipping reads and valuation](shipping.md#shipping-on-listing-reads)
+resolve their current dependencies independently.
 
 ## Sale observation
 

@@ -2,78 +2,17 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
-## 2026-10-17 — Shipping display conversion and explicit FX filters (#2143)
+## 2026-10-17 — Advertised shipping and collection (#1997)
 
-- Listing shipping includes converted advertised rates with currency, snapshot ID and capture
-  time alongside unchanged source terms. Price knowledge and charge basis are preserved.
-- `shipping.interpretation: WHOLE_COUNTRY_PER_ITEM_FX_V1` opts a per-item maximum into
-  conversion using its declared target currency. Existing requests/saved filters keep
-  source-currency behavior; pagination pins its original FX snapshot.
-- Saved FX filters pin target and interpretation independently of destinations. Periodic
-  matching can discover FX-only crossings; matches expose their immutable shipping FX basis.
-  See [shipping](shipping.md#shipping-display-currency) for failure and cache behavior.
+- Listing detail, search, similar, watchlist, saved-search match and auction catalogue responses include `item.shipping`: current advertised terms, observation/dependency information and converted rates in the requested display currency. These are advertised arrangements, not checkout quotes or landed-cost totals.
+- Users with an authorized selected browsing destination also receive `userState.shipping`, including uncertainty when purchase inputs are missing. Delegated personalization requires `users:read`. Hidden/withdrawn entries expose no shipping; sites and private address identities are omitted. Authenticated responses/errors are `no-store`.
+- Search and saved filters support whole-country shipping, optional service, per-item maximum and independent collection-offered predicates. Maximums compare source currency by default; explicit `WHOLE_COUNTRY_PER_ITEM_FX_V1` uses the declared target currency and pinned FX snapshot. Indexed membership/counts may lag current response terms.
+- Saved shipping destinations are fixed private country snapshots; address/preference edits do not move them. Optional `acceptShippingDestination` checks an explicitly authored country against an owned address or selected preference. FX-mode matches expose their immutable shipping valuation basis.
+- Added source-scoped shipping profile list/detail, idempotent creation, complete replacement, retirement/restoration and default assign/clear APIs for administrators and authorized source operators. Commands require current management/default revisions; missing/retired references do not fall back to another profile. Delegated credentials require `listing-sources:read/write`.
+- Added protected source-keyed listing delivery inspection, revision-checked PATCH and asynchronous submission for selection, rate inputs and independent shipping/collection overrides. Delegated credentials require `product-listings:read/write`. Public listing history adds address-free `DELIVERY_CHANGED`.
+- Management commands accept optional incremental import identity, ordering and acquisition metadata. Stable object keys support recovery, exact retries retain identity, and manual components are protected. Provider scope is source plus enabled method. Terms continue until changed, withdrawn or authority is revoked; observation age alone never expires them.
 
-## 2026-10-17 — Shipping discovery and private saved destinations (#2070)
-
-- Listing search and saved filters accept whole-country delivery, optional service, exact
-  source-currency per-item maximum charges, and independent collection-offered predicates.
-  Unsupported/conditional terms cannot become definite matches; free counts as zero only
-  with an explicit currency and per-item basis. Indexed totals/pages may lag current terms.
-- Saved filters pin private country values and interpretation/reference versions. Optional
-  `acceptShippingDestination` validates an explicitly authored country against an authorized
-  owned address or selected preference; changes to either never move the snapshot.
-  Country predicates never select a browsing preference. See [shipping](shipping.md#shipping-search-and-saved-destinations).
-- Periodic matching revisits shipping membership each evaluation, within existing bounded
-  discovery limits, including profile changes affecting older listings.
-
-## 2026-10-17 — Continuing shipping assertions
-
-- Shipping terms, imported defaults and item components remain valid until updated, withdrawn,
-  or their source loses authority. Observation age no longer removes advertised shipping.
-- Import `observation` is an empty acquisition marker; `freshUntil` and `expiresAt` are removed.
-  Listing evidence contains only `verifiedAt`; expiry `status` and `validityDeadline` are removed.
-
-## 2026-10-15 — Incremental typed shipping imports (#2065)
-
-- Existing profile/default and listing delivery commands accept optional import identity,
-  ownership, ordering and explicit observation metadata. Stable object keys are recoverable
-  through the existing profile list. Existing source/integration lifecycle gates application and replay.
-- Native apps/plugins push complete typed shipping data. Provider scope uses source and enabled
-  method; shipping APIs and persisted V2 delivery configuration omit provider domains.
-- Manual components remain protected. Exact retries retain identity; conflicts require
-  refetch/reconciliation. Missing catalog listings return retryable dependency outcomes.
-- New observations can refresh unchanged terms without a semantic listing change.
-  Source authority revocation preserves independent manual overrides. See [shipping](shipping.md).
-- Shipping enum schemas preserve nullable assertions in generated clients.
-
-## 2026-10-15 — Shipping on listing responses (#2064)
-
-- Existing listing detail (ID/slug), search, similar, watchlist, saved-search match and auction catalogue responses
-  include effective advertised shipping/collection terms in `item.shipping`.
-- Authenticated users with a selected browsing destination also receive an evaluation in
-  `userState.shipping`; anonymous callers and users without a selected destination receive
-  generic terms. Delegated destination reads require `users:read`. Missing purchase inputs
-  remain explained unknowns; advertised prices are neither quotes nor complete landed costs.
-- Public terms omit dispatch/pickup sites; private results omit street text, coordinates
-  and saved-address identities. Authenticated responses/errors are `no-store`;
-  anonymous discovery caching follows discovery TTLs and geographic provider retention.
-  Hidden/withdrawn entries expose no shipping.
-
-## 2026-10-14 — Listing delivery assignments and overrides (#2063)
-
-- Added protected source-keyed delivery inspection and revision-checked PATCH, plus
-  asynchronous single-command submission with the existing Idempotency-Key contract.
-- Supports explicit/default/inline/suppressed selection, scoped rate inputs and complete
-  shipping/collection overrides. Unresolved provider assignment never implies inheritance.
-- Public listing history adds address-free `DELIVERY_CHANGED`; delivery changes retain the
-  listing lifecycle and unrelated canonical facts.
-
-## 2026-10-14 — Source shipping profile management (#2062)
-
-- Added protected source-scoped shipping profile list/detail, idempotent creation, complete content/evidence replacement, retirement/restoration, and explicit default assign/clear routes. Terms are advertised arrangements, never quotes. `shp_` TypeIDs retain source ownership; creation does not select a default.
-- Current unsuspended administrators and active operator Partnership members with the exact source grant may manage profiles. Delegated reads/writes require `listing-sources:read/write`. All responses/errors are `no-store`; summary lists are bounded to 100 and omit terms/evidence. Details omit protected evidence.
-- Commands require current management/default revisions, including no-ops. Evidence correction has an independent management revision; terms/lifecycle changes advance terms revision. Clear retains a revision tombstone. Retired/missing references stay traceable and ineligible without fallback; retirement is distinct from an explicit shipping prohibition.
-- Retired profiles require restoration before content/evidence corrections; unknown attributed Party references return `PARTY_NOT_FOUND`.
+See [shipping](shipping.md) and [OpenAPI](swagger.yaml) for request shapes, concurrency and failure behavior.
 
 ## 2026-10-13 — Saved-search matching across tiers (#2040)
 

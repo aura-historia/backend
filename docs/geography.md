@@ -209,7 +209,7 @@ Completion rechecks lease, generation, current bindings and storage rights, then
 permitted evidence and a minimal signal. Reads suppress stale, expired or revoked evidence
 immediately. Database coordination follows provider → resolution → binding lock order.
 Read-only repeatable snapshots use the same permission and logical-expiry gates without
-acquiring mutation locks; [shipping assessment](shipping.md#current-buyer-assessments)
+acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
 uses these current facts instead of the listing-geography projection.
 
 Retries are bounded, with backoff, concurrency/daily budgets and a circuit for provider

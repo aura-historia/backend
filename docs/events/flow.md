@@ -151,7 +151,7 @@ assertion or complete previous/current change; version 1 remains strict and read
 The CDC router validates the versioned configuration and emits existing compact event jobs.
 Delivery-only changes project the listing without triggering price/availability watchlist
 notifications or image embedding. Protected delivery terms never enter ordinary jobs or
-public history. Ingestion `CHANGE_DELIVERY` uses envelope version 3; earlier operations
+public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
 retain their exact version 1 codecs, semantic fingerprints and retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
@@ -332,7 +332,6 @@ Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly
 object payload only when compact derived values change. It routes to product projection,
 with no watchlist/price noise or enrichment loop. Work continuations and crash recovery
 are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).
-
 
 ### Shipping observation validity
 

@@ -350,7 +350,7 @@ impl ShippingImportAccess for Repository<'_> {
                 check_owner(row, true, &owner, write, scope.revision, false)?;
             }
             ShippingImportOperation::ProfileLifecycle { command: c, .. } => {
-                let row=sqlx::query_as::<_,OwnerRow>("SELECT i.owner_hash,i.source_revision,i.sequence,p.verified_at FROM shipping_profile_import_state i JOIN shipping_profiles p USING(shipping_profile_id) WHERE i.shipping_profile_id=$1 AND i.listing_source_id=$2 FOR UPDATE OF i,p").bind(c.profile_id.into_uuid()).bind(source.into_uuid()).fetch_optional(&mut *self.0).await.map_err(sql_error)?;
+                let row=sqlx::query_as::<_,OwnerRow>("SELECT i.owner_hash,i.source_revision,i.sequence,p.verified_at FROM shipping_profile_import_state i JOIN shipping_profiles p USING(shipping_profile_id) WHERE i.shipping_profile_id=$1 AND i.listing_source_id=$2 AND p.integration_method IS NOT DISTINCT FROM $3 FOR UPDATE OF i,p").bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).fetch_optional(&mut *self.0).await.map_err(sql_error)?;
                 check_owner(row, true, &owner, write, scope.revision, true)?;
             }
             ShippingImportOperation::AssignDefault(_)
