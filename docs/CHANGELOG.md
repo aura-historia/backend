@@ -2,6 +2,19 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Shipping discovery and private saved destinations (#2070)
+
+- Listing search and saved filters accept whole-country delivery, optional service, exact
+  source-currency per-item maximum charges, and independent collection-offered predicates.
+  Unsupported/conditional terms cannot become definite matches; free counts as zero only
+  with an explicit currency and per-item basis. Indexed totals/pages may lag current terms.
+- Saved filters pin private country values and interpretation/reference versions. Optional
+  `acceptShippingDestination` validates an explicitly authored country against an authorized
+  owned address or selected preference; changes to either never move the snapshot.
+  Country predicates never select a browsing preference. See [shipping](shipping.md#shipping-search-and-saved-destinations).
+- Periodic matching revisits shipping membership each evaluation, within existing bounded
+  discovery limits, including profile changes affecting older listings.
+
 ## 2026-10-17 — Continuing shipping assertions
 
 - Shipping terms, imported defaults and item components remain valid until updated, withdrawn,

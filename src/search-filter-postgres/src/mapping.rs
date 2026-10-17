@@ -7,6 +7,7 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing::ProductListingPriceValuationBasis;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::shipping_search::{InvalidShippingSearch, ShippingSearch};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -79,6 +80,7 @@ impl From<domain_primitives::object_id::ObjectIdError> for SearchFilterRowMappin
 
 #[derive(Debug)]
 pub(crate) enum ProductListingSearchJsonMappingError {
+    Shipping(InvalidShippingSearch),
     Geography(geo::data::discovery_data::InvalidGeographicQueryData),
     Serialize(serde_json::Error),
     Deserialize(serde_json::Error),
@@ -91,6 +93,7 @@ pub(crate) enum ProductListingSearchJsonMappingError {
 impl fmt::Display for ProductListingSearchJsonMappingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Shipping(_) => formatter.write_str("invalid shipping predicate"),
             Self::Geography(_) => formatter.write_str("invalid geographic predicate"),
             Self::Serialize(_) => {
                 formatter.write_str("search filter product search JSON serialization failed")
@@ -117,6 +120,7 @@ impl fmt::Display for ProductListingSearchJsonMappingError {
 impl Error for ProductListingSearchJsonMappingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Shipping(source) => Some(source),
             Self::Geography(source) => Some(source),
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
             Self::FormatTimestamp(source) => Some(source),
@@ -462,11 +466,98 @@ mod listing_orderability {
     }
 }
 
+// Persisted nullable members must be present, matching the shipping terms codec.
+#[derive(Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+struct RequiredNullable<T>(Option<T>);
+
+fn required_option<'de, D, T>(d: D) -> Result<RequiredNullable<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::deserialize(d).map(RequiredNullable)
+}
+
+// This JSON stays in the private saved-filter row, outside ordinary CDC.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ShippingSearchJson {
+    interpretation: String,
+    reference_release: String,
+    #[serde(deserialize_with = "required_option")]
+    country: RequiredNullable<String>,
+    #[serde(deserialize_with = "required_option")]
+    service: RequiredNullable<String>,
+    #[serde(deserialize_with = "required_option")]
+    maximum_per_item: RequiredNullable<ShippingAmountJson>,
+    collection_offered: bool,
+}
+impl std::fmt::Debug for ShippingSearchJson {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ShippingSearchJson(<private predicates>)")
+    }
+}
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShippingAmountJson {
+    amount: u64,
+    #[serde(with = "currency")]
+    currency: Currency,
+}
+impl From<&ShippingSearch> for ShippingSearchJson {
+    fn from(q: &ShippingSearch) -> Self {
+        Self {
+            interpretation: ShippingSearch::INTERPRETATION.into(),
+            reference_release: q.reference_release().as_str().into(),
+            country: RequiredNullable(q.country().map(|c| c.alpha2().into())),
+            service: RequiredNullable(q.service().map(|s| s.as_str().into())),
+            maximum_per_item: RequiredNullable(q.maximum_per_item().map(|p| ShippingAmountJson {
+                amount: p.monetary_amount.into(),
+                currency: p.currency,
+            })),
+            collection_offered: q.collection_offered(),
+        }
+    }
+}
+impl ShippingSearchJson {
+    fn into_query(self) -> Result<ShippingSearch, InvalidShippingSearch> {
+        if self.interpretation != ShippingSearch::INTERPRETATION {
+            return Err(InvalidShippingSearch);
+        }
+        let release = geo::reference::ReferenceRelease::from_code(&self.reference_release)
+            .map_err(|_| InvalidShippingSearch)?;
+        let country = self
+            .country
+            .0
+            .map(|c| geo::country_from_code(&c, release))
+            .transpose()
+            .map_err(|_| InvalidShippingSearch)?;
+        let service = self
+            .service
+            .0
+            .map(shipping_core::terms::ShippingServiceCode::new)
+            .transpose()
+            .map_err(|_| InvalidShippingSearch)?;
+        ShippingSearch::new(
+            release,
+            country,
+            service,
+            self.maximum_per_item
+                .0
+                .map(|p| money::Price::new(p.amount.into(), p.currency)),
+            self.collection_offered,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchJson {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     geography: Option<geo::data::discovery_data::GeographicQueryData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shipping: Option<ShippingSearchJson>,
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
@@ -545,6 +636,7 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
     fn try_from(v: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
             geography: v.geography.as_ref().map(Into::into),
+            shipping: v.shipping.as_ref().map(ShippingSearchJson::from),
             language: v.language,
             currency: v.currency,
             product_listing_query: v.product_listing_query.clone(),
@@ -608,6 +700,11 @@ pub(crate) fn product_search_from_json(
             .map(TryInto::try_into)
             .transpose()
             .map_err(ProductListingSearchJsonMappingError::Geography)?,
+        shipping: j
+            .shipping
+            .map(ShippingSearchJson::into_query)
+            .transpose()
+            .map_err(ProductListingSearchJsonMappingError::Shipping)?,
         language: j.language,
         currency: j.currency,
         product_listing_query: j.product_listing_query,
@@ -1068,6 +1165,63 @@ mod tests {
             configured_empty.get("availability_query")
         );
         Ok(())
+    }
+
+    #[test]
+    fn shipping_snapshots_round_trip_strictly_with_pinned_interpretation() {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.shipping = Some(
+            ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                Some(money::Price::new(9000_u64.into(), Currency::Eur)),
+                true,
+            )
+            .unwrap(),
+        );
+        let value = product_search_to_json(&search).unwrap();
+        assert_eq!(search, product_search_from_json(value.clone()).unwrap());
+        assert_eq!("DE", value["shipping"]["country"]);
+        assert_eq!(
+            ShippingSearch::INTERPRETATION,
+            value["shipping"]["interpretation"]
+        );
+        assert_eq!(
+            geo::reference::ReferenceRelease::CURRENT.as_str(),
+            value["shipping"]["referenceRelease"]
+        );
+        for (key, invalid) in [
+            ("interpretation", serde_json::json!("FUTURE")),
+            ("referenceRelease", serde_json::json!("current")),
+            ("country", serde_json::json!("XX")),
+            ("service", serde_json::json!("")),
+            ("addressId", serde_json::json!("private")),
+            ("expiresAt", serde_json::json!("future")),
+        ] {
+            let mut invalid_value = value.clone();
+            invalid_value["shipping"][key] = invalid;
+            assert!(product_search_from_json(invalid_value).is_err(), "{key}");
+        }
+        for key in [
+            "country",
+            "service",
+            "maximumPerItem",
+            "interpretation",
+            "referenceRelease",
+            "collectionOffered",
+        ] {
+            let mut missing = value.clone();
+            missing["shipping"].as_object_mut().unwrap().remove(key);
+            assert!(product_search_from_json(missing).is_err(), "missing {key}");
+        }
+        assert_eq!(
+            "ShippingSearchJson(<private predicates>)",
+            format!(
+                "{:?}",
+                serde_json::from_value::<ShippingSearchJson>(value["shipping"].clone()).unwrap()
+            )
+        );
     }
 
     #[test]

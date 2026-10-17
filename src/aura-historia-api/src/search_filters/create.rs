@@ -33,6 +33,7 @@ pub(super) async fn create_search_filter(
         .execute(
             &context,
             CreateSearchFilterCommand {
+                accept_shipping_destination: data.accept_shipping_destination.map(Into::into),
                 user_id,
                 name: data.name,
                 notifications: data.notifications,

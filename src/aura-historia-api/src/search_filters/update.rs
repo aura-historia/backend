@@ -27,6 +27,7 @@ pub(super) async fn update_search_filter(
         Ok(value) => value,
         Err(response) => return response,
     };
+    let accept_shipping_destination = data.accept_shipping_destination.clone().map(Into::into);
     let (name, notifications, state_field, search) = match data.into_fields() {
         Ok(fields) => fields,
         Err(error) => return error.into_response(),
@@ -36,6 +37,7 @@ pub(super) async fn update_search_filter(
         .execute(
             &context,
             UpdateOwnedSearchFilterCommand {
+                accept_shipping_destination,
                 user_id,
                 search_filter_id,
                 name,

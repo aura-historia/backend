@@ -76,6 +76,19 @@ async fn fixture() -> (
     ShippingProfileId,
     ProductListingId,
 ) {
+    fixture_with_projection().await.0
+}
+async fn fixture_with_projection() -> (
+    (
+        PgPool,
+        axum::Router,
+        Arc<Book>,
+        UserId,
+        ShippingProfileId,
+        ProductListingId,
+    ),
+    IndexedFixture,
+) {
     let p = get_postgres_client().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(&p)
@@ -178,6 +191,47 @@ async fn fixture() -> (
         SqlxAssessmentReaderFactory,
         book.clone(),
     )));
+    let indexed_amount = Arc::new(std::sync::atomic::AtomicU64::new(8000));
+    let indexed = IndexedFixture {
+        amount: indexed_amount.clone(),
+        item: ProductListingSearchItem {
+            geography: None,
+            product_listing_id: id,
+            product_listing_title_slug_id:
+                product_listing_core::product_listing_slug_id::ProductListingSlugId::raw(&format!(
+                    "item-{}-abcdef",
+                    id.as_uuid().simple()
+                ))
+                .unwrap(),
+            event_id: domain_primitives::event_id::EventId::try_from(event).unwrap(),
+            listing_source_id: source,
+            source_listing_id: product_listing_core::source_listing_id::SourceListingId::try_from(
+                format!("item-{}-abcdef", id.as_uuid().simple()),
+            )
+            .unwrap(),
+            auction_id: None,
+            title: None,
+            display_price: None,
+            price_valuation: ProductListingSummaryPriceValuation::Current {
+                fx_rate_id: fxrate_core::FxRateId::try_from(fx).unwrap(),
+                captured_at: time::OffsetDateTime::now_utc(),
+            },
+            availability: None,
+            lifecycle: product_listing_core::listing_lifecycle::ListingLifecycle::Active,
+            url: "https://example.test/item".parse().unwrap(),
+            images: Default::default(),
+            updated: time::OffsetDateTime::now_utc(),
+        },
+    };
+    let search = SearchProductListingsHandler::new(
+        indexed.clone(),
+        fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone()),
+        NoEmbeddings,
+        product_listing_postgres::SqlxListingSourceSummaryReader::new(p.clone()),
+        product_listing_postgres::SqlxProductListingUserStateReader::new(p.clone()),
+        product_listing_postgres::SqlxProductListingContentAssessmentReader::new(p.clone()),
+        shipping.clone(),
+    );
     let router = app(AppState::new().with_products(ProductListingsState::new(
         Arc::new(GetProductListingHandler::new(
             uow,
@@ -186,11 +240,134 @@ async fn fixture() -> (
             shipping,
         )),
         Arc::new(UnusedQueries),
-        Arc::new(UnusedQueries),
+        Arc::new(search),
         Arc::new(Auth(owner, other)),
     )));
-    (p, router, book, owner, profile.id, id)
+    ((p, router, book, owner, profile.id, id), indexed)
 }
+/// Independently advanced indexed membership; the ordinary service still enriches from PostgreSQL.
+#[derive(Clone)]
+struct IndexedFixture {
+    item: ProductListingSearchItem,
+    amount: Arc<std::sync::atomic::AtomicU64>,
+}
+#[async_trait::async_trait]
+impl product_listing_service::ports::ProductListingSearchReader for IndexedFixture {
+    async fn search(
+        &self,
+        request: &product_listing_service::ports::ProductListingSearchReadRequest,
+    ) -> Result<
+        ProductListingSearchReadResult,
+        product_listing_service::ports::ProductListingSearchReadError,
+    > {
+        let f = shipping_core::fixtures::gallery();
+        let terms = shipping_core::fixtures::gallery_terms(
+            self.amount.load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let configuration = shipping_core::selection::ListingDeliveryConfiguration::new(
+            f.source_id,
+            shipping_core::selection::ProfileSelection::inline(terms),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let effective =
+            shipping_core::assessment::EffectiveDeliveryTerms::resolve(&configuration, None, &[]);
+        let within_dates = request
+            .compiled_search
+            .search
+            .updated_query
+            .as_ref()
+            .is_none_or(|r| {
+                r.min.is_none_or(|min| self.item.updated >= min)
+                    && r.max.is_none_or(|max| self.item.updated <= max)
+            });
+        let matched = within_dates
+            && request
+                .compiled_search
+                .search
+                .shipping
+                .as_ref()
+                .is_none_or(|q| {
+                    let assessment = effective.assess(
+                        &shipping_core::inputs::AssessmentInput {
+                            destination: q.country().and_then(|country| {
+                                GeographicDescription::new(None, Some(country), None, None).unwrap()
+                            }),
+                            ..Default::default()
+                        },
+                        &[],
+                    );
+                    (!q.collection_offered()
+                        || assessment.collection.eligibility
+                            == Some(shipping_core::terms::ShippingEligibility::Offered))
+                        && q.country().is_none_or(|_| {
+                            assessment.services.iter().any(|offer| {
+                                offer.applicability == shipping_core::assessment::PredicateResult::Match
+                                    && offer.eligibility
+                                        == Some(shipping_core::terms::ShippingEligibility::Offered)
+                                    && q.service().is_none_or(|s| s == offer.service.code())
+                                    && q.maximum_per_item().is_none_or(|maximum| {
+                                        offer.service.rate().is_some_and(|rate| {
+                                            rate.basis() == Some(shipping_core::pricing::ChargeBasis::PerItem)
+                                                && match rate.price() {
+                                                    shipping_core::pricing::ShippingPrice::Fixed(price) => {
+                                                        price.currency == maximum.currency
+                                                            && price.monetary_amount <= maximum.monetary_amount
+                                                    }
+                                                    shipping_core::pricing::ShippingPrice::Free(currency) => {
+                                                        currency == Some(maximum.currency)
+                                                    }
+                                                    _ => false,
+                                                }
+                                        })
+                                    })
+                            })
+                        })
+                });
+        Ok(ProductListingSearchReadResult {
+            items: if matched {
+                vec![self.item.clone()]
+            } else {
+                vec![]
+            },
+            total: Some(u64::from(matched)),
+            cursor: application::pagination::Cursor {
+                size: 20,
+                search_after: matched.then(|| json!([self.item.product_listing_id])),
+            },
+        })
+    }
+    async fn search_hybrid(
+        &self,
+        _: &product_listing_service::ports::ProductListingSearchReadRequest,
+        _: &[f32],
+    ) -> Result<
+        ProductListingSearchReadResult,
+        product_listing_service::ports::ProductListingSearchReadError,
+    > {
+        unreachable!()
+    }
+}
+struct NoEmbeddings;
+#[async_trait::async_trait]
+impl embedding::EmbeddingGenerator for NoEmbeddings {
+    async fn embed_product(
+        &self,
+        _: &embedding::EmbeddingText,
+        _: Option<&embedding::EmbeddingText>,
+        _: Option<&embedding::EmbeddingImageUrl>,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        unreachable!()
+    }
+    async fn embed_search_query(
+        &self,
+        _: &embedding::EmbeddingText,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        unreachable!()
+    }
+}
+
 struct UnusedQueries;
 #[async_trait::async_trait]
 impl GetSimilarProductListingsUseCase for UnusedQueries {
@@ -808,4 +985,304 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         current["items"][0]["item"]["shipping"]["terms"],
         caught_up["items"][0]["item"]["shipping"]["terms"]
     );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn search_country_is_independent_of_browsing_and_current_shipping_during_projection_lag() {
+    let ((p, router, book, owner, profile, _), indexed) = fixture_with_projection().await;
+    let path = "/api/v1/product-listings?shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=EUR";
+    let (status, before) = request(&router, path, None).await;
+    assert_eq!(StatusCode::OK, status, "{before}");
+    assert_eq!(1, before["total"]);
+    assert!(before["items"][0].get("userState").is_none());
+    let (_, unselected) = request(&router, path, Some("owner")).await;
+    assert!(
+        unselected["items"][0]["userState"]
+            .get("shipping")
+            .is_none()
+    );
+    book.set_destination(
+        &ctx(Principal::User(owner)),
+        BrowsingDestination::CountryPostal {
+            country: CountryCode::FRA,
+            postal_code: Some(geo::PostalCode::new("75001").unwrap()),
+        },
+        1,
+    )
+    .await
+    .unwrap();
+    let (_, selected) = request(&router, path, Some("owner")).await;
+    assert_eq!(
+        "FR",
+        selected["items"][0]["userState"]["shipping"]["destination"]["country"]
+    );
+    let (_, delegated) = request(&router, path, Some("no-user-scope")).await;
+    assert!(delegated["items"][0]["userState"].get("shipping").is_none());
+    let terms: Value =
+        sqlx::query_scalar("SELECT terms FROM shipping_profiles WHERE shipping_profile_id=$1")
+            .bind(profile.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap();
+    let mut changed = terms;
+    changed["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]["price"]["amount"]["amount_minor"] =
+        json!(9500);
+    sqlx::query("UPDATE shipping_profiles SET terms=$2,management_revision=management_revision+1,terms_revision=terms_revision+1,verified_at=now()-interval '365 days' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).bind(changed).execute(&p).await.unwrap();
+    let (_, lagging) = request(&router, path, None).await;
+    assert_eq!(1, lagging["total"]);
+    assert_eq!(before["searchAfter"], lagging["searchAfter"]);
+    assert_eq!(
+        before["items"][0]["item"]["productListingId"],
+        lagging["items"][0]["item"]["productListingId"]
+    );
+    assert_eq!(
+        9500,
+        lagging["items"][0]["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"]
+            [0]["rate"]["price"]["amount"]["amount_minor"]
+    );
+    indexed
+        .amount
+        .store(9500, std::sync::atomic::Ordering::SeqCst);
+    let (_, converged) = request(&router, path, None).await;
+    assert_eq!(0, converged["total"]);
+    assert!(converged["items"].as_array().unwrap().is_empty());
+    let (_, collection) = request(
+        &router,
+        "/api/v1/product-listings?shipping[collectionOffered]=true",
+        None,
+    )
+    .await;
+    assert_eq!(1, collection["total"]);
+    let destination = book
+        .destination(&ctx(Principal::User(owner)))
+        .await
+        .unwrap();
+    assert_eq!(
+        BrowsingDestination::CountryPostal {
+            country: CountryCode::FRA,
+            postal_code: Some(geo::PostalCode::new("75001").unwrap())
+        },
+        destination.destination
+    );
+}
+
+struct SingleTestRun;
+#[async_trait::async_trait]
+impl search_filter_service::ports::PeriodicSearchFilterMatchingRunLease for SingleTestRun {
+    async fn release(
+        self: Box<Self>,
+    ) -> Result<(), search_filter_service::ports::PeriodicSearchFilterMatchingRunLockError> {
+        Ok(())
+    }
+}
+#[async_trait::async_trait]
+impl search_filter_service::ports::PeriodicSearchFilterMatchingRunLock for SingleTestRun {
+    async fn try_acquire(
+        &self,
+    ) -> Result<
+        Option<Box<dyn search_filter_service::ports::PeriodicSearchFilterMatchingRunLease>>,
+        search_filter_service::ports::PeriodicSearchFilterMatchingRunLockError,
+    > {
+        Ok(Some(Box::new(Self)))
+    }
+}
+#[async_trait::async_trait]
+impl classifier_model::ClassifierModel for NoEmbeddings {
+    async fn classify(
+        &self,
+        _: classifier_model::ClassificationRequest,
+    ) -> Result<classifier_model::ClassificationResponse, classifier_model::ClassificationError>
+    {
+        unreachable!("structured shipping filters need no model calls")
+    }
+}
+async fn replace_gallery(pool: &PgPool, profile: ShippingProfileId, amount: u64) {
+    let (source, revision): (uuid::Uuid, i64) = sqlx::query_as("SELECT listing_source_id,management_revision FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.into_uuid()).fetch_one(pool).await.unwrap();
+    ReplaceShippingProfileHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxShippingRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &ctx(Principal::System),
+        ReplaceProfileCommand {
+            import: None,
+            source_id: ListingSourceId::try_from(source).unwrap(),
+            profile_id: profile,
+            expected_revision: shipping_service::ports::ShippingManagementRevision::try_from(
+                revision,
+            )
+            .unwrap(),
+            content: ShippingProfileContent {
+                name: ShippingProfileName::new("Gallery terms".into()).unwrap(),
+                attributed_party: None,
+                terms: gallery_terms(amount),
+            },
+            evidence: vec![],
+        },
+    )
+    .await
+    .unwrap();
+}
+async fn project_gallery(pool: &PgPool, index: &mut IndexedFixture) {
+    use product_listing_service::shipping_projection::*;
+    let handler = ProjectListingShippingHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        product_listing_postgres::shipping_projection::SqlxShippingProjectionStoreFactory,
+    );
+    for _ in 0..20 {
+        let work: Option<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT work_id FROM listing_shipping_work WHERE pending ORDER BY work_id LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        let Some(work) = work else {
+            let value: Value = sqlx::query_scalar(
+                "SELECT summary FROM product_listing_shipping WHERE product_listing_id=$1",
+            )
+            .bind(index.item.product_listing_id.into_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            index.amount.store(
+                value["country_offers"][0]["per_item_fixed"]["amount_minor"]
+                    .as_u64()
+                    .unwrap(),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+            let event: uuid::Uuid = sqlx::query_scalar(
+                "SELECT current_event_id FROM product_listings WHERE product_listing_id=$1",
+            )
+            .bind(index.item.product_listing_id.into_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            index.item.event_id = domain_primitives::event_id::EventId::try_from(event).unwrap();
+            return;
+        };
+        handler
+            .execute(ShippingWorkId::try_from(work).unwrap(), 100)
+            .await
+            .unwrap();
+    }
+    panic!("bounded shipping projection did not converge");
+}
+#[aura_integration_test(services=[SCHEMA])]
+async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_without_canonical_events()
+{
+    use search_filter_postgres::*;
+    use search_filter_service::use_cases::*;
+    let ((pool, _, _, owner, profile, listing), mut index) = fixture_with_projection().await;
+    let old = time::OffsetDateTime::now_utc() - time::Duration::days(100);
+    index.item.updated = old;
+    sqlx::query("UPDATE product_listings SET updated=$2 WHERE product_listing_id=$1")
+        .bind(listing.into_uuid())
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let domain_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_events WHERE event_group='DOMAIN'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let search = product_listing_core::product_listing_search::ProductListingSearch {
+        shipping: Some(
+            product_listing_core::shipping_search::ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(CountryCode::DEU),
+                None,
+                Some(money::Price::new(9000_u64.into(), money::Currency::Eur)),
+                false,
+            )
+            .unwrap(),
+        ),
+        ..Default::default()
+    };
+    let filter = CreateSearchFilterHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxSearchFilterRepositoryFactory,
+        NoEmbeddings,
+        SqlxSearchFilterQuotaReaderFactory,
+        user_postgres::SqlxUserTierEntitlementsFactory::new(),
+    )
+    .execute(
+        &ctx(Principal::User(owner)),
+        CreateSearchFilterCommand {
+            accept_shipping_destination: None,
+            user_id: owner,
+            name: "definite delivery".into(),
+            notifications: false,
+            search,
+        },
+    )
+    .await
+    .unwrap()
+    .filter;
+    sqlx::query(
+        "UPDATE search_filters SET created=now()-interval '31 days' WHERE user_search_filter_id=$1",
+    )
+    .bind(filter.search_filter_id.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let started = time::OffsetDateTime::now_utc() + time::Duration::seconds(1);
+    for (iteration, amount, expected_matches) in [(0, 9500, 0), (1, 8000, 1), (2, 8000, 0)] {
+        replace_gallery(&pool, profile, amount).await;
+        project_gallery(&pool, &mut index).await;
+        let handler = RunPeriodicSearchFilterMatchingHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SingleTestRun,
+            SqlxPeriodicSearchFilterCandidateReader::new(pool.clone()),
+            fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory,
+            index.clone(),
+            SqlxExistingSearchFilterMatchReader::new(pool.clone()),
+            product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+            NoEmbeddings,
+            product_listing_postgres::SqlxProductListingCurrentEventGuardFactory::new(),
+            SqlxSearchFilterMatchWriterFactory,
+            SqlxPeriodicSearchFilterProgressFactory,
+            PeriodicSearchFilterMatchingPolicy {
+                filter_page_size: std::num::NonZeroUsize::new(100).unwrap(),
+                hybrid_scan_limit: std::num::NonZeroUsize::new(100).unwrap(),
+                evaluation_limit: std::num::NonZeroUsize::new(50).unwrap(),
+                classification_concurrency: std::num::NonZeroUsize::MIN,
+                should_show_threshold: classifier_model::Probability::new(0.5).unwrap(),
+                max_attempts: std::num::NonZeroUsize::MIN,
+                projection_lag: time::Duration::ZERO,
+                replay_overlap: time::Duration::hours(2),
+            },
+        )
+        .unwrap();
+        let outcome = handler
+            .execute(RunPeriodicSearchFilterMatchingCommand {
+                started_at: started + time::Duration::hours(iteration),
+            })
+            .await
+            .unwrap();
+        let RunPeriodicSearchFilterMatchingOutcome::Applied(report) = outcome else {
+            panic!("single test run should acquire custody")
+        };
+        assert_eq!(0, report.filters_failed, "{report:?}");
+        assert_eq!(expected_matches, report.matches_inserted, "{report:?}");
+        assert_eq!(0, report.classification_requests);
+    }
+    let persisted: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filter_matches WHERE user_search_filter_id=$1 AND product_listing_id=$2").bind(filter.search_filter_id.into_uuid()).bind(listing.into_uuid()).fetch_one(&pool).await.unwrap();
+    assert_eq!(1, persisted);
+    let after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_events WHERE event_group='DOMAIN'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(domain_events, after);
+    let updated: time::OffsetDateTime =
+        sqlx::query_scalar("SELECT updated FROM product_listings WHERE product_listing_id=$1")
+            .bind(listing.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(old.unix_timestamp(), updated.unix_timestamp());
 }

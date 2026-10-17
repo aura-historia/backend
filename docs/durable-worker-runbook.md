@@ -278,6 +278,14 @@ preserve checkpoints and match identities instead of resetting progress or delet
 matches to force a replay. The replay overlap tolerates bounded projection lag, not an
 unlimited outage: review uncovered windows after prolonged search/projection failures.
 
+Shipping filters revisit current indexed membership on the next matching evaluation,
+including listings older than the automatic replay window; authored date bounds and the
+evaluation cutoff still apply. Candidate/scan limits remain bounded, so inspect cap outcomes for broad shipping
+filters. Recover shipping projection custody before investigating missing indexed offers;
+current response terms may already reflect a change. Never generate a canonical price or
+availability event to force discovery, or reset saved destination snapshots after an
+address/preference change. See [shipping search](shipping.md#shipping-search-and-saved-destinations).
+
 Match INSERT delivery still requires healthy CDC/router/notification workers. Verify
 that path independently; rerunning matching is not a substitute for recovering a retained
 notification job and must not blindly resend historical mail.

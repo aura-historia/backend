@@ -104,7 +104,7 @@ search-filter-service = ["application", "auction-core", "classifier-model", "dom
 watchlist-postgres = ["application", "domain-primitives", "platform-postgres", "product-listing-core", "product-listing-service", "user-core", "watchlist-core", "watchlist-service"]
 
 
-search-filter-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-postgres", "product-listing-core", "search-filter-core", "search-filter-service", "user-core"]
+search-filter-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-postgres", "product-listing-core", "search-filter-core", "search-filter-service", "shipping-core", "user-core"]
 
 admin-overview-service = ["application", "user-core", "user-service"]
 admin-overview-postgres = ["admin-overview-service", "application", "platform-postgres"]

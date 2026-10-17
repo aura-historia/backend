@@ -19,3 +19,5 @@ pub mod source_listing_id;
 pub mod title;
 
 pub mod delivery;
+
+pub mod shipping_search;

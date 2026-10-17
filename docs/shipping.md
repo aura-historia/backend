@@ -257,6 +257,63 @@ provider retention is enforced by the geography context, whose invalidation sign
 refresh affected shipping projections. Recovery/rebuild procedures and monitoring belong
 to the [worker runbook](durable-worker-runbook.md#listing-shipping-recovery).
 
+## Shipping search and saved destinations
+
+Listing search and saved filters accept `shipping` independently of item-location
+`geography`. Supported predicates are definite whole-country delivery, an optional exact
+service code, an inclusive `maximumPerItem` in explicitly declared source currency/minor
+units, and independent `collectionOffered: true`. Predicates are ANDed; country, service
+and price must match one nested offer. For example:
+
+```json
+{"shipping":{"destination":{"kind":"COUNTRY","country":"DE"},"maximumPerItem":{"amount":9000,"currency":"EUR"}}}
+```
+
+Only fixed and explicitly denominated free per-item rates satisfy the maximum; free is
+zero in its declared currency. Unknown currency, absent/from/estimated/external/requested
+prices and other charge bases cannot satisfy it. Display FX conversion never changes the
+threshold. A definite service with unknown pricing can match country/service without a
+price constraint. Partial coverage supports only its definite whole-country offers;
+postal exclusions, earlier uncertain zones, variants and missing basket inputs remain
+conditional. Absence of an offer never asserts collection-only or unavailability. There
+is no shipping-price sort, cart charge or combined item-plus-shipping total. Projection
+truncation and unsupported shapes limit discovery; absence from search is not proof that
+shipping is unavailable. Continuing observations do not impose a time limit on matches.
+
+Omitting `shipping` applies no shipping predicate. Omitting `destination` or specifying
+`{"kind":"NONE"}` selects no country; service/charge predicates then require a country.
+`NONE` alone applies no shipping predicate (and clears it in a saved-filter PATCH).
+Collection alone needs no country. Empty predicates and unsupported fields fail validation.
+Search predicates never resolve or change the selected browsing preference. Anonymous
+results retain generic terms; authenticated destination personalization follows the
+existing listing-read authorization and preference rules even when its destination differs
+from the search country. Membership, totals and continuation remain indexed; current
+returned terms may disagree during projection lag, without post-filtering the page.
+Anonymous TTLs and geographic evidence caps still apply; personalized responses are
+`no-store`. Shipping observation age does not cap caching.
+
+Saved filters retain private country values, their geographic reference release and
+`WHOLE_COUNTRY_PER_ITEM_V1` interpretation. They save no address identity, street, postal
+code, provider evidence or mutable preference reference: this initial country predicate
+does not interpret postal rules. Optional create/PATCH `acceptShippingDestination` accepts
+`{"kind":"ADDRESS","addressId":"uaddr_…"}` or `{"kind":"PREFERENCE"}` as an
+explicit acceptance guard. The authored `search.shipping.destination.country` must equal
+the current authorized destination's **submitted** country (or subdivision country).
+No selected destination, a destination without an asserted country, or a different country
+is invalid; users must explicitly author the country they accept. The existing address-book
+service resolves the choice once, checks ownership/current account and delegated
+`users:read`, and applies its evidence-validity rules. Provider-derived facts alone are
+not saved. Omitting the guard uses the authored country directly, without preference lookup.
+
+Address/preference edits and deletion leave saved values unchanged. Ordinary saved-filter
+PATCH semantics apply (`shipping: null` clears the whole predicate); acceptance itself
+does not change browsing selection. Account erasure cascades to these private snapshots.
+They remain outside public listing documents, ordinary CDC/events and logs. Periodic
+matching revisits indexed shipping predicates each evaluation, preserving explicit saved
+date constraints and the evaluation cutoff, because profile updates need no canonical
+listing-price/availability change. Existing bounded candidate/scan limits, idempotent matches, event fences and
+notification routing still apply; see [matching](events/flow.md#periodic-saved-filter-matching).
+
 ## Independent assertions
 
 Eligibility is absent or `OFFERED`, `NOT_OFFERED`, or `SUBJECT_TO_CONFIRMATION`. Pricing is

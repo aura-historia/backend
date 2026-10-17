@@ -1070,29 +1070,36 @@ fn periodic_search(
     window_end: OffsetDateTime,
     replay_overlap: Duration,
 ) -> Option<ProductListingSearch> {
-    let replay_candidate = filter
-        .matched_through
-        .checked_sub(replay_overlap)
-        .unwrap_or(filter.created);
-    let replay_start = replay_candidate.max(filter.created);
-    let min = filter
+    // Shipping dependencies can change without changing canonical listing.updated. Revisit
+    // old listings while retaining authored date constraints and the evaluation cutoff.
+    let replay_start = filter.search.shipping.is_none().then(|| {
+        filter
+            .matched_through
+            .checked_sub(replay_overlap)
+            .unwrap_or(filter.created)
+            .max(filter.created)
+    });
+    let authored_min = filter
         .search
         .updated_query
         .as_ref()
-        .and_then(|range| range.min)
-        .map_or(replay_start, |value| value.max(replay_start));
+        .and_then(|range| range.min);
+    let min = match (authored_min, replay_start) {
+        (Some(authored), Some(replay)) => Some(authored.max(replay)),
+        (authored, replay) => authored.or(replay),
+    };
     let max = filter
         .search
         .updated_query
         .as_ref()
         .and_then(|range| range.max)
         .map_or(window_end, |value| value.min(window_end));
-    if min > max {
+    if min.is_some_and(|min| min > max) {
         return None;
     }
     let mut search = filter.search.clone();
     search.updated_query = Some(RangeQuery {
-        min: Some(min),
+        min,
         max: Some(max),
     });
     Some(search)
@@ -1655,6 +1662,57 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    #[test]
+    fn shipping_periodic_matching_revisits_old_listings_without_moving_authored_date_bounds() {
+        let mut candidate = filter();
+        candidate.search.shipping = Some(
+            product_listing_core::shipping_search::ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                None,
+                false,
+            )
+            .unwrap(),
+        );
+        candidate.matched_through = candidate.created + Duration::days(31);
+        let next = candidate.matched_through + Duration::days(1);
+        let mut expected = candidate.search.clone();
+        expected.updated_query = Some(RangeQuery {
+            min: None,
+            max: Some(next),
+        });
+        assert_eq!(
+            expected,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created),
+            max: Some(candidate.created + Duration::hours(1)),
+        });
+        assert_eq!(
+            candidate.search,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(next + Duration::hours(1)),
+            max: None,
+        });
+        assert!(periodic_search(&candidate, next, Duration::minutes(5)).is_none());
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created),
+            max: Some(next + Duration::hours(1)),
+        });
+        let search = periodic_search(&candidate, next, Duration::minutes(5)).unwrap();
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(candidate.created),
+                max: Some(next)
+            }),
+            search.updated_query
+        );
     }
 
     fn geographic_filter() -> PeriodicSearchFilterCandidate {
