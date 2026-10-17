@@ -64,38 +64,10 @@ pub enum AssessmentError {
     ),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EvidenceStatus {
-    Fresh,
-    Stale,
-    Expired,
-}
-impl EvidenceStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Fresh => "FRESH",
-            Self::Stale => "STALE",
-            Self::Expired => "EXPIRED",
-        }
-    }
-}
-/// No deadline means a continuing manually supplied assertion, not a recent recrawl.
+/// The last successful assertion observation; time alone does not withdraw terms.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AssertionEvidence {
     pub verified_at: OffsetDateTime,
-    pub fresh_until: Option<OffsetDateTime>,
-    pub expires_at: Option<OffsetDateTime>,
-}
-impl AssertionEvidence {
-    pub fn status(self, at: OffsetDateTime) -> EvidenceStatus {
-        if self.expires_at.is_some_and(|expiry| expiry <= at) {
-            EvidenceStatus::Expired
-        } else if self.fresh_until.is_some_and(|expiry| expiry <= at) {
-            EvidenceStatus::Stale
-        } else {
-            EvidenceStatus::Fresh
-        }
-    }
 }
 #[derive(Clone)]
 pub struct ListingDependency {
@@ -106,7 +78,6 @@ pub struct ListingDependency {
     pub operator_id: party_core::party_id::PartyId,
     pub delivery: ListingDelivery,
     pub evidence: Option<AssertionEvidence>,
-    pub validity_deadline: Option<OffsetDateTime>,
     pub integration_current: bool,
 }
 pub struct ProfileDependency {
@@ -168,7 +139,7 @@ pub struct ListingAssessmentView {
     pub default_revision: Option<u64>,
     pub profile: Option<ProfileAssessmentBasis>,
     pub listing_evidence: Option<AssertionEvidence>,
-    pub validity_deadline: Option<OffsetDateTime>,
+    pub geographic_valid_until: Option<OffsetDateTime>,
     pub evaluated_at: OffsetDateTime,
     pub input: AssessmentInput,
     pub effective: EffectiveDeliveryTerms,
@@ -363,15 +334,8 @@ pub fn assess_snapshot(
         if listing.delivery.selection().is_none() {
             notices.push("ASSIGNMENT_UNRESOLVED");
         }
-        let listing_expired = listing
-            .evidence
-            .is_some_and(|e| e.status(dependencies.evaluated_at) == EvidenceStatus::Expired);
-        let configuration = if listing_expired || !listing.integration_current {
-            notices.push(if listing_expired {
-                "LISTING_EVIDENCE_EXPIRED"
-            } else {
-                "INTEGRATION_MISMATCH"
-            });
+        let configuration = if !listing.integration_current {
+            notices.push("INTEGRATION_MISMATCH");
             ListingDeliveryConfiguration::new(
                 listing.source_id,
                 ProfileSelection::SuppressInheritance,
@@ -396,9 +360,6 @@ pub fn assess_snapshot(
             .filter(|p| {
                 if p.integration != *listing.delivery.integration() {
                     notices.push("PROFILE_INTEGRATION_MISMATCH");
-                    false
-                } else if p.evidence.status(dependencies.evaluated_at) == EvidenceStatus::Expired {
-                    notices.push("PROFILE_EVIDENCE_EXPIRED");
                     false
                 } else {
                     true
@@ -441,27 +402,16 @@ pub fn assess_snapshot(
                 evidence: p.evidence,
             }),
             listing_evidence: listing.evidence,
-            validity_deadline: [
-                listing.validity_deadline,
-                listing.evidence.and_then(|e| e.fresh_until),
-                listing.evidence.and_then(|e| e.expires_at),
-                profile.and_then(|p| p.evidence.fresh_until),
-                profile.and_then(|p| p.evidence.expires_at),
-            ]
-            .into_iter()
-            .flatten()
-            .chain(
-                dependencies
-                    .locations
-                    .iter()
-                    .filter(|l| {
-                        referenced.contains(&l.location.id())
-                            && l.location.party_id() == listing.operator_id
-                    })
-                    .filter_map(|l| l.valid_until),
-            )
-            .filter(|deadline| *deadline > dependencies.evaluated_at)
-            .min(),
+            geographic_valid_until: dependencies
+                .locations
+                .iter()
+                .filter(|l| {
+                    referenced.contains(&l.location.id())
+                        && l.location.party_id() == listing.operator_id
+                })
+                .filter_map(|l| l.valid_until)
+                .filter(|deadline| *deadline > dependencies.evaluated_at)
+                .min(),
             evaluated_at: dependencies.evaluated_at,
             input: request.input,
             generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
@@ -619,8 +569,6 @@ mod tests {
         let at = OffsetDateTime::UNIX_EPOCH + time::Duration::days(100);
         let evidence = AssertionEvidence {
             verified_at: at - time::Duration::days(1),
-            fresh_until: None,
-            expires_at: None,
         };
         let listings = [g.painting, g.cabinet]
             .into_iter()
@@ -639,7 +587,6 @@ mod tests {
                 )
                 .unwrap(),
                 evidence: Some(evidence),
-                validity_deadline: None,
                 integration_current: true,
             })
             .collect();
@@ -794,50 +741,46 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn stale_evidence_keeps_age_and_expiry_only_removes_inherited_assertions() {
-        for expired in [false, true] {
-            let mut deps = dependencies();
-            let at = deps.evaluated_at;
-            deps.profiles[0].evidence.fresh_until = Some(at);
-            deps.profiles[0].evidence.expires_at =
-                Some(at + time::Duration::seconds(if expired { 0 } else { 1 }));
-            let request = request(
-                &deps,
-                Some(AssessmentDestination::Geographic(
-                    gallery().assessment_input().destination.unwrap(),
-                )),
-            );
-            let view = handler(deps)
-                .execute(&context(Principal::Anonymous), request)
-                .await
-                .unwrap();
-            assert_eq!(
-                !expired,
-                view.items[0].assessment.eligibility == Some(ShippingEligibility::Offered)
-            );
-            assert_eq!(
-                Some(ShippingEligibility::NotOffered),
-                view.items[1].assessment.eligibility
-            );
-            assert_eq!(
-                if expired {
-                    None
-                } else {
-                    Some(ShippingEligibility::Offered)
-                },
-                view.items[1].assessment.collection.eligibility
-            );
-            assert_eq!(
-                at - time::Duration::days(1),
-                view.items[0].profile.as_ref().unwrap().evidence.verified_at
-            );
-        }
+    async fn old_assertions_remain_usable_without_renewing_observation() {
+        let mut deps = dependencies();
+        let verified_at = deps.evaluated_at - time::Duration::days(3650);
+        deps.profiles[0].evidence.verified_at = verified_at;
+        deps.listings[0].evidence.as_mut().unwrap().verified_at = verified_at;
+        let request = request(
+            &deps,
+            Some(AssessmentDestination::Geographic(
+                gallery().assessment_input().destination.unwrap(),
+            )),
+        );
+        let view = handler(deps)
+            .execute(&context(Principal::Anonymous), request)
+            .await
+            .unwrap();
+        assert_eq!(
+            Some(ShippingEligibility::Offered),
+            view.items[0].assessment.eligibility
+        );
+        assert_eq!(
+            Some(ShippingEligibility::NotOffered),
+            view.items[1].assessment.eligibility
+        );
+        assert_eq!(
+            Some(ShippingEligibility::Offered),
+            view.items[1].assessment.collection.eligibility
+        );
+        assert_eq!(
+            verified_at,
+            view.items[0].profile.as_ref().unwrap().evidence.verified_at
+        );
+        assert_eq!(
+            verified_at,
+            view.items[0].listing_evidence.unwrap().verified_at
+        );
     }
     #[tokio::test]
-    async fn expired_inline_assertion_and_unresolved_provider_never_offer_default() {
+    async fn disconnected_integration_and_unresolved_provider_never_offer_default() {
         let mut deps = dependencies();
-        let at = deps.evaluated_at;
-        deps.listings[0].evidence.as_mut().unwrap().expires_at = Some(at);
+        deps.listings[0].integration_current = false;
         deps.listings[1].delivery = ListingDelivery::new(
             deps.listings[1].source_id,
             Default::default(),

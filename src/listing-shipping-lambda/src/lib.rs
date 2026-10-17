@@ -13,7 +13,7 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingShippingUseCas
     };
     // Wake-ups identify work, never frozen shipping. Current authority/claim fences
     // govern even old generations and duplicate messages.
-    match use_case.execute(Some(job.work_id), 100).await {
+    match use_case.execute(job.work_id, 100).await {
         Ok(_) => true,
         Err(error) => {
             let category=match error {
@@ -52,10 +52,9 @@ mod tests {
     impl ProjectListingShippingUseCase for Stub {
         async fn execute(
             &self,
-            work: Option<ShippingWorkId>,
+            _work: ShippingWorkId,
             limit: u16,
         ) -> Result<u32, ShippingProjectionError> {
-            assert!(work.is_some());
             assert_eq!(100, limit);
             self.calls.fetch_add(1, Ordering::SeqCst);
             if self.deferred {

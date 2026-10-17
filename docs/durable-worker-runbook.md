@@ -208,16 +208,16 @@ Index reset, expired queues and absent history cannot restore missing authoritat
 ## Listing shipping recovery
 
 [Shipping](shipping.md#effective-shipping-discovery-projection) owns the conservative
-index subset, observation eligibility, deadlines and distinction between current listing
+index subset, observation eligibility and distinction between current listing
 responses and delayed indexed discovery. The worker accepts only compact work ID/generation
 wake-ups, rereads canonical PostgreSQL and commits a bounded page with its checkpoint.
 It never calls providers or writes OpenSearch. Stale/superseded work cannot commit a page;
 active claims, malformed input and dependency failures retain SQS retry/DLQ custody.
-Hourly backend cleanup independently discovers due deadlines and drains pending work.
-Inspect actual cleanup completion as well as Scheduler delivery custody.
+Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redrive. There
+is no scheduled shipping expiry or pending-work recovery scan.
 
 Apply the migration with compatible shipping/event codecs, CDC table selection, dedicated
-queue/consumer and strict nested shipping mapping under the
+queue/consumer, ingestion delivery envelope v3 and strict nested shipping mapping under the
 [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
 Fence/drain incompatible old complete-projector binaries before activating shipping work;
 old document builders omit shipping even when they read a newer listing fence.
@@ -226,8 +226,7 @@ outside DMS. The router publishes the address-free wake-up pair only; its existi
 archive retains router failures. Worker source/DLQ retention and scoped runtime/operator
 permissions follow the shared queue contract.
 
-For bounded recovery, invoke cleanup repeatedly or enqueue selected source UUIDs in
-reviewed keyset pages with `SELECT enqueue_listing_shipping('SOURCE', $1)` in the
+For bounded rebuilds, enqueue selected source UUIDs in reviewed keyset pages with `SELECT enqueue_listing_shipping('SOURCE', $1)` in the
 operational transaction. Preserve work generations, live leases, reverse references,
 canonical revisions and deletion fences; never manufacture listing changes to drive a
 rebuild. Source jobs and independent listing jobs cover overlapping creation/assignment
@@ -241,10 +240,9 @@ fencing and retained tombstones, before switching readers. Verify safe identitie
 country-service-price nesting and deletion visibility. Runtime acknowledgment means an
 accepted or externally fenced write, not search visibility.
 
-Monitor oldest pending work, expired leases, due-deadline backlog, changed/scanned page
-counts, shipping and product-projector queue age/depth/DLQs and cleanup failures. Repair
-both pipeline stages; queries remain available during catch-up. Use only identities,
-revision/generation, policy, deadline and failure categories in operator evidence. Never
+Monitor oldest pending work, expired leases, changed/scanned page counts and shipping
+and product-projector queue age/depth/DLQs. Repair both pipeline stages; queries remain available during catch-up. Use only identities,
+revision/generation, policy and failure categories in operator evidence. Never
 export terms, addresses, producer ownership keys, buyer data or provider payloads.
 
 ## Periodic matching recovery

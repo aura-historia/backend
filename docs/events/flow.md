@@ -147,7 +147,7 @@ assertion or complete previous/current change; version 1 remains strict and read
 The CDC router validates the versioned configuration and emits existing compact event jobs.
 Delivery-only changes project the listing without triggering price/availability watchlist
 notifications or image embedding. Protected delivery terms never enter ordinary jobs or
-public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
+public history. Ingestion `CHANGE_DELIVERY` uses envelope version 3; earlier operations
 retain their exact version 1 codecs, semantic fingerprints and retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
@@ -319,12 +319,12 @@ are durable; see [listing geography recovery](../durable-worker-runbook.md#listi
 ### Shipping observation validity
 
 Incremental shipping imports commit address-free shipping_validity_changes with their
-assertion windows/ownership. OBSERVED is independent of management/terms/listing semantic
+observations/ownership. OBSERVED is independent of management/terms/listing semantic
 revisions; AUTHORITY_CHANGED follows existing source/configuration or grant lifecycle changes.
 Subject identity is a profile, source default, listing or source; defaults and sources use the
 source ID. The subject kind, ID and revision identify an immutable signal. The owning
 [shipping contract](../shipping.md#incremental-typed-imports) defines application/replay and
-expiry. Shipping invalidation consumes these committed records without a refresh barrier,
+source authority. Shipping invalidation consumes these committed records without a refresh barrier,
 rereads current state and tolerates duplicate/out-of-order signals. Profile/source-default
 management signals, canonical listing events and geographic lifecycle/rights signals use
 the same durable work basis. Neither original assertion content nor producer ownership
@@ -334,7 +334,7 @@ Effective shipping appends schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `
 when the public compact summary changes. It advances the existing listing projection
 fence/current-event pointer and routes only to the complete ProductListing projector.
 Canonical revision, updated time, content/embedding source pointers and public history
-remain unchanged. Dependency-only refreshes update reverse references/deadlines silently.
+remain unchanged. Dependency-only refreshes update reverse references silently.
 The event codec rejects unknown versions or payload fields. Deploy compatible event/job
 readers, strict camelCase mappings and the isolated queue/consumer with the migration;
 older readers cannot consume the new event or scope. Rebuild and lag semantics belong

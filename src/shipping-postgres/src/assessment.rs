@@ -67,21 +67,12 @@ fn revision(value: i64) -> Result<u64, AssessmentError> {
 }
 fn evidence(
     verified_at: OffsetDateTime,
-    fresh_until: Option<OffsetDateTime>,
-    expires_at: Option<OffsetDateTime>,
     at: OffsetDateTime,
 ) -> Result<AssertionEvidence, AssessmentError> {
-    if verified_at > at
-        || fresh_until.is_some_and(|t| t < verified_at)
-        || expires_at.is_some_and(|t| t < verified_at || fresh_until.is_some_and(|f| t < f))
-    {
+    if verified_at > at {
         return Err(corrupt());
     }
-    Ok(AssertionEvidence {
-        verified_at,
-        fresh_until,
-        expires_at,
-    })
+    Ok(AssertionEvidence { verified_at })
 }
 #[derive(FromRow)]
 struct ListingRow {
@@ -93,8 +84,6 @@ struct ListingRow {
     source_revision: i64,
     operator_party_id: Uuid,
     delivery_verified_at: Option<OffsetDateTime>,
-    delivery_fresh_until: Option<OffsetDateTime>,
-    delivery_expires_at: Option<OffsetDateTime>,
     enabled_methods: Vec<String>,
 }
 #[derive(FromRow)]
@@ -103,8 +92,6 @@ struct ProfileRow {
     profile: super::ProfileRow,
     integration_method: Option<String>,
     verified_at: OffsetDateTime,
-    fresh_until: Option<OffsetDateTime>,
-    expires_at: Option<OffsetDateTime>,
 }
 #[derive(FromRow)]
 struct LocationRow {
@@ -141,17 +128,9 @@ impl ListingRow {
             }
         };
         let assertion = if has_configuration {
-            Some(evidence(
-                row.delivery_verified_at.ok_or_else(corrupt)?,
-                row.delivery_fresh_until,
-                row.delivery_expires_at,
-                at,
-            )?)
+            Some(evidence(row.delivery_verified_at.ok_or_else(corrupt)?, at)?)
         } else {
-            if row.delivery_verified_at.is_some()
-                || row.delivery_fresh_until.is_some()
-                || row.delivery_expires_at.is_some()
-            {
+            if row.delivery_verified_at.is_some() {
                 return Err(corrupt());
             }
             None
@@ -164,7 +143,6 @@ impl ListingRow {
             operator_id: PartyId::try_from(row.operator_party_id).map_err(invalid)?,
             delivery,
             evidence: assertion,
-            validity_deadline: None,
             integration_current,
         }))
     }
@@ -192,7 +170,7 @@ impl ProfileRow {
             .map_err(invalid)?,
             management_revision: view.management_revision.into_inner(),
             integration,
-            evidence: evidence(row.verified_at, row.fresh_until, row.expires_at, at)?,
+            evidence: evidence(row.verified_at, at)?,
         })
     }
 }
@@ -325,7 +303,7 @@ impl AssessmentReader for Reader<'_> {
         }
         let rows = sqlx::query_as::<_, ListingRow>(r#"
             SELECT l.product_listing_id,l.listing_source_id,l.version,l.lifecycle,l.delivery_configuration,s.version AS source_revision,s.operator_party_id,
-                l.delivery_verified_at,l.delivery_fresh_until,l.delivery_expires_at,
+                l.delivery_verified_at,
                 ARRAY(SELECT ingestion_method FROM listing_source_ingestion_methods m WHERE m.listing_source_id=l.listing_source_id) AS enabled_methods
             FROM product_listings l JOIN listing_sources s USING(listing_source_id)
             WHERE l.product_listing_id=ANY($1)
@@ -334,9 +312,9 @@ impl AssessmentReader for Reader<'_> {
             .into_iter()
             .filter_map(|row| row.dependency(at).transpose())
             .collect::<Result<Vec<_>, _>>()?;
-        apply_import_validity(self.0, &mut listings, at).await?;
+        apply_import_authority(self.0, &mut listings, at).await?;
         let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
-        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT d.listing_source_id,CASE WHEN ((i.owner_hash IS NOT NULL AND NOT shipping_import_current(d.listing_source_id,i.source_revision)) OR i.expires_at<=$2) THEN NULL ELSE d.shipping_profile_id END,d.revision,d.source_deleted FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=ANY($1)").bind(&sources).bind(at).fetch_all(&mut *self.0).await.map_err(storage)?;
+        let default_rows: Vec<(Uuid,Option<Uuid>,i64,bool)> = sqlx::query_as("SELECT d.listing_source_id,CASE WHEN (i.owner_hash IS NOT NULL AND NOT shipping_import_current(d.listing_source_id,i.source_revision)) THEN NULL ELSE d.shipping_profile_id END,d.revision,d.source_deleted FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=ANY($1)").bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let mut defaults = Vec::new();
         for (source, id, rev, deleted) in default_rows {
             if deleted || rev < 2 {
@@ -370,7 +348,7 @@ impl AssessmentReader for Reader<'_> {
         }
         let rows = sqlx::query_as::<_, ProfileRow>(r#"
             SELECT shipping_profile_id,listing_source_id,management_revision,terms_revision,lifecycle,name,attributed_party_id,terms,
-                integration_method,verified_at,fresh_until,expires_at
+                integration_method,verified_at
             FROM shipping_profiles p WHERE shipping_profile_id=ANY($1) AND current_source_id=listing_source_id AND listing_source_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision))
         "#).bind(&profile_ids).bind(&sources).fetch_all(&mut *self.0).await.map_err(storage)?;
         let profiles = rows
@@ -434,8 +412,8 @@ impl AssessmentReader for Reader<'_> {
     }
 }
 
-/// One bounded batch for component windows and one for defaults; no per-listing hydration.
-async fn apply_import_validity(
+/// One bounded batch for component observations and authority; no per-listing hydration.
+async fn apply_import_authority(
     connection: &mut PgConnection,
     listings: &mut [ListingDependency],
     at: OffsetDateTime,
@@ -449,15 +427,11 @@ async fn apply_import_validity(
         product_listing_id: Uuid,
         component: String,
         verified_at: Option<OffsetDateTime>,
-        fresh_until: Option<OffsetDateTime>,
-        expires_at: Option<OffsetDateTime>,
         current: bool,
     }
     let ids: Vec<_> = listings.iter().map(|l| l.id.into_uuid()).collect();
-    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,i.fresh_until,i.expires_at,(i.owner_hash IS NULL OR shipping_import_current(l.listing_source_id,i.source_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1) AND (i.owner_hash IS NOT NULL OR i.verified_at IS NOT NULL)")
+    let rows=sqlx::query_as::<_,Component>("SELECT i.product_listing_id,i.component,i.verified_at,(i.owner_hash IS NULL OR shipping_import_current(l.listing_source_id,i.source_revision)) AS current FROM listing_delivery_import_state i JOIN product_listings l USING(product_listing_id) WHERE i.product_listing_id=ANY($1) AND (i.owner_hash IS NOT NULL OR i.verified_at IS NOT NULL)")
         .bind(&ids).fetch_all(&mut *connection).await.map_err(storage)?;
-    let sources: Vec<_> = listings.iter().map(|l| l.source_id.into_uuid()).collect();
-    let defaults:Vec<(Uuid,Option<OffsetDateTime>,Option<OffsetDateTime>)>=sqlx::query_as("SELECT listing_source_id,fresh_until,expires_at FROM shipping_default_import_state WHERE listing_source_id=ANY($1) AND (owner_hash IS NOT NULL OR verified_at IS NOT NULL)").bind(&sources).fetch_all(&mut *connection).await.map_err(storage)?;
     for listing in listings {
         let mut selection = listing.delivery.selection().cloned();
         let mut inputs = listing.delivery.rate_inputs().clone();
@@ -469,67 +443,20 @@ async fn apply_import_validity(
             .collect();
         // An imported observation can be committed without a semantic listing change,
         // including when SOURCE inheritance has no stored delivery configuration.
-        if listing.evidence.is_none() {
-            listing.evidence =
-                owned
-                    .iter()
-                    .filter_map(|r| r.verified_at)
-                    .min()
-                    .map(|verified_at| AssertionEvidence {
-                        verified_at,
-                        fresh_until: None,
-                        expires_at: None,
-                    });
+        if let Some(verified_at) = owned.iter().filter_map(|r| r.verified_at).min() {
+            listing.evidence = Some(AssertionEvidence { verified_at });
         }
         for row in &owned {
             if let Some(verified) = row.verified_at {
-                evidence(verified, row.fresh_until, row.expires_at, at)?;
-            } else if row.fresh_until.is_some() || row.expires_at.is_some() {
-                return Err(corrupt());
+                evidence(verified, at)?;
             }
-            for deadline in [row.fresh_until, row.expires_at]
-                .into_iter()
-                .flatten()
-                .filter(|d| *d > at)
-            {
-                listing.validity_deadline = Some(
-                    listing
-                        .validity_deadline
-                        .map_or(deadline, |d| d.min(deadline)),
-                );
-            }
-            if let Some(e) = &mut listing.evidence {
-                if let Some(verified) = owned.iter().filter_map(|r| r.verified_at).min() {
-                    e.verified_at = verified;
-                }
-                if let Some(fresh) = row.fresh_until {
-                    e.fresh_until = Some(e.fresh_until.map_or(fresh, |f| f.min(fresh)));
-                }
-            }
-            if !row.current || row.expires_at.is_some_and(|expiry| expiry <= at) {
+            if !row.current {
                 match row.component.as_str() {
                     "SELECTION" => selection = None,
                     "RATE_INPUTS" => inputs = ListingRateInputs::default(),
                     "SHIPPING" => shipping = ComponentOverride::Inherit,
                     "COLLECTION" => collection = ComponentOverride::Inherit,
                     _ => return Err(corrupt()),
-                }
-            }
-        }
-        if matches!(
-            listing.delivery.selection(),
-            Some(ProfileSelection::InheritSourceDefault)
-        ) {
-            for (_, fresh, expiry) in defaults
-                .iter()
-                .filter(|(s, _, _)| *s == listing.source_id.into_uuid())
-            {
-                for deadline in [*fresh, *expiry].into_iter().flatten().filter(|d| *d > at) {
-                    listing.validity_deadline = Some(
-                        listing
-                            .validity_deadline
-                            .map_or(deadline, |d| d.min(deadline)),
-                    );
                 }
             }
         }

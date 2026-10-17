@@ -62,10 +62,7 @@ pub struct ImportData {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ObservationData {
-    fresh_until: String,
-    expires_at: String,
-}
+struct ObservationData {}
 impl ImportData {
     pub fn into_command(
         self,
@@ -75,16 +72,7 @@ impl ImportData {
             OffsetDateTime::parse(&self.acquired_at, &Rfc3339).map_err(|_| CodecError::Invalid)?;
         let observation = self
             .observation
-            .map(|v| {
-                Ok::<_, CodecError>(shipping_service::imports::ShippingObservation {
-                    acquired_at,
-                    fresh_until: OffsetDateTime::parse(&v.fresh_until, &Rfc3339)
-                        .map_err(|_| CodecError::Invalid)?,
-                    expires_at: OffsetDateTime::parse(&v.expires_at, &Rfc3339)
-                        .map_err(|_| CodecError::Invalid)?,
-                })
-            })
-            .transpose()?;
+            .map(|_| shipping_service::imports::ShippingObservation { acquired_at });
         let write = shipping_service::imports::ShippingImportWrite {
             integration: invalid(listing_delivery::decode_integration(self.integration))?,
             sequence: self.sequence,
@@ -99,20 +87,7 @@ impl ImportData {
     fn from_command(
         w: &shipping_service::imports::ShippingImportWrite,
     ) -> Result<Self, CodecError> {
-        let observation = w
-            .observation
-            .as_ref()
-            .map(|v| {
-                let format = |t: time::OffsetDateTime| {
-                    t.format(&time::format_description::well_known::Rfc3339)
-                        .map_err(|_| CodecError::Invalid)
-                };
-                Ok::<_, CodecError>(ObservationData {
-                    fresh_until: format(v.fresh_until)?,
-                    expires_at: format(v.expires_at)?,
-                })
-            })
-            .transpose()?;
+        let observation = w.observation.as_ref().map(|_| ObservationData {});
         Ok(Self {
             integration: invalid(listing_delivery::encode_integration(&w.integration))?,
             sequence: w.sequence,
@@ -301,7 +276,7 @@ mod tests {
         assert!(decode_command(invalid, c.product_key).is_err());
     }
     #[test]
-    fn version_two_delivery_preserves_retry_and_fifo_identity() {
+    fn version_three_delivery_preserves_retry_and_fifo_identity() {
         let c = command();
         let intent = ProductListingIngestionIntent::ChangeDelivery(c.clone());
         let message = ProductListingIngestionMessage {
@@ -329,7 +304,7 @@ mod tests {
         let first = crate::codec::envelope(&message).unwrap();
         let body = crate::codec::encode(&message).unwrap();
         assert_eq!(
-            serde_json::json!(2),
+            serde_json::json!(3),
             serde_json::from_str::<Value>(&body).unwrap()["schemaVersion"]
         );
         assert_eq!(
@@ -353,6 +328,8 @@ mod tests {
         );
         let mut wrong: Value = serde_json::from_str(&body).unwrap();
         wrong["schemaVersion"] = serde_json::json!(1);
+        assert!(crate::codec::decode(&wrong.to_string()).is_err());
+        wrong["schemaVersion"] = serde_json::json!(2);
         assert!(crate::codec::decode(&wrong.to_string()).is_err());
         let mut changed = message;
         let ProductListingIngestionIntent::ChangeDelivery(ref mut c) = changed.intent else {
@@ -432,6 +409,10 @@ mod tests {
             assert!(decode_command(invalid, key.clone()).is_err());
             let mut invalid = fixtures[name].clone();
             invalid["import"]["providerPayload"] = serde_json::json!({});
+            assert!(decode_command(invalid, key.clone()).is_err());
+            let mut invalid = fixtures[name].clone();
+            invalid["import"]["observation"] =
+                serde_json::json!({"expiresAt":"2026-10-22T10:00:00Z"});
             assert!(decode_command(invalid, key.clone()).is_err());
         }
     }

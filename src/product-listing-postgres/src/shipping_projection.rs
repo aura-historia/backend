@@ -67,30 +67,22 @@ impl WorkRow {
 impl ShippingProjectionStore for Store<'_> {
     async fn claim(
         &mut self,
-        work: Option<ShippingWorkId>,
+        work: ShippingWorkId,
     ) -> Result<Option<ShippingClaim>, ShippingProjectionError> {
-        if work.is_none() {
-            // A deadline remains durable until its listing page commits the next deadline.
-            // Never repeatedly fence a live due listing claim during recovery.
-            let due:Vec<Uuid>=sqlx::query_scalar("SELECT s.product_listing_id FROM product_listing_shipping s WHERE valid_until<=clock_timestamp() AND NOT EXISTS(SELECT 1 FROM listing_shipping_work w WHERE w.dependency_kind='LISTING' AND w.dependency_id=s.product_listing_id::text AND w.pending) ORDER BY valid_until,s.product_listing_id LIMIT 100")
-                .fetch_all(&mut *self.connection).await.map_err(storage)?;
-            for id in due {
-                sqlx::query("SELECT enqueue_listing_shipping('LISTING',$1)")
-                    .bind(id.to_string())
-                    .execute(&mut *self.connection)
-                    .await
-                    .map_err(storage)?;
-            }
-        }
-        let row=sqlx::query_as::<_,WorkRow>("SELECT * FROM listing_shipping_work WHERE pending AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND ($1::uuid IS NULL OR work_id=$1) ORDER BY pending_since,work_id LIMIT 1 FOR UPDATE SKIP LOCKED")
-            .bind(work.map(|w|w.into_uuid())).fetch_optional(&mut *self.connection).await.map_err(storage)?;
+        let row=sqlx::query_as::<_,WorkRow>("SELECT * FROM listing_shipping_work WHERE pending AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND work_id=$1 ORDER BY pending_since,work_id LIMIT 1 FOR UPDATE SKIP LOCKED")
+            .bind(work.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
         let Some(row) = row else {
-            if let Some(work) = work {
-                let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE work_id=$1 AND pending)").bind(work.into_uuid()).fetch_one(&mut *self.connection).await.map_err(storage)?;
-                if pending {
-                    return Err(ShippingProjectionError::Deferred);
-                }
+            let pending: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE work_id=$1 AND pending)",
+            )
+            .bind(work.into_uuid())
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(storage)?;
+            if pending {
+                return Err(ShippingProjectionError::Deferred);
             }
+
             return Ok(None);
         };
         if row.kind_invalid() {
@@ -218,10 +210,10 @@ impl ShippingProjectionStore for Store<'_> {
             SELECT p.product_listing_id,jsonb_build_object(
                 'policy',$2::text,'evaluator',$3::text,'listingRevision',p.version,'lifecycle',p.lifecycle,
                 'sourceId',p.listing_source_id,'sourceRevision',s.version,'operatorId',s.operator_party_id,'authorityRevision',a.revision,
-                'listingEvidence',jsonb_build_array(p.delivery_verified_at,p.delivery_fresh_until,p.delivery_expires_at),
+                'listingEvidence',p.delivery_verified_at,
                 'components',(SELECT jsonb_agg((to_jsonb(i)-'owner_hash')||jsonb_build_object('owned',i.owner_hash IS NOT NULL) ORDER BY component) FROM listing_delivery_import_state i WHERE i.product_listing_id=p.product_listing_id),
                 'default',(SELECT jsonb_build_object('revision',d.revision,'profile',d.shipping_profile_id,'deleted',d.source_deleted,'observation',(to_jsonb(i)-'owner_hash')||jsonb_build_object('owned',i.owner_hash IS NOT NULL)) FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=p.listing_source_id),
-                'profiles',(SELECT jsonb_agg(jsonb_build_object('id',v.shipping_profile_id,'managementRevision',v.management_revision,'termsRevision',v.terms_revision,'lifecycle',v.lifecycle,'currentSource',v.current_source_id,'integration',v.integration_method,'verifiedAt',v.verified_at,'freshUntil',v.fresh_until,'expiresAt',v.expires_at,'observationRevision',i.observation_revision,'owned',i.owner_hash IS NOT NULL,'sourceRevision',i.source_revision) ORDER BY v.shipping_profile_id) FROM listing_shipping_dependencies dep JOIN shipping_profiles v ON v.shipping_profile_id=CASE WHEN dep.dependency_kind='PROFILE' THEN dep.dependency_id::uuid END LEFT JOIN shipping_profile_import_state i USING(shipping_profile_id) WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='PROFILE'),
+                'profiles',(SELECT jsonb_agg(jsonb_build_object('id',v.shipping_profile_id,'managementRevision',v.management_revision,'termsRevision',v.terms_revision,'lifecycle',v.lifecycle,'currentSource',v.current_source_id,'integration',v.integration_method,'verifiedAt',v.verified_at,'observationRevision',i.observation_revision,'owned',i.owner_hash IS NOT NULL,'sourceRevision',i.source_revision) ORDER BY v.shipping_profile_id) FROM listing_shipping_dependencies dep JOIN shipping_profiles v ON v.shipping_profile_id=CASE WHEN dep.dependency_kind='PROFILE' THEN dep.dependency_id::uuid END LEFT JOIN shipping_profile_import_state i USING(shipping_profile_id) WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='PROFILE'),
                 'locations',(SELECT jsonb_agg(jsonb_build_object('id',l.party_location_id,'revision',l.revision,'inputRevision',l.input_revision,'lifecycle',l.lifecycle,'bindingInputRevision',b.input_revision,'bindingGuard',b.guard,'selectedGeneration',b.selected_generation,'selectedCandidate',b.selected_candidate,'resolution',r.resolution_id,'generation',r.generation,'resolutionPolicy',r.policy_version,'validUntil',r.valid_until,'storagePermitted',c.storage_permitted) ORDER BY l.party_location_id) FROM listing_shipping_dependencies dep JOIN party_locations l ON l.party_location_id=CASE WHEN dep.dependency_kind='LOCATION' THEN dep.dependency_id::uuid END LEFT JOIN geo_resolution_bindings b ON b.subject_kind='PARTY_LOCATION' AND b.subject_id=l.party_location_id LEFT JOIN geo_resolutions r USING(resolution_id) LEFT JOIN geo_resolution_provider_controls c ON c.profile=r.profile WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='LOCATION')
             ) FROM product_listings p JOIN listing_sources s USING(listing_source_id) LEFT JOIN shipping_import_authority a USING(listing_source_id) WHERE p.product_listing_id=ANY($1)
         "#).bind(&ids).bind(POLICY).bind(shipping_core::assessment::POLICY_VERSION).fetch_all(&mut *self.connection).await.map_err(storage)?;
@@ -259,7 +251,7 @@ impl ShippingProjectionStore for Store<'_> {
             } else if let Some((_, old_version)) = old {
                 version = old_version;
             }
-            sqlx::query("INSERT INTO product_listing_shipping(product_listing_id,dependency,summary,valid_until,projection_version) VALUES($1,$2,$3,$4,$5) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,summary=EXCLUDED.summary,valid_until=EXCLUDED.valid_until,projection_version=EXCLUDED.projection_version").bind(w.listing_id.into_uuid()).bind(dependency).bind(summary).bind(w.valid_until).bind(version).execute(&mut *self.connection).await.map_err(storage)?;
+            sqlx::query("INSERT INTO product_listing_shipping(product_listing_id,dependency,summary,projection_version) VALUES($1,$2,$3,$4) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,summary=EXCLUDED.summary,projection_version=EXCLUDED.projection_version").bind(w.listing_id.into_uuid()).bind(dependency).bind(summary).bind(version).execute(&mut *self.connection).await.map_err(storage)?;
         }
         Ok(changed)
     }

@@ -91,10 +91,7 @@
       "sequence": 1,
       "requestKey": "create-policy-v1",
       "objectKey": "website-policy",
-      "observation": {
-        "freshUntil": "2026-10-16T10:00:00Z",
-        "expiresAt": "2026-10-22T10:00:00Z"
-      },
+      "observation": {},
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "SOURCE"
@@ -106,10 +103,7 @@
     "import": {
       "sequence": 2,
       "requestKey": "membership-v1",
-      "observation": {
-        "freshUntil": "2026-10-16T10:00:00Z",
-        "expiresAt": "2026-10-22T10:00:00Z"
-      },
+      "observation": {},
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "SOURCE"
@@ -144,10 +138,7 @@
     "import": {
       "sequence": 2,
       "requestKey": "provider-membership-v1",
-      "observation": {
-        "freshUntil": "2026-10-16T10:00:00Z",
-        "expiresAt": "2026-10-22T10:00:00Z"
-      },
+      "observation": {},
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "PROVIDER",
@@ -380,10 +371,7 @@
       "sequence": 1,
       "requestKey": "provider-create-v1",
       "objectKey": "provider-policy",
-      "observation": {
-        "freshUntil": "2026-10-16T10:00:00Z",
-        "expiresAt": "2026-10-22T10:00:00Z"
-      },
+      "observation": {},
       "acquiredAt": "2026-10-15T10:00:00Z",
       "integration": {
         "kind": "PROVIDER",

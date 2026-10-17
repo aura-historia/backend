@@ -212,32 +212,21 @@ async fn invalid_delivery_codes_fail_closed_and_withdrawn_is_unavailable() {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn evidence_requires_a_current_listing_assertion_and_ordered_deadlines() {
+async fn evidence_requires_a_current_listing_assertion() {
     let p = get_postgres_client().await;
     let (_, _, ids) = seed(&p).await;
-    for query in [
-        "UPDATE product_listings SET delivery_verified_at=now() WHERE product_listing_id=$1",
-        "UPDATE product_listings SET delivery_fresh_until=now() WHERE product_listing_id=$1",
-        "UPDATE product_listings SET delivery_expires_at=now() WHERE product_listing_id=$1",
+    for (query, id) in [
+        (
+            "UPDATE product_listings SET delivery_verified_at=now() WHERE product_listing_id=$1",
+            ids[0],
+        ),
+        (
+            "UPDATE product_listings SET delivery_verified_at=NULL WHERE product_listing_id=$1",
+            ids[1],
+        ),
     ] {
         let error = sqlx::query(query)
-            .bind(ids[0].into_uuid())
-            .execute(&p)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            Some("listing_delivery_evidence_window"),
-            error.as_database_error().unwrap().constraint()
-        );
-    }
-    for query in [
-        "UPDATE product_listings SET delivery_verified_at=NULL WHERE product_listing_id=$1",
-        "UPDATE product_listings SET delivery_fresh_until=delivery_verified_at-interval '1 second' WHERE product_listing_id=$1",
-        "UPDATE product_listings SET delivery_expires_at=delivery_verified_at-interval '1 second' WHERE product_listing_id=$1",
-        "UPDATE product_listings SET delivery_fresh_until=delivery_verified_at+interval '1 hour',delivery_expires_at=delivery_verified_at WHERE product_listing_id=$1",
-    ] {
-        let error = sqlx::query(query)
-            .bind(ids[1].into_uuid())
+            .bind(id.into_uuid())
             .execute(&p)
             .await
             .unwrap_err();

@@ -353,7 +353,7 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
     );
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn current_profile_changes_overrides_expiry_and_suspension_are_reflected() {
+async fn current_profile_changes_overrides_observation_age_and_suspension_are_reflected() {
     let (p, router, book, owner, profile, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
     let path = format!("/api/v1/product-listings/{id}");
@@ -417,7 +417,8 @@ async fn current_profile_changes_overrides_expiry_and_suspension_are_reflected()
     .execute(&p)
     .await
     .unwrap();
-    sqlx::query("UPDATE shipping_profiles SET fresh_until=now()+interval '30 seconds' WHERE shipping_profile_id=$1")
+    // Observation age never withdraws advertised shipping or shortens normal discovery caching.
+    sqlx::query("UPDATE shipping_profiles SET verified_at=now()-interval '3650 days' WHERE shipping_profile_id=$1")
         .bind(profile.into_uuid()).execute(&p).await.unwrap();
     let anonymous = router
         .clone()
@@ -426,41 +427,15 @@ async fn current_profile_changes_overrides_expiry_and_suspension_are_reflected()
         .unwrap();
     assert_eq!(StatusCode::OK, anonymous.status());
     let cache = anonymous.headers()["cache-control"].to_str().unwrap();
-    let ttl: u32 = cache
-        .split("s-maxage=")
-        .nth(1)
-        .unwrap()
-        .split(',')
-        .next()
-        .unwrap()
-        .parse()
+    assert!(cache.contains("s-maxage=120"), "{cache}");
+    let (_, old) = request(&router, &path, Some("owner")).await;
+    assert_eq!("OFFERED", old["userState"]["shipping"]["eligibility"]);
+    let evidence = old["item"]["shipping"]["profile"]["evidence"]
+        .as_object()
         .unwrap();
-    assert!(
-        ttl <= 30,
-        "shipping evidence expires before the normal 120s detail TTL: {cache}"
-    );
-    sqlx::query("UPDATE shipping_profiles SET fresh_until=verified_at,expires_at=now()+interval '1 hour' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&p).await.unwrap();
-    let (_, stale) = request(&router, &path, Some("owner")).await;
-    assert_eq!(
-        "STALE",
-        stale["item"]["shipping"]["profile"]["evidence"]["status"]
-    );
-    assert_eq!(
-        updated["item"]["shipping"]["profile"]["evidence"]["verifiedAt"],
-        stale["item"]["shipping"]["profile"]["evidence"]["verifiedAt"]
-    );
-    sqlx::query("UPDATE shipping_profiles SET expires_at=fresh_until WHERE shipping_profile_id=$1")
-        .bind(profile.into_uuid())
-        .execute(&p)
-        .await
-        .unwrap();
-    let (_, expired) = request(&router, &path, Some("owner")).await;
-    assert!(expired["userState"]["shipping"]["eligibility"].is_null());
-    assert!(expired["item"]["shipping"]["terms"]["shipping"].is_null());
-    assert_eq!(
-        "EXPIRED",
-        expired["item"]["shipping"]["profile"]["evidence"]["status"]
-    );
+    assert_eq!(1, evidence.len());
+    assert!(evidence.contains_key("verifiedAt"));
+    assert!(old["item"]["shipping"].get("validityDeadline").is_none());
     sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
         .bind(owner.into_uuid())
         .execute(&p)
@@ -700,7 +675,15 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     );
     async fn drain(project: &dyn ProjectListingShippingUseCase, p: &PgPool) {
         for _ in 0..100 {
-            project.execute(None, 100).await.unwrap();
+            let work: Option<uuid::Uuid> = sqlx::query_scalar("SELECT work_id FROM listing_shipping_work WHERE pending ORDER BY pending_since,work_id LIMIT 1")
+                .fetch_optional(p).await.unwrap();
+            let Some(work) = work else {
+                return;
+            };
+            project
+                .execute(work.try_into().unwrap(), 100)
+                .await
+                .unwrap();
             if !sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE pending)",
             )

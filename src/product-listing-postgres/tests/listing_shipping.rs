@@ -107,7 +107,15 @@ fn projector(pool: &PgPool) -> impl ProjectListingShippingUseCase {
 }
 async fn drain(pool: &PgPool) {
     for _ in 0..100 {
-        projector(pool).execute(None, 100).await.unwrap();
+        let work: Option<Uuid> = sqlx::query_scalar("SELECT work_id FROM listing_shipping_work WHERE pending ORDER BY pending_since,work_id LIMIT 1")
+            .fetch_optional(pool).await.unwrap();
+        let Some(work) = work else {
+            return;
+        };
+        projector(pool)
+            .execute(work.try_into().unwrap(), 100)
+            .await
+            .unwrap();
         let pending: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE pending)")
                 .fetch_one(pool)
@@ -244,15 +252,13 @@ async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_ch
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let claim = SqlxShippingProjectionStoreFactory
         .in_transaction(&mut tx)
-        .claim(Some(work.try_into().unwrap()))
+        .claim(work.try_into().unwrap())
         .await
         .unwrap()
         .unwrap();
     tx.commit().await.unwrap();
     assert!(matches!(
-        projector(&pool)
-            .execute(Some(work.try_into().unwrap()), 1)
-            .await,
+        projector(&pool).execute(work.try_into().unwrap(), 1).await,
         Err(ShippingProjectionError::Deferred)
     ));
     sqlx::query("UPDATE listing_shipping_work SET lease_until=clock_timestamp()-interval '1 second' WHERE work_id=$1").bind(work).execute(&pool).await.unwrap();
@@ -268,7 +274,7 @@ async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_ch
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let claim = SqlxShippingProjectionStoreFactory
         .in_transaction(&mut tx)
-        .claim(Some(work.try_into().unwrap()))
+        .claim(work.try_into().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -287,7 +293,6 @@ async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_ch
                 prohibited: true,
                 ..Default::default()
             },
-            valid_until: None,
         }])
         .await
         .unwrap();
@@ -319,7 +324,7 @@ async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_ch
     assert_eq!(fixture("painting8000"), summary(&pool, ids[0]).await);
     assert!(
         projector(&pool)
-            .execute(Some(work.try_into().unwrap()), 100)
+            .execute(work.try_into().unwrap(), 100)
             .await
             .is_ok()
     );
@@ -330,7 +335,7 @@ async fn profile_updates_during_fanout_and_listings_behind_cursor_have_independe
     let (source, profile, ids) = seed(&pool).await;
     let work:Uuid=sqlx::query_scalar("SELECT work_id FROM listing_shipping_work WHERE dependency_kind='SOURCE' AND dependency_id=$1").bind(source.into_uuid().to_string()).fetch_one(&pool).await.unwrap();
     projector(&pool)
-        .execute(Some(work.try_into().unwrap()), 1)
+        .execute(work.try_into().unwrap(), 1)
         .await
         .unwrap();
     let cursor: Uuid =
@@ -357,42 +362,22 @@ async fn profile_updates_during_fanout_and_listings_behind_cursor_have_independe
     assert_eq!(fixture("cabinet"), summary(&pool, ids[1]).await);
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn observation_authority_and_deadline_changes_refresh_without_canonical_listing_changes() {
+async fn observations_and_authority_refresh_without_canonical_listing_changes() {
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
     drain(&pool).await;
     let versions:Vec<(Uuid,i64)>=sqlx::query_as("SELECT product_listing_id,version FROM product_listings WHERE product_listing_id=ANY($1) ORDER BY product_listing_id").bind(ids.iter().map(|id|id.into_uuid()).collect::<Vec<_>>()).fetch_all(&pool).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query("UPDATE shipping_profiles SET verified_at=now()-interval '2 days',fresh_until=now()-interval '1 day',expires_at=clock_timestamp()+interval '1 day' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE shipping_profiles SET verified_at=now()-interval '3650 days' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_profile_import_state(shipping_profile_id,listing_source_id,producer_hash,object_hash,owner_hash,source_revision,sequence,observation_revision) SELECT $1,$2,decode(repeat('ab',32),'hex'),decode(repeat('cd',32),'hex'),decode(repeat('ab',32),'hex'),revision,1,1 FROM shipping_import_authority WHERE listing_source_id=$2").bind(profile.into_uuid()).bind(source.into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_validity_changes(listing_source_id,subject_kind,subject_id,revision,change_kind) VALUES($1,'PROFILE',$2,1,'OBSERVED')").bind(source.into_uuid()).bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     drain(&pool).await;
     assert_eq!(fixture("painting8000"), summary(&pool, ids[0]).await);
-    let deadline: Option<OffsetDateTime> = sqlx::query_scalar(
-        "SELECT valid_until FROM product_listing_shipping WHERE product_listing_id=$1",
-    )
-    .bind(ids[0].into_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(deadline.is_some());
-    // Make the stored deadline due without writing an invalidation signal. Hourly
-    // maintenance independently discovers it and removes expired inherited evidence.
-    sqlx::query("UPDATE shipping_profiles SET expires_at=now()-interval '1 hour' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&pool).await.unwrap();
-    sqlx::query("UPDATE product_listing_shipping SET valid_until=now()-interval '1 second' WHERE product_listing_id=ANY($1)").bind(ids.iter().map(|id|id.into_uuid()).collect::<Vec<_>>()).execute(&pool).await.unwrap();
-    drain(&pool).await;
-    assert!(
-        summary(&pool, ids[0]).await["country_offers"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(true, summary(&pool, ids[1]).await["prohibited"]);
-    // An observation-only refresh renews eligibility; the immutable subject revision
-    // signal is sufficient even though profile terms and listing revisions stay fixed.
+    // Age alone leaves the assertion and listing revision intact. An observation-only
+    // refresh updates its basis through CDC without changing the advertised summary.
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query("UPDATE shipping_profiles SET verified_at=now()-interval '1 minute',fresh_until=now()+interval '1 hour',expires_at=now()+interval '2 hours' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE shipping_profiles SET verified_at=now()-interval '1 minute' WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE shipping_profile_import_state SET observation_revision=2 WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_validity_changes(listing_source_id,subject_kind,subject_id,revision,change_kind) VALUES($1,'PROFILE',$2,2,'OBSERVED')").bind(source.into_uuid()).bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
@@ -699,7 +684,7 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
     let mut shipping_tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let shipping_claim = SqlxShippingProjectionStoreFactory
         .in_transaction(&mut shipping_tx)
-        .claim(Some(shipping_work.try_into().unwrap()))
+        .claim(shipping_work.try_into().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -765,7 +750,7 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let claim = SqlxShippingProjectionStoreFactory
         .in_transaction(&mut tx)
-        .claim(Some(work.try_into().unwrap()))
+        .claim(work.try_into().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -837,7 +822,14 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
         summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution.into_uuid()).execute(&pool).await.unwrap();
-    sqlx::query("UPDATE product_listing_shipping SET valid_until=clock_timestamp()-interval '1 second' WHERE product_listing_id=ANY($1)").bind(ids.iter().map(|id|id.into_uuid()).collect::<Vec<_>>()).execute(&pool).await.unwrap();
+    let mut maintenance = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    use geo_service::resolution::{ResolutionRepository, ResolutionRepositoryFactory};
+    geo_postgres::SqlxResolutionRepositoryFactory
+        .resolutions(&mut maintenance)
+        .expire(100)
+        .await
+        .unwrap();
+    maintenance.commit().await.unwrap();
     drain(&pool).await;
     assert!(
         summary(&pool, ids[0]).await["country_offers"]
@@ -887,7 +879,7 @@ async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_wit
     for _ in 0..3 {
         assert!(
             projector(&pool)
-                .execute(Some(work.try_into().unwrap()), 1)
+                .execute(work.try_into().unwrap(), 1)
                 .await
                 .unwrap()
                 <= 1
@@ -956,7 +948,7 @@ async fn component_observations_and_manual_handoff_recompute_applicability_witho
     .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO listing_delivery_import_state(product_listing_id,component,owner_hash,source_revision,sequence,observation_revision,verified_at,fresh_until,expires_at) SELECT $1,'RATE_INPUTS',decode(repeat('ab',32),'hex'),revision,2,1,now()-interval '2 days',now()+interval '1 hour',now()+interval '2 hours' FROM shipping_import_authority WHERE listing_source_id=$2 ON CONFLICT(product_listing_id,component) DO UPDATE SET owner_hash=EXCLUDED.owner_hash,source_revision=EXCLUDED.source_revision,sequence=EXCLUDED.sequence,observation_revision=EXCLUDED.observation_revision,verified_at=EXCLUDED.verified_at,fresh_until=EXCLUDED.fresh_until,expires_at=EXCLUDED.expires_at").bind(ids[0].into_uuid()).bind(source.into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO listing_delivery_import_state(product_listing_id,component,owner_hash,source_revision,sequence,observation_revision,verified_at) SELECT $1,'RATE_INPUTS',decode(repeat('ab',32),'hex'),revision,2,1,now()-interval '3650 days' FROM shipping_import_authority WHERE listing_source_id=$2 ON CONFLICT(product_listing_id,component) DO UPDATE SET owner_hash=EXCLUDED.owner_hash,source_revision=EXCLUDED.source_revision,sequence=EXCLUDED.sequence,observation_revision=EXCLUDED.observation_revision,verified_at=EXCLUDED.verified_at").bind(ids[0].into_uuid()).bind(source.into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_validity_changes(listing_source_id,subject_kind,subject_id,revision,change_kind) VALUES($1,'LISTING',$2,1,'OBSERVED')").bind(source.into_uuid()).bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     drain(&pool).await;
@@ -966,15 +958,15 @@ async fn component_observations_and_manual_handoff_recompute_applicability_witho
     );
     let count:i64=sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id=$1 AND event_group='DOMAIN'").bind(ids[0].into_uuid()).fetch_one(&pool).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query("UPDATE listing_delivery_import_state SET observation_revision=2,fresh_until=now()-interval '1 day',expires_at=now()-interval '1 hour' WHERE product_listing_id=$1 AND component='RATE_INPUTS'").bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE listing_delivery_import_state SET observation_revision=2,source_revision=0 WHERE product_listing_id=$1 AND component='RATE_INPUTS'").bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_validity_changes(listing_source_id,subject_kind,subject_id,revision,change_kind) VALUES($1,'LISTING',$2,2,'OBSERVED')").bind(source.into_uuid()).bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     drain(&pool).await;
-    let expired = summary(&pool, ids[0]).await;
-    assert!(expired["country_offers"].as_array().unwrap().is_empty());
-    assert_eq!("OFFERED", expired["collection"]);
+    let revoked = summary(&pool, ids[0]).await;
+    assert!(revoked["country_offers"].as_array().unwrap().is_empty());
+    assert_eq!("OFFERED", revoked["collection"]);
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query("UPDATE listing_delivery_import_state SET owner_hash=NULL,observation_revision=3,verified_at=NULL,fresh_until=NULL,expires_at=NULL WHERE product_listing_id=$1 AND component='RATE_INPUTS'").bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE listing_delivery_import_state SET owner_hash=NULL,observation_revision=3,verified_at=NULL WHERE product_listing_id=$1 AND component='RATE_INPUTS'").bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_validity_changes(listing_source_id,subject_kind,subject_id,revision,change_kind) VALUES($1,'LISTING',$2,3,'OWNERSHIP_CHANGED')").bind(source.into_uuid()).bind(ids[0].into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     drain(&pool).await;
@@ -1077,7 +1069,7 @@ async fn a_hundred_inline_listings_batch_two_hundred_independent_sites_in_one_sn
     let work:Uuid=sqlx::query_scalar("SELECT work_id FROM listing_shipping_work WHERE dependency_kind='SOURCE' AND dependency_id=$1").bind(source.into_uuid().to_string()).fetch_one(&pool).await.unwrap();
     assert!(
         projector(&pool)
-            .execute(Some(work.try_into().unwrap()), 100)
+            .execute(work.try_into().unwrap(), 100)
             .await
             .unwrap()
             <= 100

@@ -946,11 +946,7 @@ fn import_write(sequence: u64, key: &str) -> shipping_service::imports::Shipping
         acquired_at: at,
         request_key: key.into(),
         object_key: None,
-        observation: Some(shipping_service::imports::ShippingObservation {
-            acquired_at: at,
-            fresh_until: at + time::Duration::days(1),
-            expires_at: at + time::Duration::days(2),
-        }),
+        observation: Some(shipping_service::imports::ShippingObservation { acquired_at: at }),
     }
 }
 #[aura_integration_test(services=[SCHEMA])]
@@ -995,7 +991,7 @@ async fn manual_default_clear_protects_an_initially_absent_assertion() {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn repeated_acquisition_with_a_new_request_key_cannot_extend_profile_validity() {
+async fn repeated_acquisition_with_a_new_request_key_cannot_advance_observation() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
     let m = manager(&p);
@@ -1014,7 +1010,6 @@ async fn repeated_acquisition_with_a_new_request_key_cannot_extend_profile_valid
     write.object_key = None;
     write.sequence = 2;
     write.request_key = "same-acquisition".into();
-    write.observation.as_mut().unwrap().expires_at += time::Duration::days(1);
     let mut replace = replacement(&profile, 8000);
     replace.import = Some(write);
     assert!(matches!(
@@ -1089,29 +1084,28 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
             .fetch_one(&p)
             .await
             .unwrap();
-    let old_window: (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
-        "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1",
-    )
-    .bind(first.id.into_uuid())
-    .fetch_one(&p)
-    .await
-    .unwrap();
+    let old_observation: (time::OffsetDateTime,) =
+        sqlx::query_as("SELECT verified_at FROM shipping_profiles WHERE shipping_profile_id=$1")
+            .bind(first.id.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap();
     // An ordinary equal write advances only request/order fences.
     let mut noop = replacement(&updated, 9500);
     noop.import = Some(import_write(3, "noop-v3"));
     noop.import.as_mut().unwrap().observation = None;
     assert_eq!(updated, m.replace.execute(&trusted(), noop).await.unwrap());
     assert_eq!(
-        old_window,
-        sqlx::query_as::<_, (time::OffsetDateTime, time::OffsetDateTime)>(
-            "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1"
+        old_observation,
+        sqlx::query_as::<_, (time::OffsetDateTime,)>(
+            "SELECT verified_at FROM shipping_profiles WHERE shipping_profile_id=$1"
         )
         .bind(first.id.into_uuid())
         .fetch_one(&p)
         .await
         .unwrap()
     );
-    // A genuinely new acquisition refreshes validity, without semantic/management changes.
+    // A genuinely new acquisition records its observation, without semantic/management changes.
     let mut observed = replacement(&updated, 9500);
     observed.import = Some(import_write(4, "observed-v4"));
     let acquired = observed
@@ -1304,7 +1298,7 @@ async fn native_producers_push_shipping_without_domain_configuration() {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original_validity() {
+async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_observation() {
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;
     let Principal::DelegatedUser { user_id, .. } = member(&p, owner, source).await else {
@@ -1333,13 +1327,12 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original
         m.create.execute(&producer, create.clone()).await.unwrap()
     );
 
-    let window: (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
-        "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1",
-    )
-    .bind(profile.id.into_uuid())
-    .fetch_one(&p)
-    .await
-    .unwrap();
+    let observation: (time::OffsetDateTime,) =
+        sqlx::query_as("SELECT verified_at FROM shipping_profiles WHERE shipping_profile_id=$1")
+            .bind(profile.id.into_uuid())
+            .fetch_one(&p)
+            .await
+            .unwrap();
     let mut removal = lifecycle(&profile);
     let mut w = import_write(2, "retire");
     w.observation = None;
@@ -1347,9 +1340,9 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_original
     let retired = m.retire.execute(&producer, removal.clone()).await.unwrap();
     assert_eq!(retired, m.retire.execute(&producer, removal).await.unwrap());
     assert_eq!(
-        window,
-        sqlx::query_as::<_, (time::OffsetDateTime, time::OffsetDateTime)>(
-            "SELECT verified_at,expires_at FROM shipping_profiles WHERE shipping_profile_id=$1"
+        observation,
+        sqlx::query_as::<_, (time::OffsetDateTime,)>(
+            "SELECT verified_at FROM shipping_profiles WHERE shipping_profile_id=$1"
         )
         .bind(profile.id.into_uuid())
         .fetch_one(&p)

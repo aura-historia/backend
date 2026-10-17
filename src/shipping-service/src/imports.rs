@@ -19,17 +19,10 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShippingObservation {
     pub acquired_at: OffsetDateTime,
-    pub fresh_until: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
 }
 impl ShippingObservation {
     pub fn validate(&self, now: OffsetDateTime) -> Result<(), ShippingError> {
-        if self.acquired_at > now
-            || self.fresh_until < self.acquired_at
-            || self.expires_at < self.fresh_until
-            || self.expires_at <= now
-            || self.expires_at - self.acquired_at > time::Duration::days(30)
-        {
+        if self.acquired_at > now {
             return Err(ShippingError::InvalidInput);
         }
         Ok(())
@@ -61,8 +54,7 @@ impl ShippingImportWrite {
         if self.sequence == 0 || self.sequence > i64::MAX as u64 {
             return Err(ShippingError::InvalidInput);
         }
-        // Acquisition windows are checked after replay detection, so a committed retry
-        // remains recognizable after its original evidence has expired.
+        // Current authority and observation ordering are checked after replay detection.
         Ok(())
     }
 }

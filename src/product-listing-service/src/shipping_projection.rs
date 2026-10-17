@@ -15,7 +15,6 @@ use shipping_core::{
 use shipping_service::assessment::{
     AssessListingRequest, AssessmentDependencies, AssessmentError, assess_snapshot,
 };
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub const POLICY: &str = "EFFECTIVE_SHIPPING_V1";
@@ -147,7 +146,6 @@ pub struct ShippingPage {
 pub struct ShippingWrite {
     pub listing_id: ProductListingId,
     pub summary: EffectiveListingShipping,
-    pub valid_until: Option<OffsetDateTime>,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum ShippingProjectionError {
@@ -174,10 +172,10 @@ pub enum ShippingProjectionError {
 }
 #[async_trait::async_trait]
 pub trait ShippingProjectionStore: Send {
-    /// Requeue due deadlines in a bounded batch before recovering pending work.
+    /// Claim only the work identified by a CDC/SQS wake-up.
     async fn claim(
         &mut self,
-        work: Option<ShippingWorkId>,
+        work: ShippingWorkId,
     ) -> Result<Option<ShippingClaim>, ShippingProjectionError>;
     async fn page(
         &mut self,
@@ -198,7 +196,7 @@ pub trait ShippingProjectionStoreFactory<Tx>: Send + Sync {
 pub trait ProjectListingShippingUseCase: Send + Sync {
     async fn execute(
         &self,
-        work: Option<ShippingWorkId>,
+        work: ShippingWorkId,
         limit: u16,
     ) -> Result<u32, ShippingProjectionError>;
 }
@@ -219,7 +217,7 @@ where
 {
     async fn execute(
         &self,
-        work: Option<ShippingWorkId>,
+        work: ShippingWorkId,
         limit: u16,
     ) -> Result<u32, ShippingProjectionError> {
         if !(1..=100).contains(&limit) {
@@ -280,7 +278,6 @@ where
                 ShippingWrite {
                     listing_id: *id,
                     summary,
-                    valid_until: view.and_then(|v| v.validity_deadline),
                 }
             })
             .collect::<Vec<_>>();
