@@ -15,3 +15,5 @@ pub use email_delivery_target_reader::SqlxEmailDeliveryTargetReader;
 pub use readers::SqlxNotificationListReader;
 pub use repository::SqlxNotificationRepositoryFactory;
 pub use writers::{SqlxNotificationDeleter, SqlxNotificationSeenWriter};
+mod saved_search_digest;
+pub use saved_search_digest::SqlxSavedSearchDigestStoreFactory;

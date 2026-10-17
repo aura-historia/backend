@@ -13,6 +13,15 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - Management commands accept optional incremental import identity, ordering and acquisition metadata. Stable object keys support recovery, exact retries retain identity, and manual components are protected. Provider scope is source plus enabled method. Terms continue until changed, withdrawn or authority is revoked; observation age alone never expires them.
 
 See [shipping](shipping.md) and [OpenAPI](swagger.yaml) for request shapes, concurrency and failure behavior.
+## 2026-10-15 — Argentine peso support (#2095)
+
+- Currency fields now accept `ARS` (Argentine peso), including user preferences, ListingSource configuration and fallback currency, listing prices, and search filters. Amounts use two ISO 4217 minor-unit decimal places.
+
+## 2026-10-14 — Keyless address and Party-location creation (#2078)
+
+- `POST /api/v1/me/addresses` and `POST /api/v1/parties/{party_id}/locations` accept creation without `Idempotency-Key`. Legacy headers are ignored, including invalid/repeated values, and are not echoed. Each accepted ordinary create assigns a new ID, even for equal content; keys provide no deduplication or result recovery.
+- Automatic creation retries can produce duplicates. After an ambiguous timeout, refresh current state and reconcile before creating again; address/label equality cannot conclusively identify the original request.
+- Relocation atomically retires the old location and creates its replacement using the old expected revision. Repeating a committed relocation with that revision returns `409` without another replacement.
 
 ## 2026-10-13 — Saved-search matching across tiers (#2040)
 

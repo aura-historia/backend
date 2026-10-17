@@ -10,7 +10,7 @@ use notification_core::{
 };
 use notification_service::ports::notification_delivery_repository::{
     ClaimNotificationDeliveryOutcome, ClaimedNotificationDelivery, NotificationDeliveryError,
-    NotificationDeliveryRepository, NotificationDeliverySource,
+    NotificationDeliveryRepository, NotificationDeliverySource, NotificationDeliverySourceId,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use sqlx::{PgConnection, PgPool};
@@ -31,7 +31,8 @@ impl SqlxNotificationDeliveryRepository {
 #[derive(Debug, sqlx::FromRow)]
 struct DeliveryClaimRow {
     notification_delivery_id: Uuid,
-    notification_id: Uuid,
+    notification_id: Option<Uuid>,
+    digest_id: Option<Uuid>,
     lease_token: Uuid,
     lease_expires_at: OffsetDateTime,
     attempt_count: i32,
@@ -77,7 +78,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
         let mut transaction = self.pool.begin().await.map_err(DeliveryOperationFailed)?;
         let row = sqlx::query_as::<_, DeliveryClaimRow>(
-            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, completed_lease_token = NULL, completed_at = NULL, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND $3 > GREATEST($4, clock_timestamp()) AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= GREATEST($4, clock_timestamp()))) RETURNING notification_delivery_id, notification_id, lease_token, lease_expires_at, attempt_count",
+            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, completed_lease_token = NULL, completed_at = NULL, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND $3 > GREATEST($4, clock_timestamp()) AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= GREATEST($4, clock_timestamp()))) RETURNING notification_delivery_id, notification_id, digest_id, lease_token, lease_expires_at, attempt_count",
         )
         .bind(notification_delivery_id.into_uuid())
         .bind(lease_token)
@@ -105,7 +106,16 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         .fetch_optional(&mut *transaction)
         .await
         .map_err(DeliveryOperationFailed)?;
-        let source = source.map(source_from_row).transpose()?;
+        let source = match source {
+            Some(source) => Some(source_from_row(source)?),
+            None => {
+                crate::saved_search_digest::load_delivery_source(
+                    &mut transaction,
+                    notification_delivery_id,
+                )
+                .await?
+            }
+        };
         transaction
             .commit()
             .await
@@ -243,11 +253,26 @@ fn claimed_from_row(
             .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
                 source: box_error(source),
             })?,
-        notification_id: NotificationId::try_from(row.notification_id).map_err(|source| {
-            NotificationDeliveryError::InvalidPersistedState {
-                source: box_error(source),
+        source_id: match (row.notification_id, row.digest_id) {
+            (Some(id), None) => {
+                NotificationDeliverySourceId::Notification(NotificationId::try_from(id).map_err(
+                    |source| NotificationDeliveryError::InvalidPersistedState {
+                        source: box_error(source),
+                    },
+                )?)
             }
-        })?,
+            (None, Some(id)) => NotificationDeliverySourceId::SavedSearchDigest(
+                notification_core::saved_search_digest_id::SavedSearchDigestId::try_from(id)
+                    .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
+                        source: box_error(source),
+                    })?,
+            ),
+            _ => {
+                return Err(invalid_delivery_source(
+                    "delivery source identity is invalid",
+                ));
+            }
+        },
         lease_token: row.lease_token,
         lease_expires_at: row.lease_expires_at,
         attempt_count,
@@ -280,7 +305,7 @@ fn source_from_row(
             .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
                 source: box_error(source),
             })?,
-        notification_id: notification.notification_id(),
+        source_id: NotificationDeliverySourceId::Notification(notification.notification_id()),
         user_id: notification.user_id(),
         channel: channel_from_persisted(&row.channel).map_err(|source| {
             NotificationDeliveryError::InvalidPersistedState {
@@ -293,6 +318,7 @@ fn source_from_row(
             }
         })?,
         content: notification.content().clone(),
+        saved_search_digest: None,
         presentation_preferences: NotificationPresentationPreferences {
             language: row
                 .language

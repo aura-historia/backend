@@ -21,6 +21,7 @@ export interface PeriodicMatcherProps {
   readonly enabled: cdk.CfnCondition;
   readonly commitSha: string;
   readonly classifierModel: string;
+  readonly batchCandidates: string;
   readonly shouldShowThresholdBps: string;
 }
 
@@ -44,6 +45,7 @@ export class PeriodicMatcher extends ScheduledEcsJob {
         OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
         CLASSIFIER_MODEL_PROVIDER: config.searchFilterClassifier.provider,
         CLASSIFIER_MODEL: props.classifierModel,
+        PERIODIC_MATCH_BATCH_CANDIDATES: props.batchCandidates,
         SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: props.shouldShowThresholdBps,
         CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${config.stage}/account-id`),
         PERIODIC_MATCH_FILTER_PAGE_SIZE: "100", PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100",

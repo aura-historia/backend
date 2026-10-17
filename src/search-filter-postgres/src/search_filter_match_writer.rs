@@ -98,9 +98,25 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         })
     }
 
+    async fn insert_for_run(
+        &mut self,
+        matches: &[SearchFilterProductListingMatch],
+        end: time::OffsetDateTime,
+    ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
+        self.insert_batch(matches, Some(end)).await
+    }
     async fn insert_all_if_absent(
         &mut self,
+        matches: &[SearchFilterProductListingMatch],
+    ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
+        self.insert_batch(matches, None).await
+    }
+}
+impl SqlxSearchFilterMatchWriter<'_> {
+    async fn insert_batch(
+        &mut self,
         product_matches: &[SearchFilterProductListingMatch],
+        run_end: Option<time::OffsetDateTime>,
     ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
         if product_matches.is_empty() {
             return Ok(SearchFilterMatchBatchPersistResult::default());
@@ -181,12 +197,15 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             INSERT INTO search_filter_matches (
                 user_id, user_search_filter_id, product_listing_id, origin_event_id,
                 price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback,
-                shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor
+                shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency,
+                shipping_maximum_minor, matching_run_end
             )
-            SELECT * FROM unnest(
+            SELECT ids.*, $13::timestamptz FROM unnest(
                 $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
                 $6::uuid[], $7::text[], $8::bool[], $9::uuid[], $10::timestamptz[], $11::text[], $12::bigint[]
-            )
+            ) AS ids(user_id, user_search_filter_id, product_listing_id, origin_event_id,
+                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback,
+                shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor)
             ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
         "#,
@@ -203,6 +222,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(shipping_captured_at)
         .bind(shipping_currencies)
         .bind(shipping_maximums)
+        .bind(run_end)
         .fetch_all(self.tx.connection())
         .await
         .map_err(|source| SearchFilterMatchWriteError::WriteFailed {

@@ -10,7 +10,7 @@ use aura_historia_api::{
 };
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{HeaderValue, Request, StatusCode},
 };
 use geo::{
     CountryCode, DerivedGeography, GeoPoint, GeographicDescription, SpatialPosition,
@@ -20,8 +20,8 @@ use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::{geocoding::*, resolution::*};
 use platform_postgres::SqlxUnitOfWork;
 use serde_json::{Value, json};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{collections::BTreeSet, sync::Arc};
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use tower::ServiceExt;
 use user_core::{user_address::UserAddressId, user_id::UserId};
@@ -141,19 +141,7 @@ async fn request(
     token: Option<&str>,
     body: Value,
 ) -> (StatusCode, Value) {
-    request_with_keys(
-        router,
-        method,
-        path,
-        token,
-        body,
-        if method == "POST" {
-            &["save-private-address"]
-        } else {
-            &[]
-        },
-    )
-    .await
+    request_with_keys(router, method, path, token, body, &[]).await
 }
 async fn request_with_keys(
     router: &axum::Router,
@@ -161,7 +149,7 @@ async fn request_with_keys(
     path: &str,
     token: Option<&str>,
     body: Value,
-    keys: &[&str],
+    keys: &[HeaderValue],
 ) -> (StatusCode, Value) {
     let mut r = Request::builder()
         .method(method)
@@ -171,7 +159,7 @@ async fn request_with_keys(
         r = r.header("authorization", format!("Bearer {token}"));
     }
     for key in keys {
-        r = r.header("idempotency-key", *key);
+        r = r.header("idempotency-key", key);
     }
     let response = router
         .clone()
@@ -179,6 +167,7 @@ async fn request_with_keys(
         .await
         .unwrap();
     assert_eq!("no-store", response.headers().get("cache-control").unwrap());
+    assert!(!response.headers().contains_key("idempotency-key"));
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     (
@@ -244,9 +233,14 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     let path = format!("{base}/{id}");
     assert_eq!(json!(id), saved["addressId"]);
     assert_eq!(json!(false), saved["preferred"]);
-    let (status, replay) = request(&router, "POST", base, Some("owner"), input.clone()).await;
+    let (status, duplicate) = request(&router, "POST", base, Some("owner"), input.clone()).await;
     assert_eq!(StatusCode::CREATED, status);
-    assert_eq!(saved, replay);
+    assert_ne!(saved["addressId"], duplicate["addressId"]);
+    assert_eq!(saved["geography"], duplicate["geography"]);
+    let mut created_ids = BTreeSet::from([
+        saved["addressId"].as_str().unwrap().to_owned(),
+        duplicate["addressId"].as_str().unwrap().to_owned(),
+    ]);
     let mut supplied_id = input.clone();
     supplied_id["addressId"] = json!(UserAddressId::new());
     assert_eq!(
@@ -255,22 +249,44 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
             .await
             .0
     );
-    for keys in [&[][..], &[""][..], &["bad key"][..], &["one", "two"][..]] {
-        let (status, problem) =
-            request_with_keys(&router, "POST", base, Some("owner"), input.clone(), keys).await;
-        assert_eq!(StatusCode::BAD_REQUEST, status);
-        assert_eq!("BAD_HEADER_VALUE", problem["error"]);
+    for keys in [
+        vec![HeaderValue::from_static("legacy-key")],
+        vec![HeaderValue::from_static("legacy-key")],
+        vec![HeaderValue::from_static("")],
+        vec![HeaderValue::from_static("bad key")],
+        vec![
+            HeaderValue::from_static("one"),
+            HeaderValue::from_static("two"),
+        ],
+        vec![HeaderValue::from_static("one,two")],
+        vec![HeaderValue::from_bytes(&[0xff]).unwrap()],
+    ] {
+        let (status, created) =
+            request_with_keys(&router, "POST", base, Some("owner"), input.clone(), &keys).await;
+        assert_eq!(StatusCode::CREATED, status);
+        assert!(created_ids.insert(created["addressId"].as_str().unwrap().to_owned()));
+        assert_eq!(saved["geography"], created["geography"]);
     }
     let mut conflicting = input.clone();
     conflicting["label"] = json!("Different");
     assert_eq!(
-        StatusCode::CONFLICT,
-        request(&router, "POST", base, Some("owner"), conflicting)
-            .await
-            .0
+        StatusCode::CREATED,
+        request_with_keys(
+            &router,
+            "POST",
+            base,
+            Some("owner"),
+            conflicting,
+            &[HeaderValue::from_static("legacy-key")]
+        )
+        .await
+        .0
     );
     let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
-    assert_eq!(1, page["items"].as_array().unwrap().len());
+    assert_eq!(
+        created_ids.len() + 1,
+        page["items"].as_array().unwrap().len()
+    );
     assert_eq!(
         StatusCode::NOT_FOUND,
         request(&router, "GET", &path, Some("foreign"), json!({}))
@@ -389,9 +405,11 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     assert_eq!(json!(2), changed["inputRevision"]);
     assert_eq!(json!("PENDING"), changed["resolution"]["status"]);
     assert!(changed["resolution"]["derived"].is_null());
-    let (status, replay) = request(&router, "POST", base, Some("owner"), input.clone()).await;
+    let (status, duplicate) = request(&router, "POST", base, Some("owner"), input.clone()).await;
     assert_eq!(StatusCode::CREATED, status);
-    assert_eq!(changed, replay);
+    assert_ne!(changed["addressId"], duplicate["addressId"]);
+    assert_eq!(input["geography"], duplicate["geography"]);
+    assert_eq!(json!(1), duplicate["version"]);
     assert_eq!(1, calls.load(Ordering::SeqCst));
     resolve(&pool, id, calls.clone()).await;
     let (_, ambiguous) = request(&router, "GET", &path, Some("owner"), json!({})).await;
@@ -419,10 +437,29 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     assert_eq!(json!("NONE"), dest["destination"]["kind"]);
     assert_eq!(json!(3), dest["version"]);
     assert_eq!(
-        StatusCode::CONFLICT,
-        request(&router, "POST", base, Some("owner"), input).await.0
+        StatusCode::CREATED,
+        request_with_keys(
+            &router,
+            "POST",
+            base,
+            Some("owner"),
+            input,
+            &[HeaderValue::from_static("legacy-key")]
+        )
+        .await
+        .0
     );
     let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
-    assert!(page["items"].as_array().unwrap().is_empty());
+    assert_eq!(
+        created_ids.len() + 2,
+        page["items"].as_array().unwrap().len()
+    );
+    assert!(
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["addressId"] != json!(id))
+    );
     assert_eq!(2, calls.load(Ordering::SeqCst));
 }

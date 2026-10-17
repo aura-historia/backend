@@ -821,7 +821,7 @@ async fn should_project_history_using_persisted_historical_snapshot() {
     let (status, baseline) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(1, baseline.as_array().unwrap().len());
-    for (currency, amounts) in [("RON", [4, 6, 9]), ("EUR", [3, 5, 7])] {
+    for (currency, amounts) in [("RON", [4, 6, 9]), ("ARS", [4, 6, 9]), ("EUR", [3, 5, 7])] {
         let (response, _) = get_json(format!("{path}?currency={currency}")).await;
         assert_eq!(
             "public, max-age=0, s-maxage=300, stale-if-error=0",
@@ -857,7 +857,7 @@ async fn should_project_history_using_persisted_historical_snapshot() {
     sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = ANY($2)")
         .bind(fx_rate_id)
         .bind(vec![
-            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB", "ARS",
         ])
         .execute(&pool)
         .await
@@ -1356,7 +1356,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         "cad": 40, "nzd": 40, "cny": 40, "brl": 40,
         "pln": 40, "try": 40, "jpy": 40, "czk": 40,
         "rub": 40, "aed": 40, "sar": 40, "hkd": 40,
-        "sgd": 40, "chf": 40, "zar": 40, "sek": 40, "dkk": 40, "nok": 40, "krw": 40, "inr": 40, "twd": 40, "huf": 40, "ron": 40, "mxn": 40, "thb": 40
+        "sgd": 40, "chf": 40, "zar": 40, "sek": 40, "dkk": 40, "nok": 40, "krw": 40, "inr": 40, "twd": 40, "huf": 40, "ron": 40, "mxn": 40, "thb": 40, "ars": 40
     });
     document["saleObservationFxRateId"] = json!(sale_fx_rate_id.to_string());
     document["saleObservedAt"] = json!("2025-01-01T00:00:00Z");
@@ -1781,7 +1781,7 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
     for currency in [
         "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
         "AED", "SAR", "HKD", "SGD", "CHF", "ZAR", "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF",
-        "RON", "MXN", "THB",
+        "RON", "MXN", "THB", "ARS",
     ] {
         let units_per_eur = match currency {
             "EUR" => 1_000_000,

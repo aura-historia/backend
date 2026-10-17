@@ -1,7 +1,7 @@
 use crate::{
     ClassificationDiagnostics, ClassificationError, ClassificationOperation, ClassificationRequest,
-    ClassificationResponse, ClassificationUsage, ClassifierModel, ImageOmissionReason, Probability,
-    QuestionId,
+    ClassificationRequestLimits, ClassificationResponse, ClassificationUsage, ClassifierModel,
+    ImageOmissionReason, Probability, QuestionId,
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
@@ -26,7 +26,6 @@ const MAX_REQUEST_BYTES: usize = 13 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_IMAGES: usize = 4;
-const CONTEXT_TOKENS: usize = 24_576;
 const IMAGE_CONTEXT_TOKENS: usize = 1027;
 const CONTEXT_SCHEMA_RESERVE: usize = 1024;
 const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
@@ -44,6 +43,13 @@ pub enum CloudflareModel {
 }
 
 impl CloudflareModel {
+    fn context_tokens(self) -> usize {
+        match self {
+            Self::ClefFlash => 24_576,
+            Self::Clef => 65_536,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ClefFlash => "clef-flash",
@@ -163,9 +169,10 @@ impl CloudflareClassifierModel {
         image_omission_reason: Option<ImageOmissionReason>,
         image_fetch_duration: Duration,
     ) -> Result<ClassificationResponse, ClassificationError> {
-        validate_request(&request)?;
+        validate_request(&request, self.model)?;
         let operation = request.operation.as_str();
         let correlation_id = request.correlation_id.clone();
+        let allow_partial_answers = request.options.allow_partial_answers;
         let mut questions = BTreeMap::new();
         for question in request.questions {
             if questions
@@ -240,7 +247,10 @@ impl CloudflareClassifierModel {
                 return Err(status_error(status, retry_after));
             }
             let response_bytes = response_bytes?;
-            let envelope: CloudflareEnvelope = serde_json::from_slice(&response_bytes)
+            // Value's default object decoder silently overwrites duplicate keys.
+            let envelope: UniqueValue = serde_json::from_slice(&response_bytes)
+                .map_err(|_| ClassificationError::InvalidResponse)?;
+            let envelope: CloudflareEnvelope = serde_json::from_value(envelope.0)
                 .map_err(|_| ClassificationError::InvalidResponse)?;
             if envelope.success != Some(true) {
                 return Err(ClassificationError::InvalidResponse);
@@ -251,7 +261,12 @@ impl CloudflareClassifierModel {
             if result.model != self.model.as_str() {
                 return Err(ClassificationError::InvalidResponse);
             }
-            parse_answers(result.answers, result.usage, &expected_question_ids)
+            parse_answers_with_partial(
+                result.answers,
+                result.usage,
+                &expected_question_ids,
+                allow_partial_answers,
+            )
         }
         .await;
         diagnostics.duration_millis =
@@ -284,6 +299,9 @@ impl CloudflareClassifierModel {
 
 #[async_trait::async_trait]
 impl ClassifierModel for CloudflareClassifierModel {
+    fn request_limits(&self) -> Option<ClassificationRequestLimits> {
+        Some(request_limits(self.model))
+    }
     fn provider_name(&self) -> &'static str {
         "cloudflare"
     }
@@ -296,9 +314,9 @@ impl ClassifierModel for CloudflareClassifierModel {
         &self,
         request: ClassificationRequest,
     ) -> Result<ClassificationResponse, ClassificationError> {
-        validate_request(&request)?;
+        validate_request(&request, self.model)?;
         let requested_image_count = request.image_urls.len();
-        let unique_urls = unique_image_urls(std::slice::from_ref(&request));
+        let unique_urls = unique_image_urls(std::slice::from_ref(&request), self.model);
         let image_results = fetch_unique_images(unique_urls, NonZeroUsize::MIN, |url| async move {
             self.image_fetcher
                 .fetch(&url)
@@ -349,7 +367,10 @@ struct CloudflareResult {
     usage: Option<Value>,
 }
 
-fn validate_request(request: &ClassificationRequest) -> Result<(), ClassificationError> {
+fn validate_request(
+    request: &ClassificationRequest,
+    model: CloudflareModel,
+) -> Result<(), ClassificationError> {
     if request.operation != ClassificationOperation::ProductEnhancedSearchDescriptionMatching
         || request.correlation_id.as_ref().is_some_and(|id| {
             id.len() > 160
@@ -373,24 +394,22 @@ fn validate_request(request: &ClassificationRequest) -> Result<(), Classificatio
             return Err(ClassificationError::InvalidRequest);
         }
     }
-    // UTF-8 bytes conservatively bound text tokens. Reserve media and schema tokens
-    // before fetching: the hosted API otherwise silently truncates long state.
-    let text_bytes = serde_json::to_vec(&request.state)
-        .map_err(|_| ClassificationError::InvalidRequest)?
-        .len()
-        + request
-            .questions
-            .iter()
-            .map(|q| q.instructions.len() + q.id.as_str().len())
-            .sum::<usize>();
-    if text_bytes
-        .saturating_add(request.image_urls.len() * IMAGE_CONTEXT_TOKENS)
-        .saturating_add(CONTEXT_SCHEMA_RESERVE)
-        > CONTEXT_TOKENS
-    {
+    if !request_limits(model).permits(request) {
         return Err(ClassificationError::PermanentCandidateFailure);
     }
     Ok(())
+}
+
+fn request_limits(model: CloudflareModel) -> ClassificationRequestLimits {
+    ClassificationRequestLimits {
+        max_questions: 64,
+        max_images: MAX_IMAGES,
+        max_text_tokens: model.context_tokens() - CONTEXT_SCHEMA_RESERVE,
+        max_context_tokens: model.context_tokens(),
+        context_reserve_tokens: CONTEXT_SCHEMA_RESERVE,
+        tokens_per_image: IMAGE_CONTEXT_TOKENS,
+        max_payload_bytes: MAX_REQUEST_BYTES,
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -400,10 +419,13 @@ struct ImagePreparation {
     duration: Duration,
 }
 
-fn unique_image_urls(requests: &[ClassificationRequest]) -> BTreeSet<String> {
+fn unique_image_urls(
+    requests: &[ClassificationRequest],
+    model: CloudflareModel,
+) -> BTreeSet<String> {
     requests
         .iter()
-        .filter(|request| validate_request(request).is_ok())
+        .filter(|request| validate_request(request, model).is_ok())
         .flat_map(|request| request.image_urls.iter())
         .map(|url| url.as_str().to_owned())
         .collect()
@@ -677,12 +699,22 @@ fn retry_after(value: Option<&reqwest::header::HeaderValue>) -> Option<Duration>
     })
 }
 
+#[cfg(test)]
 fn parse_answers(
     raw_answers: BTreeMap<String, Value>,
     raw_usage: Option<Value>,
     expected_question_ids: &BTreeSet<String>,
 ) -> Result<ClassificationResponse, ClassificationError> {
-    if raw_answers.len() != expected_question_ids.len()
+    parse_answers_with_partial(raw_answers, raw_usage, expected_question_ids, false)
+}
+
+fn parse_answers_with_partial(
+    raw_answers: BTreeMap<String, Value>,
+    raw_usage: Option<Value>,
+    expected_question_ids: &BTreeSet<String>,
+    allow_partial: bool,
+) -> Result<ClassificationResponse, ClassificationError> {
+    if (!allow_partial && raw_answers.len() != expected_question_ids.len())
         || raw_answers
             .keys()
             .any(|question_id| !expected_question_ids.contains(question_id))
@@ -691,14 +723,16 @@ fn parse_answers(
     }
     let mut answers = BTreeMap::new();
     for question_id in expected_question_ids {
-        let raw = raw_answers
+        let answer = raw_answers
             .get(question_id)
-            .ok_or(ClassificationError::InvalidResponse)?;
-        let answer: CloudflareNoulAnswer = serde_json::from_value(raw.clone())
-            .map_err(|_| ClassificationError::InvalidResponse)?;
-        if answer.answer_type != "noul" {
+            .and_then(|raw| serde_json::from_value::<CloudflareNoulAnswer>(raw.clone()).ok())
+            .filter(|answer| answer.answer_type == "noul");
+        let Some(answer) = answer else {
+            if allow_partial {
+                continue;
+            }
             return Err(ClassificationError::InvalidResponse);
-        }
+        };
         let id = QuestionId::new(question_id.clone())?;
         answers.insert(id, answer.noul);
     }
@@ -727,6 +761,67 @@ struct CloudflareNoulAnswer {
     noul: Probability,
 }
 
+/// Reject duplicate keys at every depth, including inside an individual answer.
+struct UniqueValue(Value);
+
+impl<'de> serde::Deserialize<'de> for UniqueValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = UniqueValue;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("JSON without duplicate object keys")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some((key, value)) = map.next_entry::<String, UniqueValue>()? {
+                    if values.insert(key, value.0).is_some() {
+                        return Err(serde::de::Error::custom("duplicate object key"));
+                    }
+                }
+                Ok(UniqueValue(Value::Object(values)))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = seq.next_element::<UniqueValue>()? {
+                    values.push(value.0);
+                }
+                Ok(UniqueValue(Value::Array(values)))
+            }
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueValue(value.into()))
+            }
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueValue(value.into()))
+            }
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueValue(value.into()))
+            }
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                serde_json::Number::from_f64(value)
+                    .map(|number| UniqueValue(Value::Number(number)))
+                    .ok_or_else(|| E::custom("invalid number"))
+            }
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueValue(value.into()))
+            }
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueValue(value.into()))
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(UniqueValue(Value::Null))
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,6 +830,165 @@ mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
     };
+
+    #[test]
+    fn configured_model_budgets_match_adapter_admission_without_truncating_state() {
+        let mut request = request(Vec::new());
+        request.state = serde_json::json!({"criteria": "x".repeat(30_000)});
+        let original = request.state.clone();
+        for (model, context_tokens, admitted) in [
+            (CloudflareModel::ClefFlash, 24_576, false),
+            (CloudflareModel::Clef, 65_536, true),
+        ] {
+            let classifier = CloudflareClassifierModel::new(config(model)).unwrap();
+            let limits = classifier.request_limits().unwrap();
+            assert_eq!(context_tokens, limits.max_context_tokens);
+            assert_eq!(admitted, limits.permits(&request));
+            assert_eq!(
+                if admitted {
+                    Ok(())
+                } else {
+                    Err(ClassificationError::PermanentCandidateFailure)
+                },
+                validate_request(&request, model)
+            );
+            assert_eq!(original, request.state);
+        }
+    }
+
+    fn shared_text_request() -> ClassificationRequest {
+        let mut request = request(Vec::new());
+        request.state = serde_json::json!({
+            "search_intent": { "base_product_queries": ["antique lamp"] },
+            "candidates": [
+                {"id": "c0000", "evidence": {"title": "Brass lamp"}},
+                {"id": "c0001", "evidence": {"title": "Modern reproduction"}}
+            ]
+        });
+        let questions = request.questions.clone();
+        request.questions = (0..2)
+            .flat_map(|index| {
+                questions.iter().map(move |question| {
+                    let mut question = question.clone();
+                    question.id =
+                        QuestionId::new(format!("c{index:04}.{}", question.id.as_str())).unwrap();
+                    question
+                })
+            })
+            .collect();
+        request.options.allow_partial_answers = true;
+        request
+    }
+
+    #[tokio::test]
+    async fn shared_wire_request_preserves_reordered_keyed_and_independently_valid_answers() {
+        let (endpoint, task) = serve_once(
+            r#"{"success":true,"result":{"model":"clef-flash","answers":{"c0001.should_show":{"type":"noul","noul":1.1},"c0000.should_show":{"type":"noul","noul":0.8}},"usage":{"input_tokens":123}}}"#.into(), "200 OK"
+        ).await;
+        let model =
+            CloudflareClassifierModel::with_endpoint(config(CloudflareModel::ClefFlash), endpoint)
+                .unwrap();
+        let response = model.classify(shared_text_request()).await.unwrap();
+        assert_eq!(1, response.answers.len());
+        assert_eq!(
+            0.8,
+            response.answers[&QuestionId::new("c0000.should_show").unwrap()].get()
+        );
+        assert!(
+            !response
+                .answers
+                .contains_key(&QuestionId::new("c0001.should_show").unwrap())
+        );
+        assert_eq!(Some(123), response.usage.input_tokens);
+        let wire = task.await.unwrap();
+        let body: Value = serde_json::from_str(wire.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(2, body["state"]["candidates"].as_array().unwrap().len());
+        assert_eq!(2, body["questions"].as_object().unwrap().len());
+        assert!(body.get("images").is_none());
+    }
+
+    #[tokio::test]
+    async fn duplicate_and_unknown_provider_ids_invalidate_shared_mapping() {
+        for answers in [
+            r#""c0000.should_show":{"type":"noul","noul":0.1},"c0000.should_show":{"type":"noul","noul":0.9}"#,
+            r#""c0000.should_show":{"type":"noul","noul":0.1,"noul":0.9}"#,
+            r#""unknown.should_show":{"type":"noul","noul":0.9}"#,
+        ] {
+            let (endpoint, task) = serve_once(format!(r#"{{"success":true,"result":{{"model":"clef-flash","answers":{{{answers}}}}}}}"#), "200 OK").await;
+            let model = CloudflareClassifierModel::with_endpoint(
+                config(CloudflareModel::ClefFlash),
+                endpoint,
+            )
+            .unwrap();
+            assert_eq!(
+                Err(ClassificationError::InvalidResponse),
+                model.classify(shared_text_request()).await
+            );
+            task.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn singleton_requires_one_valid_uniquely_keyed_should_show_answer() {
+        for answers in [
+            "",
+            r#""should_show":{"type":"noul","noul":null}"#,
+            r#""should_show":{"type":"noul","noul":1.1}"#,
+            r#""unexpected":{"type":"noul","noul":0.9}"#,
+            r#""should_show":{"type":"noul","noul":0.1},"unexpected":{"type":"noul","noul":0.9}"#,
+            r#""should_show":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.9}"#,
+            r#""should_show":{"type":"noul","noul":0.1,"noul":0.9}"#,
+        ] {
+            let (endpoint, task) = serve_once(format!(r#"{{"success":true,"result":{{"model":"clef-flash","answers":{{{answers}}}}}}}"#), "200 OK").await;
+            let model = CloudflareClassifierModel::with_endpoint(
+                config(CloudflareModel::ClefFlash),
+                endpoint,
+            )
+            .unwrap();
+            assert_eq!(
+                Err(ClassificationError::InvalidResponse),
+                model.classify(request(Vec::new())).await,
+                "{answers}"
+            );
+            task.await.unwrap();
+        }
+    }
+
+    #[test]
+    fn partial_answers_validate_missing_malformed_and_out_of_range_values_independently() {
+        let expected = shared_text_request()
+            .questions
+            .iter()
+            .map(|q| q.id.as_str().to_owned())
+            .collect();
+        for invalid in [
+            serde_json::json!({"type": "noul", "noul": null}),
+            serde_json::json!({"type": "noul", "noul": -0.01}),
+            serde_json::json!({"type": "noul", "noul": 1.01}),
+            serde_json::json!({"type": "choice", "noul": 0.8}),
+            serde_json::json!({"type": "noul", "noul": "0.8"}),
+            serde_json::json!([0.8]),
+        ] {
+            let response = parse_answers_with_partial(
+                BTreeMap::from([
+                    (
+                        "c0000.should_show".into(),
+                        serde_json::json!({"type": "noul", "noul": 0.8}),
+                    ),
+                    ("c0001.should_show".into(), invalid),
+                ]),
+                None,
+                &expected,
+                true,
+            )
+            .unwrap();
+            assert_eq!(1, response.answers.len());
+            assert_eq!(
+                0.8,
+                response.answers[&QuestionId::new("c0000.should_show").unwrap()].get()
+            );
+        }
+    }
 
     fn config(model: CloudflareModel) -> CloudflareClassifierConfig {
         CloudflareClassifierConfig::new("account-id", "secret-test-token", model)
@@ -749,19 +1003,10 @@ mod tests {
                 "user_search": "original search",
                 "candidate": {"title": "title", "description": "description"}
             }),
-            questions: vec![
-                BinaryClassificationQuestion {
-                    id: QuestionId::new("hard_conflict")
-                        .unwrap_or_else(|_| panic!("valid question id")),
-                    instructions: "Does evidence conflict with the user's hard requirements?"
-                        .into(),
-                },
-                BinaryClassificationQuestion {
-                    id: QuestionId::new("should_show")
-                        .unwrap_or_else(|_| panic!("valid question id")),
-                    instructions: "Should this result be shown?".into(),
-                },
-            ],
+            questions: vec![BinaryClassificationQuestion {
+                id: QuestionId::new("should_show").unwrap_or_else(|_| panic!("valid question id")),
+                instructions: "Should this result be shown?".into(),
+            }],
             image_urls,
             options: crate::ClassificationOptions::default(),
         }
@@ -781,7 +1026,7 @@ mod tests {
         assert_eq!(ImageOmissionReason::InvalidOrOversized, omission_reason);
 
         let (endpoint, task) = serve_once(
-            r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.75}}}}"#.into(),
+            r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.75}}}}"#.into(),
             "200 OK",
         )
         .await;
@@ -937,7 +1182,7 @@ mod tests {
     #[tokio::test]
     async fn request_uses_bearer_auth_neutral_state_and_noul_answers() {
         let (endpoint, task) = serve_once(
-            r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.5}},"usage":{"input_tokens":12,"output_tokens":3}}}"#.into(),
+            r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.5}},"usage":{"input_tokens":12,"output_tokens":3}}}"#.into(),
             "200 OK",
         )
         .await;
@@ -977,7 +1222,7 @@ mod tests {
         let image_url = Url::parse("https://example.test/unsupported.gif")
             .unwrap_or_else(|_| panic!("valid candidate image URL"));
         let (endpoint, task) = serve_once(
-            r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.75}}}}"#.into(),
+            r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.75}}}}"#.into(),
             "200 OK",
         )
         .await;
@@ -1104,8 +1349,8 @@ mod tests {
                     let request = read_http_request(&mut second).await;
                     let response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                        r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.7}}}}"#.len(),
-                        r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.7}}}}"#
+                        r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.7}}}}"#.len(),
+                        r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.7}}}}"#
                     );
                     let _ = second.write_all(response.as_bytes()).await;
                     Some(request)
@@ -1185,93 +1430,57 @@ mod tests {
     }
 
     #[test]
-    fn response_requires_echoed_model_and_all_typed_answers() {
-        let expected = BTreeSet::from(["hard_conflict".into(), "should_show".into()]);
-        assert!(
-            parse_answers(
-                BTreeMap::from([
-                    (
-                        "hard_conflict".into(),
-                        serde_json::json!({"type": "noul", "noul": 0.1})
-                    ),
-                    (
-                        "should_show".into(),
-                        serde_json::json!({"type": "noul", "noul": 0.7})
-                    ),
-                ]),
-                None,
-                &expected,
-            )
-            .is_ok()
-        );
-        assert_eq!(
-            Err(ClassificationError::InvalidResponse),
-            parse_answers(
+    fn response_requires_exactly_one_typed_should_show_answer() {
+        let expected = BTreeSet::from(["should_show".into()]);
+        for score in [0.0, 0.49, 0.5, 0.51, 1.0] {
+            let answers = parse_answers(
                 BTreeMap::from([(
-                    "hard_conflict".into(),
-                    serde_json::json!({"type": "choice", "choice": "yes"})
+                    "should_show".into(),
+                    serde_json::json!({"type": "noul", "noul": score}),
                 )]),
                 None,
                 &expected,
             )
-        );
-        assert_eq!(
-            Err(ClassificationError::InvalidResponse),
-            parse_answers(
-                BTreeMap::from([
-                    (
-                        "hard_conflict".into(),
-                        serde_json::json!({"type": "noul", "noul": 0.1})
-                    ),
-                    (
-                        "should_show".into(),
-                        serde_json::json!({"type": "noul", "noul": 1.1})
-                    ),
-                ]),
-                None,
-                &expected,
-            )
-        );
+            .unwrap();
+            assert_eq!(
+                score,
+                answers.answers[&QuestionId::new("should_show").unwrap()].get()
+            );
+        }
         for invalid_answer in [
             serde_json::json!({"noul": 0.5}),
+            serde_json::json!({"type": "choice", "choice": "yes"}),
             serde_json::json!({"type": "choice", "noul": 0.5}),
             serde_json::json!({"type": "noul"}),
             serde_json::json!({"type": "noul", "noul": null}),
             serde_json::json!({"type": "noul", "noul": "0.5"}),
             serde_json::json!({"type": "noul", "noul": 0.5, "choice": "yes"}),
+            serde_json::json!({"type": "noul", "noul": -0.1}),
+            serde_json::json!({"type": "noul", "noul": 1.1}),
         ] {
             assert_eq!(
                 Err(ClassificationError::InvalidResponse),
                 parse_answers(
-                    BTreeMap::from([
-                        ("hard_conflict".into(), invalid_answer),
-                        (
-                            "should_show".into(),
-                            serde_json::json!({"type": "noul", "noul": 0.7}),
-                        ),
-                    ]),
+                    BTreeMap::from([("should_show".into(), invalid_answer)]),
                     None,
-                    &expected,
+                    &expected
                 )
             );
         }
-        assert_eq!(
-            Err(ClassificationError::InvalidResponse),
-            parse_answers(
-                BTreeMap::from([
-                    (
-                        "hard_conflict".into(),
-                        serde_json::json!({"type": "noul", "noul": 0.1}),
-                    ),
-                    (
-                        "unexpected_question".into(),
-                        serde_json::json!({"type": "noul", "noul": 0.7}),
-                    ),
-                ]),
-                None,
-                &expected,
-            )
-        );
+        let valid = serde_json::json!({"type": "noul", "noul": 0.7});
+        for answers in [
+            BTreeMap::new(),
+            BTreeMap::from([("unexpected_question".into(), valid.clone())]),
+            BTreeMap::from([
+                ("should_show".into(), valid.clone()),
+                ("unexpected_question".into(), valid),
+            ]),
+        ] {
+            assert_eq!(
+                Err(ClassificationError::InvalidResponse),
+                parse_answers(answers, None, &expected)
+            );
+        }
     }
 
     #[test]
@@ -1280,21 +1489,21 @@ mod tests {
         invalid.questions[0].instructions = " \n ".into();
         assert_eq!(
             Err(ClassificationError::InvalidRequest),
-            validate_request(&invalid)
+            validate_request(&invalid, CloudflareModel::ClefFlash)
         );
 
         let mut invalid = request(Vec::new());
         invalid.questions[0].instructions = "x".repeat(MAX_QUESTION_INSTRUCTIONS_BYTES + 1);
         assert_eq!(
             Err(ClassificationError::InvalidRequest),
-            validate_request(&invalid)
+            validate_request(&invalid, CloudflareModel::ClefFlash)
         );
 
         let mut invalid = request(Vec::new());
-        invalid.questions[1].id = invalid.questions[0].id.clone();
+        invalid.questions.push(invalid.questions[0].clone());
         assert_eq!(
             Err(ClassificationError::InvalidRequest),
-            validate_request(&invalid)
+            validate_request(&invalid, CloudflareModel::ClefFlash)
         );
 
         let image_urls = (0..5)
@@ -1303,9 +1512,50 @@ mod tests {
         let invalid = request(image_urls);
         assert_eq!(
             Err(ClassificationError::InvalidRequest),
-            validate_request(&invalid)
+            validate_request(&invalid, CloudflareModel::ClefFlash)
         );
-        assert!(unique_image_urls(&[invalid]).is_empty());
+        assert!(unique_image_urls(&[invalid], CloudflareModel::ClefFlash).is_empty());
+    }
+
+    #[test]
+    fn generic_questions_retain_the_provider_limit_and_strict_answer_mapping() {
+        for model in [CloudflareModel::ClefFlash, CloudflareModel::Clef] {
+            let mut request = request(Vec::new());
+            request.questions = (0..65)
+                .map(|index| BinaryClassificationQuestion {
+                    id: QuestionId::new(format!("generic_{index}")).unwrap(),
+                    instructions: "Does this evidence satisfy the criterion?".into(),
+                })
+                .collect();
+            assert_eq!(64, request_limits(model).max_questions);
+            assert_eq!(
+                Err(ClassificationError::InvalidRequest),
+                validate_request(&request, model)
+            );
+            request.questions.pop();
+            assert_eq!(Ok(()), validate_request(&request, model));
+            let expected = request
+                .questions
+                .iter()
+                .map(|q| q.id.as_str().to_owned())
+                .collect::<BTreeSet<_>>();
+            let mut answers = expected
+                .iter()
+                .map(|id| (id.clone(), serde_json::json!({"type": "noul", "noul": 0.5})))
+                .collect::<BTreeMap<_, _>>();
+            assert_eq!(
+                64,
+                parse_answers(answers.clone(), None, &expected)
+                    .unwrap()
+                    .answers
+                    .len()
+            );
+            answers.pop_first();
+            assert_eq!(
+                Err(ClassificationError::InvalidResponse),
+                parse_answers(answers, None, &expected)
+            );
+        }
     }
 
     #[tokio::test]
@@ -1318,7 +1568,7 @@ mod tests {
             request(vec![failed_url.clone()]),
             request(vec![failed_url.clone()]),
         ];
-        let unique_urls = unique_image_urls(&requests);
+        let unique_urls = unique_image_urls(&requests, CloudflareModel::ClefFlash);
         assert_eq!(unique_urls.len(), 2);
         let fetch_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let images = fetch_unique_images(
@@ -1431,7 +1681,7 @@ mod tests {
     async fn provider_serializes_zero_one_and_four_images_and_reports_partial_evidence() {
         for count in [0, 1, 4] {
             let (endpoint, task) = serve_once(
-                r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.9},"should_show":{"type":"noul","noul":0.6}},"usage":{"input_tokens":42}}}"#.into(), "200 OK",
+                r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.6}},"usage":{"input_tokens":42}}}"#.into(), "200 OK",
             ).await;
             let model = CloudflareClassifierModel::with_endpoint(
                 config(CloudflareModel::ClefFlash),
@@ -1491,7 +1741,7 @@ mod tests {
                     let count = active.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(count, Ordering::SeqCst);
                     barrier.wait().await;
-                    let body = r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.75}}}}"#;
+                    let body = r#"{"success":true,"result":{"model":"clef-flash","answers":{"should_show":{"type":"noul","noul":0.75}}}}"#;
                     let response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
@@ -1554,7 +1804,10 @@ mod tests {
         let (images, omission, _) = prepare_request_images(&request, &results);
         assert_eq!(1, images.len());
         assert_eq!(Some(ImageOmissionReason::FetchFailed), omission);
-        assert_eq!(3, unique_image_urls(&[request]).len());
+        assert_eq!(
+            3,
+            unique_image_urls(&[request], CloudflareModel::ClefFlash).len()
+        );
     }
 
     #[test]
@@ -1580,10 +1833,10 @@ mod tests {
         assert_eq!(2, images.len());
         assert_eq!(Some(ImageOmissionReason::AggregateLimit), reason);
         let mut oversized = request(Vec::new());
-        oversized.state = serde_json::json!({"criteria": "x".repeat(CONTEXT_TOKENS)});
+        oversized.state = serde_json::json!({"criteria": "x".repeat(CloudflareModel::ClefFlash.context_tokens())});
         assert_eq!(
             Err(ClassificationError::PermanentCandidateFailure),
-            validate_request(&oversized)
+            validate_request(&oversized, CloudflareModel::ClefFlash)
         );
         let bad = BASE64.encode(vec![0; MAX_IMAGE_BYTES + 1]);
         assert_eq!(

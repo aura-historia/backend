@@ -36,7 +36,7 @@ search-filter-match-notification-lambda = ["aura-historia-jobs", "notification-p
 watchlist-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "watchlist-postgres"]
 notification-delivery-lambda = ["aura-historia-jobs", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 marketing-consent-sync-lambda = ["aura-historia-jobs", "aws_lambda_events", "lambda_runtime", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "sqlx", "tokio", "tracing", "user-core", "user-loops", "user-postgres", "user-service"]
-search-filter-periodic-match = ["classifier-model", "fxrate-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
+search-filter-periodic-match = ["classifier-model", "fxrate-postgres", "notification-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
 cloudwatch-log-retention-lambda = ["platform-lambda-bootstrap", "platform-observability"]
 database-migration-lambda = ["platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 
@@ -63,7 +63,7 @@ fxrate-service = ["application", "fxrate-core", "money", "user-core"]
 fxrate-postgres = ["application", "fxrate-core", "money", "platform-postgres", "fxrate-service", "strum"]
 fxrate-fxratesapi = ["application", "fxrate-core", "fxrate-service", "money", "reqwest", "strum"]
 fxrate-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "fxrate-fxratesapi", "fxrate-postgres", "fxrate-service"]
-backend-cleanup-lambda = ["application", "geo-postgres", "geo-service", "oauth-postgres", "oauth-service", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-postgres", "user-service", "product-listing-service", "product-listing-postgres"]
+backend-cleanup-lambda = ["notification-postgres", "notification-service", "search-filter-postgres", "search-filter-service", "application", "geo-postgres", "geo-service", "oauth-postgres", "oauth-service", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-postgres", "user-service", "product-listing-service", "product-listing-postgres"]
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
 product-listing-core = ["geo", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros", "shipping-core"]
@@ -104,7 +104,7 @@ search-filter-service = ["application", "auction-core", "classifier-model", "dom
 watchlist-postgres = ["application", "domain-primitives", "platform-postgres", "product-listing-core", "product-listing-service", "user-core", "watchlist-core", "watchlist-service"]
 
 
-search-filter-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-postgres", "product-listing-core", "search-filter-core", "search-filter-service", "shipping-core", "user-core"]
+search-filter-postgres = ["product-listing-service", "application", "auction-core", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-postgres", "product-listing-core", "search-filter-core", "search-filter-service", "shipping-core", "user-core"]
 
 admin-overview-service = ["application", "user-core", "user-service"]
 admin-overview-postgres = ["admin-overview-service", "application", "platform-postgres"]

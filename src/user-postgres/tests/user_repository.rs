@@ -29,6 +29,10 @@ async fn should_insert_find_update_user_in_postgres() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let users = SqlxUserRepositoryFactory::new();
     let mut user = sample_user("postgres-main", UserRole::Admin, Some("cus_postgres_main"));
+    user.replace_preferences(UserPreferences {
+        currency: Some(Currency::Ars),
+        ..user.preferences().clone()
+    });
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
@@ -60,6 +64,10 @@ async fn should_insert_find_update_user_in_postgres() {
     };
 
     assert_eq!(user.id(), loaded_by_id.value.id());
+    assert_eq!(
+        Some(Currency::Ars),
+        loaded_by_id.value.preferences().currency
+    );
     assert_eq!(user.id(), loaded_by_email.value.id());
     assert_eq!(user.id(), loaded_by_stripe.value.id());
     assert!(!loaded_by_id.value.has_marketing_email_consent());
@@ -113,6 +121,7 @@ async fn should_insert_find_update_user_in_postgres() {
     commit(tx).await;
 
     assert_eq!(user.email(), updated.value.email());
+    assert_eq!(Some(Currency::Ars), updated.value.preferences().currency);
     assert_eq!(UserRole::User, updated.value.account().role);
     assert_eq!(UserTier::Ultimate, updated.value.account().tier);
     assert_eq!(None, updated.value.account().stripe_customer_id);

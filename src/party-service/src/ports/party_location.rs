@@ -1,6 +1,5 @@
 use crate::use_cases::party_locations::{
-    CreatePartyLocationCommand, LocationEvidence, PartyLocationError, PartyLocationView,
-    PartyLocationsPage,
+    LocationEvidence, PartyLocationError, PartyLocationView, PartyLocationsPage,
 };
 use party_core::{
     party_id::PartyId, party_location::PartyLocation, party_location_id::PartyLocationId,
@@ -48,18 +47,6 @@ pub trait PartyLocationAccessFactory<Tx>: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait PartyLocationRepository: Send {
-    /// Returns the original result, or fails on conflicting command reuse. Owner is locked.
-    async fn replay_create(
-        &mut self,
-        actor: &str,
-        command: &CreatePartyLocationCommand,
-    ) -> Result<Option<StoredPartyLocation>, PartyLocationError>;
-    async fn record_create(
-        &mut self,
-        actor: &str,
-        command: &CreatePartyLocationCommand,
-        result: &StoredPartyLocation,
-    ) -> Result<(), PartyLocationError>;
     async fn find_for_update(
         &mut self,
         party_id: PartyId,

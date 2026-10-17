@@ -256,22 +256,27 @@ pub fn parse_retry_after_at(value: &HeaderValue, now: SystemTime) -> Option<Dura
     Some(delay.min(MAX_RETRY_AFTER))
 }
 
+/// Upper bound for every durable cooldown that escalates with a failure streak.
+pub const MAX_EXPONENTIAL_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Doubles `base` for every consecutive failure after the first, capped at
+/// [`MAX_EXPONENTIAL_COOLDOWN`]. A streak of zero behaves like the first failure.
+pub fn exponential_cooldown(base: Duration, failure_streak: u32) -> Duration {
+    let exponent = failure_streak.saturating_sub(1).min(31);
+    base.saturating_mul(1_u32 << exponent)
+        .min(MAX_EXPONENTIAL_COOLDOWN)
+}
+
 pub fn domain_cooldown(
     kind: DomainFailureKind,
     failure_streak: u32,
     retry_after: Option<Duration>,
 ) -> Duration {
-    const MAX_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
-    let exponent = failure_streak.saturating_sub(1).min(31);
-    let multiplier = 1_u32 << exponent;
-    let local = kind
-        .base_cooldown()
-        .saturating_mul(multiplier)
-        .min(MAX_COOLDOWN);
+    let local = exponential_cooldown(kind.base_cooldown(), failure_streak);
     retry_after
         .unwrap_or(Duration::ZERO)
         .max(local)
-        .min(MAX_COOLDOWN)
+        .min(MAX_EXPONENTIAL_COOLDOWN)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -291,7 +296,35 @@ impl Default for RetryPolicy {
     }
 }
 
-pub fn classify_reqwest_error(err: &reqwest::Error) -> NetworkErrorKind {
+/// The reqwest error surface the crawler classifies on. The workspace and the
+/// Spider library pin different reqwest major versions, so both error types
+/// implement this instead of each path keeping its own classifier.
+pub trait ReqwestErrorLike {
+    fn is_timeout(&self) -> bool;
+    fn is_connect(&self) -> bool;
+    fn is_request(&self) -> bool;
+    fn status_code(&self) -> Option<u16>;
+}
+
+impl ReqwestErrorLike for reqwest::Error {
+    fn is_timeout(&self) -> bool {
+        reqwest::Error::is_timeout(self)
+    }
+
+    fn is_connect(&self) -> bool {
+        reqwest::Error::is_connect(self)
+    }
+
+    fn is_request(&self) -> bool {
+        reqwest::Error::is_request(self)
+    }
+
+    fn status_code(&self) -> Option<u16> {
+        self.status().map(|status| status.as_u16())
+    }
+}
+
+pub fn classify_reqwest_error<E: ReqwestErrorLike>(err: &E) -> NetworkErrorKind {
     if err.is_timeout() {
         return NetworkErrorKind::Timeout;
     }
@@ -301,8 +334,8 @@ pub fn classify_reqwest_error(err: &reqwest::Error) -> NetworkErrorKind {
     if err.is_request() {
         return NetworkErrorKind::Request;
     }
-    if let Some(status) = err.status() {
-        return NetworkErrorKind::HttpStatus(status.as_u16());
+    if let Some(status) = err.status_code() {
+        return NetworkErrorKind::HttpStatus(status);
     }
     NetworkErrorKind::Unknown
 }

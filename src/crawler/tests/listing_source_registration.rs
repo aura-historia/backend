@@ -48,7 +48,7 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     let mut source = listing_source(listing_source_id, true);
-    source.fallback_currency = Some(Currency::Zar);
+    source.fallback_currency = Some(Currency::Ars);
 
     repository.apply_snapshot(&[source.clone()]).await.unwrap();
     let persisted: Option<String> = sqlx::query_scalar(
@@ -58,7 +58,7 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(Some("ZAR".to_owned()), persisted);
+    assert_eq!(Some("ARS".to_owned()), persisted);
 
     source.fallback_currency = None;
     repository.apply_snapshot(&[source]).await.unwrap();

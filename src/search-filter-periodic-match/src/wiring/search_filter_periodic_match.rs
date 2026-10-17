@@ -2,6 +2,7 @@ use classifier_model::{
     CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel, Probability,
 };
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use notification_postgres::SqlxSavedSearchDigestStoreFactory;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -69,6 +70,7 @@ pub async fn build_from_env()
             SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
+            SqlxSavedSearchDigestStoreFactory,
             config.policy,
         )
         .map_err(WiringError::Handler)?,
@@ -96,6 +98,8 @@ impl PeriodicMatchConfig {
         let hybrid_scan_limit = nonzero("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", 100)?;
         let evaluation_limit = nonzero("PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
         let classification_concurrency = nonzero("PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY", 8)?;
+        let classification_batch_candidates =
+            batch_candidates(number("PERIODIC_MATCH_BATCH_CANDIDATES", 1)?)?;
         let provider = std::env::var("CLASSIFIER_MODEL_PROVIDER")
             .unwrap_or_else(|_| DEFAULT_CLASSIFIER_PROVIDER.to_owned());
         if provider != "cloudflare" {
@@ -150,6 +154,7 @@ impl PeriodicMatchConfig {
                 hybrid_scan_limit,
                 evaluation_limit,
                 classification_concurrency,
+                classification_batch_candidates,
                 should_show_threshold,
                 max_attempts,
                 projection_lag: periodic_duration(
@@ -164,6 +169,12 @@ impl PeriodicMatchConfig {
         })
     }
 }
+fn batch_candidates(value: usize) -> Result<NonZeroUsize, WiringError> {
+    NonZeroUsize::new(value)
+        .filter(|value| value.get() <= 50)
+        .ok_or(WiringError::InvalidPolicy)
+}
+
 fn validate_limits(
     hybrid_scan_limit: NonZeroUsize,
     evaluation_limit: NonZeroUsize,
@@ -347,6 +358,7 @@ mod tests {
             "valid-local" => {
                 let config = config.expect("valid local configuration");
                 assert!(config.auth.is_none());
+                assert_eq!(1, config.policy.classification_batch_candidates.get());
                 assert_eq!(config.endpoint.as_str(), "https://search.example.test/");
             }
             "valid-prod" => {
@@ -356,6 +368,14 @@ mod tests {
                     Some(("reader".to_owned(), "secret".to_owned()))
                 );
             }
+            "batch" => assert_eq!(
+                50,
+                config
+                    .expect("valid text batch setting")
+                    .policy
+                    .classification_batch_candidates
+                    .get()
+            ),
             "policy" => assert!(matches!(config, Err(WiringError::InvalidPolicy))),
             "classifier" => assert!(matches!(config, Err(WiringError::ClassifierConfig))),
             "url" => assert!(matches!(config, Err(WiringError::OpenSearchUrl(_)))),
@@ -383,6 +403,11 @@ mod tests {
         ];
         let cases: &[(&[(&str, &str)], &str)] = &[
             (&[], "valid-local"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "1")], "valid-local"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "50")], "batch"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "0")], "policy"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "51")], "policy"),
+            (&[("PERIODIC_MATCH_BATCH_CANDIDATES", "1.5")], "number"),
             (
                 &[
                     ("STAGE", "prod"),

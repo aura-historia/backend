@@ -4,3 +4,4 @@ pub mod notification_delivery_id;
 pub mod notification_id;
 pub mod notification_kind;
 pub mod presentation;
+pub mod saved_search_digest_id;

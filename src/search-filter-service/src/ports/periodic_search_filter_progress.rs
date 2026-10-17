@@ -27,6 +27,41 @@ pub enum PeriodicSearchFilterProgressError {
 
 #[async_trait::async_trait]
 pub trait PeriodicSearchFilterProgress: Send {
+    async fn load_selection(
+        &mut self,
+        window_end: OffsetDateTime,
+        search_filter_id: UserSearchFilterId,
+    ) -> Result<
+        Option<Vec<product_listing_service::ports::ProductListingSearchFilterMatchSourceRef>>,
+        PeriodicSearchFilterProgressError,
+    >;
+    /// First selection wins, including an empty selection. Returns its durable value.
+    async fn freeze_selection(
+        &mut self,
+        window_end: OffsetDateTime,
+        search_filter_id: UserSearchFilterId,
+        selected: &[product_listing_service::ports::ProductListingSearchFilterMatchSourceRef],
+    ) -> Result<
+        Vec<product_listing_service::ports::ProductListingSearchFilterMatchSourceRef>,
+        PeriodicSearchFilterProgressError,
+    >;
+
+    /// Freeze the intended filters atomically, or resume the unfinished logical run.
+    async fn begin_run(
+        &mut self,
+        proposed_window_end: OffsetDateTime,
+    ) -> Result<OffsetDateTime, PeriodicSearchFilterProgressError>;
+    async fn record_filter_attempt(
+        &mut self,
+        window_end: OffsetDateTime,
+        search_filter_id: UserSearchFilterId,
+        completed: bool,
+    ) -> Result<(), PeriodicSearchFilterProgressError>;
+    async fn finish_run(
+        &mut self,
+        window_end: OffsetDateTime,
+    ) -> Result<(), PeriodicSearchFilterProgressError>;
+
     async fn lock_and_read(
         &mut self,
         search_filter_id: UserSearchFilterId,

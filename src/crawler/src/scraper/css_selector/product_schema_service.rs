@@ -14,7 +14,8 @@ use listing_source_core::ListingSourceId;
 use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
     ProductListingSchemaGenerationResponse, ProductListingSchemaResponseValidationError,
-    product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
+    ProductListingSchemasGenerationResponse, product_schema_generation_response_json_schema,
+    single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
 use std::{sync::Arc, time::Duration};
@@ -143,12 +144,13 @@ fn create_schema_generation_system_instruction() -> String {
     let response_json_schema = product_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Return only JSON matching ProductListingSchemaGenerationResponse.
+            Return only JSON matching ProductListingSchemasGenerationResponse.
             The response must include schemas plus confidence LOW, MEDIUM, or HIGH.
+            Every given page is expected to be a product page; the response never classifies pages.
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductListingSchemaGenerationResponse schema:\n\n {response_json_schema}",
+            ProductListingSchemasGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
@@ -265,7 +267,7 @@ where
     ) -> Result<GeneratedProductSchemas, ProductListingSchemaServiceError> {
         let generated = generate_validated_with_governor::<
             _,
-            ProductListingSchemaGenerationResponse,
+            ProductListingSchemasGenerationResponse,
             GeneratedProductSchemas,
             ProductListingSchemaResponseValidationError,
             _,
@@ -275,7 +277,7 @@ where
             self.governor.as_ref(),
             create_schema_generation_request(html_pages)?,
             3,
-            ProductListingSchemaGenerationResponse::try_into_initial,
+            ProductListingSchemasGenerationResponse::try_into_initial,
             ProductListingSchemaResponseValidationError::feedback_code,
         )
         .await
@@ -1081,6 +1083,25 @@ mod tests {
     }
 
     #[test]
+    fn should_tell_initial_generation_not_to_classify_product_samples() {
+        let html_pages = vec![
+            "<html><body><h1>A</h1></body></html>".to_string(),
+            "<html><body><h1>B</h1></body></html>".to_string(),
+        ];
+        let instruction = build_create_schemas_instruction(&html_pages);
+        let system_instruction = create_schema_generation_system_instruction();
+
+        assert!(instruction.contains("Do not classify the samples"));
+        assert!(instruction.contains("no page_kind, removed_schema, or reason field"));
+        assert!(instruction.contains("exclude that sample from schema coverage"));
+        assert!(instruction.contains("Return ONLY ProductListingSchemasGenerationResponse JSON"));
+        assert!(!instruction.contains("page_kind ="));
+        assert!(system_instruction.contains("the response never classifies pages"));
+        assert!(!system_instruction.contains("\"page_kind\""));
+        assert!(!system_instruction.contains("\"removed_schema\""));
+    }
+
+    #[test]
     fn should_include_page_classification_in_append_instruction() {
         let instruction =
             build_single_schema_instruction("<html><body><h1>Missing</h1></body></html>");
@@ -1332,74 +1353,6 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_not_product_page_kind_with_schema_for_create_validator() {
-        let payload = serde_json::to_string(&serde_json::json!({
-            "page_kind": "not_product",
-            "schemas": [sample_css_schema()],
-            "reason": "category page",
-            "confidence": "HIGH",
-            "summary": "wrong page kind"
-        }))
-        .unwrap();
-
-        let result = validate_create_schema_response(&payload);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_removed_page_kind_with_schema_for_create_validator() {
-        let payload = serde_json::to_string(&serde_json::json!({
-            "page_kind": "removed",
-            "schemas": [sample_css_schema()],
-            "removed_schema": {
-                "selector": "#main h1",
-                "text": "ProductListing removed"
-            },
-            "confidence": "HIGH",
-            "summary": "wrong page kind"
-        }))
-        .unwrap();
-
-        let result = validate_create_schema_response(&payload);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_removed_schema_for_create_validator() {
-        let payload = serde_json::to_string(&serde_json::json!({
-            "schemas": [sample_css_schema()],
-            "removed_schema": {
-                "selector": "#main h1",
-                "text": "ProductListing removed"
-            },
-            "confidence": "HIGH",
-            "summary": "single-page metadata"
-        }))
-        .unwrap();
-
-        let result = validate_create_schema_response(&payload);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_classification_reason_for_create_validator() {
-        let payload = serde_json::to_string(&serde_json::json!({
-            "schemas": [sample_css_schema()],
-            "reason": "category page",
-            "confidence": "HIGH",
-            "summary": "single-page metadata"
-        }))
-        .unwrap();
-
-        let result = validate_create_schema_response(&payload);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn should_accept_append_classification_for_append_validator() {
         let payload = not_product_append_response_json();
 
@@ -1599,7 +1552,9 @@ mod tests {
             );
             let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
             assert_eq!(requests.len(), 2);
-            assert!(requests[1].prompt.contains("invalid_product_schema_rule"));
+            assert!(requests[1].prompt.contains(
+                "invalid_product_schema_rule: field `schemas[0]` contained an invalid extraction rule:"
+            ));
         }
     }
 
@@ -1661,6 +1616,46 @@ mod tests {
         ));
         let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
         assert!(requests[1].prompt.contains("invalid_product_schema_rule"));
+    }
+
+    #[tokio::test]
+    async fn should_send_field_and_value_in_single_schema_correction_feedback() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let llm = SequenceSchemaLlm {
+            responses: Mutex::new(VecDeque::from([
+                serde_json::json!({
+                    "page_kind": "product",
+                    "schemas": [sample_css_schema(), sample_css_schema()],
+                    "confidence": "HIGH",
+                    "summary": "sensitive previous response",
+                    "risks": []
+                }),
+                schema_response_value(vec![sample_css_schema()]),
+            ])),
+            requests: Arc::clone(&requests),
+        };
+        let service = ProductListingSchemaServiceImpl::new(
+            MockLlmProvider,
+            llm,
+            Box::new(MockListingSourceProductSchemaRepository::new()),
+            None,
+        );
+
+        let generated = service
+            .generate_single_schema_for_page("<main>product</main>")
+            .await
+            .unwrap_or_else(|error| panic!("corrected response should succeed: {error}"));
+
+        assert!(matches!(
+            generated,
+            GeneratedSingleSchema::ProductListing { .. }
+        ));
+        let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].prompt.contains(
+            "single_product_schema_count: field `schemas` must contain exactly one schema for page_kind `product`, got 2"
+        ));
+        assert!(!requests[1].prompt.contains("sensitive previous response"));
     }
 
     #[test]

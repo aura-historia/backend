@@ -3,6 +3,7 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use notification_postgres::{
     SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+    SqlxSavedSearchDigestStoreFactory,
 };
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
@@ -52,6 +53,7 @@ pub fn compose_search_filter_match_notification_use_case(
             InitialExternalDeliveryPlanReaderFactory,
             SqlxNotificationDeliveryIntentRepositoryFactory::new(),
         ),
+        SqlxSavedSearchDigestStoreFactory,
     ))
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     provider_failure::SesSendFailed,
     template_mapping::{
-        EmailLanguage, ses_template_tag_value, subject, template_data, template_type,
+        EmailLanguage, FrontendLinks, ses_template_tag_value, subject, template_data, template_type,
     },
     template_reader::TemplateReader,
 };
@@ -22,16 +22,23 @@ use notification_service::ports::{
     notification_delivery_repository::NotificationDeliverySource,
 };
 use std::sync::Arc;
+use url::{Host, Url};
 
 /// Safe to display: invalid configuration values are not retained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmailDeliveryConfigError {
     InvalidConfigurationSetName,
+    InvalidFrontendOrigin,
 }
 
 impl std::fmt::Display for EmailDeliveryConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid notification email SES configuration set name")
+        f.write_str(match self {
+            Self::InvalidConfigurationSetName => {
+                "invalid notification email SES configuration set name"
+            }
+            Self::InvalidFrontendOrigin => "invalid notification email frontend origin",
+        })
     }
 }
 
@@ -45,9 +52,12 @@ pub struct EmailDeliveryConfig {
     configuration_set_name: String,
     stage: String,
     commit_sha: String,
+    frontend_origin: String,
 }
 
 impl EmailDeliveryConfig {
+    /// `frontend_origin` is a trusted deployment setting (the web app origin
+    /// email links point to): HTTPS, or HTTP on a loopback host for local runs.
     pub fn new(
         template_bucket: impl Into<String>,
         from_email_address: impl Into<String>,
@@ -55,6 +65,7 @@ impl EmailDeliveryConfig {
         configuration_set_name: impl Into<String>,
         stage: impl Into<String>,
         commit_sha: impl Into<String>,
+        frontend_origin: &str,
     ) -> Result<Self, EmailDeliveryConfigError> {
         let configuration_set_name = configuration_set_name.into();
         if configuration_set_name.is_empty()
@@ -65,6 +76,8 @@ impl EmailDeliveryConfig {
         {
             return Err(EmailDeliveryConfigError::InvalidConfigurationSetName);
         }
+        let frontend_origin = validated_frontend_origin(frontend_origin)
+            .ok_or(EmailDeliveryConfigError::InvalidFrontendOrigin)?;
         Ok(Self {
             template_bucket: template_bucket.into(),
             from_email_address: from_email_address.into(),
@@ -72,8 +85,28 @@ impl EmailDeliveryConfig {
             configuration_set_name,
             stage: stage.into(),
             commit_sha: commit_sha.into(),
+            frontend_origin,
         })
     }
+}
+
+/// Returns the origin without a trailing slash, or `None` when it is not a bare trusted origin.
+fn validated_frontend_origin(value: &str) -> Option<String> {
+    let origin = Url::parse(value).ok()?;
+    let loopback = match origin.host() {
+        Some(Host::Domain(domain)) => domain == "localhost",
+        Some(Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
+    let trusted_scheme = origin.scheme() == "https" || (origin.scheme() == "http" && loopback);
+    let bare = origin.host().is_some()
+        && origin.username().is_empty()
+        && origin.password().is_none()
+        && origin.path() == "/"
+        && origin.query().is_none()
+        && origin.fragment().is_none();
+    (trusted_scheme && bare).then(|| origin.as_str().trim_end_matches('/').to_owned())
 }
 
 pub struct SesNotificationChannelSender {
@@ -83,6 +116,7 @@ pub struct SesNotificationChannelSender {
     configuration_set_name: String,
     templates: TemplateReader,
     targets: Arc<dyn EmailDeliveryTargetReader>,
+    frontend_origin: String,
 }
 
 impl SesNotificationChannelSender {
@@ -112,6 +146,7 @@ impl SesNotificationChannelSender {
                 config.commit_sha,
             ),
             targets,
+            frontend_origin: config.frontend_origin,
         }
     }
 
@@ -136,14 +171,23 @@ impl SesNotificationChannelSender {
         source: &NotificationDeliverySource,
         first_name: Option<&str>,
     ) -> Result<(String, String, &'static str), NotificationChannelSendError> {
-        let template_type = template_type(&source.content);
+        let template_type = if source.saved_search_digest.is_some() {
+            crate::template_mapping::EmailTemplateType::SavedSearchDigest
+        } else {
+            template_type(&source.content)
+        };
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
         let body = self
             .templates
             .render(
                 template_type,
                 email_language,
-                &template_data(source, email_language, first_name),
+                &template_data(
+                    source,
+                    email_language,
+                    first_name,
+                    FrontendLinks::new(&self.frontend_origin, email_language),
+                ),
             )
             .await?;
         Ok((
@@ -262,7 +306,41 @@ mod tests {
             configuration_set_name,
             "test",
             "test-commit",
+            "https://stage.aura-historia.com",
         )
+    }
+
+    #[rstest]
+    #[case("https://aura-historia.com", "https://aura-historia.com")]
+    #[case("https://stage.aura-historia.com/", "https://stage.aura-historia.com")]
+    #[case("http://localhost:3000", "http://localhost:3000")]
+    #[case("http://127.0.0.1:3000/", "http://127.0.0.1:3000")]
+    fn should_accept_bare_trusted_frontend_origins(#[case] value: &str, #[case] expected: &str) {
+        assert_eq!(Some(expected.to_owned()), validated_frontend_origin(value));
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("aura-historia.com")]
+    #[case("http://aura-historia.com")]
+    #[case("https://aura-historia.com/en")]
+    #[case("https://aura-historia.com/?next=x")]
+    #[case("https://aura-historia.com/#x")]
+    #[case("https://user:secret@aura-historia.com")]
+    #[case("mailto:contact@aura-historia.com")]
+    fn should_reject_frontend_origins_that_are_not_bare_trusted_origins(#[case] value: &str) {
+        assert!(matches!(
+            EmailDeliveryConfig::new(
+                "test-templates",
+                "from@example.test",
+                "reply@example.test",
+                "aura-historia-test-email",
+                "test",
+                "test-commit",
+                value,
+            ),
+            Err(EmailDeliveryConfigError::InvalidFrontendOrigin)
+        ));
     }
 
     #[rstest]
@@ -460,6 +538,7 @@ mod tests {
                 "aura-historia-test-email",
                 "test",
                 "test-commit",
+                "https://stage.aura-historia.com",
             )
             .expect("valid email configuration"),
             Arc::new(NoEmailTarget),

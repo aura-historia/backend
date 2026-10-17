@@ -64,6 +64,7 @@ fn newsletter_confirmation_templates_render_with_delivery_contract() {
                     &json!({
                         "confirmation_url": confirmation_url,
                         "first_name": first_name,
+                        "home_url": format!("https://aura-historia.com/{language}"),
                     }),
                 )
                 .unwrap_or_else(|error| panic!("{language} failed to render: {error}"));
@@ -87,6 +88,11 @@ fn newsletter_confirmation_templates_render_with_delivery_contract() {
                 html_escape::decode_html_entities(href),
                 confirmation_url,
                 "{language} confirmation link changed during escaping"
+            );
+
+            assert!(
+                rendered.contains(&format!("href=\"https://aura-historia.com/{language}\"")),
+                "{language} is missing the localized home link"
             );
 
             match first_name {

@@ -1,8 +1,11 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
-use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
+use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown};
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
+use crate::spider::discovery::website_spider::{
+    CrawlCooldownProfile, CrawlFailureKind, SpiderDiscoveryError,
+};
 use crate::spider::local_lock::{DomainLock, DomainLockScope};
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
@@ -19,27 +22,18 @@ const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 6
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CrawlCooldownProfile {
-    Transient,
-    Recoverable,
-    DurableBlock,
+fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
+    match profile {
+        CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
+        CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
+        CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
+    }
 }
 
-impl CrawlCooldownProfile {
-    fn long_cooldown(self) -> Duration {
-        match self {
-            CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
-            CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
-            CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
-        }
-    }
-
-    fn cooldown_for_failure_count(self, failure_count: i32) -> Duration {
-        match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
-            true => self.long_cooldown(),
-            false => CRAWL_RETRY_COOLDOWN,
-        }
+fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32) -> Duration {
+    match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
+        true => long_cooldown(profile),
+        false => CRAWL_RETRY_COOLDOWN,
     }
 }
 
@@ -51,39 +45,54 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
     }
 }
 
-fn crawl_cooldown_profile(error_kind: &str) -> Option<CrawlCooldownProfile> {
-    match error_kind {
-        "EmptyCrawl"
-        | "TinyCrawl"
-        | "RateLimited"
-        | "CloudflareChallenge"
-        | "BotProtection"
-        | "ConnectError"
-        | "ServerError" => Some(CrawlCooldownProfile::Transient),
-        "InsufficientInferenceSample" | "TlsError" | "RedirectProblem" | "InvalidUrl" => {
-            Some(CrawlCooldownProfile::Recoverable)
+/// Typed crawl failure behind a spider run error, whether Spider or the root
+/// preflight detected it.
+fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
+    match error {
+        SpiderServiceError::CrawlFailed { kind, .. }
+        | SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight { kind, .. }) => {
+            Some(*kind)
         }
-        "AccessDenied" | "JavascriptRequired" => Some(CrawlCooldownProfile::DurableBlock),
         _ => None,
     }
 }
 
-fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
-    crawl_cooldown_profile(error_kind)
-        .map(|profile| profile.cooldown_for_failure_count(failure_count))
-        .unwrap_or_else(|| durable_retry_cooldown_for(NetworkErrorKind::Unknown))
+fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownProfile> {
+    match error {
+        SpiderServiceError::InsufficientInferenceSample { .. } => {
+            Some(CrawlCooldownProfile::Recoverable)
+        }
+        _ => crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile),
+    }
 }
 
+/// Cooldown for the catch-all `spider_run_error` case (internal or config
+/// faults without a crawl profile). Starts at the generic durable retry
+/// cooldown and escalates like the scraper domain circuit, so a persistent
+/// fault cannot retry every few minutes forever.
+fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
+    let failure_streak = u32::try_from(failure_count).unwrap_or(1);
+    exponential_cooldown(
+        durable_retry_cooldown_for(NetworkErrorKind::Unknown),
+        failure_streak,
+    )
+}
+
+fn cooldown_for_spider_failure(error: &SpiderServiceError, failure_count: i32) -> Duration {
+    crawl_cooldown_profile(error)
+        .map(|profile| cooldown_for_failure_count(profile, failure_count))
+        .unwrap_or_else(|| unclassified_cooldown_for_failure_count(failure_count))
+}
+
+/// Persisted `last_crawl_error_kind` identifier; these strings are a stable
+/// contract with existing rows.
 fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
     match error {
         SpiderServiceError::UrlPattern(UrlPatternServiceError::PendingReview { .. }) => {
             "PendingUrlPatternReview"
         }
-        SpiderServiceError::TinyCrawl { .. } => "TinyCrawl",
-        SpiderServiceError::EmptyCrawl { .. } => "EmptyCrawl",
         SpiderServiceError::InsufficientInferenceSample { .. } => "InsufficientInferenceSample",
-        SpiderServiceError::DiagnosticCrawlFailure { kind, .. } => kind.as_str(),
-        _ => "spider_run_error",
+        _ => crawl_failure_kind(error).map_or("spider_run_error", CrawlFailureKind::as_str),
     }
 }
 
@@ -165,7 +174,7 @@ fn spawn_spider_candidate(
                 Err(e) => {
                     let error_kind = error_kind_for_spider_error(&e);
                     let failure_count = next_failure_count(&candidate, error_kind);
-                    let cooldown = cooldown_for_spider_failure(error_kind, failure_count);
+                    let cooldown = cooldown_for_spider_failure(&e, failure_count);
                     let next_crawl_at = time::OffsetDateTime::now_utc()
                         + time::Duration::seconds(cooldown.as_secs() as i64);
 
@@ -185,31 +194,6 @@ fn spawn_spider_candidate(
                         );
                     }
                     match &e {
-                        crate::spider::service::SpiderServiceError::EmptyCrawl { .. } => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            total_crawled = 0,
-                            min_required_links = 2,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
-                        crate::spider::service::SpiderServiceError::TinyCrawl {
-                            total_links,
-                            ..
-                        } => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            total_crawled = *total_links,
-                            min_required_links = 2,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
                         crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
                             stage,
                             sample_size,
@@ -227,12 +211,9 @@ fn spawn_spider_candidate(
                             cooldown_seconds = cooldown.as_secs(),
                             "Spider run failed"
                         ),
-                        crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
+                        crate::spider::service::SpiderServiceError::CrawlFailed {
                             total_links,
-                            http_status,
-                            final_url,
-                            redirect_url,
-                            diagnostic_reason,
+                            diagnostics,
                             ..
                         } => warn!(
                             domain = %candidate.listing_source_domain,
@@ -240,10 +221,36 @@ fn spawn_spider_candidate(
                             error_kind,
                             failure_count,
                             total_crawled = *total_links,
-                            http_status = ?http_status,
-                            final_url = ?final_url,
-                            redirect_url = ?redirect_url,
-                            diagnostic_reason = ?diagnostic_reason,
+                            min_required_links = 2,
+                            http_status = ?diagnostics.http_status,
+                            final_url = ?diagnostics.final_url,
+                            redirect_url = ?diagnostics.redirect_url,
+                            diagnostic_reason = ?diagnostics.diagnostic_reason,
+                            initial_html_length = ?diagnostics.initial_html_length,
+                            initial_should_retry = diagnostics.initial_should_retry,
+                            initial_anti_bot = ?diagnostics.initial_anti_bot,
+                            pages_received = diagnostics.pages_received,
+                            accepted = diagnostics.accepted,
+                            rejected_host = diagnostics.rejected_host,
+                            rejected_blacklist = diagnostics.rejected_blacklist,
+                            rejected_duplicate = diagnostics.rejected_duplicate,
+                            robots_blocked = diagnostics.robots_blocked,
+                            first_robots_blocked_url = ?diagnostics.first_robots_blocked_url,
+                            robots_denied = diagnostics.robots_denied,
+                            lagged = diagnostics.lagged,
+                            next_crawl_at = %next_crawl_at,
+                            cooldown_seconds = cooldown.as_secs(),
+                            "Spider run failed"
+                        ),
+                        crate::spider::service::SpiderServiceError::Discovery(
+                            SpiderDiscoveryError::Preflight { reason, source, .. },
+                        ) => warn!(
+                            domain = %candidate.listing_source_domain,
+                            error = %e,
+                            error_kind,
+                            failure_count,
+                            reason,
+                            source = ?source,
                             next_crawl_at = %next_crawl_at,
                             cooldown_seconds = cooldown.as_secs(),
                             "Spider run failed"
@@ -400,6 +407,7 @@ impl CrawlerCronJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::policy::MAX_EXPONENTIAL_COOLDOWN;
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
@@ -409,7 +417,7 @@ mod tests {
         MockListingSourceRegistrationRepository, MockListingSourceRegistrationSource,
     };
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
-    use crate::spider::discovery::website_spider::CrawlFailureKind;
+    use crate::spider::discovery::website_spider::CrawlDiagnostics;
     use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -455,47 +463,79 @@ mod tests {
         );
     }
 
+    fn crawl_failed(kind: CrawlFailureKind) -> SpiderServiceError {
+        SpiderServiceError::CrawlFailed {
+            crawl_root_url: "https://example.com/".to_string(),
+            kind,
+            total_links: 1,
+            diagnostics: Box::new(CrawlDiagnostics {
+                failure_kind: Some(kind),
+                diagnostic_reason: Some("test_diagnostic".to_string()),
+                ..CrawlDiagnostics::default()
+            }),
+        }
+    }
+
+    fn preflight_failed(kind: CrawlFailureKind) -> SpiderServiceError {
+        SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
+            kind,
+            reason: "test_preflight",
+            source: None,
+        })
+    }
+
+    fn insufficient_sample() -> SpiderServiceError {
+        SpiderServiceError::InsufficientInferenceSample {
+            crawl_root_url: "https://example.com/".to_string(),
+            stage: "end_of_crawl",
+            sample_size: 2,
+            min_sample_size: 20,
+        }
+    }
+
+    const ALL_KINDS: [CrawlFailureKind; 14] = [
+        CrawlFailureKind::EmptyCrawl,
+        CrawlFailureKind::TinyCrawl,
+        CrawlFailureKind::NoAcceptedPages,
+        CrawlFailureKind::RobotsBlocked,
+        CrawlFailureKind::RateLimited,
+        CrawlFailureKind::CloudflareChallenge,
+        CrawlFailureKind::BotProtection,
+        CrawlFailureKind::ConnectError,
+        CrawlFailureKind::ServerError,
+        CrawlFailureKind::TlsError,
+        CrawlFailureKind::RedirectProblem,
+        CrawlFailureKind::InvalidUrl,
+        CrawlFailureKind::AccessDenied,
+        CrawlFailureKind::JavascriptRequired,
+    ];
+
     #[test]
     fn cooldown_should_use_durable_retry_cooldown_for_first_two_grouped_failures() {
-        for error_kind in [
-            "EmptyCrawl",
-            "TinyCrawl",
-            "RateLimited",
-            "CloudflareChallenge",
-            "BotProtection",
-            "ConnectError",
-            "ServerError",
-            "InsufficientInferenceSample",
-            "TlsError",
-            "RedirectProblem",
-            "InvalidUrl",
-            "AccessDenied",
-            "JavascriptRequired",
-        ] {
-            assert_eq!(
-                cooldown_for_spider_failure(error_kind, 1),
-                CRAWL_RETRY_COOLDOWN
-            );
-            assert_eq!(
-                cooldown_for_spider_failure(error_kind, 2),
-                CRAWL_RETRY_COOLDOWN
-            );
+        for error in ALL_KINDS
+            .into_iter()
+            .flat_map(|kind| [crawl_failed(kind), preflight_failed(kind)])
+            .chain([insufficient_sample()])
+        {
+            assert_eq!(cooldown_for_spider_failure(&error, 1), CRAWL_RETRY_COOLDOWN);
+            assert_eq!(cooldown_for_spider_failure(&error, 2), CRAWL_RETRY_COOLDOWN);
         }
     }
 
     #[test]
     fn cooldown_should_use_transient_long_cooldown_for_flaky_failures() {
-        for error_kind in [
-            "EmptyCrawl",
-            "TinyCrawl",
-            "RateLimited",
-            "CloudflareChallenge",
-            "BotProtection",
-            "ConnectError",
-            "ServerError",
+        for kind in [
+            CrawlFailureKind::EmptyCrawl,
+            CrawlFailureKind::TinyCrawl,
+            CrawlFailureKind::NoAcceptedPages,
+            CrawlFailureKind::RateLimited,
+            CrawlFailureKind::CloudflareChallenge,
+            CrawlFailureKind::BotProtection,
+            CrawlFailureKind::ConnectError,
+            CrawlFailureKind::ServerError,
         ] {
             assert_eq!(
-                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                cooldown_for_spider_failure(&crawl_failed(kind), LONG_COOLDOWN_FAILURE_COUNT),
                 TRANSIENT_CRAWL_LONG_COOLDOWN
             );
         }
@@ -503,14 +543,18 @@ mod tests {
 
     #[test]
     fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
-        for error_kind in [
-            "InsufficientInferenceSample",
-            "TlsError",
-            "RedirectProblem",
-            "InvalidUrl",
+        for error in [
+            insufficient_sample(),
+            crawl_failed(CrawlFailureKind::RobotsBlocked),
+            crawl_failed(CrawlFailureKind::TlsError),
+            crawl_failed(CrawlFailureKind::RedirectProblem),
+            crawl_failed(CrawlFailureKind::InvalidUrl),
+            preflight_failed(CrawlFailureKind::TlsError),
+            preflight_failed(CrawlFailureKind::RedirectProblem),
+            preflight_failed(CrawlFailureKind::InvalidUrl),
         ] {
             assert_eq!(
-                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
                 RECOVERABLE_CRAWL_LONG_COOLDOWN
             );
         }
@@ -518,19 +562,98 @@ mod tests {
 
     #[test]
     fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
-        for error_kind in ["AccessDenied", "JavascriptRequired"] {
+        for kind in [
+            CrawlFailureKind::AccessDenied,
+            CrawlFailureKind::JavascriptRequired,
+        ] {
             assert_eq!(
-                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                cooldown_for_spider_failure(&crawl_failed(kind), LONG_COOLDOWN_FAILURE_COUNT),
                 DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
             );
         }
     }
 
+    fn unclassified_errors() -> [SpiderServiceError; 3] {
+        [
+            SpiderServiceError::Database(sqlx::Error::RowNotFound),
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Config(
+                "SPIDER_MAX_SIZE_BYTES must be set".to_string(),
+            )),
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Client(
+                application::error::static_error("tls backend unavailable"),
+            )),
+        ]
+    }
+
     #[test]
-    fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
+    fn cooldown_should_keep_generic_fallback_for_first_unknown_failure() {
+        for error in unclassified_errors() {
+            assert_eq!(error_kind_for_spider_error(&error), "spider_run_error");
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 1),
+                durable_retry_cooldown_for(NetworkErrorKind::Unknown)
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_escalate_unknown_failures_exponentially_up_to_one_day() {
+        let base = durable_retry_cooldown_for(NetworkErrorKind::Unknown);
+        for error in unclassified_errors() {
+            assert_eq!(cooldown_for_spider_failure(&error, 0), base);
+            assert_eq!(cooldown_for_spider_failure(&error, 2), base * 2);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                base * 4
+            );
+            assert_eq!(cooldown_for_spider_failure(&error, 6), base * 32);
+            assert_eq!(cooldown_for_spider_failure(&error, 9), base * 256);
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 10),
+                MAX_EXPONENTIAL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, 40),
+                MAX_EXPONENTIAL_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(&error, i32::MAX),
+                MAX_EXPONENTIAL_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn error_kind_should_use_stable_persisted_identifiers() {
+        for (kind, expected) in ALL_KINDS.into_iter().map(|kind| (kind, kind.as_str())) {
+            assert_eq!(error_kind_for_spider_error(&crawl_failed(kind)), expected);
+            assert_eq!(
+                error_kind_for_spider_error(&preflight_failed(kind)),
+                expected
+            );
+        }
         assert_eq!(
-            cooldown_for_spider_failure("spider_run_error", LONG_COOLDOWN_FAILURE_COUNT),
-            durable_retry_cooldown_for(NetworkErrorKind::Unknown)
+            error_kind_for_spider_error(&insufficient_sample()),
+            "InsufficientInferenceSample"
+        );
+        assert_eq!(
+            [
+                "EmptyCrawl",
+                "TinyCrawl",
+                "NoAcceptedPages",
+                "RobotsBlocked",
+                "RateLimited",
+                "CloudflareChallenge",
+                "BotProtection",
+                "ConnectError",
+                "ServerError",
+                "TlsError",
+                "RedirectProblem",
+                "InvalidUrl",
+                "AccessDenied",
+                "JavascriptRequired",
+            ],
+            ALL_KINDS.map(CrawlFailureKind::as_str)
         );
     }
 
@@ -784,12 +907,7 @@ mod tests {
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, _, _| {
-            Box::pin(async move {
-                Err(crate::spider::service::SpiderServiceError::TinyCrawl {
-                    crawl_root_url: "https://example.com/".to_string(),
-                    total_links: 1,
-                })
-            })
+            Box::pin(async move { Err(crawl_failed(CrawlFailureKind::TinyCrawl)) })
         });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
@@ -834,11 +952,7 @@ mod tests {
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, _, _| {
-            Box::pin(async move {
-                Err(crate::spider::service::SpiderServiceError::EmptyCrawl {
-                    crawl_root_url: "https://example.com/".to_string(),
-                })
-            })
+            Box::pin(async move { Err(crawl_failed(CrawlFailureKind::EmptyCrawl)) })
         });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
@@ -917,6 +1031,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_escalate_cooldown_after_repeated_spider_run_errors() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("spider_run_error".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "spider_run_error"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(
+                        *next_crawl_at,
+                        durable_retry_cooldown_for(NetworkErrorKind::Unknown) * 4,
+                    )
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, _, _| {
+            Box::pin(async {
+                Err(crate::spider::service::SpiderServiceError::Database(
+                    sqlx::Error::RowNotFound,
+                ))
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_empty_crawl_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = CrawlerDomainId::new();
@@ -942,11 +1113,7 @@ mod tests {
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, _, _| {
-            Box::pin(async move {
-                Err(crate::spider::service::SpiderServiceError::EmptyCrawl {
-                    crawl_root_url: "https://example.com/".to_string(),
-                })
-            })
+            Box::pin(async move { Err(crawl_failed(CrawlFailureKind::EmptyCrawl)) })
         });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
@@ -1052,21 +1219,9 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(move |_, _, _, _| {
-            Box::pin(async move {
-                Err(
-                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
-                        crawl_root_url: "https://example.com/".to_string(),
-                        kind,
-                        total_links: 1,
-                        http_status: None,
-                        final_url: None,
-                        redirect_url: None,
-                        diagnostic_reason: Some("test_diagnostic".to_string()),
-                    },
-                )
-            })
-        });
+        spider_service
+            .expect_run()
+            .returning(move |_, _, _, _| Box::pin(async move { Err(crawl_failed(kind)) }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -1093,6 +1248,9 @@ mod tests {
     async fn should_persist_diagnostic_failure_kinds_with_small_crawl_cooldown() {
         for (kind, expected_error_kind) in [
             (CrawlFailureKind::EmptyCrawl, "EmptyCrawl"),
+            (CrawlFailureKind::TinyCrawl, "TinyCrawl"),
+            (CrawlFailureKind::NoAcceptedPages, "NoAcceptedPages"),
+            (CrawlFailureKind::RobotsBlocked, "RobotsBlocked"),
             (CrawlFailureKind::RateLimited, "RateLimited"),
             (CrawlFailureKind::AccessDenied, "AccessDenied"),
             (CrawlFailureKind::CloudflareChallenge, "CloudflareChallenge"),
@@ -1106,6 +1264,54 @@ mod tests {
         ] {
             assert_diagnostic_failure_is_persisted(kind, expected_error_kind).await;
         }
+    }
+
+    #[tokio::test]
+    async fn should_persist_typed_preflight_failure_instead_of_generic_run_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("ConnectError".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "ConnectError"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, _, _| {
+            Box::pin(async { Err(preflight_failed(CrawlFailureKind::ConnectError)) })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(MockScraperService::new()),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+
+        job.run_spider_once().await;
     }
 
     #[tokio::test]
@@ -1134,19 +1340,7 @@ mod tests {
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, _, _| {
-            Box::pin(async move {
-                Err(
-                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
-                        crawl_root_url: "https://example.com/".to_string(),
-                        kind: CrawlFailureKind::RateLimited,
-                        total_links: 1,
-                        http_status: Some(429),
-                        final_url: Some("https://example.com/".to_string()),
-                        redirect_url: None,
-                        diagnostic_reason: Some("canonical_non_success_status".to_string()),
-                    },
-                )
-            })
+            Box::pin(async move { Err(crawl_failed(CrawlFailureKind::RateLimited)) })
         });
 
         let mut scraper_candidates = MockScraperCandidateService::new();

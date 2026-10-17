@@ -73,9 +73,17 @@ impl ScraperServiceImpl {
         let evaluation = evaluation.with_approved_by_llm(approved_by_llm);
         validation_summary = with_auto_schema_evaluation(validation_summary, &evaluation);
 
+        // `llm_decision` is the LLM's self-reported verdict; `outcome` is the final gate
+        // result after deterministic coverage, so a schema that failed coverage never reads
+        // as approved.
         info!(
             mode = self.schema_llm_review_mode.as_str(),
-            decision = ?evaluation.decision,
+            outcome = if approved_by_llm {
+                "auto_approved"
+            } else {
+                "pending_review"
+            },
+            llm_decision = ?evaluation.decision,
             confidence = ?evaluation.confidence,
             approved_by_llm,
             deterministic_approval_ok,

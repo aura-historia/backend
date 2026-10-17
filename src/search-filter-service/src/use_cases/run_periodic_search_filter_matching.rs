@@ -26,6 +26,9 @@ use product_listing_core::{
     product_listing::ProductListingPriceValuationBasis,
 };
 
+use notification_service::saved_search_digest::{
+    SavedSearchDigestStore, SavedSearchDigestStoreFactory,
+};
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
@@ -48,6 +51,8 @@ pub struct PeriodicSearchFilterMatchingPolicy {
     pub hybrid_scan_limit: NonZeroUsize,
     pub evaluation_limit: NonZeroUsize,
     pub classification_concurrency: NonZeroUsize,
+    /// One preserves singleton evaluation; larger values enable budgeted text batches.
+    pub classification_batch_candidates: NonZeroUsize,
     pub should_show_threshold: Probability,
     pub max_attempts: NonZeroUsize,
     pub projection_lag: Duration,
@@ -244,6 +249,11 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
+    #[error("saved-search digest finalization failed")]
+    DigestFinalizationFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to commit final periodic match transaction")]
     CommitFinalTransactionFailed {
         #[source]
@@ -259,7 +269,7 @@ pub trait RunPeriodicSearchFilterMatchingUseCase: Send + Sync {
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError>;
 }
 
-pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q> {
+pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D> {
     unit_of_work: U,
     run_lock: L,
     candidates: C,
@@ -271,11 +281,12 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     current_event_guard: G,
     matches: W,
     progress: Q,
+    digests: D,
     policy: PeriodicSearchFilterMatchingPolicy,
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -290,9 +301,11 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         current_event_guard: G,
         matches: W,
         progress: Q,
+        digests: D,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
-        if policy.evaluation_limit.get() > 50
+        if policy.classification_batch_candidates.get() > 50
+            || policy.evaluation_limit.get() > 50
             || policy.hybrid_scan_limit.get() > 100
             || policy.evaluation_limit > policy.hybrid_scan_limit
             || policy.projection_lag.is_negative()
@@ -312,14 +325,15 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             current_event_guard,
             matches,
             progress,
+            digests,
             policy,
         })
     }
 }
 
 #[async_trait::async_trait]
-impl<U, L, C, F, P, X, S, E, G, W, Q> RunPeriodicSearchFilterMatchingUseCase
-    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D> RunPeriodicSearchFilterMatchingUseCase
+    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 where
     U: UnitOfWork,
     L: PeriodicSearchFilterMatchingRunLock,
@@ -332,6 +346,7 @@ where
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
 {
     #[tracing::instrument(name = "run_periodic_search_filter_matching", skip_all, fields(window_end = tracing::field::Empty))]
     async fn execute(
@@ -358,8 +373,8 @@ where
     }
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 where
     U: UnitOfWork,
     C: PeriodicSearchFilterCandidateReader,
@@ -371,12 +386,28 @@ where
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
 {
     async fn execute_locked(
         &self,
         command: RunPeriodicSearchFilterMatchingCommand,
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError> {
-        let window_end = command.started_at - self.policy.projection_lag;
+        let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
+        let window_end = self
+            .progress
+            .in_transaction(&mut run_tx)
+            .begin_run(command.started_at - self.policy.projection_lag)
+            .await
+            .map_err(progress_error)?;
+        run_tx.commit().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
         tracing::Span::current().record("window_end", tracing::field::display(window_end));
         tracing::info!(window_end = %window_end, "search_filter.periodic_match.started");
         let snapshot = load_snapshot(&self.unit_of_work, &self.fx_rates, window_end).await?;
@@ -430,7 +461,22 @@ where
                 let mut filter_candidates_scanned = 0;
                 let mut filter_matches_inserted = 0;
                 let mut filter_matches_duplicate = 0;
-                let mut selected = None;
+                let mut selection_tx = self.unit_of_work.begin().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
+                let mut selected = self
+                    .progress
+                    .in_transaction(&mut selection_tx)
+                    .load_selection(window_end, candidate.search_filter_id)
+                    .await
+                    .map_err(progress_error)?;
+                selection_tx.commit().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
                 for attempt in 1..=self.policy.max_attempts.get() {
                     report.filter_attempts += 1;
                     let mut attempt_report = FilterAttemptReport::default();
@@ -505,6 +551,32 @@ where
                         }
                     }
                 }
+                let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
+                self.progress
+                    .in_transaction(&mut run_tx)
+                    .record_filter_attempt(window_end, candidate.search_filter_id, completed)
+                    .await
+                    .map_err(progress_error)?;
+                if completed {
+                    self.digests
+                        .in_transaction(&mut run_tx)
+                        .finalize_for_user(candidate.user_id, window_end)
+                        .await
+                        .map_err(|source| {
+                            RunPeriodicSearchFilterMatchingError::DigestFinalizationFailed {
+                                source: box_error(source),
+                            }
+                        })?;
+                }
+                run_tx.commit().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
                 if completed {
                     report.filters_completed += 1;
                     tracing::info!(
@@ -524,6 +596,21 @@ where
                 }
             }
         }
+        let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
+        self.progress
+            .in_transaction(&mut run_tx)
+            .finish_run(window_end)
+            .await
+            .map_err(progress_error)?;
+        run_tx.commit().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
         tracing::info!(
             window_end = %report.window_end,
             filters_selected = report.filters_selected,
@@ -683,8 +770,34 @@ where
                 stop_reason = if eligible.len() == self.policy.evaluation_limit.get() { "candidate_cap" }
                     else if scan_cap { "retrieval_scan_cap" } else { "candidate_exhaustion" },
                 retrieval_scan_cap_reached = scan_cap, "search_filter.periodic_match.selected");
-            *selected = Some(eligible);
-            sources
+            let mut selection_tx = self.unit_of_work.begin().await.map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            let frozen = self
+                .progress
+                .in_transaction(&mut selection_tx)
+                .freeze_selection(window_end, filter.search_filter_id, &eligible)
+                .await
+                .map_err(progress_error)?;
+            selection_tx.commit().await.map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            let changed = frozen != eligible;
+            *selected = Some(frozen);
+            if changed {
+                self.load_sources(
+                    selected.as_ref().ok_or(
+                        RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
+                    )?,
+                )
+                .await?
+            } else {
+                sources
+            }
         };
         let refs = selected
             .as_ref()
@@ -723,6 +836,7 @@ where
             &self.evaluator,
             evaluations,
             self.policy.classification_concurrency,
+            self.policy.classification_batch_candidates,
             self.policy.should_show_threshold,
         )
         .await;
@@ -909,7 +1023,7 @@ where
         } else {
             self.matches
                 .in_transaction(&mut tx)
-                .insert_all_if_absent(&matches)
+                .insert_for_run(&matches, window_end)
                 .await
                 .map_err(match_write_error)?
         };
@@ -969,7 +1083,8 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::ProgressFailed { .. }
             | Self::ProductListingCurrentEventCheckFailed { .. }
             | Self::MatchPersistenceFailed { .. }
-            | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
+            | Self::CommitFinalTransactionFailed { .. }
+            | Self::DigestFinalizationFailed { .. } => FilterRetryClass::Retryable,
             Self::InvalidPolicy
             | Self::RunLockFailed { .. }
             | Self::RunLockReleaseFailed { .. }
@@ -1224,6 +1339,7 @@ mod tests {
         ExistingSearchFilterMatchReadError, PeriodicSearchFilterMatchingRunLease,
         PeriodicSearchFilterProgressLockOutcome, SearchFilterMatchPersistOutcome,
     };
+    use crate::test_digests::TestDigests;
     use application::transaction::TransactionError;
     use classifier_model::{
         ClassificationError, ClassificationRequest, ClassificationResponse, Probability,
@@ -1325,24 +1441,34 @@ mod tests {
         }
     }
 
-    struct NoopCandidates;
+    #[derive(Default)]
+    struct TestCandidates(Vec<PeriodicSearchFilterCandidate>);
 
     #[async_trait::async_trait]
-    impl PeriodicSearchFilterCandidateReader for NoopCandidates {
+    impl PeriodicSearchFilterCandidateReader for TestCandidates {
         async fn find_active_page(
             &self,
-            _request: PeriodicSearchFilterCandidatePageRequest,
+            request: PeriodicSearchFilterCandidatePageRequest,
         ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError>
         {
-            Ok(Vec::new())
+            Ok(self
+                .0
+                .iter()
+                .filter(|filter| {
+                    request
+                        .after
+                        .is_none_or(|after| filter.search_filter_id > after)
+                })
+                .cloned()
+                .collect())
         }
     }
 
-    struct NoopFxRates;
-    struct ReadingNoopFxRates;
+    struct TestFxRates;
+    struct ReadingTestFxRates;
 
     #[async_trait::async_trait]
-    impl FxRateSnapshotRepository for ReadingNoopFxRates {
+    impl FxRateSnapshotRepository for ReadingTestFxRates {
         async fn find_latest(
             &mut self,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
@@ -1353,7 +1479,7 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            Ok(Some(test_snapshot()))
         }
 
         async fn find_by_id(
@@ -1379,12 +1505,12 @@ mod tests {
         }
     }
 
-    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for NoopFxRates {
+    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for TestFxRates {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
         ) -> impl FxRateSnapshotRepository + 'tx {
-            ReadingNoopFxRates
+            ReadingTestFxRates
         }
     }
 
@@ -1472,6 +1598,17 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ClassifierModel for NoopEvaluator {
+        fn request_limits(&self) -> Option<classifier_model::ClassificationRequestLimits> {
+            Some(classifier_model::ClassificationRequestLimits {
+                max_questions: 64,
+                max_images: 4,
+                max_text_tokens: 1_000_000,
+                max_context_tokens: 1_000_000,
+                context_reserve_tokens: 1024,
+                tokens_per_image: 1027,
+                max_payload_bytes: 13 * 1024 * 1024,
+            })
+        }
         async fn classify(
             &self,
             _request: ClassificationRequest,
@@ -1481,7 +1618,27 @@ mod tests {
                 state.lock_outcome = PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive;
             }
             state.evaluator_calls += 1;
-            state.evaluator_requests.push(_request);
+            state.evaluator_requests.push(_request.clone());
+            if let Some(candidates) = _request.state["candidates"].as_array() {
+                let mut answers = std::collections::BTreeMap::new();
+                for candidate in candidates {
+                    let response = state.evaluator_results.pop_front().unwrap()?;
+                    for (question, probability) in response.answers {
+                        let id = classifier_model::QuestionId::new(format!(
+                            "{}.{}",
+                            candidate["id"].as_str().unwrap(),
+                            question.as_str()
+                        ))
+                        .unwrap();
+                        answers.insert(id, probability);
+                    }
+                }
+                return Ok(ClassificationResponse {
+                    answers,
+                    usage: Default::default(),
+                    diagnostics: Default::default(),
+                });
+            }
             state
                 .evaluator_results
                 .pop_front()
@@ -1530,6 +1687,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SearchFilterMatchWriter for WritingMatches<'_> {
+        async fn insert_for_run(
+            &mut self,
+            matches: &[SearchFilterProductListingMatch],
+            _: OffsetDateTime,
+        ) -> Result<crate::ports::SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError>
+        {
+            self.insert_all_if_absent(matches).await
+        }
+
         async fn insert_if_absent(
             &mut self,
             product_match: &SearchFilterProductListingMatch,
@@ -1541,7 +1707,9 @@ mod tests {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     })?;
             state.match_writer_calls += 1;
-            state.existing.insert(product_match.product_listing_id);
+            if !state.existing.insert(product_match.product_listing_id) {
+                return Ok(SearchFilterMatchPersistOutcome::AlreadyExists);
+            }
             state.persisted.push(product_match.clone());
             Ok(SearchFilterMatchPersistOutcome::Inserted)
         }
@@ -1563,6 +1731,47 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PeriodicSearchFilterProgress for LockingProgress<'_> {
+        async fn load_selection(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+        ) -> Result<
+            Option<Vec<ProductListingSearchFilterMatchSourceRef>>,
+            PeriodicSearchFilterProgressError,
+        > {
+            Ok(None)
+        }
+        async fn freeze_selection(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            refs: &[ProductListingSearchFilterMatchSourceRef],
+        ) -> Result<Vec<ProductListingSearchFilterMatchSourceRef>, PeriodicSearchFilterProgressError>
+        {
+            Ok(refs.to_vec())
+        }
+
+        async fn begin_run(
+            &mut self,
+            end: OffsetDateTime,
+        ) -> Result<OffsetDateTime, PeriodicSearchFilterProgressError> {
+            Ok(end)
+        }
+        async fn record_filter_attempt(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            _: bool,
+        ) -> Result<(), PeriodicSearchFilterProgressError> {
+            Ok(())
+        }
+        async fn finish_run(
+            &mut self,
+            _: OffsetDateTime,
+        ) -> Result<(), PeriodicSearchFilterProgressError> {
+            Ok(())
+        }
+
         async fn lock_and_read(
             &mut self,
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
@@ -1607,8 +1816,8 @@ mod tests {
     type Handler = RunPeriodicSearchFilterMatchingHandler<
         FakeUnitOfWork,
         NoopRunLock,
-        NoopCandidates,
-        NoopFxRates,
+        TestCandidates,
+        TestFxRates,
         NoopProductListings,
         NoopExistingMatches,
         NoopSources,
@@ -1616,6 +1825,7 @@ mod tests {
         FakeCurrentEvents,
         FakeMatches,
         FakeProgress,
+        TestDigests,
     >;
 
     fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
@@ -1641,8 +1851,8 @@ mod tests {
         RunPeriodicSearchFilterMatchingHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             NoopRunLock,
-            NoopCandidates,
-            NoopFxRates,
+            TestCandidates::default(),
+            TestFxRates,
             NoopProductListings(Arc::clone(&state)),
             NoopExistingMatches(Arc::clone(&state)),
             NoopSources(Arc::clone(&state)),
@@ -1650,11 +1860,13 @@ mod tests {
             FakeCurrentEvents(Arc::clone(&state)),
             FakeMatches(Arc::clone(&state)),
             FakeProgress(state),
+            TestDigests::default(),
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: NonZeroUsize::MIN,
                 hybrid_scan_limit: NonZeroUsize::MIN,
                 evaluation_limit: NonZeroUsize::MIN,
                 classification_concurrency: NonZeroUsize::MIN,
+                classification_batch_candidates: NonZeroUsize::MIN,
                 should_show_threshold: Probability::new(0.5)
                     .unwrap_or_else(|_| unreachable!("test threshold is valid")),
                 max_attempts: NonZeroUsize::MIN,
@@ -1731,6 +1943,30 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn finishing_a_filter_checks_its_users_digest_without_a_notification_job()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let mut handler = handler(state)?;
+        let filter = filter();
+        // A search with no new matches must still attempt finalization.
+        handler.candidates = TestCandidates(vec![filter.clone()]);
+        let checks = handler.digests.checks.clone();
+        let end = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let outcome = handler
+            .execute(RunPeriodicSearchFilterMatchingCommand { started_at: end })
+            .await?;
+        let RunPeriodicSearchFilterMatchingOutcome::Applied(report) = outcome else {
+            panic!("expected completed run")
+        };
+        assert_eq!(1, report.filters_completed);
+        assert_eq!(0, report.matches_inserted);
+        assert_eq!(vec![(filter.user_id, end)], *checks.lock().unwrap());
+        Ok(())
+    }
+
     fn geographic_filter() -> PeriodicSearchFilterCandidate {
         let mut filter = filter();
         filter.search.geography = Some(
@@ -1770,7 +2006,7 @@ mod tests {
             .await?;
         assert_eq!(FilterOutcome::Completed, outcome);
         let state = state.lock().unwrap();
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.commits);
         assert_eq!(1, state.checkpoints);
         Ok(())
     }
@@ -1841,7 +2077,7 @@ mod tests {
         assert_eq!(0, state.match_writer_calls);
         assert!(state.persisted.is_empty());
         assert_eq!(1, state.checkpoints);
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.commits);
         Ok(())
     }
 
@@ -2229,16 +2465,10 @@ mod tests {
 
     fn decision(accepted: bool) -> Result<ClassificationResponse, ClassificationError> {
         Ok(ClassificationResponse {
-            answers: std::collections::BTreeMap::from([
-                (
-                    classifier_model::QuestionId::new("should_show").unwrap(),
-                    Probability::new(if accepted { 0.75 } else { 0.1 }).unwrap(),
-                ),
-                (
-                    classifier_model::QuestionId::new("hard_conflict").unwrap(),
-                    Probability::new(0.95).unwrap(),
-                ),
-            ]),
+            answers: std::collections::BTreeMap::from([(
+                classifier_model::QuestionId::new("should_show").unwrap(),
+                Probability::new(if accepted { 0.75 } else { 0.1 }).unwrap(),
+            )]),
             usage: Default::default(),
             diagnostics: Default::default(),
         })
@@ -2264,55 +2494,125 @@ mod tests {
 
     #[tokio::test]
     async fn all_fifty_are_evaluated_regardless_of_rejection_prefix_and_no_tail_is_chased() {
-        for rejected_prefix in [10, 49, 50] {
+        for batch_size in [1, 32, 50] {
+            for rejected_prefix in [10, 49, 50] {
+                let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                    matched_through: OffsetDateTime::UNIX_EPOCH,
+                });
+                let refs = seed_candidates(&state, 51);
+                state.lock().unwrap().evaluator_results = (0..50)
+                    .map(|rank| decision(rank >= rejected_prefix))
+                    .collect();
+                let mut handler = full_budget_handler(state.clone());
+                handler.policy.classification_batch_candidates =
+                    NonZeroUsize::new(batch_size).unwrap();
+                let mut selected = None;
+                let mut report = FilterAttemptReport::default();
+                let outcome = handler
+                    .process_filter(
+                        &ordinary_filter(),
+                        &test_snapshot(),
+                        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                        &mut selected,
+                        &mut report,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(FilterOutcome::Completed, outcome);
+                assert_eq!(selected.as_ref().unwrap(), &refs[..50]);
+                assert_eq!(51, report.candidates_scanned);
+                assert_eq!(50, report.candidates_selected);
+                assert_eq!(50, report.classification_requests);
+                assert_eq!(rejected_prefix, report.candidates_rejected);
+                assert_eq!(50 - rejected_prefix, report.matches_inserted);
+                assert_eq!(1, report.filters_candidate_cap);
+                let state = state.lock().unwrap();
+                assert_eq!(50_usize.div_ceil(batch_size), state.evaluator_calls);
+                assert!(
+                    state
+                        .evaluator_requests
+                        .iter()
+                        .all(|request| request.image_urls.is_empty())
+                );
+                assert!(
+                    state
+                        .persisted
+                        .iter()
+                        .all(|item| item.product_listing_id != refs[50].product_listing_id)
+                );
+                if rejected_prefix == 49 {
+                    assert_eq!(
+                        refs[49].product_listing_id,
+                        state.persisted[0].product_listing_id
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_timeout_keeps_frozen_selection_and_retry_does_not_duplicate_matches() {
+        for batch_size in [32, 50] {
+            let successful = if batch_size == 32 { 32 } else { 0 };
             let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
                 matched_through: OffsetDateTime::UNIX_EPOCH,
             });
             let refs = seed_candidates(&state, 51);
-            state.lock().unwrap().evaluator_results = (0..50)
-                .map(|rank| decision(rank >= rejected_prefix))
+            // Exercise a split batch and a timeout of the complete fifty-member batch.
+            state.lock().unwrap().evaluator_results = (0..successful + 1)
+                .map(|index| {
+                    if index == successful {
+                        Err(ClassificationError::Timeout)
+                    } else {
+                        decision(true)
+                    }
+                })
                 .collect();
-            let handler = full_budget_handler(state.clone());
+            let mut handler = full_budget_handler(state.clone());
+            handler.policy.classification_batch_candidates = NonZeroUsize::new(batch_size).unwrap();
+            let filter = ordinary_filter();
+            let window = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
             let mut selected = None;
-            let mut report = FilterAttemptReport::default();
-            let outcome = handler
-                .process_filter(
-                    &ordinary_filter(),
-                    &test_snapshot(),
-                    OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
-                    &mut selected,
-                    &mut report,
-                )
-                .await
-                .unwrap();
-            assert_eq!(FilterOutcome::Completed, outcome);
-            assert_eq!(selected.as_ref().unwrap(), &refs[..50]);
-            assert_eq!(51, report.candidates_scanned);
-            assert_eq!(50, report.candidates_selected);
-            assert_eq!(50, report.classification_requests);
-            assert_eq!(rejected_prefix, report.candidates_rejected);
-            assert_eq!(50 - rejected_prefix, report.matches_inserted);
-            assert_eq!(1, report.filters_candidate_cap);
-            let state = state.lock().unwrap();
-            assert_eq!(50, state.evaluator_calls);
-            assert!(
-                state
-                    .evaluator_requests
-                    .iter()
-                    .all(|request| request.image_urls.is_empty())
+            let mut first = FilterAttemptReport::default();
+            assert_eq!(
+                FilterOutcome::Retryable,
+                handler
+                    .process_filter(&filter, &test_snapshot(), window, &mut selected, &mut first)
+                    .await
+                    .unwrap()
             );
+            assert_eq!(Some(refs[..50].to_vec()), selected);
+            assert_eq!(successful, first.matches_inserted);
+            assert_eq!(50 - successful, first.retryable_evaluation_failures);
+            assert_eq!(0, first.candidates_rejected);
+            assert_eq!(0, state.lock().unwrap().checkpoints);
+            state.lock().unwrap().evaluator_results = (0..50).map(|_| decision(true)).collect();
+            let mut second = FilterAttemptReport::default();
+            assert_eq!(
+                FilterOutcome::Completed,
+                handler
+                    .process_filter(
+                        &filter,
+                        &test_snapshot(),
+                        window,
+                        &mut selected,
+                        &mut second
+                    )
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(Some(refs[..50].to_vec()), selected);
+            assert_eq!(50 - successful, second.matches_inserted);
+            assert_eq!(successful, second.matches_duplicate);
+            let state = state.lock().unwrap();
+            assert_eq!(50, state.persisted.len());
             assert!(
                 state
                     .persisted
                     .iter()
-                    .all(|item| item.product_listing_id != refs[50].product_listing_id)
+                    .all(|m| m.product_listing_id != refs[50].product_listing_id)
             );
-            if rejected_prefix == 49 {
-                assert_eq!(
-                    refs[49].product_listing_id,
-                    state.persisted[0].product_listing_id
-                );
-            }
+            assert_eq!(1, state.checkpoints);
         }
     }
 

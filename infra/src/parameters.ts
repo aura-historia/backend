@@ -5,6 +5,7 @@ export interface ApplicationParameters {
   readonly commitSha: string;
   readonly cdcRouterActivation: cdk.CfnCondition;
   readonly searchFilterClassifierModel: string;
+  readonly searchFilterMatchBatchCandidates: string;
   readonly searchFilterMatchShouldShowThresholdBps: string;
 }
 
@@ -40,12 +41,19 @@ export function applicationParameters(
       description: "Inclusive should_show acceptance threshold in basis points for enhanced saved-search matching.",
     },
   ).valueAsString;
+  const searchFilterMatchBatchCandidates = new cdk.CfnParameter(scope, "SearchFilterMatchBatchCandidates", {
+    type: "Number",
+    default: 1,
+    allowedValues: Array.from({ length: 50 }, (_, index) => String(index + 1)),
+    description: "Maximum text candidates per shared classifier request (1–50); provider budgets may require smaller groups. One is singleton mode; enable larger values only after the labelled quality/cost gate.",
+  }).valueAsString;
   const cdcRouterActivation = cdcRouterCondition(scope);
 
   return {
     commitSha,
     cdcRouterActivation,
     searchFilterClassifierModel,
+    searchFilterMatchBatchCandidates,
     searchFilterMatchShouldShowThresholdBps,
   };
 }

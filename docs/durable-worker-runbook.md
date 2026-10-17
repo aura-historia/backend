@@ -264,7 +264,7 @@ the embedding; restore the intended query afterward). The update use case repair
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 
-With concurrency eight, a 50-candidate filter may require seven request waves per attempt;
+In singleton mode, concurrency eight gives up to seven request waves for 50 candidates;
 image fetching adds bounded preparation time. The two-hour run deadline also bounds expanded
 Free/Pro coverage: monitor selected/attempted counts, failed filters and timeout outcomes for
 saturation. Candidate/scan caps are successful bounded discovery, not exhaustive coverage.
@@ -280,15 +280,102 @@ unlimited outage: review uncovered windows after prolonged search/projection fai
 
 Shipping filters revisit current indexed membership on the next matching evaluation,
 including listings older than the automatic replay window; authored date bounds and the
-evaluation cutoff still apply. Candidate/scan limits remain bounded, so inspect cap outcomes for broad shipping
-filters. Recover shipping projection custody before investigating missing indexed offers;
+evaluation cutoff still apply. Candidate/scan limits remain bounded, so inspect cap outcomes
+for broad shipping filters. Recover shipping projection custody before investigating missing indexed offers;
 current response terms may already reflect a change. Never generate a canonical price or
 availability event to force discovery, or reset saved destination snapshots after an
 address/preference change. See [shipping search](shipping.md#shipping-search-and-saved-destinations).
 
-Match INSERT delivery still requires healthy CDC/router/notification workers. Verify
-that path independently; rerunning matching is not a substitute for recovering a retained
-notification job and must not blindly resend historical mail.
+Match INSERTs normally wake generation through healthy CDC/router/notification workers;
+[digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
+and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
+is not a substitute for recovering retained notification jobs and must not blindly resend
+historical mail.
+
+### Saved-search batching quality gate
+
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
+The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
+text requests for one filter, with one independently keyed `should_show` question per
+listing. Fifty candidates can share a request only when every provider question, text,
+context and payload budget permits it; actual requests may be smaller. Image-bearing
+batching is disabled. Keep 1 until a human-reviewed multilingual antiques/art benchmark
+establishes acceptable precision/recall, decision and score disagreement, neighbor interference,
+response integrity, latency, token consumption, actual cost savings and recovery rates
+under the intended acceptance threshold. Transport tests and singleton outputs do not
+establish semantic quality or cost savings.
+
+Attach the reviewed dataset revision, benchmark report, reconciled costs and accepted
+quality thresholds for the configured model to the release/issue before increasing the
+deployment setting. Every image-containing request remains a singleton regardless
+of this setting.
+
+The opt-in [benchmark runner](../src/search-filter-service/src/product_match_evaluator/batching/benchmark.rs)
+first compares the old two-question schema (A) with the one-question singleton schema
+(B), then compares B with shared requests and reversed neighboring candidates. All modes
+use identical human-labeled cases, intents, permitted evidence and model at the inclusive
+0.5 threshold. Removing a jointly evaluated question can shift `should_show` scores even
+when its wording stays fixed. Review every flip, especially A-correct/B-wrong cases,
+before adopting the schema change; investigate material regressions before changing
+instructions or threshold. Start with the existing hard cases and add fresh human-labeled
+cases; repeated prompts are repeated measurements of the same examples.
+Normal tests skip provider access. Use a dedicated test account/token,
+never deployed service credentials. Supply the benchmark-only credential variables
+`AURA_BENCH_CLOUDFLARE_ACCOUNT_ID` and `AURA_BENCH_CLOUDFLARE_API_TOKEN` through the
+test environment without printing them. Run:
+
+```sh
+AURA_BENCH_ALLOW_PROVIDER=1 \
+AURA_BENCH_FIXTURES=/path/to/reviewed-fixtures.json \
+AURA_BENCH_REPORT=/path/to/benchmark-report.json \
+cargo test --locked -p search-filter-service --lib -- --ignored --exact product_match_evaluator::batching::benchmark::saved_search_batch_quality_benchmark
+```
+
+The fixture manifest contains `label_provenance: "human-reviewed"`, `reviewed_by`,
+`dataset_revision`, `should_show_threshold: 0.5`, `batch_candidates` (1–50), optional
+`classifier_model` (default `clef-flash`, must match the deployment), the verified current
+`input_usd_per_million_tokens`, and `groups`. Each group is one filter selection with
+canonical ISO `language`, `base_queries`, optional `enhanced_description`, write-resolved
+`evidence_policy` and 1–50 `cases`. Each case has a unique opaque `id`, nullable
+`title`/`description`, a `human_match` boolean, coverage `tags` and optional ordered
+`image_urls` (zero, one or up to four, within the persisted evidence policy). Use stable
+reviewed image fixtures; examine per-case sent-image counts and any evidence disagreement
+between modes before interpreting score changes. A response that omits reviewed images
+remains unresolved for the quality comparison. Supply text in its persisted normalized
+form; the runner rejects any constructor normalization or truncation
+that would change reviewed evidence. Set `batch_candidates: 1` for the initial singleton
+A/B comparison using the existing hard cases, with human positives and negatives. This
+mode reports only the schema comparison and cannot establish the batching quality gate.
+Exploratory synthetic fixtures may instead declare `label_provenance: "agent-authored"`,
+`authored_by`, and per-case `expected_match` labels. Their reports remain explicitly
+ineligible for the release quality gate until a human reviews the evidence and labels.
+Reports use `expected_match` for the comparison label and retain its provenance.
+For `batch_candidates` above 1, the runner requires at least three languages, twenty
+positives and twenty negatives, 2–50 mixed-label cases in each group, and the coverage
+tags defined in its fixture validator. Review the actual evidence
+for easy/hard positives/negatives, absent descriptions/images, long instructions,
+contradictory/injected neighbors and both antiques and art, with ordinary/enhanced searches,
+explicit must-have conflicts, preference mismatches, ambiguous positives and lexical near
+misses. Include text-only, one-image and four-image evidence where present; tags alone
+are not review.
+
+Reports contain opaque IDs, human labels, `should_show` scores, threshold decisions and
+every decision flip, plus precision/recall, false positives/negatives and aggregate metrics,
+including actual shared provider requests, without instructions or listing text. Fixtures
+must produce at least one shared request within provider budgets when benchmarking batching.
+Unresolved work is counted separately
+and contributes no achieved recall. Invalid
+envelopes and unresolved questions expose mapping/omission failures; plausible misassociated
+scores require human review. Token-priced cost is reported only when every invocation
+has usage; it is not invoice reconciliation. Optionally supply `AURA_BENCH_RECONCILED_COSTS`
+with a JSON file containing nonnegative `baseline_two_questions`, `singleton`, `batched`,
+`batched_reversed` actual USD costs (only the first two in singleton A/B mode) and a
+non-sensitive `reference` to billing evidence.
+Failed-attempt charges must be included. Missing or malformed answers remain unresolved; the adapter may classify
+both as invalid responses, so the report cannot always distinguish their wire causes.
+Provider variability can affect schema and reverse-order disagreement, so repeat
+the controlled benchmark when reviewing interference. Approval remains a human release
+decision; the runner never turns batching on.
 
 ## Notification recovery limits
 
@@ -298,6 +385,49 @@ leases are not completion. A send/finalize crash can duplicate mail after lease 
 Inspect safe delivery IDs, database completion and restricted provider evidence before
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
 historic customer mail.
+
+## Saved-search digest recovery and cutover
+
+Pause and drain matcher invocations and match-notification generation while applying
+the digest migration and deploying the compatible matcher, generator, delivery and
+cleanup workers and versioned email templates. Resume only after these binaries are
+compatible. Historical matches have no digest-run membership: existing per-match
+delivery intents continue through their original delivery path, and historical CDC
+replays cannot enroll them in a digest. The database rejects individual delivery
+insertion for new run matches, fencing incompatible generators during cutover.
+Do not backfill historical matches or convert pending legacy delivery intents; an
+ambiguous old send must be reconciled using its original delivery identity.
+
+Normal filter completion and notification selection finalize ready digests
+immediately; delivery then follows the existing asynchronous outbox path. The hourly
+cleanup is the fallback for interrupted work, performing bounded
+notification-selection recovery and digest finalization using PostgreSQL,
+independently of CDC wake-ups. Failed selections are deferred for 15 minutes and
+reordered behind untouched work so they cannot starve the queue. Monitor cleanup
+invocation failures and backlog capacity: a healthy bounded invocation does not
+prove that all pending groups completed. A run retains its identity on retry until
+its fixed 24-hour recovery deadline. At expiry successful persisted matches can
+finalize even with unfinished filters; subsequent matching keeps ordinary
+progress/replay-overlap semantics. Selected late arrivals are retained for the next
+digest, including when that next run discovers no fresh matches.
+
+Inspect `saved_search_digest_status` with bounded, read-only queries for safe run/user
+and digest/delivery identities, pending filters/selections, group age, full eligible
+membership, distinct listings and delivery state/attempts/errors. Structured
+`saved_search.digest.*` events report finalization, rendering counts and current
+eligibility suppression; generator outcomes expose quota and other selection
+suppression. These observations do not provision CloudWatch metrics or alarms.
+Investigate groups approaching the deadline, old unassigned members, stalled
+selection, delivery queues/DLQs and expired processing leases. Do not export snapshot
+payloads, authored search instructions or private email addresses for diagnostics.
+
+Repair failed dependencies, then use the next cleanup/matcher invocation or an
+approved bounded recovery invocation. Preserve run keys, match keys, membership,
+finalized groups and delivery leases/receipts. Never reset a finalized group or clear
+members to force another email. A delivery remains pending/processing/failed until
+the established delivery handler confirms its outcome; outbox insertion and CDC
+publication are not provider acceptance. Reconcile ambiguous SES sends under
+[notification recovery](#notification-recovery-limits) before approved replay.
 
 ## Geographic resolution recovery
 

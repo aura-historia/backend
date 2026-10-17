@@ -194,7 +194,8 @@
                     "huf": { "type": "unsigned_long" },
                     "ron": { "type": "unsigned_long" },
                     "mxn": { "type": "unsigned_long" },
-                    "thb": { "type": "unsigned_long" }
+                    "thb": { "type": "unsigned_long" },
+                    "ars": { "type": "unsigned_long" }
                 }
             },
             "saleObservationFxRateId": {

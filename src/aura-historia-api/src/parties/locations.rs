@@ -1,6 +1,6 @@
 use crate::{
     auth::protected_context,
-    error::{ApiError, BAD_BODY_VALUE, BAD_HEADER_VALUE, BAD_QUERY_PARAMETER_VALUE},
+    error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE},
     patch_value::{PatchValue, clearable, non_nullable_patch},
     state::PartyLocationsState,
     wire::{parse_path_object_id, parse_query_object_id},
@@ -235,29 +235,10 @@ struct CreateData {
     #[serde(default)]
     relocates: Option<ExpectedData>,
 }
-fn create_command(
-    party_id: PartyId,
-    headers: &HeaderMap,
-    body: &str,
-) -> Result<CreatePartyLocationCommand, ApiError> {
+fn create_command(party_id: PartyId, body: &str) -> Result<CreatePartyLocationCommand, ApiError> {
     let d: CreateData = parse(body)?;
-    let mut keys = headers.get_all("idempotency-key").iter();
-    let key_error = || {
-        ApiError::bad_request(BAD_HEADER_VALUE)
-            .with_header_field("Idempotency-Key")
-            .with_detail("Exactly one valid Idempotency-Key is required.")
-    };
-    let key = keys
-        .next()
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(key_error)?;
-    if keys.next().is_some() {
-        return Err(key_error());
-    }
     Ok(CreatePartyLocationCommand {
         party_id,
-        idempotency_key: PartyLocationIdempotencyKey::new(key.to_owned())
-            .map_err(|_| key_error())?,
         content: PartyLocationContent {
             label: PartyLocationLabel::new(d.label).map_err(|_| bad())?,
             roles: role_set(d.roles)?,
@@ -360,7 +341,7 @@ pub async fn create(
     };
     let command = (|| {
         let party_id = parse_path_object_id(&party, "party_id", "Party")?;
-        create_command(party_id, &headers, &body)
+        create_command(party_id, &body)
     })();
     match command {
         Ok(c) => location_response(s.create.execute(&ctx, c).await, true),
@@ -538,17 +519,12 @@ mod tests {
     use super::*;
     #[test]
     fn creates_unresolved_sites_without_any_geocoder() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "idempotency-key",
-            HeaderValue::from_static("agent-command-1"),
-        );
         for body in [
             r#"{"label":"Store"}"#,
             r#"{"label":"Store","geography":{"referenceRelease":"iso-codes-4.20.1","country":"DE"}}"#,
             r#"{"label":"Store","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Unknown road"}}"#,
         ] {
-            let c = create_command(PartyId::new(), &headers, body).unwrap();
+            let c = create_command(PartyId::new(), body).unwrap();
             assert!(c.content.position.is_none());
         }
         for body in [
@@ -558,9 +534,8 @@ mod tests {
             r#"{"label":"Store","geography":{"referenceRelease":"iso-codes-4.20.1","country":"de"}}"#,
             r#"{"label":"Store","roles":["WAREHOUSE","WAREHOUSE"]}"#,
         ] {
-            assert!(create_command(PartyId::new(), &headers, body).is_err());
+            assert!(create_command(PartyId::new(), body).is_err());
         }
-        assert!(create_command(PartyId::new(), &HeaderMap::new(), r#"{"label":"Store"}"#).is_err());
     }
     #[test]
     fn maps_omitted_set_clear_and_requires_same_site_assertion() {
@@ -670,7 +645,6 @@ mod route_tests {
             ));
             assert!(!c.request_id.to_string().is_empty());
             assert_ne!("missing-request-id", c.request_id.to_string());
-            assert_eq!("command-123", v.idempotency_key.as_str());
             self.calls.lock().unwrap().push("create");
             Ok(self.view(v.party_id, PartyLocationId::new()))
         }
@@ -808,6 +782,51 @@ mod route_tests {
             authenticator: Arc::new(Auth),
         };
         crate::app(AppState::new().with_party_locations(state))
+    }
+    #[tokio::test]
+    async fn creates_without_a_key_and_ignores_legacy_headers() {
+        let capture = Arc::new(Capture::default());
+        let app = location_app(capture.clone());
+        let path = format!("/api/v1/parties/{}/locations", PartyId::new());
+        let mut ids = BTreeSet::new();
+        for keys in [
+            vec![],
+            vec![HeaderValue::from_static("legacy-key")],
+            vec![HeaderValue::from_static("legacy-key")],
+            vec![HeaderValue::from_static("")],
+            vec![HeaderValue::from_static("bad key")],
+            vec![HeaderValue::from_static("one,two")],
+            vec![
+                HeaderValue::from_static("one"),
+                HeaderValue::from_static("two"),
+            ],
+            vec![HeaderValue::from_bytes(&[0xff]).unwrap()],
+        ] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(&path)
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token");
+            for key in keys {
+                request = request.header("idempotency-key", key);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::from(r#"{"label":"Site"}"#)).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(StatusCode::CREATED, response.status());
+            assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+            assert!(!response.headers().contains_key("idempotency-key"));
+            let body: serde_json::Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(ids.insert(body["id"].as_str().unwrap().to_owned()));
+        }
+        assert_eq!(8, capture.calls.lock().unwrap().len());
     }
     #[tokio::test]
     async fn routes_map_commands_authentication_and_cache_headers() {

@@ -198,6 +198,7 @@ fn sale_prices(
         ron: optional_amount_in(Currency::Ron)?,
         mxn: optional_amount_in(Currency::Mxn)?,
         thb: optional_amount_in(Currency::Thb)?,
+        ars: optional_amount_in(Currency::Ars)?,
     })
 }
 
@@ -463,16 +464,19 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn should_preserve_legacy_sale_projections_without_inventing_rates()
-    -> Result<(), Box<dyn std::error::Error>> {
+    #[rstest::rstest]
+    #[case(19)]
+    #[case(29)]
+    fn should_preserve_legacy_sale_projections_without_inventing_rates(
+        #[case] currency_count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let snapshot = FxRateSnapshot::rehydrate(
             FxRateId::new(),
             FxRateGeneration::try_from(1)?,
             OffsetDateTime::UNIX_EPOCH,
             FxRateSource::FxRatesApi,
             Currency::iter()
-                .take(19)
+                .take(currency_count)
                 .map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
         )?;
         let mut product = source()?;
@@ -486,10 +490,10 @@ mod tests {
         let document = product_listing_document(&product, Some(&snapshot))?;
         document.validate()?;
         assert_eq!(Some(12300), document.sale_price(Currency::Usd));
-        assert_eq!(None, document.sale_price(Currency::Krw));
+        assert_eq!(None, document.sale_price(Currency::Ars));
         let persistent = serde_json::to_value(&document)?;
         assert_eq!(
-            19,
+            currency_count,
             persistent["salePrices"]
                 .as_object()
                 .ok_or("prices must be an object")?
@@ -499,7 +503,8 @@ mod tests {
         restored.validate()?;
 
         let mut invalid = persistent;
-        invalid["salePrices"]["sek"] = serde_json::json!(12300);
+        invalid["salePrices"]["ars"] = serde_json::json!(12300);
+        invalid["salePrices"].as_object_mut().unwrap().remove("sek");
         let invalid: ProductListingDocument = serde_json::from_value(invalid)?;
         assert!(invalid.validate().is_err());
         Ok(())

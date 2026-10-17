@@ -164,6 +164,7 @@ fn parse_currency(code: &str) -> Currency {
         "RON" => Currency::Ron,
         "MXN" => Currency::Mxn,
         "THB" => Currency::Thb,
+        "ARS" => Currency::Ars,
         other => panic!("unsupported currency '{other}' in fixtures.json"),
     }
 }

@@ -1,5 +1,5 @@
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
-use large_language_model::{VertexAiConfig, VertexAiGemini};
+use large_language_model::{GeminiModel, VertexAiConfig, VertexAiGemini};
 
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const DEFAULT_MODEL: &str = "gemini-3.5-flash";
@@ -44,6 +44,13 @@ pub enum CrawlerVertexAiConfigError {
 }
 
 impl CrawlerVertexAiConfig {
+    pub fn new(project_id: impl Into<String>, location: impl Into<String>) -> Self {
+        Self {
+            project_id: project_id.into(),
+            location: location.into(),
+        }
+    }
+
     pub fn from_env() -> Result<Self, CrawlerVertexAiConfigError> {
         Ok(Self {
             project_id: required_env("VERTEX_AI_PROJECT_ID")?,
@@ -53,7 +60,7 @@ impl CrawlerVertexAiConfig {
 
     pub fn create_model(
         &self,
-        model: impl Into<String>,
+        model: impl Into<GeminiModel>,
     ) -> Result<VertexAiGemini, CrawlerVertexAiConfigError> {
         let credentials = application_default_credentials()?;
         VertexAiGemini::new(

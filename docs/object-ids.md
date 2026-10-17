@@ -31,6 +31,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `UserSearchFilterId` | `sf` |
 | `NotificationId` | `ntf` |
 | `NotificationDeliveryId` | `nd` |
+| `SavedSearchDigestId` | `ssd` |
 | `FxRateId` | `fx` |
 | `OAuthClientId` | `oc` |
 | `AccessTokenId` | `at` |
@@ -68,6 +69,7 @@ These persisted fields deliberately retain **canonical lowercase hyphenated UUID
 - ProductListing sale observation `fxRateId`.
 - ProductListing enrichment `sourceEventId`.
 - Notification product snapshot `listing_source_id`.
+- Saved-search digest membership snapshots: the copied notification's source/object IDs remain native UUID text within adapter-owned JSON; the nested notification payload keeps its existing codec.
 - Search-filter persisted ProductListing, ListingSource and Auction ID sets.
 
 Adapter-local codecs explicitly encode the backing UUID and decode UUID → typed ID, validating canonical text and UUIDv7. Public history and notification DTOs still expose TypeIDs. Do not derive persisted encoding from object-ID `Display` or public serde.

@@ -217,6 +217,7 @@ where
     Output: Send,
     Validate: Fn(Wire) -> Result<Output, E>,
     Feedback: Fn(&E) -> &'static str,
+    E: std::fmt::Display,
 {
     let max_attempts = max_validation_attempts.max(1);
     let mut request = base_request.clone();
@@ -279,9 +280,14 @@ where
                     validation_attempt = attempt,
                     max_validation_attempts = max_attempts,
                     feedback_code,
+                    validation_error = %error,
                     "Retrying semantically invalid structured LLM response"
                 );
-                request = correction_request(&base_request, attempt, feedback_code);
+                request = correction_request(
+                    &base_request,
+                    attempt,
+                    &format!("{feedback_code}: {error}"),
+                );
             }
             Err(error) => return Err(ValidatedGenerationError::Validation(error)),
         }
@@ -755,8 +761,8 @@ mod tests {
                 None,
                 request(),
                 3,
-                Result::<serde_json::Value, ()>::Ok,
-                |_: &()| "invalid_output",
+                Result::<serde_json::Value, std::convert::Infallible>::Ok,
+                |_: &std::convert::Infallible| "invalid_output",
             )
             .await;
         assert_eq!(output.ok(), Some(serde_json::json!({"ok": true})));

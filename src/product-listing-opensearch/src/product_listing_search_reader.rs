@@ -981,6 +981,7 @@ mod tests {
             ron: Some(100),
             mxn: Some(100),
             thb: Some(100),
+            ars: Some(100),
         }
     }
 

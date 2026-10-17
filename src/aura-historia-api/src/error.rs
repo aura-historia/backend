@@ -3126,10 +3126,9 @@ impl From<party_service::use_cases::party_locations::PartyLocationError> for Api
             E::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
             E::Forbidden => Self::forbidden(FORBIDDEN),
             E::NotFound => Self::not_found(PARTY_NOT_FOUND),
-            E::ConcurrencyConflict
-            | E::IdempotencyConflict
-            | E::RevisionExhausted
-            | E::Domain(_) => Self::conflict(CONFLICT),
+            E::ConcurrencyConflict | E::RevisionExhausted | E::Domain(_) => {
+                Self::conflict(CONFLICT)
+            }
             E::InvalidInput => Self::bad_request(BAD_BODY_VALUE),
             E::TemporarilyUnavailable { .. } | E::Transaction(_) => {
                 Self::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)

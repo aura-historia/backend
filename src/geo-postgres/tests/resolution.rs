@@ -476,7 +476,7 @@ async fn party(pool: &PgPool) -> PartyId {
     tx.commit().await.unwrap();
     p.id()
 }
-async fn create(pool: &PgPool, owner: PartyId, key: &str) -> PartyLocationView {
+async fn create(pool: &PgPool, owner: PartyId, label: &str) -> PartyLocationView {
     CreatePartyLocationHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxPartyLocationRepositoryFactory,
@@ -487,9 +487,8 @@ async fn create(pool: &PgPool, owner: PartyId, key: &str) -> PartyLocationView {
         &context(),
         CreatePartyLocationCommand {
             party_id: owner,
-            idempotency_key: PartyLocationIdempotencyKey::new(key.into()).unwrap(),
             content: PartyLocationContent {
-                label: PartyLocationLabel::new("Test site".into()).unwrap(),
+                label: PartyLocationLabel::new(label.into()).unwrap(),
                 roles: Default::default(),
                 geography: GeographicDescription::new(
                     Some(AddressText::new("123 Private Street, unit 1").unwrap()),
