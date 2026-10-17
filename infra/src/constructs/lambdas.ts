@@ -194,6 +194,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     maxPostgresConnections: 1,
     timeoutSeconds: 45,
   },
+  listingShipping: {
+    id: "ListingShippingLambda",
+    binaryName: "listing-shipping-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+  },
   geoResolution: {
     id: "GeoResolutionLambda",
     binaryName: "geo-resolution-lambda",
@@ -256,6 +264,7 @@ export class Lambdas extends Construct {
   readonly marketingConsentSyncVersion: lambda.Version;
   readonly geoResolutionVersion: lambda.Version;
   readonly listingGeographyVersion: lambda.Version;
+  readonly listingShippingVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
 
@@ -324,7 +333,7 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" ? 2 : undefined,
+        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" || key === "listingShipping" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"
@@ -389,6 +398,10 @@ export class Lambdas extends Construct {
     this.listingGeographyVersion = new lambda.Version(this, "ListingGeographyVersion", {
       lambda: this.functions.listingGeography,
       description: `listing-geography-${props.parameters.commitSha}`,
+    });
+    this.listingShippingVersion = new lambda.Version(this, "ListingShippingVersion", {
+      lambda: this.functions.listingShipping,
+      description: `listing-shipping-${props.parameters.commitSha}`,
     });
     this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
       lambda: this.functions.geoResolution,

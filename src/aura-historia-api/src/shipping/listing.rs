@@ -52,10 +52,8 @@ fn timestamp(t: OffsetDateTime) -> Result<String, BoxError> {
 fn geography(g: Option<&GeographicDescription>) -> Value {
     g.map_or(Value::Null, |g| json!({"referenceRelease":g.reference_release().as_str(),"country":g.country().map(|c|c.alpha2()),"subdivision":g.subdivision().map(|s|s.as_str()),"postalCode":g.postal_code().map(|p|p.as_str())}))
 }
-fn evidence_data(e: AssertionEvidence, at: OffsetDateTime) -> Result<Value, BoxError> {
-    Ok(
-        json!({"status": e.status(at).as_str(), "verifiedAt":timestamp(e.verified_at)?,"freshUntil":e.fresh_until.map(timestamp).transpose()?,"expiresAt":e.expires_at.map(timestamp).transpose()?}),
-    )
+fn evidence_data(e: AssertionEvidence) -> Result<Value, BoxError> {
+    Ok(json!({"verifiedAt":timestamp(e.verified_at)?}))
 }
 fn money(p: Price) -> Value {
     json!({"amount_minor":u64::from(p.monetary_amount),"currency":p.currency.as_str()})
@@ -156,7 +154,7 @@ fn advertised_data(item: &AdvertisedShipping) -> Result<Value, BoxError> {
             Ok::<_, BoxError>(json!({
                 "shippingProfileId":p.id,"termsRevision":p.terms_revision,
                 "managementRevision":p.management_revision,"lifecycle":p.lifecycle.as_str(),
-                "evidence":evidence_data(p.evidence,item.evaluated_at)?,
+                "evidence":evidence_data(p.evidence)?,
             }))
         })
         .transpose()?;
@@ -164,8 +162,7 @@ fn advertised_data(item: &AdvertisedShipping) -> Result<Value, BoxError> {
         "terms":public_terms(item.effective.terms())?,
         "listingRevision":item.listing_revision,"sourceRevision":item.source_revision,
         "defaultRevision":item.default_revision,"profile":profile,
-        "validityDeadline":item.validity_deadline.map(timestamp).transpose()?,
-        "listingEvidence":item.listing_evidence.map(|e|evidence_data(e,item.evaluated_at)).transpose()?,
+        "listingEvidence":item.listing_evidence.map(evidence_data).transpose()?,
         "evaluatedAt":timestamp(item.evaluated_at)?,
         "shippingReasons":reasons(&item.shipping_reasons),
         "collectionReasons":reasons(&item.collection_reasons),
@@ -189,19 +186,15 @@ fn personalized_data(item: &PersonalizedShipping) -> Result<Value, BoxError> {
     }))
 }
 
-/// Preserve advertised evidence transitions even when an anonymous listing is shared.
+/// Cap shared caching at geographic provider evidence retention deadlines.
 pub(crate) fn cache_ttl<'a>(
     items: impl IntoIterator<Item = Option<&'a AdvertisedShipping>>,
     maximum: u32,
 ) -> u32 {
     let now = OffsetDateTime::now_utc();
     items.into_iter().flatten().fold(maximum, |ttl, item| {
-        item.listing_evidence
+        item.geographic_valid_until
             .into_iter()
-            .chain(item.profile.as_ref().map(|p| p.evidence))
-            .flat_map(|e| [e.fresh_until, e.expires_at])
-            .flatten()
-            .chain(item.validity_deadline)
             .filter(|deadline| *deadline > item.evaluated_at)
             .fold(ttl, |ttl, deadline| {
                 ttl.min(u32::try_from((deadline - now).whole_seconds().max(0)).unwrap_or(u32::MAX))

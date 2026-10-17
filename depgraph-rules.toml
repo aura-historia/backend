@@ -122,6 +122,8 @@ geo-resolution-lambda = ["application", "aura-historia-jobs", "geo-service", "ge
 
 listing-geography-lambda = ["application", "aura-historia-jobs", "geo-service", "geo-postgres", "product-listing-service", "product-listing-postgres", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 
+listing-shipping-lambda = ["aura-historia-jobs", "product-listing-service", "product-listing-postgres", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
+
 [options]
 strict = true
 check_dev_deps = false

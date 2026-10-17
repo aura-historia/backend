@@ -533,6 +533,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 41,
+            shipping: Default::default(),
             geography: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")

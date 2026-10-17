@@ -192,27 +192,70 @@ The response retains selected rule order, sanitized effective terms, dependency
 revisions and evaluation time. A fixed advertised amount is neither a binding
 quote nor a complete landed cost. No provider, geocoder, carrier or live-rate request occurs.
 
-Assertion verification time is independent of management/update time. Source-authored
-continuing assertions have no implicit deadline; `FRESH` means they have not crossed an
-explicit freshness deadline, not that they were recently recrawled. An acquisition owner
-may retain explicit freshness and expiry deadlines. `STALE` preserves the old verification
-time and remains usable until expiry; `EXPIRED` cannot support a current definite assertion.
-Expired profile evidence removes inherited components while still permitting independently
-current item overrides. Expired item configuration cannot authorize selection, rate facts
-or overrides. Retired profiles are withdrawn dependencies, with no fallback. Failed recrawls,
-evidence-only corrections, no-ops, lifecycle changes and unrelated edits neither erase a
-reliable assertion nor renew its verification time. Changing normalized terms verifies
-the replacement; a listing configuration change verifies its new whole configuration.
-Provider acquisition preserves its own observation time and reviewed deadlines through
-the incremental import contract below.
+Shipping assertions remain valid until changed, withdrawn, or their source loses authority.
+Observation age alone never removes terms, defaults, membership or item overrides. The last
+successful observation time is retained independently of management/update time. Failed
+recrawls, evidence-only corrections, no-ops, lifecycle commands and unrelated edits do not
+advance it. Changing normalized terms records the replacement; a listing configuration
+change records its new whole configuration. A retired profile is withdrawn without fallback.
+Provider acquisitions retain their own successful observation time through the import contract.
 
-Authenticated responses and all errors use `no-store`. Generic anonymous listing
-responses follow discovery caching, capped at the next shipping evidence freshness/expiry
-deadline. Destination values, private
+Authenticated responses and all errors use `no-store`. Generic anonymous listing responses
+follow discovery caching; geographic provider evidence retention can shorten that cache TTL.
+Destination values, private
 bookmark identities, address text, postal codes, points, hashes and raw evidence never
 enter diagnostics or public storage. Dispatch and collection sites are omitted from
 response terms: a PartyLocation reference establishes applicability, not permission to
 publish its management address. Exact public pickup disclosure needs an explicit contract.
+
+## Effective shipping discovery projection
+
+PostgreSQL retains a compact rebuildable summary and reverse dependency identities for
+each listing. Dependency work is coalesced by subject, traversed in bounded UUID keysets
+and committed with generation/lease-fenced checkpoints. New listings and canonical
+assignment changes establish independent work even after a shared traversal cursor has
+passed. Profile/default management and B05 observation, ownership and source-authority
+signals establish invalidation in their originating transaction. Partial imports become
+visible record by record; there is no provider request or completion barrier. Workers
+share the current listing-read selection/evaluation semantics and coherent dependency
+snapshot, including independent component observations and authority. They retain profile/default,
+source authority, listing, explicit location/input/lifecycle, resolution selection/rights/
+expiry and evaluator/projection policy bases; no policy is copied into listing aggregates.
+
+The public index contains independent collection eligibility, explicit global shipping
+prohibition, an explicit conditional/unsupported flag and nested country/service offers.
+Only definite whole-country applicability produces an offer. Postal exclusions, unknown
+origins/variants, missing basket conditions and unresolved earlier zones cannot become
+unconditional offers. A known fixed or free per-item amount retains exact currency and
+minor units in its own offer row; other price knowledge is conditional. Missing/unbuilt
+summaries preserve uncertainty. Projection V1
+retains at most 256 offers, ordered by reference country then declared service order;
+truncation retains the conditional flag. Missing offers never assert prohibition. No
+address, location identity, private evidence, full policy, buyer destination or buyer
+assessment enters the public shipping document.
+
+A changed public summary emits the registered shipping enrichment event and advances the
+listing's existing complete-projection fence. Unchanged summaries only refresh dependency
+state. Profile revisions never become global OpenSearch versions. All writes
+replace the complete listing document using external version fencing, preserving newer
+price/geography facts and the existing content-free deletion tombstone contract. Event
+routing and codec compatibility belong to [event flow](events/flow.md#shipping-management-signals).
+
+Discovery membership, counts and order follow the index and may lag committed shipping
+changes. Existing detail and discovery responses, including search/similar, still batch
+current PostgreSQL assessment into `item.shipping` and permitted `userState.shipping`.
+They preserve the indexed page and do not post-filter it. An indexed old-rate hit can
+therefore return updated terms before projection catches up. Origin reads have this
+current-dependency contract; an existing anonymous cached response can survive only its
+bounded cache TTL, capped by referenced geographic provider evidence retention. Authenticated
+responses remain `no-store`. No global query gate promises strongly consistent search.
+
+Shipping work runs only from CDC/SQS wake-ups and durable page continuations. Failures
+retain the existing retry/DLQ custody; operators use controlled redrive or explicitly enqueue
+bounded rebuilds. Shipping has no scheduled expiry or pending-work recovery scan. Geographic
+provider retention is enforced by the geography context, whose invalidation signals also
+refresh affected shipping projections. Recovery/rebuild procedures and monitoring belong
+to the [worker runbook](durable-worker-runbook.md#listing-shipping-recovery).
 
 ## Independent assertions
 
@@ -352,37 +395,35 @@ selection stays unresolved and never falls back to a source default.
 Every imported assertion requires an explicit successful observation when created or
 semantically replaced, including a first claim of an equal implicit selection.
 Explicit removal of owned components does not require or renew an observation.
-acquiredAt is acquisition time; freshUntil and expiresAt are
-reviewed deadlines, ordered after acquisition, with expiry at most 30 days later.
-Acquisitions must follow the latest source/integration authority change and cannot be future dated or already expired.
-A new acquisition of unchanged content/evidence explicitly supplies observation to refresh
-validity without changing terms/management/listing revisions or emitting a listing semantic
-event. Evidence-only corrections, lifecycle commands, retries and ordinary equal writes do
-not renew validity. A correction that changes only evidence cannot carry an observation.
-Acquisition ordering uses PostgreSQL's microsecond precision; a new request key cannot
-turn the same acquisition into a fresh observation.
+acquiredAt is the successful acquisition time. It must follow the latest source/integration
+authority change and cannot be future dated. An explicit `observation: {}` records that
+acquisition without a freshness or expiry deadline. A new acquisition of unchanged content
+can update observation time without changing terms/management/listing revisions or emitting
+a listing semantic event. Evidence-only corrections, lifecycle commands, retries and ordinary
+equal writes do not advance observation time. A correction that changes only evidence cannot
+carry an observation. Acquisition ordering uses PostgreSQL microsecond precision; a new
+request key cannot turn the same acquisition into a new observation.
 Increasing producer sequence fences delayed work per touched component and source lifecycle;
 receive time establishes no provider order. After a conflict, refetch and reconcile actual
 facts and ownership; never attach a new revision or acquisition timestamp to an old payload.
 
-Current snapshot reads exclude disconnected imported profiles/defaults and independently
-expire listing components, preserving manual overrides. Imported membership expiry removes
-selection authority and blocks fallback. The listing evidence summary uses the oldest
-component acquisition/freshness; validityDeadline caps shared cache lifetime at the next
-imported component/default transition. Profile windows retain the B04 expiry contract.
+Current snapshot reads exclude imported assertions whose source authority is no longer
+current, preserving independent manual overrides. Revoked imported membership removes
+selection authority and blocks fallback. The listing evidence summary retains the oldest
+successful component acquisition. Observation age never changes eligibility or cache lifetime.
 Source deletion, operator replacement, ingestion configuration removal/rebinding, source
 grant/member revocation and user/partnership authority changes advance an internal source
 revision and acquisition boundary. Producers never read or supply that revision.
 These authority changes conservatively invalidate imported assertions for the source;
 manual components remain eligible. Regranting or reenabling the same provider method does not
 revive old imports. Explicit
-revocation is immediate in authoritative reads; the 30-day maximum expiry bounds abandoned
-producer cleanup. Normal anonymous discovery cache limits still apply pending B09 fan-out.
+revocation is immediate in authoritative reads; discovery converges through CDC fan-out.
+Normal anonymous discovery cache limits still apply.
 
 Persistence retains the source lifecycle boundary, profile identity/ownership, default ownership,
-listing component ownership/windows, hashed request fences and immutable
+listing component ownership/observations, hashed request fences and immutable
 shipping_validity_changes. Each exists respectively to reject old authority, recover stable
-identity, protect concurrent manual edits, expire components independently, recognize exact
+identity, protect concurrent manual edits, fence component authority independently, recognize exact
 retries, or invalidate observation-only changes. Validity signals contain source/subject IDs,
 independent revision, kind and recorded time; they carry no terms, addresses or evidence.
 [Event flow](events/flow.md) owns downstream activation.

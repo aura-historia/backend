@@ -5,6 +5,45 @@
     },
     "mappings": {
         "properties": {
+            "shipping": {
+                "type": "object",
+                "dynamic": "strict",
+                "properties": {
+                    "collection": {
+                        "type": "keyword"
+                    },
+                    "prohibited": {
+                        "type": "boolean"
+                    },
+                    "conditional": {
+                        "type": "boolean"
+                    },
+                    "countryOffers": {
+                        "type": "nested",
+                        "dynamic": "strict",
+                        "properties": {
+                            "country": {
+                                "type": "keyword"
+                            },
+                            "service": {
+                                "type": "keyword"
+                            },
+                            "perItemFixed": {
+                                "type": "object",
+                                "dynamic": "strict",
+                                "properties": {
+                                    "currency": {
+                                        "type": "keyword"
+                                    },
+                                    "amountMinor": {
+                                        "type": "unsigned_long"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "businessGeography": {
                 "type": "object",
                 "dynamic": "strict",

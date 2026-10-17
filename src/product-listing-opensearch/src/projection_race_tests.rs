@@ -243,6 +243,7 @@ pub(super) fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
         event_id,
         current_event_id: event_id,
         projection_version: 1,
+        shipping: Default::default(),
         geography: Default::default(),
         event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
@@ -315,5 +316,149 @@ async fn geography_replacement_fences_old_points_and_preserves_country_only_quer
     assert!(
         result.is_ok(),
         "geo external fence and country discovery: {result:?}"
+    );
+}
+
+#[aura_integration_test(services=[TestOpenSearch()])]
+async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_writes_are_fenced() {
+    let result: TestResult = async {
+        use product_listing_service::shipping_projection::{
+            CountryShippingOffer, EffectiveListingShipping,
+        };
+        use shipping_core::terms::{ShippingEligibility, ShippingServiceCode};
+
+        let client = get_opensearch_client().await.clone();
+        let writer = OpenSearchProductListingSearchProjection::new(client.clone());
+        let mut listing = source()?;
+        listing.shipping = EffectiveListingShipping {
+            collection: Some(ShippingEligibility::Offered),
+            prohibited: false,
+            conditional: false,
+            country_offers: vec![
+                CountryShippingOffer {
+                    country: geo::CountryCode::DEU,
+                    service: ShippingServiceCode::new("de-service".into())?,
+                    per_item_fixed: Some(money::Price::new(8000_u64.into(), Currency::Eur)),
+                },
+                CountryShippingOffer {
+                    country: geo::CountryCode::FRA,
+                    service: ShippingServiceCode::new("fr-service".into())?,
+                    per_item_fixed: Some(money::Price::new(5000_u64.into(), Currency::Eur)),
+                },
+            ],
+        };
+        writer.upsert(&listing, None).await?;
+        refresh_index(DEFAULT_INDEX).await;
+        for (country, amount, count) in [
+            (geo::CountryCode::DEU, 6000_u64, 0),
+            (geo::CountryCode::FRA, 6000, 1),
+            (geo::CountryCode::DEU, 8000, 1),
+        ] {
+            let predicate = crate::shipping_query::country_offer_query(
+                country,
+                None,
+                Some(money::Price::new(amount.into(), Currency::Eur)),
+            );
+            let response: Value = client
+                .search(opensearch::SearchParts::Index(&[DEFAULT_INDEX]))
+                .body(json!({"query":{"bool":{
+                    "filter":[predicate],
+                    "must_not":[{"term":{"projectionDeleted":true}}]
+                }}}))
+                .send()
+                .await?
+                .error_for_status_code()?
+                .json()
+                .await?;
+            assert_eq!(count, response["hits"]["total"]["value"]);
+        }
+        // The actual strict mapping rejects unknown private fields inside an offer.
+        let mut poison = serde_json::to_value(product_listing_document(&listing, None)?)?;
+        poison["shipping"]["countryOffers"][0]["address"] = json!("forbidden");
+        let rejected = client
+            .index(IndexParts::IndexId(
+                DEFAULT_INDEX,
+                &ProductListingId::new().to_string(),
+            ))
+            .body(poison)
+            .send()
+            .await?;
+        assert_eq!(StatusCode::BAD_REQUEST, rejected.status_code());
+
+        let mut paused = PausedWrite::new(client.clone()).await?;
+        let old_writer = OpenSearchProductListingSearchProjection::new(paused.client.clone());
+        let old = listing.clone();
+        let stale = tokio::spawn(async move { old_writer.upsert(&old, None).await });
+        paused.wait_until_received().await?;
+        listing.projection_version = 2;
+        listing.shipping = EffectiveListingShipping {
+            prohibited: true,
+            ..Default::default()
+        };
+        listing.pricing.price = Some(money::Price::new(12345_u64.into(), Currency::Eur).into());
+        listing.geography.business =
+            Some(product_listing_service::geography::GeographicDimension {
+                location_id: party_core::party_location_id::PartyLocationId::new(),
+                reference_release: geo::reference::ReferenceRelease::CURRENT,
+                country: Some(geo::CountryCode::FRA),
+                subdivision: None,
+                position: None,
+            });
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Applied,
+            writer.upsert(&listing, None).await?
+        );
+        assert_eq!(StatusCode::CONFLICT, paused.resume().await?);
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Stale,
+            stale.await??
+        );
+        let current: Value = client
+            .get(GetParts::IndexId(
+                DEFAULT_INDEX,
+                &listing.product_listing_id.to_string(),
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(true, current["_source"]["shipping"]["prohibited"]);
+        assert_eq!(json!([]), current["_source"]["shipping"]["countryOffers"]);
+        assert_eq!(12345, current["_source"]["sourcePrice"]["amount"]);
+        assert_eq!("FR", current["_source"]["businessGeography"]["country"]);
+
+        writer.delete(listing.product_listing_id, 3).await?;
+        assert_eq!(
+            ProductListingSearchProjectionWriteOutcome::Stale,
+            writer.upsert(&listing, None).await?
+        );
+        let deleted: Value = client
+            .get(GetParts::IndexId(
+                DEFAULT_INDEX,
+                &listing.product_listing_id.to_string(),
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(
+            json!({"productListingId":listing.product_listing_id,"projectionDeleted":true}),
+            deleted["_source"]
+        );
+        refresh_index(DEFAULT_INDEX).await;
+        let visible: Value = client
+            .search(opensearch::SearchParts::Index(&[DEFAULT_INDEX]))
+            .body(json!({"query":{"bool":{"must_not":[{"term":{"projectionDeleted":true}}]}}}))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert_eq!(0, visible["hits"]["total"]["value"]);
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "shipping nested discovery and complete projection fence: {result:?}"
     );
 }

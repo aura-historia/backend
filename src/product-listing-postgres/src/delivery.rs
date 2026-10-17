@@ -210,7 +210,7 @@ impl ProductListingDeliveryReferences for References<'_> {
             },_=>None,
         };
         let base = if let Some(id) = profile {
-            let row:Option<(String,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 AND (expires_at IS NULL OR expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=shipping_profiles.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(shipping_profiles.listing_source_id,i.source_revision)) FOR SHARE")
+            let row:Option<(String,Option<String>,serde_json::Value)>=sqlx::query_as("SELECT lifecycle,integration_method,terms FROM shipping_profiles WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND current_source_id=$2 AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=shipping_profiles.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(shipping_profiles.listing_source_id,i.source_revision)) FOR SHARE")
                 .bind(id).bind(source.into_uuid()).fetch_optional(self.0.connection()).await.map_err(fail)?;
             let (lifecycle, method, terms) =
                 row.ok_or(ProductListingDeliveryError::ReferenceIneligible)?;

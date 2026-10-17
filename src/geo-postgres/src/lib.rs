@@ -892,7 +892,7 @@ impl Repository<'_> {
         subjects: &[ResolutionSubject],
         lock: bool,
     ) -> Result<Vec<Option<ResolutionView>>, ResolutionError> {
-        if subjects.len() > 100 {
+        if subjects.len() > MAX_RESOLUTION_SUBJECTS {
             return Err(ResolutionError::InvalidInput);
         }
         if subjects.is_empty() {

@@ -64,38 +64,10 @@ pub enum AssessmentError {
     ),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EvidenceStatus {
-    Fresh,
-    Stale,
-    Expired,
-}
-impl EvidenceStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Fresh => "FRESH",
-            Self::Stale => "STALE",
-            Self::Expired => "EXPIRED",
-        }
-    }
-}
-/// No deadline means a continuing manually supplied assertion, not a recent recrawl.
+/// The last successful assertion observation; time alone does not withdraw terms.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AssertionEvidence {
     pub verified_at: OffsetDateTime,
-    pub fresh_until: Option<OffsetDateTime>,
-    pub expires_at: Option<OffsetDateTime>,
-}
-impl AssertionEvidence {
-    pub fn status(self, at: OffsetDateTime) -> EvidenceStatus {
-        if self.expires_at.is_some_and(|expiry| expiry <= at) {
-            EvidenceStatus::Expired
-        } else if self.fresh_until.is_some_and(|expiry| expiry <= at) {
-            EvidenceStatus::Stale
-        } else {
-            EvidenceStatus::Fresh
-        }
-    }
 }
 #[derive(Clone)]
 pub struct ListingDependency {
@@ -106,7 +78,6 @@ pub struct ListingDependency {
     pub operator_id: party_core::party_id::PartyId,
     pub delivery: ListingDelivery,
     pub evidence: Option<AssertionEvidence>,
-    pub validity_deadline: Option<OffsetDateTime>,
     pub integration_current: bool,
 }
 pub struct ProfileDependency {
@@ -120,6 +91,7 @@ pub struct DefaultDependency {
     pub revision: u64,
 }
 pub struct LocationDependency {
+    pub valid_until: Option<OffsetDateTime>,
     pub location: PartyLocation,
     pub revision: u64,
     pub resolution_generation: Option<u64>,
@@ -167,7 +139,7 @@ pub struct ListingAssessmentView {
     pub default_revision: Option<u64>,
     pub profile: Option<ProfileAssessmentBasis>,
     pub listing_evidence: Option<AssertionEvidence>,
-    pub validity_deadline: Option<OffsetDateTime>,
+    pub geographic_valid_until: Option<OffsetDateTime>,
     pub evaluated_at: OffsetDateTime,
     pub input: AssessmentInput,
     pub effective: EffectiveDeliveryTerms,
@@ -178,6 +150,7 @@ pub struct ListingAssessmentView {
     pub notices: Vec<&'static str>,
 }
 pub struct LocationAssessmentBasis {
+    pub valid_until: Option<OffsetDateTime>,
     pub id: party_core::party_location_id::PartyLocationId,
     pub revision: u64,
     pub resolution_generation: Option<u64>,
@@ -326,131 +299,144 @@ where
             .in_transaction(&mut tx)
             .snapshot(&ids, user)
             .await?;
-        let mut items = Vec::with_capacity(ids.len());
-        for mut request in request.listings {
-            // Discovery projections can still contain a removed or withdrawn listing.
-            // It contributes no current advertised shipping assertion.
-            let Some(listing) = dependencies
-                .listings
-                .iter()
-                .find(|l| l.id == request.listing_id)
-            else {
-                continue;
-            };
-            let default = dependencies
-                .defaults
-                .iter()
-                .find(|d| d.selection.source_id() == listing.source_id);
-            let mut notices = Vec::new();
-            if listing.delivery.selection().is_none() {
-                notices.push("ASSIGNMENT_UNRESOLVED");
+        let items = assess_snapshot(
+            &dependencies,
+            request.listings,
+            destination.effective.as_ref(),
+        );
+        tx.commit().await?;
+        Ok(DeliveryAssessmentView { destination, items })
+    }
+}
+/// Evaluate an already coherent snapshot. Projection workers use exactly the listing-read
+/// selection, observation and authority semantics, without a buyer destination.
+pub fn assess_snapshot(
+    dependencies: &AssessmentDependencies,
+    requests: Vec<AssessListingRequest>,
+    destination: Option<&GeographicDescription>,
+) -> Vec<ListingAssessmentView> {
+    let mut items = Vec::with_capacity(requests.len());
+    for mut request in requests {
+        // Discovery projections can still contain a removed or withdrawn listing.
+        // It contributes no current advertised shipping assertion.
+        let Some(listing) = dependencies
+            .listings
+            .iter()
+            .find(|l| l.id == request.listing_id)
+        else {
+            continue;
+        };
+        let default = dependencies
+            .defaults
+            .iter()
+            .find(|d| d.selection.source_id() == listing.source_id);
+        let mut notices = Vec::new();
+        if listing.delivery.selection().is_none() {
+            notices.push("ASSIGNMENT_UNRESOLVED");
+        }
+        let configuration = if !listing.integration_current {
+            notices.push("INTEGRATION_MISMATCH");
+            ListingDeliveryConfiguration::new(
+                listing.source_id,
+                ProfileSelection::SuppressInheritance,
+                Default::default(),
+                Default::default(),
+            )
+            .expect("empty configuration")
+        } else {
+            listing.delivery.configuration()
+        };
+        let profile_id = match configuration.selection() {
+            ProfileSelection::Explicit(id) => Some(*id),
+            ProfileSelection::InheritSourceDefault => {
+                default.and_then(|d| d.selection.profile_id())
             }
-            let listing_expired = listing
-                .evidence
-                .is_some_and(|e| e.status(dependencies.evaluated_at) == EvidenceStatus::Expired);
-            let configuration = if listing_expired || !listing.integration_current {
-                notices.push(if listing_expired {
-                    "LISTING_EVIDENCE_EXPIRED"
+            _ => None,
+        };
+        let profile =
+            profile_id.and_then(|id| dependencies.profiles.iter().find(|p| p.profile.id() == id));
+        let profiles: Vec<_> = profile
+            .into_iter()
+            .filter(|p| {
+                if p.integration != *listing.delivery.integration() {
+                    notices.push("PROFILE_INTEGRATION_MISMATCH");
+                    false
                 } else {
-                    "INTEGRATION_MISMATCH"
-                });
-                ListingDeliveryConfiguration::new(
-                    listing.source_id,
-                    ProfileSelection::SuppressInheritance,
-                    Default::default(),
-                    Default::default(),
-                )
-                .expect("empty configuration")
-            } else {
-                listing.delivery.configuration()
-            };
-            let profile_id = match configuration.selection() {
-                ProfileSelection::Explicit(id) => Some(*id),
-                ProfileSelection::InheritSourceDefault => {
-                    default.and_then(|d| d.selection.profile_id())
+                    true
                 }
-                _ => None,
-            };
-            let profile = profile_id
-                .and_then(|id| dependencies.profiles.iter().find(|p| p.profile.id() == id));
-            let profiles: Vec<_> = profile
-                .into_iter()
-                .filter(|p| {
-                    if p.integration != *listing.delivery.integration() {
-                        notices.push("PROFILE_INTEGRATION_MISMATCH");
-                        false
-                    } else if p.evidence.status(dependencies.evaluated_at)
-                        == EvidenceStatus::Expired
-                    {
-                        notices.push("PROFILE_EVIDENCE_EXPIRED");
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .map(|p| p.profile.clone())
-                .collect();
-            let effective = EffectiveDeliveryTerms::resolve(
-                &configuration,
-                default.map(|d| &d.selection),
-                &profiles,
-            );
-            let referenced = referenced_locations(effective.terms());
-            let locations: Vec<_> = dependencies
+            })
+            .map(|p| p.profile.clone())
+            .collect();
+        let effective = EffectiveDeliveryTerms::resolve(
+            &configuration,
+            default.map(|d| &d.selection),
+            &profiles,
+        );
+        let referenced = referenced_locations(effective.terms());
+        let locations: Vec<_> = dependencies
+            .locations
+            .iter()
+            .filter(|l| {
+                referenced.contains(&l.location.id())
+                    && l.location.party_id() == listing.operator_id
+            })
+            .map(|l| l.location.clone())
+            .collect();
+        request.input.destination = destination.cloned();
+        let assessment = effective.assess(&request.input, &locations);
+        items.push(ListingAssessmentView {
+            listing_id: listing.id,
+            source_id: listing.source_id,
+            listing_revision: listing.revision,
+            source_revision: listing.source_revision,
+            default_revision: matches!(
+                configuration.selection(),
+                ProfileSelection::InheritSourceDefault
+            )
+            .then(|| default.map_or(1, |d| d.revision)),
+            profile: profile.map(|p| ProfileAssessmentBasis {
+                id: p.profile.id(),
+                terms_revision: p.profile.revision().into_inner(),
+                management_revision: p.management_revision,
+                lifecycle: p.profile.lifecycle(),
+                evidence: p.evidence,
+            }),
+            listing_evidence: listing.evidence,
+            geographic_valid_until: dependencies
                 .locations
                 .iter()
                 .filter(|l| {
                     referenced.contains(&l.location.id())
                         && l.location.party_id() == listing.operator_id
                 })
-                .map(|l| l.location.clone())
-                .collect();
-            request.input.destination = destination.effective.clone();
-            let assessment = effective.assess(&request.input, &locations);
-            items.push(ListingAssessmentView {
-                listing_id: listing.id,
-                source_id: listing.source_id,
-                listing_revision: listing.revision,
-                source_revision: listing.source_revision,
-                default_revision: matches!(
-                    configuration.selection(),
-                    ProfileSelection::InheritSourceDefault
-                )
-                .then(|| default.map_or(1, |d| d.revision)),
-                profile: profile.map(|p| ProfileAssessmentBasis {
-                    id: p.profile.id(),
-                    terms_revision: p.profile.revision().into_inner(),
-                    management_revision: p.management_revision,
-                    lifecycle: p.profile.lifecycle(),
-                    evidence: p.evidence,
-                }),
-                listing_evidence: listing.evidence,
-                validity_deadline: listing.validity_deadline,
-                evaluated_at: dependencies.evaluated_at,
-                input: request.input,
-                generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
-                effective,
-                assessment,
-                location_revisions: dependencies
-                    .locations
-                    .iter()
-                    .filter(|l| {
-                        referenced.contains(&l.location.id())
-                            && l.location.party_id() == listing.operator_id
-                    })
-                    .map(|l| LocationAssessmentBasis {
-                        id: l.location.id(),
-                        revision: l.revision,
-                        resolution_generation: l.resolution_generation,
-                    })
-                    .collect(),
-                notices,
-            });
-        }
-        tx.commit().await?;
-        Ok(DeliveryAssessmentView { destination, items })
+                .filter_map(|l| l.valid_until)
+                .filter(|deadline| *deadline > dependencies.evaluated_at)
+                .min(),
+            evaluated_at: dependencies.evaluated_at,
+            input: request.input,
+            generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
+            effective,
+            assessment,
+            location_revisions: dependencies
+                .locations
+                .iter()
+                .filter(|l| {
+                    referenced.contains(&l.location.id())
+                        && l.location.party_id() == listing.operator_id
+                })
+                .map(|l| LocationAssessmentBasis {
+                    valid_until: l.valid_until,
+                    id: l.location.id(),
+                    revision: l.revision,
+                    resolution_generation: l.resolution_generation,
+                })
+                .collect(),
+            notices,
+        });
     }
+    items
 }
+
 /// Only explicitly selected sites are dependencies; business/inventory geography is irrelevant.
 pub fn referenced_locations(
     terms: &shipping_core::terms::DeliveryTerms,
@@ -583,8 +569,6 @@ mod tests {
         let at = OffsetDateTime::UNIX_EPOCH + time::Duration::days(100);
         let evidence = AssertionEvidence {
             verified_at: at - time::Duration::days(1),
-            fresh_until: None,
-            expires_at: None,
         };
         let listings = [g.painting, g.cabinet]
             .into_iter()
@@ -603,7 +587,6 @@ mod tests {
                 )
                 .unwrap(),
                 evidence: Some(evidence),
-                validity_deadline: None,
                 integration_current: true,
             })
             .collect();
@@ -758,50 +741,46 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn stale_evidence_keeps_age_and_expiry_only_removes_inherited_assertions() {
-        for expired in [false, true] {
-            let mut deps = dependencies();
-            let at = deps.evaluated_at;
-            deps.profiles[0].evidence.fresh_until = Some(at);
-            deps.profiles[0].evidence.expires_at =
-                Some(at + time::Duration::seconds(if expired { 0 } else { 1 }));
-            let request = request(
-                &deps,
-                Some(AssessmentDestination::Geographic(
-                    gallery().assessment_input().destination.unwrap(),
-                )),
-            );
-            let view = handler(deps)
-                .execute(&context(Principal::Anonymous), request)
-                .await
-                .unwrap();
-            assert_eq!(
-                !expired,
-                view.items[0].assessment.eligibility == Some(ShippingEligibility::Offered)
-            );
-            assert_eq!(
-                Some(ShippingEligibility::NotOffered),
-                view.items[1].assessment.eligibility
-            );
-            assert_eq!(
-                if expired {
-                    None
-                } else {
-                    Some(ShippingEligibility::Offered)
-                },
-                view.items[1].assessment.collection.eligibility
-            );
-            assert_eq!(
-                at - time::Duration::days(1),
-                view.items[0].profile.as_ref().unwrap().evidence.verified_at
-            );
-        }
+    async fn old_assertions_remain_usable_without_renewing_observation() {
+        let mut deps = dependencies();
+        let verified_at = deps.evaluated_at - time::Duration::days(3650);
+        deps.profiles[0].evidence.verified_at = verified_at;
+        deps.listings[0].evidence.as_mut().unwrap().verified_at = verified_at;
+        let request = request(
+            &deps,
+            Some(AssessmentDestination::Geographic(
+                gallery().assessment_input().destination.unwrap(),
+            )),
+        );
+        let view = handler(deps)
+            .execute(&context(Principal::Anonymous), request)
+            .await
+            .unwrap();
+        assert_eq!(
+            Some(ShippingEligibility::Offered),
+            view.items[0].assessment.eligibility
+        );
+        assert_eq!(
+            Some(ShippingEligibility::NotOffered),
+            view.items[1].assessment.eligibility
+        );
+        assert_eq!(
+            Some(ShippingEligibility::Offered),
+            view.items[1].assessment.collection.eligibility
+        );
+        assert_eq!(
+            verified_at,
+            view.items[0].profile.as_ref().unwrap().evidence.verified_at
+        );
+        assert_eq!(
+            verified_at,
+            view.items[0].listing_evidence.unwrap().verified_at
+        );
     }
     #[tokio::test]
-    async fn expired_inline_assertion_and_unresolved_provider_never_offer_default() {
+    async fn disconnected_integration_and_unresolved_provider_never_offer_default() {
         let mut deps = dependencies();
-        let at = deps.evaluated_at;
-        deps.listings[0].evidence.as_mut().unwrap().expires_at = Some(at);
+        deps.listings[0].integration_current = false;
         deps.listings[1].delivery = ListingDelivery::new(
             deps.listings[1].source_id,
             Default::default(),
@@ -927,6 +906,7 @@ mod tests {
         )
         .unwrap();
         deps.locations.push(LocationDependency {
+            valid_until: None,
             location: PartyLocation::create(
                 site,
                 party_core::party_id::PartyId::new(),

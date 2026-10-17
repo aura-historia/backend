@@ -51,3 +51,6 @@ pub mod geography;
 
 pub mod delivery;
 mod delivery_codec;
+
+pub mod shipping_projection;
+mod shipping_projection_codec;
