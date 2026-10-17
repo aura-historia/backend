@@ -125,18 +125,21 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             found = true;
         }
     }
-    if (collection_label && !assertions.prohibited)
-        || (assertions.prohibited
-            && (assertions.worldwide
-                || assertions.price.is_some()
-                || assertions.handling.is_some()))
-    {
+    if contradictory(&assertions, collection_label) {
         ShippingQuickCheck::Unsupported
     } else if found {
         ShippingQuickCheck::Resolved(assertions)
     } else {
         ShippingQuickCheck::NoAssertion
     }
+}
+
+fn contradictory(assertions: &ItemShippingAssertions, collection_label: bool) -> bool {
+    (collection_label && !assertions.prohibited)
+        || (assertions.prohibited
+            && (assertions.worldwide
+                || assertions.price.is_some()
+                || assertions.handling.is_some()))
 }
 
 /// Case and layout only. Digits have the same decimal value in these scripts. Never
@@ -210,16 +213,16 @@ fn statement(clause: &str, dispatch: &[Regex]) -> Option<Statement> {
     None
 }
 
-fn phrase_matches(language: Language, phrases: &[&str], clause: &str) -> bool {
+fn phrase_matches(language: Language, phrases: &str, clause: &str) -> bool {
     if language == Language::Tr {
         // Default Unicode lowercasing loses Turkish's I/ı versus İ/i distinction.
         // Tolerate that case ambiguity only inside these complete Turkish statements.
         let fold = |c| if c == 'ı' { 'i' } else { c };
         phrases
-            .iter()
+            .lines()
             .any(|phrase| clause.chars().map(fold).eq(phrase.chars().map(fold)))
     } else {
-        phrases.contains(&clause)
+        phrases.lines().any(|phrase| phrase == clause)
     }
 }
 

@@ -1,5 +1,13 @@
-use super::*;
+use super::{
+    ItemShippingAssertions, MAX_SHIPPING_TEXT_BYTES, ShippingQuickCheck, lexicon::LANGUAGES,
+    quick_check_shipping, quick_check_shipping_with_context,
+};
+use localization::Language;
 use serde::Deserialize;
+use shipping_core::{
+    pricing::ShippingPrice,
+    time::{TimeBasis, TimeRange, TimeUnit},
+};
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
@@ -311,7 +319,7 @@ fn every_documented_exact_phrase_supports_case_and_layout_variations() {
                 },
             ),
         ] {
-            for phrase in phrases {
+            for phrase in phrases.lines() {
                 assert_eq!(expected, resolved(phrase), "{:?}: {phrase}", rules.language);
                 let decorated = format!("  {}！  ", phrase.to_uppercase().replace(' ', "\u{a0}  "));
                 assert_eq!(
@@ -322,14 +330,21 @@ fn every_documented_exact_phrase_supports_case_and_layout_variations() {
                 );
             }
         }
-        for label in rules.collection_only {
+        for label in rules.collection_only.lines() {
             assert_eq!(
                 ShippingQuickCheck::Unsupported,
                 quick_check_shipping(&[label]),
                 "{:?}: {label}",
                 rules.language
             );
-            assert!(resolved(&format!("{}؛{}", label, rules.prohibited[0])).prohibited);
+            assert!(
+                resolved(&format!(
+                    "{}؛{}",
+                    label,
+                    rules.prohibited.lines().next().unwrap()
+                ))
+                .prohibited
+            );
         }
     }
 }
