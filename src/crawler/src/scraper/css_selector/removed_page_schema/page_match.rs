@@ -66,8 +66,18 @@ pub(super) fn page_classification_regex_matches(
     pattern: &str,
     html: &Html,
 ) -> Vec<String> {
-    let Ok(regex) = removed_page_regex(pattern) else {
-        return Vec::new();
+    let regex = match removed_page_regex(pattern) {
+        Ok(regex) => regex,
+        Err(reason) => {
+            // A stored row can fail here after the rule tightened; without a signal the
+            // source would silently lose soft-404 detection.
+            tracing::warn!(
+                removed_page_selector = %selector,
+                removed_page_regex_rejection = %reason,
+                "Stored removed-page regex is rejected and ignored; fix or delete the row"
+            );
+            return Vec::new();
+        }
     };
 
     normalized_selected_texts(selector, html)

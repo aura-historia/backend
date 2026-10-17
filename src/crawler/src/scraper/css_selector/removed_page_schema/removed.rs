@@ -17,23 +17,30 @@ pub struct RemovedPageMatch {
 
 impl RemovedPageMatch {
     /// Returns whether an extracted value is the matched removed-page notice rather
-    /// than product data: it equals a matched text, or, for text schemas, it carries
-    /// the removed-page text and sits inside a matched text because the selector
-    /// picked a container around the notice heading. Regex schemas only accept an
-    /// exact match, and [`removed_page_regex`] rejects patterns that match any text,
-    /// so a stored regex cannot dismiss every product title.
+    /// than product data: it equals a matched text, or it carries the removed-page
+    /// text or regex itself and sits inside a matched text because the selector
+    /// picked a container around the notice heading. [`removed_page_regex`] rejects
+    /// patterns that match any text, so a stored regex cannot dismiss every product
+    /// title.
     pub fn is_notice(&self, value: &str) -> bool {
         let value = normalize_page_classification_text(value);
         if self.notices.contains(&value) {
             return true;
         }
-        let Some(text) = self.schema.text.as_deref() else {
-            return false;
-        };
-        let expected = normalize_page_classification_text(text);
-        !expected.is_empty()
-            && value.contains(&expected)
-            && self.notices.iter().any(|notice| notice.contains(&value))
+        self.carries_signal(&value) && self.notices.iter().any(|notice| notice.contains(&value))
+    }
+
+    fn carries_signal(&self, value: &str) -> bool {
+        match (self.schema.text.as_deref(), self.schema.regex.as_deref()) {
+            (Some(text), None) => {
+                let expected = normalize_page_classification_text(text);
+                !expected.is_empty() && value.contains(&expected)
+            }
+            (None, Some(pattern)) => {
+                removed_page_regex(pattern).is_ok_and(|regex| regex.is_match(value))
+            }
+            _ => false,
+        }
     }
 }
 
@@ -86,9 +93,7 @@ impl RemovedPageSchema {
     pub fn validate_for_llm_response(&self) -> Result<(), String> {
         match (self.text.as_deref(), self.regex.as_deref()) {
             (Some(text), None) if !text.trim().is_empty() => Ok(()),
-            (None, Some(pattern)) if !pattern.trim().is_empty() => {
-                removed_page_regex(pattern).map(|_| ())
-            }
+            (None, Some(pattern)) => removed_page_regex(pattern).map(|_| ()),
             (Some(_), Some(_)) => {
                 Err("Removed page schema must include either text or regex, not both".to_string())
             }
@@ -202,6 +207,34 @@ mod tests {
 
         assert!(matched.is_notice("Sorry, the page you're looking for couldn't be found"));
         assert!(!matched.is_notice("Biedermeier Chair"));
+    }
+
+    #[test]
+    fn should_treat_title_inside_container_notice_as_notice_when_it_matches_the_regex() {
+        let html = r#"<main id="mainCatCol">
+            <h1>Sorry, the page you're looking for couldn't be found</h1>
+            <div class="related"><h2>Biedermeier Chair</h2></div></main>"#;
+        let container = RemovedPageSchema {
+            selector: CssSelector::from("#mainCatCol"),
+            text: None,
+            regex: Some(r"couldn't be found".to_string()),
+        };
+
+        let matched = container
+            .match_page(&Html::parse_document(html))
+            .expect("page matches");
+
+        assert!(matched.is_notice("Sorry, the page you're looking for couldn't be found"));
+        assert!(!matched.is_notice("Biedermeier Chair"));
+    }
+
+    #[test]
+    fn should_reject_blank_regex_with_the_regex_specific_message() {
+        let err = regex_schema("   ")
+            .validate_for_llm_response()
+            .expect_err("blank regex is rejected");
+
+        assert_eq!(err, "Removed page regex must not be empty");
     }
 
     #[test]

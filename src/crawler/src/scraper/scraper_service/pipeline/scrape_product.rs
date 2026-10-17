@@ -1,5 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 
+use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationContext;
 use crate::scraper::raw_input::crawler_raw_input;
@@ -139,21 +140,17 @@ impl ScraperServiceImpl {
     /// through the same candidate preparation the scraper uses for extraction. A
     /// candidate whose title is a matched removed-page notice is that notice, not a
     /// product, and is dropped before image validation so a soft-404 costs no image
-    /// requests. Only reads the schema cache; it never generates schemas or spends
-    /// LLM budget.
+    /// requests. Works on the already loaded schema cache; it never generates
+    /// schemas or spends LLM budget.
     #[allow(clippy::result_large_err)]
     async fn cached_schemas_extract_product(
         &self,
-        listing_source_id: &ListingSourceId,
+        cached: Option<&ListingSourceProductSchema>,
         html: &str,
         removed_page_matches: &[RemovedPageMatch],
         context: &ProductNormalizationContext,
     ) -> Result<bool, ScraperError> {
-        let Some(cached) = self
-            .schema_service
-            .find_product_schema(listing_source_id)
-            .await?
-        else {
+        let Some(cached) = cached else {
             return Ok(false);
         };
 
@@ -347,6 +344,11 @@ impl ScraperServiceImpl {
         let html = fetched.html;
 
         let removed_page_matches = self.removed_page_matches(listing_source_id, &html).await?;
+        // One schema-cache read serves both the removal guard and schema obtainment.
+        let cached_product_schemas = self
+            .schema_service
+            .find_product_schema(listing_source_id)
+            .await?;
         if !removed_page_matches.is_empty() {
             // Withdrawal needs unambiguous evidence: a removed-page template that also
             // matches a page cached schemas still extract a product from is an
@@ -354,7 +356,7 @@ impl ScraperServiceImpl {
             // scraped normally; the warning names the row an operator has to fix.
             if self
                 .cached_schemas_extract_product(
-                    listing_source_id,
+                    cached_product_schemas.as_ref(),
                     &html,
                     &removed_page_matches,
                     &ProductNormalizationContext {
@@ -395,16 +397,20 @@ impl ScraperServiceImpl {
 
         // Obtain the effective schema set before the fast path. Selector or raw-attribute
         // changes must force extraction even when the page fragment is byte-identical.
-        let listing_source_product_schemas = self
-            .obtain_schemas(
-                listing_source_id,
-                &effective_url,
-                product_url_pattern,
-                &html,
-                domain_id.as_ref(),
-                mode,
-            )
-            .await?;
+        let listing_source_product_schemas = match cached_product_schemas {
+            Some(existing) => existing,
+            None => {
+                self.obtain_schemas(
+                    listing_source_id,
+                    &effective_url,
+                    product_url_pattern,
+                    &html,
+                    domain_id.as_ref(),
+                    mode,
+                )
+                .await?
+            }
+        };
         let stored_schema_fingerprint = fingerprint_scraper_context(
             &listing_source_product_schemas.product_schemas,
             fallback_currency,

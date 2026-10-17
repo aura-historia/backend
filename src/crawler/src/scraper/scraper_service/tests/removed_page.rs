@@ -58,20 +58,13 @@ fn removed_repo_returning(row: ListingSourceRemovedPageSchema) -> MockRemovedPag
     removed_repo
 }
 
+/// The scraper reads the cached schema once per scrape; the removal guard reuses
+/// that read.
 fn schema_service_with_cached_schema(id: ListingSourceId) -> MockProductListingSchemaService {
-    schema_service_with_cached_schema_read(id, 1)
-}
-
-/// `reads` is how often the scraper looks the cached schema up: once on a normal
-/// scrape, twice when the removal guard also judges the page.
-fn schema_service_with_cached_schema_read(
-    id: ListingSourceId,
-    reads: usize,
-) -> MockProductListingSchemaService {
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
-        .times(reads)
+        .once()
         .returning(move |_| {
             let schema = listing_source_product_schemas(id);
             Box::pin(async move { Ok(Some(schema)) })
@@ -223,6 +216,41 @@ async fn should_mark_product_removed_when_container_level_removed_page_selector_
 }
 
 #[tokio::test]
+async fn should_mark_product_removed_when_container_level_removed_page_regex_matches() {
+    let id = listing_source_id();
+    let url = product_url();
+    // Same as the container-level text case, with the notice signalled by a regex.
+    let html = r#"<html><body><main id="mainCatCol">
+        <h1>Sorry, the page you're looking for couldn't be found</h1>
+        <div class="related"><span id="product-id">SKU-9</span>
+        <span id="state">In Stock</span><img src="/images/related.jpg"></div>
+        </main></body></html>"#;
+    let mut removed = removed_schema_set(id);
+    removed.removed_page_schemas = vec![RemovedPageSchema {
+        selector: CssSelector::from("#mainCatCol"),
+        text: None,
+        regex: Some(r"couldn't be found".to_string()),
+    }];
+
+    let service = service(
+        fetcher_returning(html.to_string()),
+        schema_service_with_cached_schema(id),
+        MockProductListingNormalizationService::new(),
+        removed_repo_returning(removed),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
     let id = listing_source_id();
     let url = product_url();
@@ -271,7 +299,7 @@ async fn should_scrape_product_when_product_image_needs_crawler_image_filtering(
 
     let service = service(
         fetcher_returning(html),
-        schema_service_with_cached_schema_read(id, 2),
+        schema_service_with_cached_schema(id),
         normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
@@ -302,7 +330,7 @@ async fn should_scrape_product_when_removed_page_schema_matches_extractable_prod
 
     let service = service(
         fetcher_returning(html),
-        schema_service_with_cached_schema_read(id, 2),
+        schema_service_with_cached_schema(id),
         normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
