@@ -404,7 +404,6 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         .create(
             &ctx,
             CreateUserAddress {
-                idempotency_key: UserAddressIdempotencyKey::new("shipping".into()).unwrap(),
                 label: UserAddressLabel::new("private name".into()).unwrap(),
                 geography: geography(CountryCode::DEU),
             },
@@ -415,7 +414,6 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         .create(
             &context(Principal::User(foreign)),
             CreateUserAddress {
-                idempotency_key: UserAddressIdempotencyKey::new("shipping".into()).unwrap(),
                 label: UserAddressLabel::new("foreign".into()).unwrap(),
                 geography: geography(CountryCode::DEU),
             },

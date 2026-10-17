@@ -471,7 +471,6 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
         .create(
             &ctx(Principal::User(owner)),
             CreateUserAddress {
-                idempotency_key: UserAddressIdempotencyKey::new("private".into()).unwrap(),
                 label: UserAddressLabel::new("Destination".into()).unwrap(),
                 geography: GeographicDescription::new(
                     Some(AddressText::new("private saved street").unwrap()),
@@ -1294,11 +1293,13 @@ async fn periodic_shipping_change(fx_mode: bool) {
             product_listing_postgres::SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
+            notification_postgres::SqlxSavedSearchDigestStoreFactory,
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: std::num::NonZeroUsize::new(100).unwrap(),
                 hybrid_scan_limit: std::num::NonZeroUsize::new(100).unwrap(),
                 evaluation_limit: std::num::NonZeroUsize::new(50).unwrap(),
                 classification_concurrency: std::num::NonZeroUsize::MIN,
+                classification_batch_candidates: std::num::NonZeroUsize::MIN,
                 should_show_threshold: classifier_model::Probability::new(0.5).unwrap(),
                 max_attempts: std::num::NonZeroUsize::MIN,
                 projection_lag: time::Duration::ZERO,
