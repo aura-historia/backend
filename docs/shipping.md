@@ -310,8 +310,8 @@ PATCH semantics apply (`shipping: null` clears the whole predicate); acceptance 
 does not change browsing selection. Account erasure cascades to these private snapshots.
 They remain outside public listing documents, ordinary CDC/events and logs. Periodic
 matching revisits indexed shipping predicates each evaluation, preserving explicit saved
-date constraints, because profile updates need no canonical listing-price/availability
-change. Existing bounded candidate/scan limits, idempotent matches, event fences and
+date constraints and the evaluation cutoff, because profile updates need no canonical
+listing-price/availability change. Existing bounded candidate/scan limits, idempotent matches, event fences and
 notification routing still apply; see [matching](events/flow.md#periodic-saved-filter-matching).
 
 ## Independent assertions

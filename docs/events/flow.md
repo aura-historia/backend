@@ -227,10 +227,10 @@ use ordinary search without embedding or model work. Structured predicates, incl
 geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
 
-Shipping filters revisit indexed membership each evaluation instead of adding the automatic
+Shipping filters revisit indexed membership each evaluation without the automatic lower
 listing-updated replay bound: profile/default changes can affect older listings without a
-canonical price/availability change. Explicit saved date bounds remain in force. This uses
-the current scheduled matcher and shipping enrichment projection, with no event-percolator
+canonical price/availability change. Explicit saved date bounds and the evaluation cutoff
+remain in force. This uses the current scheduled matcher and shipping enrichment projection, with no event-percolator
 queue. Private destination snapshots follow the [shipping contract](../shipping.md#shipping-search-and-saved-destinations).
 
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity

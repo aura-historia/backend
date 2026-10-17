@@ -279,8 +279,8 @@ matches to force a replay. The replay overlap tolerates bounded projection lag, 
 unlimited outage: review uncovered windows after prolonged search/projection failures.
 
 Shipping filters revisit current indexed membership on the next matching evaluation,
-including listings older than the automatic replay window; authored date bounds still
-apply. Candidate/scan limits remain bounded, so inspect cap outcomes for broad shipping
+including listings older than the automatic replay window; authored date bounds and the
+evaluation cutoff still apply. Candidate/scan limits remain bounded, so inspect cap outcomes for broad shipping
 filters. Recover shipping projection custody before investigating missing indexed offers;
 current response terms may already reflect a change. Never generate a canonical price or
 availability event to force discovery, or reset saved destination snapshots after an
