@@ -183,6 +183,25 @@ pub struct ResolvedDestination {
     pub attribution: Option<UserAddressAttribution>,
 }
 
+/// Transient administrative/postal facts; excludes bookmark identity, street text and points.
+pub struct DestinationFacts {
+    pub submitted: Option<GeographicDescription>,
+    pub derived: Option<GeographicDescription>,
+    pub attribution: Option<UserAddressAttribution>,
+}
+fn destination_facts(value: Option<&GeographicDescription>) -> Option<GeographicDescription> {
+    value.and_then(|g| {
+        GeographicDescription::new_in_release(
+            g.reference_release(),
+            None,
+            g.country(),
+            g.subdivision(),
+            g.postal_code().cloned(),
+        )
+        .expect("validated geographic components")
+    })
+}
+
 #[async_trait::async_trait]
 pub trait AddressBookAccess: Send {
     /// Lock the current owner against account erasure and concurrent preferences/edits.
@@ -276,6 +295,25 @@ pub trait AddressBookCommands: Send + Sync {
 }
 #[async_trait::async_trait]
 pub trait AddressBookQueries: Send + Sync {
+    /// Resolves current owner permission and permitted, unexpired evidence through the
+    /// ordinary destination query, returning only the facts needed for area assessment.
+    async fn resolve_destination_facts(
+        &self,
+        ctx: &OperationContext,
+        explicit: Option<BrowsingDestination>,
+    ) -> Result<DestinationFacts, AddressBookError> {
+        let resolved = self.resolve_destination(ctx, explicit).await?;
+        Ok(DestinationFacts {
+            submitted: destination_facts(resolved.submitted.as_ref()),
+            derived: destination_facts(
+                resolved
+                    .derived
+                    .as_ref()
+                    .and_then(DerivedGeography::description),
+            ),
+            attribution: resolved.attribution,
+        })
+    }
     async fn get(
         &self,
         ctx: &OperationContext,

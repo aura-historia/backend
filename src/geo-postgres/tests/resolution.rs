@@ -1624,3 +1624,65 @@ async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates(
         Err(ResolutionError::InvalidInput)
     ));
 }
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let i = input(Uuid::now_v7(), "Synthetic snapshot site");
+    let b = binding();
+    let work = bind(&pool, &i, b).await;
+    let ClaimOutcome::Claimed(c) = claim(&pool, work).await else {
+        panic!("claim required")
+    };
+    assert!(
+        complete(
+            &pool,
+            &c,
+            ResolutionCompletion::Evidence(evaluate(&i, result(), PROFILE).unwrap())
+        )
+        .await
+    );
+    for state in ["accepted", "expired", "revoked"] {
+        if state == "expired" {
+            sqlx::query(
+                "UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        if state == "revoked" {
+            sqlx::query(
+                "UPDATE geo_resolutions SET valid_until=clock_timestamp()+interval '1 hour'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(tx.connection())
+            .await
+            .unwrap();
+        let snapshots = SqlxResolutionRepositoryFactory::snapshot_reader(tx.connection())
+            .inspect_many(&[b.subject, binding().subject])
+            .await
+            .unwrap();
+        assert_eq!(2, snapshots.len());
+        assert!(snapshots[1].is_none());
+        assert_eq!(
+            state == "accepted",
+            snapshots[0]
+                .as_ref()
+                .unwrap()
+                .accepted_geography()
+                .is_some()
+        );
+        tx.commit().await.unwrap();
+    }
+}

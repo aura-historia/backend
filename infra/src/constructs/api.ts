@@ -28,6 +28,7 @@ export enum RouteAuthorizationClass {
   Partner = "PARTNER",
   PartyLocationManager = "PARTY_LOCATION_MANAGER",
   SourceLocationManager = "SOURCE_LOCATION_MANAGER",
+  ShippingProfileManager = "SHIPPING_PROFILE_MANAGER",
 }
 
 export enum OAuthCredentialRequirement {
@@ -105,6 +106,12 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-default", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
@@ -548,6 +555,16 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.SourceLocationManager,
+      oauthCredentials: OAuthCredentialRequirement.None,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
+      path === "/api/v1/listing-sources/{listing_source_id}/shipping-default" ||
+      path.startsWith("/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.ShippingProfileManager,
       oauthCredentials: OAuthCredentialRequirement.None,
       providerProof: ProviderProofRequirement.None,
     };

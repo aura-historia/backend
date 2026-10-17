@@ -544,6 +544,7 @@ fn user_state(
     let search_filter = search_filter_user_state(row, Some(tier))?;
 
     Ok(Some(ProductListingUserState {
+        shipping: None,
         watchlist: WatchlistUserState {
             watching: row.watchlist_notifications.is_some(),
             notifications: row.watchlist_notifications.unwrap_or(false),
@@ -605,6 +606,7 @@ fn search_filter_user_state(
             .clone()
             .map(UserSearchFilterName::from),
         match_feedback: row.selected_match_feedback,
+        shipping_match_valuation: None,
     })
 }
 

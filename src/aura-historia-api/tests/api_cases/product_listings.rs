@@ -513,7 +513,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (id_status, id_body) = json_response(id_response).await;
+    let (id_status, mut id_body) = json_response(id_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
         id_status,
@@ -530,13 +530,26 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (slug_status, slug_body) = json_response(slug_response).await;
+    let (slug_status, mut slug_body) = json_response(slug_response).await;
 
     assert_eq!(
         reqwest::StatusCode::OK,
         slug_status,
         "response body: {slug_body}"
     );
+    // Each lookup evaluates current shipping in its own snapshot.
+    for body in [&mut id_body, &mut slug_body] {
+        let evaluated_at = body["item"]["shipping"]
+            .as_object_mut()
+            .unwrap()
+            .remove("evaluatedAt")
+            .unwrap();
+        OffsetDateTime::parse(
+            evaluated_at.as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+    }
     assert_eq!(id_body, slug_body);
     assert_eq!(
         Some("public, max-age=0, s-maxage=120, stale-if-error=0".to_owned()),
@@ -706,6 +719,8 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
         );
         assert!(body["item"].get("productListingTitleSlugId").is_none());
         assert_eq!(json!(true), body["userState"]["searchFilter"]["hidden"]);
+        assert!(body["item"]["shipping"].is_null());
+        assert!(body["userState"].get("shipping").is_none());
     }
 }
 
@@ -1983,4 +1998,218 @@ fn product_listing_ids(body: &Value) -> Vec<String> {
 
 fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_include_current_shipping_across_all_listing_read_endpoints() {
+    use application::operation_context::{OperationContext, Principal};
+    use shipping_service::{ports::ShippingDefaultRevision, use_cases::*};
+    use user_core::{access_token::Scope, tier::UserTier, user_address::BrowsingDestination};
+    use user_service::address_book::{AddressBookCommands, AddressBookHandler};
+
+    let id = seed_product().await;
+    let seed = seed_product().await;
+    let pool = get_postgres_client().await;
+    let (source, event, slug): (uuid::Uuid, uuid::Uuid, String) = sqlx::query_as(
+        "SELECT listing_source_id,current_event_id,product_listing_title_slug_id FROM product_listings WHERE product_listing_id=$1",
+    ).bind(id.into_uuid()).fetch_one(&pool).await.unwrap();
+    let source = ListingSourceId::try_from(source).unwrap();
+    let context = OperationContext {
+        principal: Principal::System,
+        request_id: "listing-shipping".into(),
+        correlation_id: "listing-shipping".into(),
+    };
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let profile = CreateShippingProfileHandler::new(
+        uow.clone(),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context,
+        CreateProfileCommand {
+            import: None,
+            source_id: source,
+            creation_key: "public-shipping".into(),
+            content: shipping_core::profile::ShippingProfileContent {
+                name: shipping_core::profile::ShippingProfileName::new("Public terms".into())
+                    .unwrap(),
+                attributed_party: None,
+                terms: shipping_core::fixtures::gallery_terms(8000),
+            },
+            evidence: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    AssignShippingDefaultHandler::new(
+        uow.clone(),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context,
+        AssignDefaultCommand {
+            import: None,
+            source_id: source,
+            profile_id: profile.id,
+            expected_revision: ShippingDefaultRevision::INITIAL,
+        },
+    )
+    .await
+    .unwrap();
+
+    let user = api_support::seed_user_with_tier("USER", UserTier::Ultimate).await;
+    let owner_context = OperationContext {
+        principal: Principal::User(user),
+        ..context.clone()
+    };
+    AddressBookHandler::new(
+        uow,
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    )
+    .set_destination(
+        &owner_context,
+        BrowsingDestination::CountryPostal {
+            country: geo::CountryCode::DEU,
+            postal_code: None,
+        },
+        1,
+    )
+    .await
+    .unwrap();
+    let token = String::from(
+        seed_access_token_for(
+            user,
+            HashSet::from([
+                Scope::ProductListingsRead,
+                Scope::UsersRead,
+                Scope::WatchlistRead,
+                Scope::SearchFiltersRead,
+            ]),
+        )
+        .await,
+    );
+    let auction = auction_core::AuctionId::new();
+    sqlx::query("INSERT INTO auctions(auction_id,listing_source_id,source_auction_id)VALUES($1,$2,'shipping-catalogue')").bind(auction.into_uuid()).bind(source.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE product_listings SET auction_id=$1 WHERE product_listing_id=$2")
+        .bind(auction.into_uuid())
+        .bind(id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_listing_watchlist(user_id,product_listing_id,state,active_since,notifications_enabled_since)VALUES($1,$2,'ACTIVE',now(),now())").bind(user.into_uuid()).bind(id.into_uuid()).execute(&pool).await.unwrap();
+    let filter = UserSearchFilterId::new();
+    sqlx::query("INSERT INTO search_filters(user_search_filter_id,user_id,name,notifications,state,search,language,currency,matching_evidence_policy)VALUES($1,$2,'Shipping matches',true,'ACTIVE','{}','en','EUR','TEXT_ONLY')").bind(filter.into_uuid()).bind(user.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO search_filter_matches(user_id,user_search_filter_id,product_listing_id,origin_event_id,user_search_filter_name)VALUES($1,$2,$3,$4,'Shipping matches')").bind(user.into_uuid()).bind(filter.into_uuid()).bind(id.into_uuid()).bind(event).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE product_listings SET embedding=$1 WHERE product_listing_id=$2")
+        .bind(vec![1_f32; embedding::EMBEDDING_DIMENSIONS])
+        .bind(seed.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, mut document) = search_document(
+        "Shipping painting",
+        100,
+        "AVAILABLE",
+        "Shipping gallery",
+        "2026-10-15T00:00:00Z",
+    );
+    document["productListingId"] = json!(id);
+    document["listingSourceId"] = json!(source);
+    document["auctionId"] = json!(auction);
+    index_existing_listing_source_document(with_embedding(
+        document,
+        vec![1_f32; embedding::EMBEDDING_DIMENSIONS],
+    ))
+    .await;
+
+    let paths = [
+        (format!("/api/v1/product-listings/{id}"), ""),
+        (format!("/api/v1/product-listings/by-slug/{slug}"), ""),
+        ("/api/v1/product-listings?size=100".to_owned(), "/items/0"),
+        (format!("/api/v1/product-listings/{seed}/similar"), "/0"),
+        ("/api/v1/me/watchlist".to_owned(), "/items/0"),
+        (
+            format!("/api/v1/auctions/{auction}/product-listings"),
+            "/items/0",
+        ),
+        (
+            format!("/api/v1/me/search-filters/{filter}/matches"),
+            "/items/0",
+        ),
+    ];
+    let client = reqwest::Client::new();
+    for (path, pointer) in &paths {
+        let response = client
+            .get(format!("{}{path}", AURA_API.base_url()))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            matches!(
+                response
+                    .headers()
+                    .get(reqwest::header::CACHE_CONTROL)
+                    .and_then(|v| v.to_str().ok()),
+                Some("private, no-store" | "no-store")
+            ),
+            "{path}"
+        );
+        let (status, body) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "{path}: {body}");
+        let listing = body
+            .pointer(pointer)
+            .unwrap_or_else(|| panic!("missing listing at {pointer}: {body}"));
+        assert_eq!(json!(id), listing["item"]["productListingId"], "{path}");
+        assert_eq!(
+            json!(profile.id),
+            listing["item"]["shipping"]["profile"]["shippingProfileId"],
+            "{path}"
+        );
+        assert_eq!(
+            "OFFERED", listing["userState"]["shipping"]["eligibility"],
+            "{path}: {body}"
+        );
+        assert!(
+            listing["userState"]["shipping"]["options"][0]["charge"].is_null(),
+            "{path}"
+        );
+        if !path.starts_with("/api/v1/me/") {
+            let response = client
+                .get(format!("{}{path}", AURA_API.base_url()))
+                .send()
+                .await
+                .unwrap();
+            let (status, anonymous) = json_response(response).await;
+            assert_eq!(reqwest::StatusCode::OK, status, "{path}: {anonymous}");
+            let anonymous = anonymous.pointer(pointer).unwrap();
+            assert!(anonymous.get("userState").is_none(), "{path}");
+            assert_eq!(
+                listing["item"]["shipping"]["terms"], anonymous["item"]["shipping"]["terms"],
+                "{path}"
+            );
+        }
+    }
+    // Discovery may retain an obsolete hit; it must not advertise current shipping.
+    sqlx::query("UPDATE product_listings SET lifecycle='WITHDRAWN',availability=NULL WHERE product_listing_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
+    for (path, pointer) in paths.iter().filter(|(_, pointer)| !pointer.is_empty()) {
+        let response = client
+            .get(format!("{}{path}", AURA_API.base_url()))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        let (status, body) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "{path}: {body}");
+        if path.starts_with("/api/v1/auctions/") {
+            assert_eq!(json!([]), body["items"]);
+            continue;
+        }
+        let listing = body.pointer(pointer).unwrap();
+        assert!(listing["item"]["shipping"].is_null(), "{path}: {body}");
+        assert!(listing["userState"].get("shipping").is_none(), "{path}");
+    }
 }

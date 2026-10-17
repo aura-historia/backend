@@ -1,8 +1,8 @@
 use super::SqlxSearchFilterReader;
 use crate::mapping::{MATCH_COLUMNS, MatchRow};
+use application::error::box_error;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::sort::SortOrder;
-use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_service::ports::{
     SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchListQuery,
     SearchFilterMatchReadError, SearchFilterMatchReader,
@@ -26,7 +26,9 @@ impl SearchFilterMatchReader for SqlxSearchFilterReader {
         .bind(query.user_id.into_uuid())
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| SearchFilterMatchReadError::ReadFailed)?;
+        .map_err(|source| SearchFilterMatchReadError::ReadFailed {
+            source: box_error(source),
+        })?;
         if !owned {
             return Ok(None);
         }
@@ -41,17 +43,25 @@ impl SearchFilterMatchReader for SqlxSearchFilterReader {
         )
         .await?;
         let has_more = rows.len()
-            > usize::try_from(cursor.size).map_err(|_| SearchFilterMatchReadError::ReadFailed)?;
+            > usize::try_from(cursor.size).map_err(|source| {
+                SearchFilterMatchReadError::ReadFailed {
+                    source: box_error(source),
+                }
+            })?;
         if has_more {
             rows.pop();
         }
         let items = rows
             .into_iter()
             .map(|row| {
+                let view = search_filter_service::ports::SearchFilterMatchView::try_from(row)
+                    .map_err(|source| SearchFilterMatchReadError::InvalidPersistedState {
+                        source: box_error(source),
+                    })?;
                 Ok(SearchFilterMatchListItem {
-                    product_listing_id: ProductListingId::try_from(row.product_listing_id)
-                        .map_err(|_| SearchFilterMatchReadError::InvalidPersistedState)?,
-                    created: row.created,
+                    shipping_match_valuation: view.shipping_match_valuation,
+                    product_listing_id: view.product_listing_id,
+                    created: view.created,
                 })
             })
             .collect::<Result<Vec<_>, SearchFilterMatchReadError>>()?;
@@ -115,8 +125,14 @@ async fn match_rows(
             .bind(after.product_listing_id.into_uuid());
     }
     query
-        .bind(i64::try_from(size).map_err(|_| SearchFilterMatchReadError::ReadFailed)?)
+        .bind(
+            i64::try_from(size).map_err(|source| SearchFilterMatchReadError::ReadFailed {
+                source: box_error(source),
+            })?,
+        )
         .fetch_all(pool)
         .await
-        .map_err(|_| SearchFilterMatchReadError::ReadFailed)
+        .map_err(|source| SearchFilterMatchReadError::ReadFailed {
+            source: box_error(source),
+        })
 }

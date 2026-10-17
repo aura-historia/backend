@@ -41,6 +41,12 @@ pub type ListWatchlistResult =
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListWatchlistError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        product_listing_service::shipping::ShippingReadError,
+    ),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -90,14 +96,21 @@ pub trait ListWatchlistUseCase: Send + Sync {
 }
 
 pub struct ListWatchlistHandler<U, D, F> {
+    shipping: product_listing_service::shipping::ShippingEnrichment,
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
 }
 
 impl<U, D, F> ListWatchlistHandler<U, D, F> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        details_reader: D,
+        fx_rates: F,
+        shipping: product_listing_service::shipping::ShippingEnrichment,
+    ) -> Self {
         Self {
+            shipping,
             unit_of_work,
             details_reader,
             fx_rates,
@@ -176,6 +189,15 @@ where
             }
         }
 
+        self.shipping
+            .details(
+                context,
+                &mut page.items,
+                request.currency,
+                pricing_snapshots.current.as_ref(),
+                valuation_at,
+            )
+            .await?;
         Ok(page)
     }
 }
@@ -544,6 +566,7 @@ mod tests {
             FakeUnitOfWork(Arc::clone(state)),
             FakeDetailsReaderFactory(Arc::clone(state)),
             FakeFxRateSnapshotRepositoryFactory(Arc::clone(state)),
+            product_listing_service::shipping::ShippingEnrichment::for_tests(),
         )
     }
 
@@ -705,6 +728,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let expected_user_state = ProductListingUserState {
+            shipping: None,
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
             },

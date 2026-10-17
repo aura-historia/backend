@@ -200,10 +200,8 @@ fn search_filter_match_lookup_error(
     error: SearchFilterMatchRepositoryError,
 ) -> UpdateSearchFilterMatchFeedbackError {
     match error {
-        SearchFilterMatchRepositoryError::InvalidPersistedState => {
-            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterMatchStateInvalid {
-                source: box_error(SearchFilterMatchRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterMatchRepositoryError::InvalidPersistedState { source } => {
+            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterMatchStateInvalid { source }
         }
         error => UpdateSearchFilterMatchFeedbackError::SearchFilterMatchLookupFailed {
             source: box_error(error),
@@ -215,10 +213,8 @@ fn search_filter_match_update_error(
     error: SearchFilterMatchRepositoryError,
 ) -> UpdateSearchFilterMatchFeedbackError {
     match error {
-        SearchFilterMatchRepositoryError::InvalidPersistedState => {
-            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterMatchStateInvalid {
-                source: box_error(SearchFilterMatchRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterMatchRepositoryError::InvalidPersistedState { source } => {
+            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterMatchStateInvalid { source }
         }
         error => UpdateSearchFilterMatchFeedbackError::SearchFilterMatchUpdateFailed {
             source: box_error(error),

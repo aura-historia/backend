@@ -398,8 +398,7 @@ pub(crate) fn build_search_query(
     ) {
         must.push(product_listing_query_clause);
     }
-    let (must_not, filter) =
-        build_product_index_filter_clauses(search, &compiled_search.price_filter_plan)?;
+    let (must_not, filter) = build_product_index_filter_clauses(compiled_search)?;
 
     Ok(json!({
         "bool": {
@@ -416,8 +415,7 @@ pub(crate) fn build_hybrid_search_request(
 ) -> Result<serde_json::Value, serde_json::Error> {
     let search = &request.compiled_search.search;
     let cursor = &request.cursor;
-    let (must_not, filter) =
-        build_product_index_filter_clauses(search, &request.compiled_search.price_filter_plan)?;
+    let (must_not, filter) = build_product_index_filter_clauses(&request.compiled_search)?;
     let title_field = title_field(&search.language);
     let bm25_text = build_product_listing_query_clause(&search.product_listing_query, title_field)
         .unwrap_or_else(|| json!({ "match_all": {} }));
@@ -585,11 +583,18 @@ fn build_text_match_clause(
 }
 
 pub(crate) fn build_product_index_filter_clauses(
-    search: &ProductListingSearch,
-    price_filter: &ProductListingPriceFilterPlan,
+    compiled: &CompiledProductListingSearch,
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
+    let search = &compiled.search;
+    let price_filter = &compiled.price_filter_plan;
     let (mut must_not, mut filter) = build_common_filter_clauses(search)?;
     must_not.push(json!({"term": {"projectionDeleted": true}}));
+    if let Some(query) = &search.shipping {
+        filter.extend(crate::shipping_query::clauses(
+            query,
+            compiled.shipping_native_ranges(),
+        ));
+    }
     if let Some(price_clause) = build_product_index_price_clause(price_filter) {
         filter.push(price_clause);
     }
@@ -989,6 +994,7 @@ mod tests {
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
+            shipping: None,
             business_geography: None,
             inventory_geography: None,
             auction_id: None,

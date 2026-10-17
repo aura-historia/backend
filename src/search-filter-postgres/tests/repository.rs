@@ -157,6 +157,11 @@ async fn should_insert_find_and_update_search_filter_match() {
             basis: ProductListingPriceValuationBasis::Event,
             fx_rate_id,
         }),
+        shipping_match_valuation: Some(search_filter_core::ShippingMatchValuation {
+            fx_rate_id,
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            maximum_per_item: money::Price::new(500_u64.into(), Currency::Usd),
+        }),
         feedback: None,
     };
 
@@ -198,7 +203,12 @@ async fn should_persist_one_match_when_single_and_batch_completions_overlap() {
         let filter = sample_filter(user_id, "duplicate match");
         let product_id = seed_product(&pool, "duplicate-match-product").await;
         let event_id = seed_product_event(&pool, product_id).await;
-        let matched = product_match(&filter, product_id, event_id);
+        let mut matched = product_match(&filter, product_id, event_id);
+        matched.shipping_match_valuation = Some(search_filter_core::ShippingMatchValuation {
+            fx_rate_id: seed_fx_rate(&pool).await,
+            captured_at: time::OffsetDateTime::UNIX_EPOCH,
+            maximum_per_item: money::Price::new(500_u64.into(), Currency::Usd),
+        });
         let mut setup = unit.begin().await?;
         SqlxSearchFilterRepositoryFactory
             .in_transaction(&mut setup)
@@ -218,7 +228,8 @@ async fn should_persist_one_match_when_single_and_batch_completions_overlap() {
         );
         let duplicate = async {
             let mut tx = unit.begin().await?;
-            let different_result = matched.clone();
+            let mut different_result = matched.clone();
+            different_result.shipping_match_valuation = None;
             let outcome = SqlxSearchFilterMatchWriterFactory
                 .in_transaction(&mut tx)
                 .insert_all_if_absent(&[different_result])
@@ -310,6 +321,7 @@ fn product_match(
         product_listing_id,
         origin_event_id,
         price_match_valuation: None,
+        shipping_match_valuation: None,
         feedback: None,
     }
 }

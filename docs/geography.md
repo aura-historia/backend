@@ -4,7 +4,7 @@ This guide owns geographic meaning, evidence, provider rights and privacy. Exact
 shapes belong in [OpenAPI](swagger.yaml); schema and codecs belong in migrations and
 adapters. [Event flow](events/flow.md#geography-dependency-invalidation) owns propagation;
 the [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns activation,
-rebuild and recovery. Shipping owns destination eligibility and delivery assessment.
+rebuild and recovery. [Shipping](shipping.md) owns destination eligibility and delivery assessment.
 
 ## Assertions and evidence
 
@@ -209,6 +209,9 @@ Claims reserve provider/scope budgets before I/O and retain no transaction durin
 Completion rechecks lease, generation, current bindings and storage rights, then commits
 permitted evidence and a minimal signal. Reads suppress stale, expired or revoked evidence
 immediately. Database coordination follows provider → resolution → binding lock order.
+Read-only repeatable snapshots use the same permission and logical-expiry gates without
+acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
+uses these current facts instead of the listing-geography projection.
 
 Retries are bounded, with backoff, concurrency/daily budgets and a circuit for provider
 health failures. Unsupported input remains an input failure; errors never become no-match.

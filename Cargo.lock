@@ -287,6 +287,7 @@ dependencies = [
  "base64 0.23.1",
  "billing-service",
  "billing-stripe",
+ "classifier-model",
  "credential-core",
  "domain-primitives",
  "embedding",
@@ -345,6 +346,10 @@ dependencies = [
  "serde_qs",
  "serial_test",
  "sha2 0.11.1",
+ "shipping-core",
+ "shipping-json",
+ "shipping-postgres",
+ "shipping-service",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
@@ -372,18 +377,23 @@ dependencies = [
 name = "aura-historia-cdc-routing"
 version = "0.1.0"
 dependencies = [
+ "application",
  "aura-historia-jobs",
  "domain-primitives",
  "fxrate-core",
  "geo-service",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
+ "party-core",
  "product-listing-core",
  "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
+ "shipping-core",
+ "shipping-json",
  "thiserror 2.0.21",
  "time",
  "tracing",
@@ -4610,6 +4620,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "listing-shipping-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "listing-source-core"
 version = "0.1.0"
 dependencies = [
@@ -6191,6 +6220,7 @@ dependencies = [
  "serde",
  "serde_fields",
  "serde_json",
+ "shipping-core",
  "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
@@ -6243,12 +6273,16 @@ dependencies = [
  "listing-source-core",
  "localization",
  "money",
+ "party-core",
  "product-listing-core",
  "product-listing-normalization",
  "product-listing-service",
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "shipping-core",
+ "shipping-json",
+ "shipping-service",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -6270,6 +6304,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "shipping-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
@@ -6300,6 +6335,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
+ "time",
  "tokio",
  "tracing",
  "uuid",
@@ -6329,6 +6365,7 @@ dependencies = [
  "serde_fields",
  "serde_json",
  "serial_test",
+ "shipping-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
@@ -6387,6 +6424,8 @@ dependencies = [
  "geo-service",
  "indexmap 2.14.2",
  "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
  "localization",
  "money",
  "notification-core",
@@ -6403,6 +6442,10 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha2 0.11.1",
+ "shipping-core",
+ "shipping-json",
+ "shipping-postgres",
+ "shipping-service",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -6445,6 +6488,8 @@ dependencies = [
  "search-filter-core",
  "serde_json",
  "sha2 0.11.1",
+ "shipping-core",
+ "shipping-service",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
@@ -7297,6 +7342,7 @@ dependencies = [
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
+ "time",
  "user-core",
  "uuid",
 ]
@@ -7380,6 +7426,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shipping-core",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -7795,6 +7842,87 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shipping-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "geo",
+ "listing-source-core",
+ "money",
+ "party-core",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "shipping-json"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "geo",
+ "listing-source-core",
+ "money",
+ "party-core",
+ "product-listing-core",
+ "serde",
+ "serde_json",
+ "shipping-core",
+]
+
+[[package]]
+name = "shipping-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "geo",
+ "geo-postgres",
+ "geo-service",
+ "listing-source-core",
+ "listing-source-postgres",
+ "party-core",
+ "platform-postgres",
+ "product-listing-core",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2 0.11.1",
+ "shipping-core",
+ "shipping-json",
+ "shipping-service",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
+name = "shipping-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "geo",
+ "listing-source-core",
+ "listing-source-service",
+ "party-core",
+ "product-listing-core",
+ "serde",
+ "shipping-core",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

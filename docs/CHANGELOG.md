@@ -2,6 +2,17 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Advertised shipping and collection (#1997)
+
+- Listing detail, search, similar, watchlist, saved-search match and auction catalogue responses include `item.shipping`: current advertised terms, observation/dependency information and converted rates in the requested display currency. These are advertised arrangements, not checkout quotes or landed-cost totals.
+- Users with an authorized selected browsing destination also receive `userState.shipping`, including uncertainty when purchase inputs are missing. Delegated personalization requires `users:read`. Hidden/withdrawn entries expose no shipping; sites and private address identities are omitted. Authenticated responses/errors are `no-store`.
+- Search and saved filters support whole-country shipping, optional service, per-item maximum and independent collection-offered predicates. Maximums compare source currency by default; explicit `WHOLE_COUNTRY_PER_ITEM_FX_V1` uses the declared target currency and pinned FX snapshot. Indexed membership/counts may lag current response terms.
+- Saved shipping destinations are fixed private country snapshots; address/preference edits do not move them. Optional `acceptShippingDestination` checks an explicitly authored country against an owned address or selected preference. FX-mode matches expose their immutable shipping valuation basis.
+- Added source-scoped shipping profile list/detail, idempotent creation, complete replacement, retirement/restoration and default assign/clear APIs for administrators and authorized source operators. Commands require current management/default revisions; missing/retired references do not fall back to another profile. Delegated credentials require `listing-sources:read/write`.
+- Added protected source-keyed listing delivery inspection, revision-checked PATCH and asynchronous submission for selection, rate inputs and independent shipping/collection overrides. Delegated credentials require `product-listings:read/write`. Public listing history adds address-free `DELIVERY_CHANGED`.
+- Management commands accept optional incremental import identity, ordering and acquisition metadata. Stable object keys support recovery, exact retries retain identity, and manual components are protected. Provider scope is source plus enabled method. Terms continue until changed, withdrawn or authority is revoked; observation age alone never expires them.
+
+See [shipping](shipping.md) and [OpenAPI](swagger.yaml) for request shapes, concurrency and failure behavior.
 ## 2026-10-15 — Argentine peso support (#2095)
 
 - Currency fields now accept `ARS` (Argentine peso), including user preferences, ListingSource configuration and fallback currency, listing prices, and search filters. Amounts use two ISO 4217 minor-unit decimal places.

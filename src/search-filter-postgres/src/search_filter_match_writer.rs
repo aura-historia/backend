@@ -39,8 +39,12 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 price_valuation_basis,
                 price_fx_rate_id,
                 user_search_filter_name,
-                feedback
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                feedback,
+                shipping_fx_rate_id,
+                shipping_fx_captured_at,
+                shipping_target_currency,
+                shipping_maximum_minor
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
             "#,
@@ -66,6 +70,22 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 .map(AsRef::as_ref),
         )
         .bind(product_match.feedback)
+        .bind(
+            product_match
+                .shipping_match_valuation
+                .map(|v| v.fx_rate_id.into_uuid()),
+        )
+        .bind(
+            product_match
+                .shipping_match_valuation
+                .map(|v| v.captured_at),
+        )
+        .bind(
+            product_match
+                .shipping_match_valuation
+                .map(|v| v.maximum_per_item.currency.as_str()),
+        )
+        .bind(shipping_maximum(product_match)?)
         .fetch_optional(self.tx.connection())
         .await
         .map_err(|source| SearchFilterMatchWriteError::WriteFailed {
@@ -147,17 +167,45 @@ impl SqlxSearchFilterMatchWriter<'_> {
             .iter()
             .map(|value| value.feedback)
             .collect::<Vec<_>>();
+        let shipping_fx_rate_ids = product_matches
+            .iter()
+            .map(|value| {
+                value
+                    .shipping_match_valuation
+                    .map(|v| v.fx_rate_id.into_uuid())
+            })
+            .collect::<Vec<_>>();
+        let shipping_captured_at = product_matches
+            .iter()
+            .map(|value| value.shipping_match_valuation.map(|v| v.captured_at))
+            .collect::<Vec<_>>();
+        let shipping_currencies = product_matches
+            .iter()
+            .map(|value| {
+                value
+                    .shipping_match_valuation
+                    .map(|v| v.maximum_per_item.currency.as_str())
+            })
+            .collect::<Vec<_>>();
+        let shipping_maximums = product_matches
+            .iter()
+            .map(shipping_maximum)
+            .collect::<Result<Vec<_>, _>>()?;
 
         let inserted = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO search_filter_matches (
                 user_id, user_search_filter_id, product_listing_id, origin_event_id,
-                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback, matching_run_end
+                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback,
+                shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency,
+                shipping_maximum_minor, matching_run_end
             )
-            SELECT *, $9::timestamptz FROM unnest(
+            SELECT ids.*, $13::timestamptz FROM unnest(
                 $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
-                $6::uuid[], $7::text[], $8::bool[]
-            )
+                $6::uuid[], $7::text[], $8::bool[], $9::uuid[], $10::timestamptz[], $11::text[], $12::bigint[]
+            ) AS ids(user_id, user_search_filter_id, product_listing_id, origin_event_id,
+                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback,
+                shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor)
             ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
         "#,
@@ -170,6 +218,10 @@ impl SqlxSearchFilterMatchWriter<'_> {
         .bind(fx_rate_ids)
         .bind(names)
         .bind(feedback)
+        .bind(shipping_fx_rate_ids)
+        .bind(shipping_captured_at)
+        .bind(shipping_currencies)
+        .bind(shipping_maximums)
         .bind(run_end)
         .fetch_all(self.tx.connection())
         .await
@@ -183,4 +235,16 @@ impl SqlxSearchFilterMatchWriter<'_> {
             already_exists: product_matches.len() - inserted,
         })
     }
+}
+
+fn shipping_maximum(
+    value: &SearchFilterProductListingMatch,
+) -> Result<Option<i64>, SearchFilterMatchWriteError> {
+    value
+        .shipping_match_valuation
+        .map(|v| i64::try_from(u64::from(v.maximum_per_item.monetary_amount)))
+        .transpose()
+        .map_err(|source| SearchFilterMatchWriteError::WriteFailed {
+            source: box_error(source),
+        })
 }

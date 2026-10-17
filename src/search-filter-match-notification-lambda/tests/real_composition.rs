@@ -611,6 +611,7 @@ async fn seed_run_match(
                 origin_event_id: origin,
                 user_search_filter_name: Some("Fixture filter".into()),
                 price_match_valuation: None,
+                shipping_match_valuation: None,
                 feedback: None,
             }],
             end,

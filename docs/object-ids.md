@@ -20,6 +20,8 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `PartyLocationId` | `ploc` |
 | `ResolutionId` | `gres` |
 | `ListingSourceId` | `ls` |
+| `ShippingProfileId` | `shp` |
+| `ShippingWorkId` | `swork` |
 | `UserId` | `usr` |
 | `UserAddressId` | `uaddr` |
 | `MarketingConsentSyncIntentId` | `mci` |
@@ -58,6 +60,9 @@ PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uui
 
 These persisted fields deliberately retain **canonical lowercase hyphenated UUID text**, not public TypeID serde:
 
+- Shipping storage terms: explicit Party/PartyLocation actor and site references.
+- Effective shipping dependency bases: source/profile/listing/location/resolution identities.
+- PartyLocation creation receipts: result site/Party IDs and optional relocated site ID.
 - Private geographic resolution inputs: the cache-scope owner UUID.
 - Partnership application proposal `listing_source_id`.
 - ProductListing event `listingSourceId` and nested Auction `auctionId` references.
@@ -72,6 +77,11 @@ Adapter-local codecs explicitly encode the backing UUID and decode UUID → type
 Crawler `validation_summary.schema_matrix` is the exception to storage UUID text: persisted review/page references use TypeIDs, also exposed by the review API. Before a review row exists, use an absent review ID and explicit input-page index/reference, never nil or fabricated UUID placeholders.
 
 Raw source payload, normalization context and provenance remain opaque evidence. Store Aura identities in dedicated native UUID columns unless a JSON field is explicitly documented above.
+
+Listing delivery storage/event JSON uses native UUIDs for source, profile, Party and
+PartyLocation references; its public and ingestion codecs require canonical TypeIDs.
+Opaque provider class/variant codes remain case-sensitive strings within the source and
+explicit integration method scope, never Aura taxonomy identities.
 
 ## External identity and exclusions
 

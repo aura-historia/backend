@@ -20,6 +20,8 @@ mod product_listing_fields;
 mod product_listing_management;
 pub mod product_listings;
 pub mod search_filters;
+pub mod shipping;
+mod shipping_search;
 pub mod state;
 pub mod transport;
 pub mod users;
@@ -994,6 +996,36 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(addresses),
         );
     }
+    if let Some(delivery) = state.product_listing_delivery {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery",
+                    get(partner_product_listings::delivery::get)
+                        .patch(partner_product_listings::delivery::change),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async",
+                    axum::routing::post(partner_product_listings::delivery::submit),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(delivery),
+        );
+    }
+
+    if let Some(shipping) = state.shipping {
+        routes = routes.merge(
+            Router::new()
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles", get(shipping::list).post(shipping::create))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", get(shipping::get).put(shipping::replace).delete(shipping::retire))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", axum::routing::post(shipping::restore))
+                .route("/api/v1/listing-sources/{listing_source_id}/shipping-default", get(shipping::get_default).put(shipping::assign_default).delete(shipping::clear_default))
+                .layer(axum::middleware::map_response(parties::locations::no_store_response))
+                .with_state(shipping),
+        );
+    }
     if let Some(defaults) = state.source_location_defaults {
         routes = routes.merge(
             Router::new()
@@ -1370,11 +1402,25 @@ async fn app_state_from_config_and_pool(
     let get_public_auction =
         GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
     let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
+        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::assessment::SqlxAssessmentReaderFactory,
+            address_book.clone(),
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
+    );
     let get_auction_catalogue = GetAuctionCatalogueHandler::new(
         unit_of_work.clone(),
         SqlxAuctionCatalogueReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
         SqlxPublicAuctionDetailsReader::new(pool.clone()),
+        shipping.clone(),
     );
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
@@ -1647,6 +1693,7 @@ async fn app_state_from_config_and_pool(
         SqlxListingSourceSummaryReader::new(pool.clone()),
         product_user_states.clone(),
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
+        shipping.clone(),
     );
     let search_products = SearchProductListingsHandler::new(
         OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
@@ -1661,12 +1708,14 @@ async fn app_state_from_config_and_pool(
         ),
         product_user_states,
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
+        shipping.clone(),
     )
     .with_read_execution_policy(config.product_listing_search_read_execution_policy());
     let get_product = GetProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
@@ -1713,6 +1762,7 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxProductListingWatchlistDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
 
     let access_token_use_case =
@@ -1806,7 +1856,10 @@ async fn app_state_from_config_and_pool(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
-        submit_product_listing_ingestion,
+        Arc::clone(&submit_product_listing_ingestion)
+            as Arc<
+                dyn product_listing_service::use_cases::SubmitPartnerProductListingIngestionUseCase,
+            >,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let partner_product_listings_state = PartnerProductListingsState::new(
@@ -1899,6 +1952,88 @@ async fn app_state_from_config_and_pool(
         SqlxSourceLocationAccessFactory,
     };
     use listing_source_service::use_cases::location_default::*;
+    let product_listing_delivery_state =
+        partner_product_listings::delivery::ProductListingDeliveryState {
+            change: Arc::new(
+                product_listing_service::use_cases::ChangeProductListingDeliveryHandler::new(
+                    unit_of_work.clone(),
+                    SqlxProductListingRepositoryFactory,
+                    SqlxProductListingEventAppenderFactory,
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+                ),
+            ),
+            get: Arc::new(
+                product_listing_service::use_cases::GetProductListingDeliveryHandler::new(
+                    unit_of_work.clone(),
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReaderFactory,
+                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+                ),
+            ),
+            submit: submit_product_listing_ingestion,
+            authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        };
+    let shipping_state = shipping::ShippingState {
+        create: Arc::new(
+            shipping_service::use_cases::CreateShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        replace: Arc::new(
+            shipping_service::use_cases::ReplaceShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        retire: Arc::new(
+            shipping_service::use_cases::RetireShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        restore: Arc::new(
+            shipping_service::use_cases::RestoreShippingProfileHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        assign_default: Arc::new(
+            shipping_service::use_cases::AssignShippingDefaultHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        clear_default: Arc::new(
+            shipping_service::use_cases::ClearShippingDefaultHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingRepositoryFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        get: Arc::new(shipping_service::use_cases::GetShippingProfileHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::SqlxShippingReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        list: Arc::new(
+            shipping_service::use_cases::ListShippingProfilesHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::SqlxShippingReaderFactory,
+                SqlxSourceLocationAccessFactory,
+            ),
+        ),
+        get_default: Arc::new(shipping_service::use_cases::GetShippingDefaultHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::SqlxShippingReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let source_location_defaults_state = state::SourceLocationDefaultsState {
         assign: Arc::new(AssignLocationDefaultHandler::new(
             unit_of_work.clone(),
@@ -2021,24 +2156,30 @@ async fn app_state_from_config_and_pool(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(CreateSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            Arc::clone(&embeddings),
-            SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            CreateSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                Arc::clone(&embeddings),
+                SqlxSearchFilterQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(UpdateOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            Arc::clone(&embeddings),
-            search_filter_reader.clone(),
-            SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            UpdateOwnedSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                Arc::clone(&embeddings),
+                search_filter_reader.clone(),
+                SqlxSearchFilterQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
@@ -2048,6 +2189,7 @@ async fn app_state_from_config_and_pool(
             search_filter_reader.clone(),
             SqlxProductListingDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -2146,14 +2288,9 @@ async fn app_state_from_config_and_pool(
         opensearch: opensearch_client.clone(),
     });
 
-    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
-        unit_of_work.clone(),
-        user_postgres::SqlxAddressBookFactory,
-        geo_postgres::SqlxResolutionRepositoryFactory,
-    ));
     let user_addresses_state = state::UserAddressesState {
         commands: address_book.clone(),
-        queries: address_book,
+        queries: address_book.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
@@ -2184,6 +2321,8 @@ async fn app_state_from_config_and_pool(
         ))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
+        .with_shipping(shipping_state)
+        .with_product_listing_delivery(product_listing_delivery_state)
         .with_source_location_defaults(source_location_defaults_state)
         .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)

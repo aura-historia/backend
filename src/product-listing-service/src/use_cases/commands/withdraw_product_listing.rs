@@ -42,6 +42,11 @@ pub enum WithdrawProductListingError {
     NotFound,
     #[error("product listing persistence failed")]
     PersistenceFailed,
+    #[error("persisted listing delivery is invalid")]
+    InvalidDeliveryPersisted {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event storage failed")]
     EventAppenderFailed {
         #[source]
@@ -255,6 +260,9 @@ impl From<PartnerProductListingAuthorizationError> for WithdrawProductListingErr
 impl From<ProductListingRepositoryError> for WithdrawProductListingError {
     fn from(error: ProductListingRepositoryError) -> Self {
         match error {
+            ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
+                Self::InvalidDeliveryPersisted { source }
+            }
             ProductListingRepositoryError::TemporarilyUnavailable { .. }
             | ProductListingRepositoryError::QueryFailed { .. } => Self::PersistenceFailed,
             ProductListingRepositoryError::ProductListingLookupByIdFailed

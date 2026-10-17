@@ -47,6 +47,7 @@ pub struct CanonicalProductListingNonAuctionUpsert {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalProductListingWriteResult {
     pub product_listing_id: ProductListingId,
+    pub version: crate::ports::ProductListingStorageVersion,
     pub product_listing_event_id: Option<EventId>,
     pub outcome: ChangeOutcome,
 }
@@ -130,13 +131,15 @@ impl CanonicalProductListingWriter {
             stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
         });
         let event_id = event.as_ref().map(|value| value.event_id);
+        let mut version = existing.version;
         if let Some(event) = event {
             let effects = ProductListingWriteEffects::from(&event.payload);
-            products
+            version = products
                 .in_transaction(tx)
                 .update(&product, existing.version, event.event_id, effects)
                 .await
-                .map_err(map_repository_error)?;
+                .map_err(map_repository_error)?
+                .version;
             events
                 .in_transaction(tx)
                 .append(&event)
@@ -147,6 +150,7 @@ impl CanonicalProductListingWriter {
         }
         Ok(CanonicalProductListingWriteResult {
             product_listing_id: product.id(),
+            version,
             product_listing_event_id: event_id,
             outcome: if event_id.is_some() {
                 ChangeOutcome::Changed
@@ -183,13 +187,15 @@ impl CanonicalProductListingWriter {
             stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
         });
         let event_id = event.as_ref().map(|event| event.event_id);
+        let mut version = stored.version;
         if let Some(event) = event {
             let effects = ProductListingWriteEffects::from(&event.payload);
-            products
+            version = products
                 .in_transaction(tx)
                 .update(&product, stored.version, event.event_id, effects)
                 .await
-                .map_err(map_repository_error)?;
+                .map_err(map_repository_error)?
+                .version;
             events
                 .in_transaction(tx)
                 .append(&event)
@@ -200,6 +206,7 @@ impl CanonicalProductListingWriter {
         }
         Ok(CanonicalProductListingWriteResult {
             product_listing_id: product.id(),
+            version,
             product_listing_event_id: event_id,
             outcome,
         })
@@ -267,7 +274,7 @@ impl CanonicalProductListingWriter {
                 }
             })?,
         );
-        products
+        let stored = products
             .in_transaction(tx)
             .insert(&product, event.event_id)
             .await
@@ -281,6 +288,7 @@ impl CanonicalProductListingWriter {
             })?;
         Ok(CanonicalProductListingWriteResult {
             product_listing_id: product.id(),
+            version: stored.version,
             product_listing_event_id: Some(event.event_id),
             outcome: ChangeOutcome::Changed,
         })

@@ -31,6 +31,7 @@ url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+shipping-core = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["opensearch"] }

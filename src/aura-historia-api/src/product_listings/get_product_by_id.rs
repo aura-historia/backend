@@ -516,6 +516,7 @@ mod tests {
         let mut view = product_details_view()?;
         let product_listing_id = view.item.product_listing_id;
         view.user_state = Some(ProductListingUserState {
+            shipping: None,
             watchlist: WatchlistUserState {
                 watching: true,
                 notifications: false,
@@ -532,6 +533,7 @@ mod tests {
                 user_search_filter_id: Some(search_filter_id),
                 user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
                 match_feedback: Some(false),
+                shipping_match_valuation: None,
             },
         });
         let (app, calls) = app(view, false, Some(user_id));
@@ -661,6 +663,7 @@ mod tests {
     fn product_details_view() -> Result<PersonalizedProductListingDetailsView, url::ParseError> {
         Ok(Personalized {
             item: ProductListingDetailsView {
+                shipping: None,
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: Some(
                     ProductListingSlugId::raw("cabinet-abcdef").unwrap_or_else(|error| {

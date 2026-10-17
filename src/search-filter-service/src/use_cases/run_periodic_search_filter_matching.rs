@@ -676,11 +676,14 @@ where
                 source: box_error(source),
             }
         })?;
+        let compiled_search = CompiledProductListingSearch::new(search, price_filter_plan.clone())
+            .map_err(
+                |source| RunPeriodicSearchFilterMatchingError::FxSnapshotInvalid {
+                    source: box_error(source),
+                },
+            )?;
         let request = ProductListingSearchReadRequest {
-            compiled_search: CompiledProductListingSearch {
-                search,
-                price_filter_plan: price_filter_plan.clone(),
-            },
+            compiled_search,
             sort: None,
             cursor: Some(Cursor {
                 size: self.policy.hybrid_scan_limit.get() as u64,
@@ -872,6 +875,19 @@ where
                         product_listing_id: source.product_listing_id,
                         origin_event_id: source.event_id,
                         price_match_valuation: valuation,
+                        shipping_match_valuation: filter
+                            .search
+                            .shipping
+                            .as_ref()
+                            .filter(|query| query.fx_converted())
+                            .and_then(|query| query.maximum_per_item())
+                            .map(
+                                |maximum_per_item| search_filter_core::ShippingMatchValuation {
+                                    fx_rate_id: snapshot.id(),
+                                    captured_at: snapshot.captured_at(),
+                                    maximum_per_item,
+                                },
+                            ),
                         feedback: None,
                     });
                 }
@@ -1185,29 +1201,36 @@ fn periodic_search(
     window_end: OffsetDateTime,
     replay_overlap: Duration,
 ) -> Option<ProductListingSearch> {
-    let replay_candidate = filter
-        .matched_through
-        .checked_sub(replay_overlap)
-        .unwrap_or(filter.created);
-    let replay_start = replay_candidate.max(filter.created);
-    let min = filter
+    // Shipping dependencies can change without changing canonical listing.updated. Revisit
+    // old listings while retaining authored date constraints and the evaluation cutoff.
+    let replay_start = filter.search.shipping.is_none().then(|| {
+        filter
+            .matched_through
+            .checked_sub(replay_overlap)
+            .unwrap_or(filter.created)
+            .max(filter.created)
+    });
+    let authored_min = filter
         .search
         .updated_query
         .as_ref()
-        .and_then(|range| range.min)
-        .map_or(replay_start, |value| value.max(replay_start));
+        .and_then(|range| range.min);
+    let min = match (authored_min, replay_start) {
+        (Some(authored), Some(replay)) => Some(authored.max(replay)),
+        (authored, replay) => authored.or(replay),
+    };
     let max = filter
         .search
         .updated_query
         .as_ref()
         .and_then(|range| range.max)
         .map_or(window_end, |value| value.min(window_end));
-    if min > max {
+    if min.is_some_and(|min| min > max) {
         return None;
     }
     let mut search = filter.search.clone();
     search.updated_query = Some(RangeQuery {
-        min: Some(min),
+        min,
         max: Some(max),
     });
     Some(search)
@@ -1869,6 +1892,57 @@ mod tests {
         }
     }
 
+    #[test]
+    fn shipping_periodic_matching_revisits_old_listings_without_moving_authored_date_bounds() {
+        let mut candidate = filter();
+        candidate.search.shipping = Some(
+            product_listing_core::shipping_search::ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                None,
+                false,
+            )
+            .unwrap(),
+        );
+        candidate.matched_through = candidate.created + Duration::days(31);
+        let next = candidate.matched_through + Duration::days(1);
+        let mut expected = candidate.search.clone();
+        expected.updated_query = Some(RangeQuery {
+            min: None,
+            max: Some(next),
+        });
+        assert_eq!(
+            expected,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created),
+            max: Some(candidate.created + Duration::hours(1)),
+        });
+        assert_eq!(
+            candidate.search,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(next + Duration::hours(1)),
+            max: None,
+        });
+        assert!(periodic_search(&candidate, next, Duration::minutes(5)).is_none());
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created),
+            max: Some(next + Duration::hours(1)),
+        });
+        let search = periodic_search(&candidate, next, Duration::minutes(5)).unwrap();
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(candidate.created),
+                max: Some(next)
+            }),
+            search.updated_query
+        );
+    }
+
     #[tokio::test]
     async fn finishing_a_filter_checks_its_users_digest_without_a_notification_job()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -2079,6 +2153,7 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
+            shipping_match_valuation: None,
             feedback: None,
         }
     }

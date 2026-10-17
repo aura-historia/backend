@@ -10,6 +10,8 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingRawRevision {
+    /// Original crawler acquisition. Historical captures may have no acquisition evidence.
+    pub acquired_at: Option<OffsetDateTime>,
     pub product_listing_raw_revision_id: ProductListingRawRevisionId,
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
     pub revision: u64,

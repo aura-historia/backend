@@ -50,6 +50,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
 pub const SCHEMA_VERSION: u8 = 1;
+const DELIVERY_SCHEMA_VERSION: u8 = 2;
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const GROUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-group.v1";
 const DEDUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-dedup.v1";
@@ -68,7 +69,8 @@ pub enum CodecError {
 
 type Result<T> = std::result::Result<T, CodecError>;
 
-/// The entire durable v1 message; unknown fields and operation variants are rejected.
+/// Version-dispatched durable envelope. The Rust name remains compatible with earlier callers.
+/// Earlier operations require v1; delivery requires v2. Unknown fields/versions are rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IngestionEnvelopeV1 {
@@ -169,7 +171,13 @@ impl IngestionEnvelopeV1 {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.schema_version != SCHEMA_VERSION {
+        if self.schema_version
+            != if matches!(self.payload, WirePayload::ChangeDelivery(_)) {
+                DELIVERY_SCHEMA_VERSION
+            } else {
+                SCHEMA_VERSION
+            }
+        {
             return Err(CodecError::UnsupportedVersion);
         }
         if self.input_count == 0
@@ -277,6 +285,7 @@ enum WirePayload {
     Upsert(WireUpsert),
     Withdraw(WireKey),
     CaptureRaw(WireRaw),
+    ChangeDelivery(WireDelivery),
 }
 
 impl WirePayload {
@@ -287,6 +296,7 @@ impl WirePayload {
             Self::Upsert(_) => ProductListingIngestionOperation::Upsert,
             Self::Withdraw(_) => ProductListingIngestionOperation::Withdraw,
             Self::CaptureRaw(_) => ProductListingIngestionOperation::CaptureRaw,
+            Self::ChangeDelivery(_) => ProductListingIngestionOperation::ChangeDelivery,
         }
     }
     fn listing_source_id(&self) -> Result<ListingSourceId> {
@@ -296,6 +306,7 @@ impl WirePayload {
             Self::Upsert(c) => &c.key.listing_source_id,
             Self::Withdraw(c) => &c.listing_source_id,
             Self::CaptureRaw(c) => &c.listing_source_id,
+            Self::ChangeDelivery(c) => &c.key.listing_source_id,
         })
     }
     fn into_intent(self) -> Result<ProductListingIngestionIntent> {
@@ -346,6 +357,9 @@ impl WirePayload {
                 auction: map_patch(c.auction, auction)?,
             }),
             Self::Withdraw(c) => ProductListingIngestionIntent::Withdraw(key(c)?),
+            Self::ChangeDelivery(c) => ProductListingIngestionIntent::ChangeDelivery(
+                crate::delivery::decode_command(c.body, key(c.key)?)?,
+            ),
             Self::CaptureRaw(c) => {
                 if c.source_record_key.len() > product_listing_service::use_cases::commands::capture_product_listing_raw_observation::MAX_SOURCE_RECORD_KEY_UTF8_BYTES
                     || c.source_record_key.contains('\0')
@@ -405,6 +419,13 @@ impl WirePayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireDelivery {
+    key: WireKey,
+    body: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WireKey {
     listing_source_id: String,
@@ -442,7 +463,7 @@ struct WirePricing {
     rename_all = "SCREAMING_SNAKE_CASE",
     deny_unknown_fields
 )]
-enum WirePatch<T> {
+pub(crate) enum WirePatch<T> {
     Unchanged,
     Clear,
     Set(T),
@@ -614,7 +635,10 @@ fn images(values: Vec<String>) -> Result<IndexSet<ProductListingImage>> {
     }
     Ok(images)
 }
-fn map_patch<T, U>(patch: WirePatch<T>, f: impl FnOnce(T) -> Result<U>) -> Result<PatchField<U>> {
+pub(crate) fn map_patch<T, U>(
+    patch: WirePatch<T>,
+    f: impl FnOnce(T) -> Result<U>,
+) -> Result<PatchField<U>> {
     Ok(match patch {
         WirePatch::Unchanged => PatchField::Unchanged,
         WirePatch::Clear => PatchField::Clear,
@@ -786,6 +810,15 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
                 PatchField::Unchanged => WirePatch::Unchanged,
             },
         }),
+        ProductListingIngestionIntent::ChangeDelivery(c) => {
+            WirePayload::ChangeDelivery(WireDelivery {
+                key: wire_key(
+                    c.product_key.listing_source_id,
+                    &c.product_key.source_listing_id,
+                ),
+                body: crate::delivery::encode_command(c)?,
+            })
+        }
         ProductListingIngestionIntent::Withdraw(k) => {
             WirePayload::Withdraw(wire_key(k.listing_source_id, &k.source_listing_id))
         }
@@ -814,11 +847,18 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
     })
 }
 
-/// Constructs the strict v1 envelope from a service-prepared message, checking metadata/intent consistency.
+/// Constructs the correctly versioned envelope, checking metadata/intent consistency.
 pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnvelopeV1> {
     let m = &message.metadata;
     let mut value = IngestionEnvelopeV1 {
-        schema_version: SCHEMA_VERSION,
+        schema_version: if matches!(
+            message.intent,
+            ProductListingIngestionIntent::ChangeDelivery(_)
+        ) {
+            DELIVERY_SCHEMA_VERSION
+        } else {
+            SCHEMA_VERSION
+        },
         submission_id: m.submission_id.as_str().into(),
         command_id: m.command_id.as_str().into(),
         index: m.index,
@@ -875,6 +915,9 @@ pub fn fifo_group_id(value: &IngestionEnvelopeV1) -> Result<String> {
         WirePayload::Update(c) => vec![source, b"listing", c.key.source_listing_id.as_bytes()],
         WirePayload::Upsert(c) => vec![source, b"listing", c.key.source_listing_id.as_bytes()],
         WirePayload::Withdraw(c) => vec![source, b"listing", c.source_listing_id.as_bytes()],
+        WirePayload::ChangeDelivery(c) => {
+            vec![source, b"listing", c.key.source_listing_id.as_bytes()]
+        }
         WirePayload::CaptureRaw(c) => vec![
             source,
             b"raw",

@@ -126,6 +126,33 @@ pub(crate) const ACCESS_TOKEN_NOT_FOUND: ApiErrorCode = ApiErrorCode("ACCESS_TOK
 pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
+pub(crate) const SHIPPING_PROFILE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("SHIPPING_PROFILE_NOT_FOUND");
+pub(crate) const SHIPPING_LOCATION_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("SHIPPING_LOCATION_NOT_FOUND");
+pub(crate) const SHIPPING_REFERENCE_INELIGIBLE: ApiErrorCode =
+    ApiErrorCode("SHIPPING_REFERENCE_INELIGIBLE");
+pub(crate) const SHIPPING_IMPORT_AUTHORITY_STALE: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_AUTHORITY_STALE");
+pub(crate) const SHIPPING_IMPORT_OWNERSHIP_CONFLICT: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_OWNERSHIP_CONFLICT");
+pub(crate) const SHIPPING_IMPORT_REQUEST_CONFLICT: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_REQUEST_CONFLICT");
+pub(crate) const SHIPPING_IMPORT_OUT_OF_ORDER: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_OUT_OF_ORDER");
+pub(crate) const SHIPPING_IMPORT_IDENTITY_EXISTS: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_IDENTITY_EXISTS");
+pub(crate) const SHIPPING_IMPORT_DEPENDENCY_MISSING: ApiErrorCode =
+    ApiErrorCode("SHIPPING_IMPORT_DEPENDENCY_MISSING");
+pub(crate) const SHIPPING_STALE_REVISION: ApiErrorCode = ApiErrorCode("SHIPPING_STALE_REVISION");
+pub(crate) const SHIPPING_CREATION_KEY_CONFLICT: ApiErrorCode =
+    ApiErrorCode("SHIPPING_CREATION_KEY_CONFLICT");
+pub(crate) const SHIPPING_REVISION_EXHAUSTED: ApiErrorCode =
+    ApiErrorCode("SHIPPING_REVISION_EXHAUSTED");
+pub(crate) const SHIPPING_PROFILE_RETIRED: ApiErrorCode = ApiErrorCode("SHIPPING_PROFILE_RETIRED");
+pub(crate) const SHIPPING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("SHIPPING_TEMPORARILY_UNAVAILABLE");
+pub(crate) const SHIPPING_STORAGE_ERROR: ApiErrorCode = ApiErrorCode("SHIPPING_STORAGE_ERROR");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
@@ -709,6 +736,7 @@ impl From<GetOwnedSearchFilterError> for ApiError {
 impl From<CreateSearchFilterError> for ApiError {
     fn from(error: CreateSearchFilterError) -> Self {
         match error {
+            CreateSearchFilterError::ShippingDestination(error) => error.into(),
             CreateSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -758,6 +786,7 @@ impl From<CreateSearchFilterError> for ApiError {
 impl From<UpdateOwnedSearchFilterError> for ApiError {
     fn from(error: UpdateOwnedSearchFilterError) -> Self {
         match error {
+            UpdateOwnedSearchFilterError::ShippingDestination(error) => error.into(),
             UpdateOwnedSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -845,6 +874,7 @@ impl From<DeleteOwnedSearchFilterError> for ApiError {
 impl From<ListSearchFilterMatchesError> for ApiError {
     fn from(error: ListSearchFilterMatchesError) -> Self {
         match error {
+            ListSearchFilterMatchesError::Shipping(error) => error.into(),
             ListSearchFilterMatchesError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1221,6 +1251,7 @@ impl From<CreateProductListingError> for ApiError {
             }
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | CreateProductListingError::PersistenceFailed
+            | CreateProductListingError::InvalidDeliveryPersisted { .. }
             | CreateProductListingError::EventAppenderFailed { .. }
             | CreateProductListingError::BeginTransactionFailed(_)
             | CreateProductListingError::CommitTransactionFailed(_) => {
@@ -1274,6 +1305,7 @@ impl From<UpdateProductListingError> for ApiError {
             }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
+            | UpdateProductListingError::InvalidDeliveryPersisted { .. }
             | UpdateProductListingError::EventAppenderFailed { .. }
             | UpdateProductListingError::BeginTransactionFailed(_)
             | UpdateProductListingError::CommitTransactionFailed(_) => {
@@ -1307,6 +1339,7 @@ impl From<WithdrawProductListingError> for ApiError {
                 .with_detail("ProductListing was not found."),
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | WithdrawProductListingError::PersistenceFailed
+            | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
             | WithdrawProductListingError::EventAppenderFailed { .. }
             | WithdrawProductListingError::BeginTransactionFailed(_)
             | WithdrawProductListingError::CommitTransactionFailed(_) => {
@@ -1494,6 +1527,7 @@ impl From<UpsertProductListingError> for ApiError {
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
             | UpsertProductListingError::PersistenceFailed
+            | UpsertProductListingError::InvalidDeliveryPersisted { .. }
             | UpsertProductListingError::EventAppenderFailed { .. }
             | UpsertProductListingError::BeginTransactionFailed(_)
             | UpsertProductListingError::CommitTransactionFailed(_) => {
@@ -1511,6 +1545,7 @@ impl From<UpsertProductListingError> for ApiError {
 impl From<GetProductListingError> for ApiError {
     fn from(error: GetProductListingError) -> Self {
         match error {
+            GetProductListingError::Shipping(error) => error.into(),
             GetProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
             GetProductListingError::ProductListingDetailsQueryFailed
@@ -1558,6 +1593,7 @@ impl From<GetProductListingHistoryError> for ApiError {
 impl From<GetSimilarProductListingsError> for ApiError {
     fn from(error: GetSimilarProductListingsError) -> Self {
         match error {
+            GetSimilarProductListingsError::Shipping(error) => error.into(),
             GetSimilarProductListingsError::NotFound => {
                 ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                     .with_detail("ProductListing was not found.")
@@ -1591,6 +1627,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
 impl From<SearchProductListingsError> for ApiError {
     fn from(error: SearchProductListingsError) -> Self {
         match error {
+            SearchProductListingsError::Shipping(error) => error.into(),
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
@@ -2322,6 +2359,7 @@ impl From<DeleteAccessTokenError> for ApiError {
 impl From<ListWatchlistError> for ApiError {
     fn from(error: ListWatchlistError) -> Self {
         match error {
+            ListWatchlistError::Shipping(error) => error.into(),
             ListWatchlistError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")

@@ -434,10 +434,8 @@ async fn search(
     );
     reader
         .search(&ProductListingSearchReadRequest {
-            compiled_search: CompiledProductListingSearch {
-                search,
-                price_filter_plan: price_filter,
-            },
+            compiled_search: CompiledProductListingSearch::new(search, price_filter)
+                .expect("test search compiles"),
             sort: None,
             cursor: Some(Cursor {
                 size: 20,
@@ -604,4 +602,306 @@ fn product_listing_document(
     });
 
     Ok(IndexedProductListing { document })
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn shipping_search_agrees_with_pure_membership_and_preserves_nested_rows_and_pages() {
+    async fn run() -> TestResult {
+        use geo::{CountryCode, reference::ReferenceRelease};
+        use money::Price;
+        use product_listing_core::shipping_search::ShippingSearch;
+        use product_listing_service::shipping_projection::{
+            CountryShippingOffer, EffectiveListingShipping,
+        };
+        use shipping_core::terms::{ShippingEligibility, ShippingServiceCode};
+        let offer = |country, currency, amount: Option<u64>| CountryShippingOffer {
+            country,
+            service: ShippingServiceCode::new("gallery-delivery".into()).unwrap(),
+            per_item_fixed: amount.map(|amount: u64| Price::new(amount.into(), currency)),
+        };
+        let summary = |collection, offers| EffectiveListingShipping {
+            collection,
+            prohibited: false,
+            conditional: true,
+            country_offers: offers,
+        };
+        let mut alternative = offer(CountryCode::DEU, Currency::Eur, Some(100));
+        alternative.service = ShippingServiceCode::new("other".into()).unwrap();
+        let samples = vec![
+            summary(
+                Some(ShippingEligibility::Offered),
+                vec![offer(CountryCode::DEU, Currency::Eur, Some(8000))],
+            ),
+            EffectiveListingShipping {
+                collection: Some(ShippingEligibility::Offered),
+                prohibited: true,
+                conditional: false,
+                country_offers: vec![],
+            },
+            summary(
+                None,
+                vec![
+                    offer(CountryCode::DEU, Currency::Eur, Some(9500)),
+                    offer(CountryCode::FRA, Currency::Eur, Some(100)),
+                ],
+            ),
+            summary(
+                Some(ShippingEligibility::SubjectToConfirmation),
+                vec![offer(CountryCode::DEU, Currency::Eur, Some(0))],
+            ),
+            summary(
+                Some(ShippingEligibility::NotOffered),
+                vec![offer(CountryCode::DEU, Currency::Usd, Some(8000))],
+            ),
+            summary(None, vec![offer(CountryCode::DEU, Currency::Eur, None)]),
+            EffectiveListingShipping::default(),
+            summary(None, vec![offer(CountryCode::DEU, Currency::Jpy, Some(80))]),
+            summary(
+                None,
+                vec![
+                    offer(CountryCode::DEU, Currency::Eur, Some(9500)),
+                    alternative,
+                ],
+            ),
+        ];
+        let mut documents = Vec::new();
+        let mut ids = Vec::new();
+        for (i, s) in samples.iter().enumerate() {
+            let mut document = product_listing_document(ProductListingSeed::active(
+                &format!("shipping-{i}"),
+                100,
+            ))?
+            .document;
+            ids.push(
+                document["productListingId"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<ProductListingId>()?,
+            );
+            document["shipping"] = json!({"collection":s.collection.map(|c| c.as_str()),"prohibited":s.prohibited,"conditional":s.conditional,
+                "countryOffers":s.country_offers.iter().map(|o| {
+                    let mut value = json!({"country":o.country.alpha2(),"service":o.service.as_str()});
+                    if let Some(p) = o.per_item_fixed { value["perItemFixed"] = json!({"currency":p.currency.as_str(),"amountMinor":u64::from(p.monetary_amount)}); }
+                    value
+                }).collect::<Vec<_>>()});
+            document["inventoryGeography"] = geographic_document(48.137, 11.575, "PREMISES");
+            documents.push(document);
+        }
+        index_products(documents.clone()).await?;
+        for country in [None, Some(CountryCode::DEU), Some(CountryCode::FRA)] {
+            for service in [None, Some("gallery-delivery"), Some("other")] {
+                for maximum in [
+                    None,
+                    Some((0_u64, Currency::Eur)),
+                    Some((9000, Currency::Eur)),
+                    Some((9500, Currency::Eur)),
+                    Some((9000, Currency::Usd)),
+                    Some((90, Currency::Jpy)),
+                ] {
+                    for collection in [false, true] {
+                        let Ok(q) = ShippingSearch::new(
+                            ReferenceRelease::CURRENT,
+                            country,
+                            service.map(|s| ShippingServiceCode::new(s.into()).unwrap()),
+                            maximum.map(|(a, c)| Price::new(a.into(), c)),
+                            collection,
+                        ) else {
+                            continue;
+                        };
+                        for fx_mode in [false, true] {
+                            if fx_mode && maximum.is_none() {
+                                continue;
+                            }
+                            let q = if fx_mode {
+                                q.clone().with_fx_conversion()?
+                            } else {
+                                q.clone()
+                            };
+                            let plan = price_filter(None)?;
+                            let query = ProductListingSearch {
+                                shipping: Some(q.clone()),
+                                ..Default::default()
+                            };
+                            let result = search(query, plan.clone()).await?;
+                            let expected = ids
+                            .iter()
+                            .zip(&samples)
+                            .filter(|(_, s)| {
+                                (!q.collection_offered()
+                                    || s.collection == Some(ShippingEligibility::Offered))
+                                    && q.country().is_none_or(|country| {
+                                        s.country_offers.iter().any(|offer| {
+                                            offer.country == country
+                                                && q.service()
+                                                    .is_none_or(|service| service == &offer.service)
+                                                && q.maximum_per_item().is_none_or(|maximum| {
+                                                    offer.per_item_fixed.is_some_and(|price| {
+                                                        if fx_mode {
+                                                            plan.snapshot().convert(price, maximum.currency, fxrate_core::RoundingMode::HalfUp).unwrap().monetary_amount <= maximum.monetary_amount
+                                                        } else {
+                                                            price.currency == maximum.currency && price.monetary_amount <= maximum.monetary_amount
+                                                        }
+                                                    })
+                                                })
+                                        })
+                                    })
+                            })
+                            .map(|(id, _)| *id)
+                            .collect::<std::collections::HashSet<_>>();
+                            assert_eq!(Some(expected.len() as u64), result.total);
+                            assert_eq!(
+                                expected,
+                                result.items.iter().map(|i| i.product_listing_id).collect()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let france_from_german_inventory = ProductListingSearch {
+            geography: Some(geographic_query(None, None, false, false)),
+            shipping: Some(ShippingSearch::new(
+                ReferenceRelease::CURRENT,
+                Some(CountryCode::FRA),
+                None,
+                Some(Price::new(100_u64.into(), Currency::Eur)),
+                false,
+            )?),
+            currency: Currency::Usd,
+            ..Default::default()
+        };
+        let independent = search(france_from_german_inventory, price_filter(None)?).await?;
+        assert_eq!(Some(1), independent.total);
+        assert_eq!(ids[2], independent.items[0].product_listing_id);
+        // Gallery acceptance and DE-expensive / FR-cheap counterexample, with item location independent.
+        let mut query = ProductListingSearch {
+            shipping: Some(ShippingSearch::new(
+                ReferenceRelease::CURRENT,
+                Some(CountryCode::DEU),
+                None,
+                Some(Price::new(9000_u64.into(), Currency::Eur)),
+                true,
+            )?),
+            geography: Some(geographic_query(None, None, false, false)),
+            ..Default::default()
+        };
+        let result = search(query.clone(), price_filter(None)?).await?;
+        assert_eq!(Some(1), result.total);
+        assert_eq!(ids[0], result.items[0].product_listing_id);
+        documents[0]["shipping"]["countryOffers"][0]["perItemFixed"]["amountMinor"] = json!(9500);
+        index_products([documents[0].clone()]).await?;
+        assert_eq!(
+            Some(0),
+            search(query.clone(), price_filter(None)?).await?.total
+        );
+        query.shipping = Some(ShippingSearch::new(
+            ReferenceRelease::CURRENT,
+            None,
+            None,
+            None,
+            true,
+        )?);
+        let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
+            get_opensearch_client().await.clone(),
+            PRODUCTS_INDEX,
+        );
+        let mut request = ProductListingSearchReadRequest {
+            compiled_search: CompiledProductListingSearch::new(query, price_filter(None)?)?,
+            sort: None,
+            cursor: Some(Cursor {
+                size: 1,
+                search_after: None,
+            }),
+        };
+        let first = reader.search(&request).await?;
+        assert_eq!(Some(2), first.total);
+        request.cursor.as_mut().unwrap().search_after = first.cursor.search_after;
+        let second = reader.search(&request).await?;
+        assert_eq!(Some(2), second.total);
+        assert_ne!(
+            first.items[0].product_listing_id,
+            second.items[0].product_listing_id
+        );
+        assert_eq!(
+            std::collections::HashSet::from([ids[0], ids[1]]),
+            std::collections::HashSet::from([
+                first.items[0].product_listing_id,
+                second.items[0].product_listing_id
+            ])
+        );
+
+        // A fresh FX basis changes membership; the original plan keeps exact pages and totals.
+        let fx_query = ProductListingSearch {
+            shipping: Some(
+                ShippingSearch::new(
+                    ReferenceRelease::CURRENT,
+                    Some(CountryCode::DEU),
+                    Some(ShippingServiceCode::new("gallery-delivery".into())?),
+                    Some(Price::new(9000_u64.into(), Currency::Usd)),
+                    false,
+                )?
+                .with_fx_conversion()?,
+            ),
+            ..Default::default()
+        };
+        let mut pinned = ProductListingSearchReadRequest {
+            compiled_search: CompiledProductListingSearch::new(
+                fx_query.clone(),
+                price_filter(None)?,
+            )?,
+            sort: None,
+            cursor: Some(Cursor {
+                size: 1,
+                search_after: None,
+            }),
+        };
+        let first = reader.search(&pinned).await?;
+        assert_eq!(Some(3), first.total);
+        let mut found = std::collections::HashSet::from([first.items[0].product_listing_id]);
+        pinned.cursor.as_mut().unwrap().search_after = first.cursor.search_after;
+        let changed_snapshot = fxrate_core::NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+            fxrate_core::FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                fxrate_core::FxRateQuote::new(
+                    currency,
+                    if currency == Currency::Usd {
+                        2_000_000
+                    } else {
+                        fxrate_core::FX_RATE_SCALE
+                    },
+                )
+            }),
+        )?
+        .into_persisted(2_i64.try_into()?);
+        let changed_plan =
+            ProductListingPriceFilterPlan::compile(changed_snapshot, Currency::Usd, None)?;
+        let fresh = reader
+            .search(&ProductListingSearchReadRequest {
+                compiled_search: CompiledProductListingSearch::new(fx_query, changed_plan)?,
+                cursor: Some(Cursor {
+                    size: 20,
+                    search_after: None,
+                }),
+                sort: None,
+            })
+            .await?;
+        assert_eq!(Some(2), fresh.total);
+        for _ in 1..3 {
+            let page = reader.search(&pinned).await?;
+            assert_eq!(Some(3), page.total);
+            assert_eq!(1, page.items.len());
+            assert!(found.insert(page.items[0].product_listing_id));
+            pinned.cursor.as_mut().unwrap().search_after = page.cursor.search_after;
+        }
+        assert_eq!(
+            std::collections::HashSet::from([ids[3], ids[4], ids[7]]),
+            found
+        );
+        Ok(())
+    }
+    assert_ok(run().await);
 }

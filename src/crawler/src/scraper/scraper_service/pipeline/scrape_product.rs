@@ -266,6 +266,7 @@ impl ScraperServiceImpl {
                 )));
             }
         };
+        let acquired_at = time::OffsetDateTime::now_utc();
         let normalized_original_url = CrawledUrl::new(url.clone());
         let normalized_final_url = CrawledUrl::new(fetched.final_url.clone());
         let url_moved = normalized_original_url.as_url() != normalized_final_url.as_url();
@@ -414,6 +415,7 @@ impl ScraperServiceImpl {
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");
         Ok(Some(ScrapedProduct {
+            acquired_at,
             raw_input,
             effective_url,
             source_listing_id: selection.prepared.source_listing_id.to_string(),

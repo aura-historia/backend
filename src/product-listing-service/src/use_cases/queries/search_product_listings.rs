@@ -89,6 +89,7 @@ pub struct ProductListingSearchItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
+    pub shipping: Option<crate::shipping::AdvertisedShipping>,
     pub geography: Option<crate::geographic_search::ListingDiscoveryGeography>,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: Option<ProductListingSlugId>,
@@ -149,6 +150,12 @@ pub enum ProductListingSearchReadExecutionPolicy {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchProductListingsError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        crate::shipping::ShippingReadError,
+    ),
     #[error("contradictory geographic query or distance ordering")]
     InvalidGeographicQuery,
     #[error("product search query failed")]
@@ -219,6 +226,7 @@ pub trait SearchProductListingsUseCase: Send + Sync {
 }
 
 pub struct SearchProductListingsHandler<R, F, E, L, U, A> {
+    shipping: crate::shipping::ShippingEnrichment,
     reader: R,
     fx_rates: F,
     embeddings: E,
@@ -236,8 +244,11 @@ impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
         listing_sources: L,
         user_states: U,
         assessments: A,
+
+        shipping: crate::shipping::ShippingEnrichment,
     ) -> Self {
         Self {
+            shipping,
             reader,
             fx_rates,
             embeddings,
@@ -304,10 +315,10 @@ where
         let fx_rate_id = price_filter.fx_rate_id;
         let embedding_query = hybrid_embedding_query(&request);
         let read_request = ProductListingSearchReadRequest {
-            compiled_search: CompiledProductListingSearch {
-                search: request.search,
-                price_filter_plan: price_filter,
-            },
+            compiled_search: CompiledProductListingSearch::new(request.search, price_filter)
+                .map_err(|source| SearchProductListingsError::FxRateSnapshotInvalid {
+                    source: box_error(source),
+                })?,
             sort: request.sort,
             cursor: request.cursor.map(|cursor| Cursor {
                 size: cursor.size,
@@ -451,6 +462,14 @@ where
             record_search_stage("enrichment_and_presentation", enrichment_started, "success");
             summaries
         };
+        self.shipping
+            .summaries(
+                context,
+                &mut items,
+                read_request.compiled_search.search.currency,
+                read_request.compiled_search.price_filter_plan.snapshot(),
+            )
+            .await?;
         for item in &mut items {
             if let Some(geography) = &mut item.item.geography {
                 geography.set_distance(&read_request.compiled_search.search);
@@ -507,6 +526,7 @@ pub(crate) fn present_product_summaries_from_assessments(
             let visible = may_show_product_listing_images(decision, show_all);
             Personalized {
                 item: ProductListingSummary {
+                    shipping: None,
                     geography: product.item.item.geography,
                     product_listing_id: product.item.item.product_listing_id,
                     product_listing_title_slug_id: (!product
@@ -1389,6 +1409,7 @@ mod tests {
                 state: Arc::clone(state),
             },
             EmptyAssessmentReader,
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
     }
 
@@ -1589,6 +1610,7 @@ mod tests {
                 sources,
                 user_states,
                 assessments,
+                crate::shipping::ShippingEnrichment::for_tests(),
             )
             .with_read_execution_policy(policy),
             fx_calls,
@@ -1635,6 +1657,7 @@ mod tests {
                     HashMap::from([(
                         listing_id,
                         ProductListingUserState {
+                            shipping: None,
                             watchlist: crate::user_state::WatchlistUserState {
                                 watching: true,
                                 notifications: true,
@@ -1655,6 +1678,7 @@ mod tests {
                     HashMap::from([(
                         listing_id,
                         ProductListingUserState {
+                            shipping: None,
                             search_filter: crate::user_state::SearchFilterUserState {
                                 hidden: true,
                                 ..Default::default()
@@ -1716,6 +1740,7 @@ mod tests {
                 HashMap::from([(
                     listing_id,
                     ProductListingUserState {
+                        shipping: None,
                         watchlist: crate::user_state::WatchlistUserState {
                             watching: true,
                             notifications: false,
@@ -1880,6 +1905,7 @@ mod tests {
                 );
             }
             let user_state = show_all.then(|| ProductListingUserState {
+                shipping: None,
                 content_visibility: crate::user_state::ContentVisibilityUserState {
                     show_unassessed_or_sensitive_content: true,
                 },
@@ -1963,6 +1989,7 @@ mod tests {
                 CountingFailingAssessmentReader {
                     calls: Arc::clone(&assessment_calls),
                 },
+                crate::shipping::ShippingEnrichment::for_tests(),
             )
             .with_read_execution_policy(policy);
 
@@ -2008,6 +2035,7 @@ mod tests {
                 CountingFailingAssessmentReader {
                     calls: Arc::clone(&assessment_calls),
                 },
+                crate::shipping::ShippingEnrichment::for_tests(),
             )
             .with_read_execution_policy(policy);
 
@@ -2056,6 +2084,7 @@ mod tests {
                 barrier,
                 calls: Arc::clone(&assessment_calls),
             },
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
         .with_read_execution_policy(ProductListingSearchReadExecutionPolicy::Concurrent);
 
@@ -2097,6 +2126,7 @@ mod tests {
                 barrier,
                 calls: Arc::clone(&assessment_calls),
             },
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
         .with_read_execution_policy(ProductListingSearchReadExecutionPolicy::Concurrent);
 
@@ -2131,6 +2161,7 @@ mod tests {
                 state: Arc::clone(&state),
             },
             EmptyAssessmentReader,
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
         .with_read_execution_policy(ProductListingSearchReadExecutionPolicy::Concurrent);
         let task = tokio::spawn(async move { handler.execute(&context(), request()).await });
@@ -2190,6 +2221,7 @@ mod tests {
                 barrier: Arc::new(Barrier::new(1)),
                 calls: Arc::clone(&assessment_calls),
             },
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
         .with_read_execution_policy(ProductListingSearchReadExecutionPolicy::Concurrent);
 

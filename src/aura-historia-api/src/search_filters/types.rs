@@ -1,4 +1,5 @@
 use crate::patch_value::{PatchValue, clearable, non_nullable_option, non_nullable_patch};
+use crate::shipping::listing::ShippingMatchValuationData;
 
 use application::patch_field::PatchField;
 use auction_core::AuctionId;
@@ -41,6 +42,9 @@ pub(super) enum PatchSearchFilterStateData {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateSearchFilterData {
+    #[serde(default)]
+    pub(super) accept_shipping_destination:
+        Option<crate::shipping_search::AcceptShippingDestinationData>,
     pub(super) name: UserSearchFilterName,
     #[serde(default = "default_notifications")]
     pub(super) notifications: bool,
@@ -176,6 +180,9 @@ type UpdateSearchFilterFields = (
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateSearchFilterData {
     #[serde(default)]
+    pub(super) accept_shipping_destination:
+        Option<crate::shipping_search::AcceptShippingDestinationData>,
+    #[serde(default)]
     pub(super) name: PatchValue<UserSearchFilterName>,
     #[serde(default)]
     pub(super) notifications: PatchValue<bool>,
@@ -206,6 +213,8 @@ impl UpdateSearchFilterData {
 pub(super) struct ProductListingSearchPatchData {
     #[serde(default)]
     geography: PatchValue<crate::geographic_search::GeographicSearchData>,
+    #[serde(default)]
+    shipping: PatchValue<crate::shipping_search::ShippingSearchData>,
     #[serde(default)]
     #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
     language: PatchValue<Language>,
@@ -262,6 +271,14 @@ impl ProductListingSearchPatchData {
     fn try_into_patch(self) -> Result<ProductListingSearchPatch, crate::error::ApiError> {
         Ok(ProductListingSearchPatch {
             geography: geographic_patch(self.geography, "search.geography")?,
+            shipping: match self.shipping {
+                PatchValue::Omitted => PatchField::Unchanged,
+                PatchValue::Null => PatchField::Clear,
+                PatchValue::Value(d) => match crate::shipping_search::parse(Some(d), true)? {
+                    Some(q) => PatchField::Set(q),
+                    None => PatchField::Clear,
+                },
+            },
             language: non_nullable_patch(self.language, "search.language")?,
             currency: non_nullable_patch(self.currency, "search.currency")?,
             product_listing_query: non_nullable_patch(
@@ -419,6 +436,8 @@ pub(super) struct ProductListingSearchData<
 > {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     geography: Option<crate::geographic_search::GeographicSearchData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shipping: Option<crate::shipping_search::ShippingSearchData>,
     #[serde(default, with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
@@ -519,6 +538,7 @@ impl TryFrom<ProductListingSearchData<String, String, String>> for ProductListin
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             geography: crate::geographic_search::parse_body(data.geography, "search.geography")?,
+            shipping: crate::shipping_search::parse(data.shipping, true)?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -577,6 +597,7 @@ impl From<ProductListingSearch>
     fn from(search: ProductListingSearch) -> Self {
         Self {
             geography: search.geography.map(Into::into),
+            shipping: search.shipping.map(Into::into),
             language: search.language,
             currency: search.currency,
             product_listing_query: search.product_listing_query,
@@ -660,6 +681,8 @@ pub(super) struct SearchFilterMatchData {
     product_listing_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
+    shipping_match_valuation: Option<ShippingMatchValuationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     feedback: Option<bool>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
@@ -675,6 +698,7 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             user_search_filter_name: view.search_filter_name,
             product_listing_id: view.product_listing_id,
             origin_event_id: view.origin_event_id,
+            shipping_match_valuation: view.shipping_match_valuation.map(Into::into),
             feedback: view.feedback,
             created: view.created,
             updated: view.updated,
@@ -885,5 +909,30 @@ mod tests {
         let (_, _, _, patch) = omitted.into_fields()?;
         assert_eq!(PatchField::Unchanged, patch.availability_query);
         Ok(())
+    }
+    #[test]
+    fn shipping_patch_omission_replacement_null_and_explicit_none_are_distinct() {
+        for value in [
+            serde_json::json!({"search":{"shipping":null}}),
+            serde_json::json!({"search":{"shipping":{"destination":{"kind":"NONE"}}}}),
+        ] {
+            let data: UpdateSearchFilterData = serde_json::from_value(value).unwrap();
+            assert_eq!(PatchField::Clear, data.into_fields().unwrap().3.shipping);
+        }
+        let unchanged: UpdateSearchFilterData =
+            serde_json::from_value(serde_json::json!({"search":{"currency":"USD"}})).unwrap();
+        assert_eq!(
+            PatchField::Unchanged,
+            unchanged.into_fields().unwrap().3.shipping
+        );
+        let data: UpdateSearchFilterData = serde_json::from_value(serde_json::json!({"search":{"shipping":{"destination":{"kind":"COUNTRY","country":"DE"},"maximumPerItem":{"amount":9000,"currency":"EUR"}}}})).unwrap();
+        let PatchField::Set(shipping) = data.into_fields().unwrap().3.shipping else {
+            panic!("shipping replacement must be set")
+        };
+        assert_eq!(Some(geo::CountryCode::DEU), shipping.country());
+        assert_eq!(
+            Some(money::Price::new(9000_u64.into(), Currency::Eur)),
+            shipping.maximum_per_item()
+        );
     }
 }

@@ -106,6 +106,11 @@ pub enum UpsertProductListingError {
     ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     PersistenceFailed,
+    #[error("persisted listing delivery is invalid")]
+    InvalidDeliveryPersisted {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event append failed")]
     EventAppenderFailed {
         #[source]
@@ -553,8 +558,13 @@ impl From<RehydrateProductListingError> for UpsertProductListingError {
     }
 }
 impl From<ProductListingRepositoryError> for UpsertProductListingError {
-    fn from(_: ProductListingRepositoryError) -> Self {
-        Self::PersistenceFailed
+    fn from(error: ProductListingRepositoryError) -> Self {
+        match error {
+            ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
+                Self::InvalidDeliveryPersisted { source }
+            }
+            _ => Self::PersistenceFailed,
+        }
     }
 }
 impl From<ProductListingEventAppendError> for UpsertProductListingError {
