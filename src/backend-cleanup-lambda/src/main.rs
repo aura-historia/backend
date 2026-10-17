@@ -12,8 +12,12 @@ use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
+use product_listing_postgres::shipping_projection::SqlxShippingProjectionStoreFactory;
 use product_listing_service::geography::{
     ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
+};
+use product_listing_service::shipping_projection::{
+    ProjectListingShippingHandler, ProjectListingShippingUseCase,
 };
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
@@ -67,9 +71,13 @@ async fn main() -> Result<(), Error> {
                             SqlxResolutionRepositoryFactory,
                         ),
                         ProjectListingGeographyHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxGeographyProjectionStoreFactory,
                             SqlxResolutionRepositoryFactory,
+                        ),
+                        ProjectListingShippingHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxShippingProjectionStoreFactory,
                         ),
                     ))
                 })
@@ -86,8 +94,13 @@ async fn main() -> Result<(), Error> {
             if recovery_result.is_err() {
                 tracing::warn!(event = "backend_cleanup.listing_geography.failed");
             }
+            let shipping_result = cleanup.value().4.execute(None, 100).await;
+            if shipping_result.is_err() {
+                tracing::warn!(event = "backend_cleanup.listing_shipping.failed");
+            }
             cleanup_result?;
             recovery_result?;
+            shipping_result?;
             Ok::<(), Error>(())
         }
     }))

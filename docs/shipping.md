@@ -214,6 +214,56 @@ enter diagnostics or public storage. Dispatch and collection sites are omitted f
 response terms: a PartyLocation reference establishes applicability, not permission to
 publish its management address. Exact public pickup disclosure needs an explicit contract.
 
+## Effective shipping discovery projection
+
+PostgreSQL retains a compact rebuildable summary and reverse dependency identities for
+each listing. Dependency work is coalesced by subject, traversed in bounded UUID keysets
+and committed with generation/lease-fenced checkpoints. New listings and canonical
+assignment changes establish independent work even after a shared traversal cursor has
+passed. Profile/default management and B05 observation, ownership and source-authority
+signals establish invalidation in their originating transaction. Partial imports become
+visible record by record; there is no provider request or completion barrier. Workers
+share the current listing-read selection/evaluation semantics and coherent dependency
+snapshot, including independent component observation windows. They retain profile/default,
+source authority, listing, explicit location/input/lifecycle, resolution selection/rights/
+expiry and evaluator/projection policy bases; no policy is copied into listing aggregates.
+
+The public index contains independent collection eligibility, explicit global shipping
+prohibition, an explicit conditional/unsupported flag and nested country/service offers.
+Only definite whole-country applicability produces an offer. Postal exclusions, unknown
+origins/variants, missing basket conditions and unresolved earlier zones cannot become
+unconditional offers. A known fixed or free per-item amount retains exact currency and
+minor units in its own offer row; other price knowledge is conditional. Missing/unbuilt
+summaries preserve uncertainty. Projection V1
+retains at most 256 offers, ordered by reference country then declared service order;
+truncation retains the conditional flag. Missing offers never assert prohibition. No
+address, location identity, private evidence, full policy, buyer destination or buyer
+assessment enters the public shipping document.
+
+A changed public summary emits the registered shipping enrichment event and advances the
+listing's existing complete-projection fence. Unchanged summaries only refresh dependency
+state and deadlines. Profile revisions never become global OpenSearch versions. All writes
+replace the complete listing document using external version fencing, preserving newer
+price/geography facts and the existing content-free deletion tombstone contract. Event
+routing and codec compatibility belong to [event flow](events/flow.md#shipping-management-signals).
+
+Discovery membership, counts and order follow the index and may lag committed shipping
+changes. Existing detail and discovery responses, including search/similar, still batch
+current PostgreSQL assessment into `item.shipping` and permitted `userState.shipping`.
+They preserve the indexed page and do not post-filter it. An indexed old-rate hit can
+therefore return updated terms before projection catches up. Origin reads have this
+current-dependency contract; an existing anonymous cached response can survive only its
+bounded cache TTL, capped at the next evidence freshness/expiry deadline. Authenticated
+responses remain `no-store`. No global query gate promises strongly consistent search.
+
+Each derived row schedules its next relevant freshness/expiry deadline. Hourly backend
+maintenance discovers at most 100 due listings and processes one page of pending shipping
+work independently of CDC/SQS delivery. Continuations use durable wake-ups. Deadline
+crossings may therefore remain in discovery until maintenance, fan-out, product projection
+and normal OpenSearch refresh complete; backlog/outages extend that lag. Current listing
+reads enforce expiry and revoked evidence immediately. Recovery/rebuild procedures and
+monitoring belong to the [worker runbook](durable-worker-runbook.md#listing-shipping-recovery).
+
 ## Independent assertions
 
 Eligibility is absent or `OFFERED`, `NOT_OFFERED`, or `SUBJECT_TO_CONFIRMATION`. Pricing is

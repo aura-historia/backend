@@ -632,3 +632,197 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
     let (_, offered) = request(&router, &path, Some("owner")).await;
     assert_eq!("OFFERED", offered["userState"]["shipping"]["eligibility"]);
 }
+
+struct NoDiscoveryEmbedding;
+#[async_trait::async_trait]
+impl embedding::EmbeddingGenerator for NoDiscoveryEmbedding {
+    async fn embed_product(
+        &self,
+        _: &embedding::EmbeddingText,
+        _: Option<&embedding::EmbeddingText>,
+        _: Option<&embedding::EmbeddingImageUrl>,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        unreachable!("shipping discovery never calls an embedding provider")
+    }
+    async fn embed_search_query(
+        &self,
+        _: &embedding::EmbeddingText,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        unreachable!("country discovery needs no text embedding")
+    }
+}
+#[aura_integration_test(services=[SCHEMA, test_api::OpenSearch()])]
+async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves_index_membership()
+{
+    use application::transaction::{Transaction, UnitOfWork};
+    use product_listing_postgres::{
+        SqlxProductListingSearchFilterMatchSourceReaderFactory,
+        shipping_projection::SqlxShippingProjectionStoreFactory,
+    };
+    use product_listing_service::{
+        ports::{
+            ProductListingSearchFilterMatchSourceReader,
+            ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchProjection,
+        },
+        shipping_projection::*,
+    };
+    let (p, _, book, owner, profile, id) = fixture().await;
+    select_country(&book, owner, None, 1).await;
+    let client = test_api::get_opensearch_client().await.clone();
+    let shipping = ShippingEnrichment::new(Arc::new(AssessDeliveryHandler::new(
+        SqlxUnitOfWork::new(p.clone()),
+        SqlxAssessmentReaderFactory,
+        book,
+    )));
+    let search = SearchProductListingsHandler::new(
+        product_listing_opensearch::OpenSearchProductListingSearchReader::new(client.clone()),
+        fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone()),
+        NoDiscoveryEmbedding,
+        product_listing_postgres::SqlxListingSourceSummaryReader::new(p.clone()),
+        product_listing_postgres::SqlxProductListingUserStateReader::new(p.clone()),
+        product_listing_postgres::SqlxProductListingContentAssessmentReader::new(p.clone()),
+        shipping.clone(),
+    );
+    let router = app(AppState::new().with_products(ProductListingsState::new(
+        Arc::new(GetProductListingHandler::new(
+            SqlxUnitOfWork::new(p.clone()),
+            product_listing_postgres::SqlxProductListingDetailsReaderFactory::new(),
+            fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory,
+            shipping,
+        )),
+        Arc::new(UnusedQueries),
+        Arc::new(search),
+        Arc::new(Auth(owner, UserId::new())),
+    )));
+    let project = ProjectListingShippingHandler::new(
+        SqlxUnitOfWork::new(p.clone()),
+        SqlxShippingProjectionStoreFactory,
+    );
+    async fn drain(project: &dyn ProjectListingShippingUseCase, p: &PgPool) {
+        for _ in 0..100 {
+            project.execute(None, 100).await.unwrap();
+            if !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM listing_shipping_work WHERE pending)",
+            )
+            .fetch_one(p)
+            .await
+            .unwrap()
+            {
+                return;
+            }
+        }
+        panic!("shipping work did not converge");
+    }
+    async fn source(
+        p: &PgPool,
+        id: ProductListingId,
+    ) -> product_listing_service::ports::ProductListingSearchFilterMatchSource {
+        let event: uuid::Uuid = sqlx::query_scalar(
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id=$1",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(p)
+        .await
+        .unwrap();
+        let mut tx = SqlxUnitOfWork::new(p.clone()).begin().await.unwrap();
+        let source = SqlxProductListingSearchFilterMatchSourceReaderFactory
+            .in_transaction(&mut tx)
+            .find_source(event.try_into().unwrap(), id)
+            .await
+            .unwrap()
+            .unwrap();
+        tx.commit().await.unwrap();
+        source
+    }
+    async fn old_rate_membership(client: &opensearch::OpenSearch) -> Value {
+        client.search(opensearch::SearchParts::Index(&["product-listings"]))
+            .body(json!({"query":{"bool":{"filter":[product_listing_opensearch::shipping_query::country_offer_query(CountryCode::DEU,None,Some(money::Price::new(8000_u64.into(),money::Currency::Eur)))],"must_not":[{"term":{"projectionDeleted":true}}]}}}))
+            .send().await.unwrap().error_for_status_code().unwrap().json().await.unwrap()
+    }
+    // Public title is unrelated to shipping; supply it so this is an ordinary search hit.
+    sqlx::query("UPDATE product_listings SET title_text='Gallery painting',title_language='en' WHERE product_listing_id=$1").bind(id.into_uuid()).execute(&p).await.unwrap();
+    drain(&project, &p).await;
+    let writer =
+        product_listing_opensearch::OpenSearchProductListingSearchProjection::new(client.clone());
+    writer.upsert(&source(&p, id).await, None).await.unwrap();
+    test_api::refresh_index("product-listings").await;
+    assert_eq!(
+        1,
+        old_rate_membership(&client).await["hits"]["total"]["value"]
+    );
+    let (status, before) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    assert_eq!(StatusCode::OK, status, "{before}");
+    let source_id: ListingSourceId = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT listing_source_id FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(id.into_uuid())
+    .fetch_one(&p)
+    .await
+    .unwrap()
+    .try_into()
+    .unwrap();
+    ReplaceShippingProfileHandler::new(
+        SqlxUnitOfWork::new(p.clone()),
+        SqlxShippingRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &ctx(Principal::System),
+        ReplaceProfileCommand {
+            import: None,
+            source_id,
+            profile_id: profile,
+            expected_revision: shipping_service::ports::ShippingManagementRevision::INITIAL,
+            content: ShippingProfileContent {
+                name: ShippingProfileName::new("Gallery terms".into()).unwrap(),
+                attributed_party: None,
+                terms: gallery_terms(9500),
+            },
+            evidence: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    let (status, current) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    assert_eq!(StatusCode::OK, status, "{current}");
+    assert_eq!(1, current["size"]);
+    assert_eq!(1, current["total"]);
+    assert_eq!(
+        id.to_string(),
+        current["items"][0]["item"]["productListingId"]
+    );
+    assert_eq!(before["total"], current["total"]);
+    assert_eq!(before["size"], current["size"]);
+    assert_eq!(
+        before["items"][0]["item"]["productListingId"],
+        current["items"][0]["item"]["productListingId"]
+    );
+    assert_eq!(
+        9500,
+        current["items"][0]["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"]
+            [0]["rate"]["price"]["amount"]["amount_minor"]
+    );
+    assert_eq!(
+        "OFFERED",
+        current["items"][0]["userState"]["shipping"]["eligibility"]
+    );
+    // PostgreSQL is current while indexed membership/counts retain the old predicate.
+    assert_eq!(
+        1,
+        old_rate_membership(&client).await["hits"]["total"]["value"]
+    );
+    drain(&project, &p).await;
+    writer.upsert(&source(&p, id).await, None).await.unwrap();
+    test_api::refresh_index("product-listings").await;
+    assert_eq!(
+        0,
+        old_rate_membership(&client).await["hits"]["total"]["value"]
+    );
+    let (_, caught_up) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    assert_eq!(current["total"], caught_up["total"]);
+    assert_eq!(current["size"], caught_up["size"]);
+    assert_eq!(
+        current["items"][0]["item"]["shipping"]["terms"],
+        caught_up["items"][0]["item"]["shipping"]["terms"]
+    );
+}

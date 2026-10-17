@@ -214,6 +214,7 @@ function tableMappings(): Record<string, unknown> {
   const selectedTables = [
     { table: "geo_resolution_wakeups", removedColumns: [] },
     { table: "listing_geography_wakeups", removedColumns: [] },
+    { table: "listing_shipping_wakeups", removedColumns: [] },
     {
       table: "product_listing_events",
       removedColumns: ["created"],
@@ -331,6 +332,7 @@ function tableMappings(): Record<string, unknown> {
     { table: "product_listing_raw_revisions", column: "revision" },
     { table: "geo_resolution_wakeups", column: "generation" },
     { table: "listing_geography_wakeups", column: "generation" },
+    { table: "listing_shipping_wakeups", column: "generation" },
   ]) {
     rules.push({
       "rule-type": "transformation",

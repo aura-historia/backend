@@ -32,6 +32,7 @@ export interface EventingProps {
   readonly marketingConsentSyncVersion: lambda.IVersion;
   readonly geoResolutionVersion: lambda.IVersion;
   readonly listingGeographyVersion: lambda.IVersion;
+  readonly listingShippingVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
   readonly cdcRouterActivation: cdk.CfnCondition;
@@ -50,6 +51,7 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
   GEO_RESOLUTION: "geo-resolution",
   LISTING_GEOGRAPHY: "listing-geography",
+  LISTING_SHIPPING: "listing-shipping",
 } as const satisfies Record<string, WorkerScope>;
 
 export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
@@ -110,6 +112,7 @@ export class Eventing extends Construct {
       props.marketingConsentSyncVersion,
       props.geoResolutionVersion,
       props.listingGeographyVersion,
+      props.listingShippingVersion,
     );
   }
 }
@@ -394,6 +397,7 @@ function createSqsEventSources(
   marketingConsentSyncVersion: lambda.IVersion,
   geoResolutionVersion: lambda.IVersion,
   listingGeographyVersion: lambda.IVersion,
+  listingShippingVersion: lambda.IVersion,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
@@ -548,6 +552,15 @@ function createSqsEventSources(
     workerQueues["listing-geography"],
     listingGeographyVersion,
     "Listing geography",
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 },
+  );
+  addWorkerLambdaEventSource(
+    scope,
+    "ListingShippingQueueEventSource",
+    functions.listingShipping,
+    workerQueues["listing-shipping"],
+    listingShippingVersion,
+    "Listing shipping",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 },
   );
   addWorkerLambdaEventSource(scope, "GeoResolutionQueueEventSource", functions.geoResolution,

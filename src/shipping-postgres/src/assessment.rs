@@ -22,10 +22,16 @@ use uuid::Uuid;
 
 #[derive(Clone, Copy, Default)]
 pub struct SqlxAssessmentReaderFactory;
-struct Reader<'a>(&'a mut PgConnection);
+struct Reader<'a>(&'a mut PgConnection, bool);
 impl AssessmentReaderFactory<SqlxTransaction> for SqlxAssessmentReaderFactory {
     fn in_transaction<'a>(&'a self, tx: &'a mut SqlxTransaction) -> impl AssessmentReader + 'a {
-        Reader(tx.connection())
+        Reader(tx.connection(), true)
+    }
+}
+impl SqlxAssessmentReaderFactory {
+    /// Caller owns a repeatable snapshot and canonical locks in a writable transaction.
+    pub fn projection_reader(connection: &mut PgConnection) -> impl AssessmentReader + '_ {
+        Reader(connection, false)
     }
 }
 fn invalid(source: impl std::error::Error + Send + Sync + 'static) -> AssessmentError {
@@ -118,10 +124,12 @@ impl AssessmentReader for Reader<'_> {
             return Err(AssessmentError::InvalidInput);
         }
         // First operation in this service-owned read transaction, before the snapshot is taken.
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-            .execute(&mut *self.0)
-            .await
-            .map_err(storage)?;
+        if self.1 {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                .execute(&mut *self.0)
+                .await
+                .map_err(storage)?;
+        }
         let at: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *self.0)
             .await
@@ -289,12 +297,18 @@ impl AssessmentReader for Reader<'_> {
                     .map_err(invalid)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let resolutions = geo_postgres::SqlxResolutionRepositoryFactory::snapshot_reader(self.0)
-            .inspect_many(&subjects)
-            .await
-            .map_err(resolution_error)?;
-        if resolutions.len() != rows.len() {
-            return Err(corrupt());
+        // Dispatch and collection are independent: a 100-listing page can have
+        // 200 sites. Keep bounded shared reads inside this same snapshot.
+        let mut resolutions = Vec::with_capacity(subjects.len());
+        for batch in subjects.chunks(geo_service::resolution::MAX_RESOLUTION_SUBJECTS) {
+            let values = geo_postgres::SqlxResolutionRepositoryFactory::snapshot_reader(self.0)
+                .inspect_many(batch)
+                .await
+                .map_err(resolution_error)?;
+            if values.len() != batch.len() {
+                return Err(corrupt());
+            }
+            resolutions.extend(values);
         }
         let mut locations = Vec::new();
         for (row, resolution) in rows.into_iter().zip(resolutions) {
@@ -364,6 +378,9 @@ impl AssessmentReader for Reader<'_> {
                 (None, None)
             };
             locations.push(LocationDependency {
+                valid_until: resolved
+                    .filter(|r| r.accepted_geography().is_some())
+                    .and_then(|r| r.valid_until),
                 location: PartyLocation::rehydrate(
                     PartyLocationId::try_from(row.party_location_id).map_err(invalid)?,
                     PartyId::try_from(row.party_id).map_err(invalid)?,

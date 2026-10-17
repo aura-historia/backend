@@ -21,8 +21,9 @@ fn deployed_names_and_visibility_stay_stable() {
         ("marketing-consent-sync", 330),
         ("geo-resolution", 300),
         ("listing-geography", 300),
+        ("listing-shipping", 300),
     ];
-    assert_eq!(11, expected.len());
+    assert_eq!(12, expected.len());
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
         assert_eq!(scope.as_str(), name);

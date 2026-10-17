@@ -47,6 +47,11 @@ enum PayloadV2 {
         work_id: product_listing_service::geography::GeographyWorkId,
         generation: u64,
     },
+    #[serde(rename = "LISTING_SHIPPING")]
+    ListingShipping {
+        work_id: product_listing_service::shipping_projection::ShippingWorkId,
+        generation: u64,
+    },
     #[serde(rename = "GEO_RESOLUTION")]
     GeoResolution {
         resolution_id: ResolutionId,
@@ -145,6 +150,10 @@ pub fn encode(job: &DomainJob) -> Result<String, WireError> {
             work_id: job.work_id,
             generation: job.generation,
         },
+        DomainJobPayload::ListingShipping(job) => PayloadV2::ListingShipping {
+            work_id: job.work_id,
+            generation: job.generation,
+        },
         DomainJobPayload::GeoResolution(job) => PayloadV2::GeoResolution {
             resolution_id: job.resolution_id,
             generation: job.generation,
@@ -239,6 +248,13 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
             work_id,
             generation,
         }),
+        PayloadV2::ListingShipping {
+            work_id,
+            generation,
+        } => DomainJobPayload::ListingShipping(crate::jobs::ListingShippingJob {
+            work_id,
+            generation,
+        }),
         PayloadV2::GeoResolution {
             resolution_id,
             generation,
@@ -325,6 +341,12 @@ mod tests {
                     format!("listing-geography:gwork_{SUFFIX}:3"),
                     format!("listing-geography:gwork_{SUFFIX}"),
                 ),
+                WorkerScope::ListingShipping => (
+                    "LISTING_SHIPPING",
+                    json!({"work_id":format!("swork_{SUFFIX}"),"generation":3}),
+                    format!("listing-shipping:swork_{SUFFIX}:3"),
+                    format!("listing-shipping:swork_{SUFFIX}"),
+                ),
                 WorkerScope::GeoResolution => (
                     "GEO_RESOLUTION",
                     json!({"resolution_id":format!("gres_{SUFFIX}"),"generation":3}),
@@ -392,6 +414,10 @@ mod tests {
                 WorkerScope::ListingGeography => (
                     "LISTING_GEOGRAPHY",
                     format!("{{\"work_id\":\"gwork_{SUFFIX}\",\"generation\":3}}"),
+                ),
+                WorkerScope::ListingShipping => (
+                    "LISTING_SHIPPING",
+                    format!("{{\"work_id\":\"swork_{SUFFIX}\",\"generation\":3}}"),
                 ),
                 WorkerScope::GeoResolution => (
                     "GEO_RESOLUTION",

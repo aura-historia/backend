@@ -1,0 +1,15 @@
+{
+  "data": {
+    "work_id": "01900000-0000-7000-8000-000000000008",
+    "generation": "9223372036854775807"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "insert",
+    "schema-name": "public",
+    "table-name": "listing_shipping_wakeups",
+    "timestamp": "2026-10-10T12:00:00Z",
+    "transaction-id": "1009",
+    "transaction-record-id": "1"
+  }
+}

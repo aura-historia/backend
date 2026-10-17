@@ -21,6 +21,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `ResolutionId` | `gres` |
 | `ListingSourceId` | `ls` |
 | `ShippingProfileId` | `shp` |
+| `ShippingWorkId` | `swork` |
 | `UserId` | `usr` |
 | `UserAddressId` | `uaddr` |
 | `MarketingConsentSyncIntentId` | `mci` |
@@ -59,6 +60,7 @@ PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uui
 These persisted fields deliberately retain **canonical lowercase hyphenated UUID text**, not public TypeID serde:
 
 - Shipping storage terms: explicit Party/PartyLocation actor and site references.
+- Effective shipping dependency bases: source/profile/listing/location/resolution identities.
 - PartyLocation creation receipts: result site/Party IDs and optional relocated site ID.
 - Private geographic resolution inputs: the cache-scope owner UUID.
 - Partnership application proposal `listing_source_id`.
@@ -77,7 +79,7 @@ Raw source payload, normalization context and provenance remain opaque evidence.
 Listing delivery storage/event JSON uses native UUIDs for source, profile, Party and
 PartyLocation references; its public and ingestion codecs require canonical TypeIDs.
 Opaque provider class/variant codes remain case-sensitive strings within the source and
-explicit integration method/domain scope, never Aura taxonomy identities.
+explicit integration method scope, never Aura taxonomy identities.
 
 ## External identity and exclusions
 
