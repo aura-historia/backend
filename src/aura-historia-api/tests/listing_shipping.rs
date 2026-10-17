@@ -186,11 +186,14 @@ async fn fixture_with_projection() -> (
         .await
         .unwrap();
     }
-    let shipping = ShippingEnrichment::new(Arc::new(AssessDeliveryHandler::new(
-        uow.clone(),
-        SqlxAssessmentReaderFactory,
-        book.clone(),
-    )));
+    let shipping = ShippingEnrichment::new(
+        Arc::new(AssessDeliveryHandler::new(
+            uow.clone(),
+            SqlxAssessmentReaderFactory,
+            book.clone(),
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone())),
+    );
     let indexed_amount = Arc::new(std::sync::atomic::AtomicU64::new(8000));
     let indexed = IndexedFixture {
         amount: indexed_amount.clone(),
@@ -312,8 +315,13 @@ impl product_listing_service::ports::ProductListingSearchReader for IndexedFixtu
                                             rate.basis() == Some(shipping_core::pricing::ChargeBasis::PerItem)
                                                 && match rate.price() {
                                                     shipping_core::pricing::ShippingPrice::Fixed(price) => {
-                                                        price.currency == maximum.currency
-                                                            && price.monetary_amount <= maximum.monetary_amount
+                                                        if q.fx_converted() {
+                                                            request.compiled_search.price_filter_plan.shipping_native_ranges(q).unwrap().unwrap().iter().any(|r|
+                                                                r.source_currency == price.currency && u64::from(price.monetary_amount) >= r.lower
+                                                                    && r.upper.is_none_or(|upper| u64::from(price.monetary_amount) <= upper))
+                                                        } else {
+                                                            price.currency == maximum.currency && price.monetary_amount <= maximum.monetary_amount
+                                                        }
                                                     }
                                                     shipping_core::pricing::ShippingPrice::Free(currency) => {
                                                         currency == Some(maximum.currency)
@@ -821,11 +829,14 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     let (p, _, book, owner, profile, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
     let client = test_api::get_opensearch_client().await.clone();
-    let shipping = ShippingEnrichment::new(Arc::new(AssessDeliveryHandler::new(
-        SqlxUnitOfWork::new(p.clone()),
-        SqlxAssessmentReaderFactory,
-        book,
-    )));
+    let shipping = ShippingEnrichment::new(
+        Arc::new(AssessDeliveryHandler::new(
+            SqlxUnitOfWork::new(p.clone()),
+            SqlxAssessmentReaderFactory,
+            book,
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone())),
+    );
     let search = SearchProductListingsHandler::new(
         product_listing_opensearch::OpenSearchProductListingSearchReader::new(client.clone()),
         fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone()),
@@ -1171,9 +1182,25 @@ async fn project_gallery(pool: &PgPool, index: &mut IndexedFixture) {
 #[aura_integration_test(services=[SCHEMA])]
 async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_without_canonical_events()
 {
+    periodic_shipping_change(false).await;
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn fx_change_discovers_old_listing_without_shipping_or_listing_mutation() {
+    periodic_shipping_change(true).await;
+}
+
+async fn periodic_shipping_change(fx_mode: bool) {
     use search_filter_postgres::*;
     use search_filter_service::use_cases::*;
     let ((pool, _, _, owner, profile, listing), mut index) = fixture_with_projection().await;
+    let profile_before: Value = sqlx::query_scalar(
+        "SELECT to_jsonb(p) FROM shipping_profiles p WHERE shipping_profile_id=$1",
+    )
+    .bind(profile.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let old = time::OffsetDateTime::now_utc() - time::Duration::days(100);
     index.item.updated = old;
     sqlx::query("UPDATE product_listings SET updated=$2 WHERE product_listing_id=$1")
@@ -1194,9 +1221,27 @@ async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_withou
                 geo::reference::ReferenceRelease::CURRENT,
                 Some(CountryCode::DEU),
                 None,
-                Some(money::Price::new(9000_u64.into(), money::Currency::Eur)),
+                Some(money::Price::new(
+                    if fx_mode {
+                        7500_u64.into()
+                    } else {
+                        9000_u64.into()
+                    },
+                    if fx_mode {
+                        money::Currency::Usd
+                    } else {
+                        money::Currency::Eur
+                    },
+                )),
                 false,
             )
+            .and_then(|query| {
+                if fx_mode {
+                    query.with_fx_conversion()
+                } else {
+                    Ok(query)
+                }
+            })
             .unwrap(),
         ),
         ..Default::default()
@@ -1230,8 +1275,13 @@ async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_withou
     .unwrap();
     let started = time::OffsetDateTime::now_utc() + time::Duration::seconds(1);
     for (iteration, amount, expected_matches) in [(0, 9500, 0), (1, 8000, 1), (2, 8000, 0)] {
-        replace_gallery(&pool, profile, amount).await;
-        project_gallery(&pool, &mut index).await;
+        let fx_snapshot = if fx_mode {
+            Some(capture_shipping_fx(&pool, if iteration == 0 { 1_000_000 } else { 900_000 }).await)
+        } else {
+            replace_gallery(&pool, profile, amount).await;
+            project_gallery(&pool, &mut index).await;
+            None
+        };
         let handler = RunPeriodicSearchFilterMatchingHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SingleTestRun,
@@ -1268,6 +1318,14 @@ async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_withou
         assert_eq!(0, report.filters_failed, "{report:?}");
         assert_eq!(expected_matches, report.matches_inserted, "{report:?}");
         assert_eq!(0, report.classification_requests);
+        if fx_mode && expected_matches == 1 {
+            let row: (uuid::Uuid, String, i64) = sqlx::query_as("SELECT shipping_fx_rate_id, shipping_target_currency, shipping_maximum_minor FROM search_filter_matches WHERE user_search_filter_id=$1")
+                .bind(filter.search_filter_id.into_uuid()).fetch_one(&pool).await.unwrap();
+            assert_eq!(fx_snapshot.unwrap().into_uuid(), row.0);
+            assert_eq!("USD", row.1);
+            assert_eq!(7500, row.2);
+            assert_eq!(8000, index.amount.load(std::sync::atomic::Ordering::SeqCst));
+        }
     }
     let persisted: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filter_matches WHERE user_search_filter_id=$1 AND product_listing_id=$2").bind(filter.search_filter_id.into_uuid()).bind(listing.into_uuid()).fetch_one(&pool).await.unwrap();
     assert_eq!(1, persisted);
@@ -1285,4 +1343,130 @@ async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_withou
             .await
             .unwrap();
     assert_eq!(old.unix_timestamp(), updated.unix_timestamp());
+    if fx_mode {
+        let profile_after: Value = sqlx::query_scalar(
+            "SELECT to_jsonb(p) FROM shipping_profiles p WHERE shipping_profile_id=$1",
+        )
+        .bind(profile.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(profile_before, profile_after);
+        let fx_match: (uuid::Uuid, time::OffsetDateTime) = sqlx::query_as("SELECT shipping_fx_rate_id, shipping_fx_captured_at FROM search_filter_matches WHERE user_search_filter_id=$1")
+            .bind(filter.search_filter_id.into_uuid()).fetch_one(&pool).await.unwrap();
+        let captured_at: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT captured_at FROM fx_rates WHERE fx_rate_id=$1")
+                .bind(fx_match.0)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(captured_at, fx_match.1);
+    }
+}
+
+async fn capture_shipping_fx(pool: &PgPool, usd_units: i64) -> fxrate_core::FxRateId {
+    let id = fxrate_core::FxRateId::new();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO fx_rates(fx_rate_id,captured_at,source,source_event_id)VALUES($1,now(),'fxratesapi',$2)")
+        .bind(id.into_uuid()).bind(id.to_string()).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO fx_rate_quotes(fx_rate_id,currency,units_per_eur) SELECT $1,currency,CASE WHEN currency='USD' THEN $2 ELSE units_per_eur END FROM fx_rate_quotes WHERE fx_rate_id=(SELECT fx_rate_id FROM fx_rates WHERE fx_rate_id<>$1 ORDER BY captured_at DESC,generation DESC LIMIT 1)")
+        .bind(id.into_uuid()).bind(usd_units).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    id
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_continuation() {
+    let (pool, router, book, owner, _, id) = fixture().await;
+    select_country(&book, owner, None, 1).await;
+    let query = "/api/v1/product-listings?currency=USD&shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[interpretation]=WHOLE_COUNTRY_PER_ITEM_FX_V1&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=USD";
+    let (status, first) = request(&router, query, None).await;
+    assert_eq!(StatusCode::OK, status, "{first}");
+    assert_eq!(1, first["total"]);
+    let first_shipping = &first["items"][0]["item"]["shipping"];
+    assert_eq!(
+        8000,
+        first_shipping["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+    );
+    let encoded_cursor: String =
+        url::form_urlencoded::byte_serialize(first["searchAfter"].to_string().as_bytes()).collect();
+    capture_shipping_fx(&pool, 1_200_000).await;
+    let (status, continued) = request(
+        &router,
+        &format!("{query}&searchAfter={encoded_cursor}"),
+        None,
+    )
+    .await;
+    assert_eq!(StatusCode::OK, status, "{continued}");
+    assert_eq!(
+        first_shipping["display"],
+        continued["items"][0]["item"]["shipping"]["display"]
+    );
+    assert_eq!(1, continued["total"]);
+    let (_, changed_membership) = request(&router, query, None).await;
+    assert_eq!(0, changed_membership["total"]);
+    let fx = capture_shipping_fx(&pool, 900_000).await;
+    let threshold = query.replace("amount]=9000", "amount]=7500");
+    let (_, fresh) = request(&router, &threshold, Some("owner")).await;
+    assert_eq!(1, fresh["total"]);
+    let shipping = &fresh["items"][0]["item"]["shipping"];
+    assert_eq!(fx.to_string(), shipping["display"]["fxRateId"]);
+    assert_eq!("USD", shipping["display"]["currency"]);
+    assert_eq!(
+        7200,
+        shipping["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+    );
+    assert_eq!(first_shipping["terms"], shipping["terms"]);
+    assert_eq!(
+        "EUR",
+        shipping["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]["price"]["amount"]
+            ["currency"]
+    );
+    let (_, native) = request(
+        &router,
+        &threshold.replace("WHOLE_COUNTRY_PER_ITEM_FX_V1", "WHOLE_COUNTRY_PER_ITEM_V1"),
+        None,
+    )
+    .await;
+    assert_eq!(0, native["total"]);
+    let (_, eur) = request(
+        &router,
+        &format!("/api/v1/product-listings/{id}?currency=EUR"),
+        None,
+    )
+    .await;
+    let (_, usd) = request(
+        &router,
+        &format!("/api/v1/product-listings/{id}?currency=USD"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        8000,
+        eur["item"]["shipping"]["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+    );
+    assert_eq!(
+        7200,
+        usd["item"]["shipping"]["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+    );
+    assert_eq!(
+        eur["item"]["shipping"]["terms"],
+        usd["item"]["shipping"]["terms"]
+    );
+    // Sold item pricing retains its observation basis; current advertised shipping does not.
+    let old_fx: uuid::Uuid = sqlx::query_scalar("SELECT fx_rate_id FROM fx_rates WHERE fx_rate_id<>$1 ORDER BY captured_at DESC,generation DESC LIMIT 1")
+        .bind(fx.into_uuid()).fetch_one(&pool).await.unwrap();
+    sqlx::query("UPDATE product_listings SET availability='SOLD_OUT', sale_observed_at=now(), sale_observation_fx_rate_id=$2 WHERE product_listing_id=$1")
+        .bind(id.into_uuid()).bind(old_fx).execute(&pool).await.unwrap();
+    let (status, sold) = request(
+        &router,
+        &format!("/api/v1/product-listings/{id}?currency=USD"),
+        None,
+    )
+    .await;
+    assert_eq!(StatusCode::OK, status, "{sold}");
+    assert_eq!(
+        fx.to_string(),
+        sold["item"]["shipping"]["display"]["fxRateId"]
+    );
 }

@@ -2,7 +2,6 @@ use super::SqlxSearchFilterReader;
 use crate::mapping::{MATCH_COLUMNS, MatchRow};
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::sort::SortOrder;
-use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_service::ports::{
     SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchListQuery,
     SearchFilterMatchReadError, SearchFilterMatchReader,
@@ -48,10 +47,12 @@ impl SearchFilterMatchReader for SqlxSearchFilterReader {
         let items = rows
             .into_iter()
             .map(|row| {
+                let view = search_filter_service::ports::SearchFilterMatchView::try_from(row)
+                    .map_err(|_| SearchFilterMatchReadError::InvalidPersistedState)?;
                 Ok(SearchFilterMatchListItem {
-                    product_listing_id: ProductListingId::try_from(row.product_listing_id)
-                        .map_err(|_| SearchFilterMatchReadError::InvalidPersistedState)?,
-                    created: row.created,
+                    shipping_match_valuation: view.shipping_match_valuation,
+                    product_listing_id: view.product_listing_id,
+                    created: view.created,
                 })
             })
             .collect::<Result<Vec<_>, SearchFilterMatchReadError>>()?;

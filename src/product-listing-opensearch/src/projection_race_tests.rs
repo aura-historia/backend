@@ -207,10 +207,10 @@ async fn assert_visible(
     .into_persisted(1_i64.try_into()?);
     let plan = ProductListingPriceFilterPlan::compile(snapshot, Currency::Eur, None)?;
     let request = ProductListingSearchReadRequest {
-        compiled_search: CompiledProductListingSearch {
-            search: ProductListingSearch::new(Language::En, Currency::Eur),
-            price_filter_plan: plan.clone(),
-        },
+        compiled_search: CompiledProductListingSearch::new(
+            ProductListingSearch::new(Language::En, Currency::Eur),
+            plan.clone(),
+        )?,
         sort: None,
         cursor: None,
     };

@@ -1425,13 +1425,14 @@ async fn test_state(
         user_postgres::SqlxAddressBookFactory,
         geo_postgres::SqlxResolutionRepositoryFactory,
     ));
-    let shipping = product_listing_service::shipping::ShippingEnrichment::new(Arc::new(
-        shipping_service::assessment::AssessDeliveryHandler::new(
+    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
+        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
             unit_of_work.clone(),
             shipping_postgres::assessment::SqlxAssessmentReaderFactory,
             address_book.clone(),
-        ),
-    ));
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
+    );
     let public_auctions_state = PublicAuctionsState::new(
         Arc::new(GetPublicAuctionHandler::new(
             SqlxPublicAuctionDetailsReader::new(pool.clone()),

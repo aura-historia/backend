@@ -257,6 +257,34 @@ provider retention is enforced by the geography context, whose invalidation sign
 refresh affected shipping projections. Recovery/rebuild procedures and monitoring belong
 to the [worker runbook](durable-worker-runbook.md#listing-shipping-recovery).
 
+## Shipping display currency
+
+Listing reads return `item.shipping.display` beside unchanged advertised `terms`.
+Each converted rate identifies its zero-based zone/service indices, retains price kind
+and charge basis, and carries the requested currency with persisted `fxRateId` and
+`capturedAt`. Fixed, from and estimated-range amounts use currency minor-unit exponents
+and HalfUp rounding; known-currency free remains zero. Unknown-currency free, external,
+on-request and absent rates have no converted entry. Conversion supplies no quantity,
+quote, final-price certainty or applicability evidence. Private assessed charges remain
+source values; the indices relate them to converted advertised rates.
+
+A fresh read selects the latest complete persisted browsing snapshot at or before its
+valuation time. Search uses that same snapshot for item display, shipping display and
+FX filters; continuation retains its initial snapshot even after another capture. Shipping
+always values current effective terms, including each profile currency and listing override;
+it never borrows a historical sale-observation basis. Dependency reads are batched, with
+one FX selection and request-local reuse of equal source amounts. No live provider is called.
+Missing snapshots or unavailable FX reads fail with 503; invalid snapshots, missing required
+quotes and conversion overflow fail with 500. Shared listing FX resolution retains each
+endpoint's existing errors; shipping enrichment uses `SHIPPING_TEMPORARILY_UNAVAILABLE`
+or `SHIPPING_STORAGE_ERROR`. No current/fallback quote is invented. A legacy snapshot supports only its retained quotes.
+
+FX capture changes read/query-time valuation without rewriting advertised profiles,
+observations, revisions, listing events or search documents. Anonymous cache keys include
+currency and all search predicates; existing bounded TTLs apply. Credential-bearing
+responses and errors remain `private, no-store`. Binding shipping quotes and any future
+order agreements require a separate contract.
+
 ## Shipping search and saved destinations
 
 Listing search and saved filters accept `shipping` independently of item-location
@@ -271,8 +299,14 @@ and price must match one nested offer. For example:
 
 Only fixed and explicitly denominated free per-item rates satisfy the maximum; free is
 zero in its declared currency. Unknown currency, absent/from/estimated/external/requested
-prices and other charge bases cannot satisfy it. Display FX conversion never changes the
-threshold. A definite service with unknown pricing can match country/service without a
+prices and other charge bases cannot satisfy it. The default
+`WHOLE_COUNTRY_PER_ITEM_V1` interpretation compares advertised source values, independently
+of browsing display currency. Existing requests and saved filters retain this behavior.
+Explicit `interpretation: WHOLE_COUNTRY_PER_ITEM_FX_V1` requires a maximum and interprets
+its currency as the target; supported source currencies can then match the same rounded
+display maximum. Exact inclusive source ranges are compiled into indexed retrieval using
+the pinned browsing snapshot. Country, service, currency and compatible per-item price
+remain in one nested offer; from/estimated prices never become final-price matches. A definite service with unknown pricing can match country/service without a
 price constraint. Partial coverage supports only its definite whole-country offers;
 postal exclusions, earlier uncertain zones, variants and missing basket inputs remain
 conditional. Absence of an offer never asserts collection-only or unavailability. There
@@ -293,7 +327,8 @@ Anonymous TTLs and geographic evidence caps still apply; personalized responses 
 `no-store`. Shipping observation age does not cap caching.
 
 Saved filters retain private country values, their geographic reference release and
-`WHOLE_COUNTRY_PER_ITEM_V1` interpretation. They save no address identity, street, postal
+explicit interpretation and the maximum's currency (source by default, target in FX mode).
+They save no address identity, street, postal
 code, provider evidence or mutable preference reference: this initial country predicate
 does not interpret postal rules. Optional create/PATCH `acceptShippingDestination` accepts
 `{"kind":"ADDRESS","addressId":"uaddr_…"}` or `{"kind":"PREFERENCE"}` as an
@@ -311,7 +346,13 @@ does not change browsing selection. Account erasure cascades to these private sn
 They remain outside public listing documents, ordinary CDC/events and logs. Periodic
 matching revisits indexed shipping predicates each evaluation, preserving explicit saved
 date constraints and the evaluation cutoff, because profile updates need no canonical
-listing-price/availability change. Existing bounded candidate/scan limits, idempotent matches, event fences and
+listing-price/availability change. An FX-only threshold crossing is discoverable on the
+next evaluation using its persisted window-end snapshot, independently of listing age.
+FX-mode matches retain immutable snapshot ID/capture time and target maximum separately
+from asking/sale-price valuation. Saved-filter match listing responses expose that basis
+in `userState.searchFilter.shippingMatchValuation`; match feedback responses expose it in
+`shippingMatchValuation`. Later FX or saved-filter edits do not rewrite it.
+Existing bounded candidate/scan limits, idempotent matches, event fences and
 notification routing still apply; see [matching](events/flow.md#periodic-saved-filter-matching).
 
 ## Independent assertions

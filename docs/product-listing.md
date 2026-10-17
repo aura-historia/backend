@@ -84,6 +84,10 @@ collection survives. Stored rate inputs never copy a computed profile amount.
 Canonical delivery changes coalesce into the ordinary semantic listing event. Public
 history reports only `DELIVERY_CHANGED`, without protected terms or sites. Shared profile
 changes emit their own shipping signal and never invent a listing semantic revision.
+Shipping display and opt-in currency-aware maximums use the persisted browsing/search FX
+snapshot, independently of historical sale valuation. Advertised source terms remain
+authoritative; FX captures require no listing event or projection rewrite. See the
+[shipping conversion contract](shipping.md#shipping-display-currency).
 
 ## Sale observation
 

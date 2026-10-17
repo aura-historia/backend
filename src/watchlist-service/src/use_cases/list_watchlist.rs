@@ -189,7 +189,15 @@ where
             }
         }
 
-        self.shipping.details(context, &mut page.items).await?;
+        self.shipping
+            .details(
+                context,
+                &mut page.items,
+                request.currency,
+                pricing_snapshots.current.as_ref(),
+                valuation_at,
+            )
+            .await?;
         Ok(page)
     }
 }

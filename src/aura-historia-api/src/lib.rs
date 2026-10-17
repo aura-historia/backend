@@ -1407,13 +1407,14 @@ async fn app_state_from_config_and_pool(
         user_postgres::SqlxAddressBookFactory,
         geo_postgres::SqlxResolutionRepositoryFactory,
     ));
-    let shipping = product_listing_service::shipping::ShippingEnrichment::new(Arc::new(
-        shipping_service::assessment::AssessDeliveryHandler::new(
+    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
+        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
             unit_of_work.clone(),
             shipping_postgres::assessment::SqlxAssessmentReaderFactory,
             address_book.clone(),
-        ),
-    ));
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
+    );
     let get_auction_catalogue = GetAuctionCatalogueHandler::new(
         unit_of_work.clone(),
         SqlxAuctionCatalogueReaderFactory::new(),

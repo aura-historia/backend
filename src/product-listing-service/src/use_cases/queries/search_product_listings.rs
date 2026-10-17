@@ -315,10 +315,10 @@ where
         let fx_rate_id = price_filter.fx_rate_id;
         let embedding_query = hybrid_embedding_query(&request);
         let read_request = ProductListingSearchReadRequest {
-            compiled_search: CompiledProductListingSearch {
-                search: request.search,
-                price_filter_plan: price_filter,
-            },
+            compiled_search: CompiledProductListingSearch::new(request.search, price_filter)
+                .map_err(|source| SearchProductListingsError::FxRateSnapshotInvalid {
+                    source: box_error(source),
+                })?,
             sort: request.sort,
             cursor: request.cursor.map(|cursor| Cursor {
                 size: cursor.size,
@@ -462,7 +462,14 @@ where
             record_search_stage("enrichment_and_presentation", enrichment_started, "success");
             summaries
         };
-        self.shipping.summaries(context, &mut items).await?;
+        self.shipping
+            .summaries(
+                context,
+                &mut items,
+                read_request.compiled_search.search.currency,
+                read_request.compiled_search.price_filter_plan.snapshot(),
+            )
+            .await?;
         for item in &mut items {
             if let Some(geography) = &mut item.item.geography {
                 geography.set_distance(&read_request.compiled_search.search);

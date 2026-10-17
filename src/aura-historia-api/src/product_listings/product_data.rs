@@ -124,6 +124,8 @@ struct SearchFilterUserStateData {
     user_search_filter_name: Option<UserSearchFilterName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     match_feedback: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shipping_match_valuation: Option<crate::shipping::listing::ShippingMatchValuationData>,
 }
 
 #[derive(Debug, Serialize)]
@@ -519,6 +521,7 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
             user_search_filter_id: state.user_search_filter_id,
             user_search_filter_name: state.user_search_filter_name,
             match_feedback: state.match_feedback,
+            shipping_match_valuation: state.shipping_match_valuation.map(Into::into),
         }
     }
 }

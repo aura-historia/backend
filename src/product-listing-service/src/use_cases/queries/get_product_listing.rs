@@ -311,6 +311,13 @@ where
             valuation_at,
         )
         .await?;
+        let current_shipping_snapshot = applicable_sale_observation(
+            factual_details.item.sale_observation,
+            factual_details.item.availability,
+            factual_details.item.lifecycle,
+        )
+        .is_none()
+        .then_some(&snapshot);
         let mut details = present_product_details(factual_details, &snapshot, request.currency)?;
 
         tx.commit()
@@ -329,7 +336,13 @@ where
         }
 
         self.shipping
-            .details(context, std::slice::from_mut(&mut details))
+            .details(
+                context,
+                std::slice::from_mut(&mut details),
+                request.currency,
+                current_shipping_snapshot,
+                valuation_at,
+            )
             .await?;
         Ok(details)
     }

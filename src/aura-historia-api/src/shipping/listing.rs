@@ -13,6 +13,22 @@ use shipping_core::{
 use shipping_service::assessment::{AssertionEvidence, AssessmentError};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+impl From<product_listing_service::shipping::ShippingReadError> for ApiError {
+    fn from(error: product_listing_service::shipping::ShippingReadError) -> Self {
+        use product_listing_service::shipping::ShippingReadError;
+        match error {
+            ShippingReadError::Assessment(error) => error.into(),
+            ShippingReadError::FxSnapshotMissing
+            | ShippingReadError::FxRead(
+                fxrate_service::ports::FxRateSnapshotReadError::ReadFailed { .. },
+            ) => Self::service_unavailable(SHIPPING_TEMPORARILY_UNAVAILABLE),
+            ShippingReadError::Conversion(_) | ShippingReadError::FxRead(_) => {
+                Self::internal_server_error(SHIPPING_STORAGE_ERROR)
+            }
+        }
+    }
+}
+
 impl From<AssessmentError> for ApiError {
     fn from(error: AssessmentError) -> Self {
         match error {
@@ -66,6 +82,20 @@ fn charge(c: Option<AssessedCharge>) -> Value {
         Some(AssessedCharge::EstimatedRange(r)) => {
             json!({"kind":"ESTIMATED_RANGE","minimum":money(r.minimum()),"maximum":money(r.maximum())})
         }
+    }
+}
+fn display_price(price: shipping_core::pricing::ShippingPrice) -> Value {
+    use shipping_core::pricing::ShippingPrice;
+    match price {
+        ShippingPrice::Free(currency) => {
+            json!({"kind":"FREE","currency":currency.map(|c| c.as_str())})
+        }
+        ShippingPrice::Fixed(p) => json!({"kind":"FIXED","amount":money(p)}),
+        ShippingPrice::From(p) => json!({"kind":"FROM","amount":money(p)}),
+        ShippingPrice::EstimatedRange(r) => {
+            json!({"kind":"ESTIMATED_RANGE","minimum":money(r.minimum()),"maximum":money(r.maximum())})
+        }
+        _ => Value::Null,
     }
 }
 fn reason(r: &AssessmentReason) -> Value {
@@ -160,6 +190,10 @@ fn advertised_data(item: &AdvertisedShipping) -> Result<Value, BoxError> {
         .transpose()?;
     Ok(json!({
         "terms":public_terms(item.effective.terms())?,
+        "display":item.display.as_ref().map(|d| Ok::<_, BoxError>(json!({
+            "currency":d.currency.as_str(),"fxRateId":d.fx_rate_id,"capturedAt":timestamp(d.captured_at)?,
+            "rates":d.rates.iter().map(|r| json!({"zoneIndex":r.zone_index,"serviceIndex":r.service_index,"price":display_price(r.price),"basis":r.basis.map(|b| b.as_str())})).collect::<Vec<_>>()
+        }))).transpose()?,
         "listingRevision":item.listing_revision,"sourceRevision":item.source_revision,
         "defaultRevision":item.default_revision,"profile":profile,
         "listingEvidence":item.listing_evidence.map(evidence_data).transpose()?,
@@ -200,4 +234,91 @@ pub(crate) fn cache_ttl<'a>(
                 ttl.min(u32::try_from((deadline - now).whole_seconds().max(0)).unwrap_or(u32::MAX))
             })
     })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShippingMatchValuationData {
+    interpretation: &'static str,
+    fx_rate_id: fxrate_core::FxRateId,
+    #[serde(with = "time::serde::rfc3339")]
+    captured_at: OffsetDateTime,
+    maximum_per_item: ShippingMatchMaximumData,
+}
+#[derive(Debug, Serialize)]
+struct ShippingMatchMaximumData {
+    amount: u64,
+    #[serde(with = "crate::wire::currency")]
+    currency: money::Currency,
+}
+impl From<search_filter_core::ShippingMatchValuation> for ShippingMatchValuationData {
+    fn from(v: search_filter_core::ShippingMatchValuation) -> Self {
+        Self {
+            interpretation:
+                product_listing_core::shipping_search::ShippingSearch::FX_INTERPRETATION,
+            fx_rate_id: v.fx_rate_id,
+            captured_at: v.captured_at,
+            maximum_per_item: ShippingMatchMaximumData {
+                amount: v.maximum_per_item.monetary_amount.into(),
+                currency: v.maximum_per_item.currency,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::error::static_error;
+    use axum::{body::to_bytes, http::StatusCode, response::IntoResponse};
+    use fxrate_core::FxRateSnapshotError;
+    use fxrate_service::ports::FxRateSnapshotReadError;
+    use product_listing_service::shipping::ShippingReadError;
+
+    #[tokio::test]
+    async fn shipping_fx_failures_keep_their_documented_status_and_bounded_public_error() {
+        for (error, status, code) in [
+            (
+                ShippingReadError::FxSnapshotMissing,
+                StatusCode::SERVICE_UNAVAILABLE,
+                SHIPPING_TEMPORARILY_UNAVAILABLE,
+            ),
+            (
+                ShippingReadError::FxRead(FxRateSnapshotReadError::ReadFailed {
+                    source: static_error("private storage diagnostic"),
+                }),
+                StatusCode::SERVICE_UNAVAILABLE,
+                SHIPPING_TEMPORARILY_UNAVAILABLE,
+            ),
+            (
+                ShippingReadError::FxRead(FxRateSnapshotReadError::InvalidPersistedSnapshot {
+                    source: static_error("private snapshot diagnostic"),
+                }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                SHIPPING_STORAGE_ERROR,
+            ),
+            (
+                ShippingReadError::Conversion(FxRateSnapshotError::MissingQuote(
+                    money::Currency::Jpy,
+                )),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                SHIPPING_STORAGE_ERROR,
+            ),
+            (
+                ShippingReadError::Conversion(FxRateSnapshotError::ConversionOverflow),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                SHIPPING_STORAGE_ERROR,
+            ),
+        ] {
+            let error = ApiError::from(error);
+            assert_eq!(code, error.code());
+            let response = error.into_response();
+            assert_eq!(status, response.status());
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(status.as_u16(), body["status"]);
+            assert!(body.get("source").is_none());
+            assert!(body.get("detail").is_none());
+        }
+    }
 }

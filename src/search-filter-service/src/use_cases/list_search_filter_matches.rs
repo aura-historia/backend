@@ -238,7 +238,10 @@ where
             ListSearchFilterMatchesError::CommitPricingTransactionFailed(Box::new(source))
         })?;
 
-        for product in &mut product_listings {
+        for (product, matched) in product_listings.iter_mut().zip(&matches.items) {
+            if let Some(state) = &mut product.user_state {
+                state.search_filter.shipping_match_valuation = matched.shipping_match_valuation;
+            }
             let is_hidden = product
                 .user_state
                 .as_ref()
@@ -257,7 +260,13 @@ where
         }
 
         self.shipping
-            .details(context, &mut product_listings)
+            .details(
+                context,
+                &mut product_listings,
+                request.currency,
+                pricing_snapshots.current.as_ref(),
+                valuation_at,
+            )
             .await?;
         Ok(CursoredResult {
             items: product_listings,
@@ -706,6 +715,7 @@ mod tests {
 
     fn match_item(product_listing_id: ProductListingId) -> SearchFilterMatchListItem {
         SearchFilterMatchListItem {
+            shipping_match_valuation: None,
             product_listing_id,
             created: OffsetDateTime::UNIX_EPOCH,
         }
@@ -720,7 +730,7 @@ mod tests {
         let second_sale_product_listing_id = ProductListingId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let expected_user_state = ProductListingUserState {
+        let mut expected_user_state = ProductListingUserState {
             shipping: None,
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
@@ -729,6 +739,12 @@ mod tests {
         };
         let mut current = product(current_product_listing_id)?;
         current.user_state = Some(expected_user_state.clone());
+        let shipping_valuation = search_filter_core::ShippingMatchValuation {
+            fx_rate_id: FxRateId::new(),
+            captured_at: OffsetDateTime::UNIX_EPOCH,
+            maximum_per_item: money::Price::new(7500_u64.into(), Currency::Usd),
+        };
+        expected_user_state.search_filter.shipping_match_valuation = Some(shipping_valuation);
         let mut first_sale = product(first_sale_product_listing_id)?;
         first_sale.item.sale_observation = Some(ListingSaleObservation::new(
             OffsetDateTime::UNIX_EPOCH,
@@ -750,7 +766,10 @@ mod tests {
         let result = handler(
             &state,
             vec![
-                match_item(current_product_listing_id),
+                SearchFilterMatchListItem {
+                    shipping_match_valuation: Some(shipping_valuation),
+                    ..match_item(current_product_listing_id)
+                },
                 match_item(first_sale_product_listing_id),
                 match_item(second_sale_product_listing_id),
             ],

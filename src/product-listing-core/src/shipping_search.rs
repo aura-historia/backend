@@ -9,6 +9,7 @@ pub struct ShippingSearch {
     country: Option<CountryCode>,
     service: Option<ShippingServiceCode>,
     maximum_per_item: Option<Price>,
+    fx_converted: bool,
     collection_offered: bool,
 }
 
@@ -18,6 +19,7 @@ pub struct InvalidShippingSearch;
 
 impl ShippingSearch {
     pub const INTERPRETATION: &str = "WHOLE_COUNTRY_PER_ITEM_V1";
+    pub const FX_INTERPRETATION: &str = "WHOLE_COUNTRY_PER_ITEM_FX_V1";
 
     pub fn new(
         release: ReferenceRelease,
@@ -38,12 +40,32 @@ impl ShippingSearch {
             country,
             service,
             maximum_per_item,
+            fx_converted: false,
             collection_offered,
         })
     }
 
     pub fn reference_release(&self) -> ReferenceRelease {
         self.release
+    }
+    /// Explicitly value the maximum in its declared target currency using the request's
+    /// persisted FX snapshot. Destination and applicability semantics are unchanged.
+    pub fn with_fx_conversion(mut self) -> Result<Self, InvalidShippingSearch> {
+        if self.maximum_per_item.is_none() {
+            return Err(InvalidShippingSearch);
+        }
+        self.fx_converted = true;
+        Ok(self)
+    }
+    pub fn fx_converted(&self) -> bool {
+        self.fx_converted
+    }
+    pub fn interpretation(&self) -> &'static str {
+        if self.fx_converted {
+            Self::FX_INTERPRETATION
+        } else {
+            Self::INTERPRETATION
+        }
     }
     pub fn country(&self) -> Option<CountryCode> {
         self.country

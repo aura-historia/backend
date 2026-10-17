@@ -73,6 +73,46 @@ impl ProductListingPriceFilterPlan {
         self.snapshot.captured_at()
     }
 
+    pub fn snapshot(&self) -> &FxRateSnapshot {
+        &self.snapshot
+    }
+
+    /// Compile shipping independently of asking-price filters and historical sold prices.
+    pub fn shipping_native_ranges(
+        &self,
+        query: &product_listing_core::shipping_search::ShippingSearch,
+    ) -> Result<Option<Vec<NativePriceRange>>, FxRateSnapshotError> {
+        if !query.fx_converted() {
+            return Ok(None);
+        }
+        let maximum = query
+            .maximum_per_item()
+            .expect("validated FX shipping maximum");
+        self.snapshot
+            .quotes()
+            .iter()
+            .map(|quote| {
+                self.snapshot
+                    .compile_source_range(
+                        quote.currency(),
+                        maximum.currency,
+                        DisplayAmountRange {
+                            lower: None,
+                            upper: Some(maximum.monetary_amount),
+                        },
+                    )
+                    .map(|range| {
+                        range.map(|range| NativePriceRange {
+                            source_currency: quote.currency(),
+                            lower: range.lower.into(),
+                            upper: range.upper.map(Into::into),
+                        })
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|ranges| Some(ranges.into_iter().flatten().collect()))
+    }
+
     pub fn convert_active_source_amount(
         &self,
         source_currency: Currency,
@@ -277,5 +317,51 @@ mod tests {
 
         assert!(plan.active_native_ranges.is_empty());
         Ok(())
+    }
+    #[test]
+    fn shipping_bounds_equal_half_up_display_comparisons_for_all_currency_pairs() {
+        use product_listing_core::shipping_search::ShippingSearch;
+        let snapshot = snapshot().unwrap();
+        for target in Currency::iter() {
+            let plan =
+                ProductListingPriceFilterPlan::compile(snapshot.clone(), Currency::Eur, None)
+                    .unwrap();
+            for maximum in [0_u64, 1, 5, 12, 110, 999] {
+                let source_query = ShippingSearch::new(
+                    geo::reference::ReferenceRelease::CURRENT,
+                    Some(geo::CountryCode::DEU),
+                    None,
+                    Some(money::Price::new(maximum.into(), target)),
+                    false,
+                )
+                .unwrap();
+                assert_eq!(None, plan.shipping_native_ranges(&source_query).unwrap());
+                let query = source_query.with_fx_conversion().unwrap();
+                let ranges = plan.shipping_native_ranges(&query).unwrap().unwrap();
+                for source in Currency::iter() {
+                    let range = ranges.iter().find(|r| r.source_currency == source).unwrap();
+                    let mut amounts =
+                        vec![0_u64, 1, 2, 3, 4, 5, 49, 50, 51, 99, 100, 101, 160, 500];
+                    if let Some(upper) = range.upper {
+                        amounts.extend([upper.saturating_sub(1), upper, upper.saturating_add(1)]);
+                    }
+                    for amount in amounts {
+                        let converted = snapshot
+                            .convert(
+                                money::Price::new(amount.into(), source),
+                                target,
+                                RoundingMode::HalfUp,
+                            )
+                            .unwrap();
+                        assert_eq!(
+                            u64::from(converted.monetary_amount) <= maximum,
+                            amount >= range.lower
+                                && range.upper.is_none_or(|upper| amount <= upper),
+                            "{source:?} -> {target:?}, {amount}, max {maximum}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 use crate::patch_value::{PatchValue, clearable, non_nullable_option, non_nullable_patch};
+use crate::shipping::listing::ShippingMatchValuationData;
 
 use application::patch_field::PatchField;
 use auction_core::AuctionId;
@@ -680,6 +681,8 @@ pub(super) struct SearchFilterMatchData {
     product_listing_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
+    shipping_match_valuation: Option<ShippingMatchValuationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     feedback: Option<bool>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
@@ -695,6 +698,7 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             user_search_filter_name: view.search_filter_name,
             product_listing_id: view.product_listing_id,
             origin_event_id: view.origin_event_id,
+            shipping_match_valuation: view.shipping_match_valuation.map(Into::into),
             feedback: view.feedback,
             created: view.created,
             updated: view.updated,
