@@ -45,6 +45,8 @@ struct ProductListingSearchData {
     #[serde(default)]
     geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
+    shipping: Option<crate::shipping_search::ShippingSearchData>,
+    #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
@@ -133,6 +135,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
     fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
             geography: crate::geographic_search::parse_query(data.geography, "geography")?,
+            shipping: crate::shipping_search::parse(data.shipping, false)?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,

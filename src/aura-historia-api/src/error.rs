@@ -736,6 +736,7 @@ impl From<GetOwnedSearchFilterError> for ApiError {
 impl From<CreateSearchFilterError> for ApiError {
     fn from(error: CreateSearchFilterError) -> Self {
         match error {
+            CreateSearchFilterError::ShippingDestination(error) => error.into(),
             CreateSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -785,6 +786,7 @@ impl From<CreateSearchFilterError> for ApiError {
 impl From<UpdateOwnedSearchFilterError> for ApiError {
     fn from(error: UpdateOwnedSearchFilterError) -> Self {
         match error {
+            UpdateOwnedSearchFilterError::ShippingDestination(error) => error.into(),
             UpdateOwnedSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")

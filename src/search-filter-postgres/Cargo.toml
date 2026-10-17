@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-core = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 application = { workspace = true }
 auction-core = { workspace = true }

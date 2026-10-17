@@ -21,6 +21,7 @@ mod product_listing_management;
 pub mod product_listings;
 pub mod search_filters;
 pub mod shipping;
+mod shipping_search;
 pub mod state;
 pub mod transport;
 pub mod users;
@@ -2154,24 +2155,30 @@ async fn app_state_from_config_and_pool(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(CreateSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            Arc::clone(&embeddings),
-            SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            CreateSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                Arc::clone(&embeddings),
+                SqlxSearchFilterQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(UpdateOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            Arc::clone(&embeddings),
-            search_filter_reader.clone(),
-            SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            UpdateOwnedSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                Arc::clone(&embeddings),
+                search_filter_reader.clone(),
+                SqlxSearchFilterQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,

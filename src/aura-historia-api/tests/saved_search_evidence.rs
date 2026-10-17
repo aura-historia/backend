@@ -107,6 +107,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
                 .execute(
                     &context(principal),
                     CreateSearchFilterCommand {
+                        accept_shipping_destination: None,
                         user_id,
                         name: "ordinary filter".into(),
                         notifications: false,
@@ -142,6 +143,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
             .execute(
                 &context(Principal::System),
                 CreateSearchFilterCommand {
+                    accept_shipping_destination: None,
                     user_id,
                     name: "unauthorized".into(),
                     notifications: true,
@@ -187,6 +189,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         .execute(
             &context(Principal::System),
             CreateSearchFilterCommand {
+                accept_shipping_destination: None,
                 user_id,
                 name: "enhanced filter".into(),
                 notifications: false,
@@ -224,6 +227,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         policy_row(&pool, created.search_filter_id).await
     );
     let mut command = UpdateOwnedSearchFilterCommand {
+        accept_shipping_destination: None,
         user_id,
         search_filter_id: created.search_filter_id,
         name: PatchField::Unchanged,
@@ -281,6 +285,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         .execute(
             &context(Principal::System),
             CreateSearchFilterCommand {
+                accept_shipping_destination: None,
                 user_id,
                 name: "query".into(),
                 notifications: false,
@@ -344,6 +349,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         .execute(
             &context(Principal::Service("repair-fixture".into())),
             UpdateOwnedSearchFilterCommand {
+                accept_shipping_destination: None,
                 user_id,
                 search_filter_id: filter.search_filter_id,
                 name: PatchField::Unchanged,
@@ -357,4 +363,218 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         .filter;
     assert_eq!(Some(768), repaired.embedding.as_ref().map(Vec::len));
     assert_eq!(3, policy_row(&pool, filter.search_filter_id).await.1);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_changes_until_erasure()
+ {
+    use geo::{AddressText, CountryCode, GeographicDescription, reference::ReferenceRelease};
+    use product_listing_core::shipping_search::ShippingSearch;
+    use search_filter_service::{
+        ports::SearchFilterReader, shipping_destination::AcceptShippingDestination,
+    };
+    use user_core::user_address::*;
+    use user_service::address_book::*;
+    let pool = get_postgres_client().await;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('SAVED_SHIPPING_TEST',true)").execute(&pool).await.unwrap();
+    let owner = seed_user(&pool, "FREE").await;
+    let foreign = seed_user(&pool, "FREE").await;
+    let ctx = context(Principal::User(owner));
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let book = std::sync::Arc::new(AddressBookHandler::new(
+        unit.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let geography = |country| {
+        GeographicDescription::new(
+            Some(AddressText::new("private shipping snapshot street").unwrap()),
+            Some(country),
+            None,
+            Some(geo::PostalCode::new("10115").unwrap()),
+        )
+        .unwrap()
+        .unwrap()
+    };
+    let address = book
+        .create(
+            &ctx,
+            CreateUserAddress {
+                idempotency_key: UserAddressIdempotencyKey::new("shipping".into()).unwrap(),
+                label: UserAddressLabel::new("private name".into()).unwrap(),
+                geography: geography(CountryCode::DEU),
+            },
+        )
+        .await
+        .unwrap();
+    let foreign_address = book
+        .create(
+            &context(Principal::User(foreign)),
+            CreateUserAddress {
+                idempotency_key: UserAddressIdempotencyKey::new("shipping".into()).unwrap(),
+                label: UserAddressLabel::new("foreign".into()).unwrap(),
+                geography: geography(CountryCode::DEU),
+            },
+        )
+        .await
+        .unwrap();
+    let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+    search.shipping = Some(
+        ShippingSearch::new(
+            ReferenceRelease::CURRENT,
+            Some(CountryCode::DEU),
+            None,
+            Some(money::Price::new(9000_u64.into(), Currency::Eur)),
+            false,
+        )
+        .unwrap(),
+    );
+    let create = CreateSearchFilterHandler::new(
+        unit.clone(),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+    )
+    .with_shipping_destinations(book.clone());
+    let command = CreateSearchFilterCommand {
+        accept_shipping_destination: Some(AcceptShippingDestination::Address(address.id)),
+        user_id: owner,
+        name: "country snapshot".into(),
+        notifications: false,
+        search,
+    };
+    let mut invalid = command.clone();
+    invalid.accept_shipping_destination =
+        Some(AcceptShippingDestination::Address(foreign_address.id));
+    assert!(matches!(
+        create.execute(&ctx, invalid).await,
+        Err(CreateSearchFilterError::ShippingDestination(
+            AddressBookError::NotFound
+        ))
+    ));
+    let delegated = context(Principal::DelegatedUser {
+        user_id: owner,
+        capabilities: [application::operation_context::CredentialCapability::SearchFiltersWrite]
+            .into(),
+    });
+    assert!(matches!(
+        create.execute(&delegated, command.clone()).await,
+        Err(CreateSearchFilterError::ShippingDestination(
+            AddressBookError::Forbidden
+        ))
+    ));
+    let filter = create.execute(&ctx, command).await.unwrap().filter;
+    // Address ownership and a saved predicate do not select any browsing destination.
+    assert_eq!(
+        BrowsingDestination::None,
+        book.destination(&ctx).await.unwrap().destination
+    );
+    let stored: serde_json::Value =
+        sqlx::query_scalar("SELECT search FROM search_filters WHERE user_search_filter_id=$1")
+            .bind(filter.search_filter_id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let text = stored.to_string();
+    for private in [
+        address.id.to_string().as_str(),
+        "private shipping snapshot street",
+        "10115",
+        "private name",
+    ] {
+        assert!(!text.contains(private));
+    }
+    assert_eq!("DE", stored["shipping"]["country"]);
+    assert_eq!(
+        ShippingSearch::INTERPRETATION,
+        stored["shipping"]["interpretation"]
+    );
+    book.set_destination(
+        &ctx,
+        BrowsingDestination::CountryPostal {
+            country: CountryCode::FRA,
+            postal_code: None,
+        },
+        1,
+    )
+    .await
+    .unwrap();
+    book.update(
+        &ctx,
+        UpdateUserAddress {
+            id: address.id,
+            expected_version: address.version,
+            label: UserAddressLabel::new("edited".into()).unwrap(),
+            geography: geography(CountryCode::FRA),
+        },
+    )
+    .await
+    .unwrap();
+    book.delete(&ctx, address.id, address.version + 1)
+        .await
+        .unwrap();
+    let reader = search_filter_postgres::SqlxSearchFilterReader::new(pool.clone());
+    let unchanged = reader
+        .find_for_user_by_id(owner, filter.search_filter_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(filter.search, unchanged.search);
+    let update = UpdateOwnedSearchFilterHandler::new(
+        unit,
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        reader,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+    )
+    .with_shipping_destinations(book.clone());
+    let patch = UpdateOwnedSearchFilterCommand {
+        accept_shipping_destination: Some(AcceptShippingDestination::Preference),
+        user_id: owner,
+        search_filter_id: filter.search_filter_id,
+        name: PatchField::Unchanged,
+        notifications: PatchField::Unchanged,
+        state: PatchField::Unchanged,
+        search: ProductListingSearchPatch::default(),
+    };
+    // Acceptance is explicit and guarded against a preference that has moved since authoring.
+    assert!(matches!(
+        update.execute(&ctx, patch.clone()).await,
+        Err(UpdateOwnedSearchFilterError::ShippingDestination(
+            AddressBookError::InvalidInput
+        ))
+    ));
+    let mut accepted = patch;
+    accepted.search.shipping = PatchField::Set(
+        ShippingSearch::new(
+            ReferenceRelease::CURRENT,
+            Some(CountryCode::FRA),
+            None,
+            None,
+            false,
+        )
+        .unwrap(),
+    );
+    let changed = update.execute(&ctx, accepted).await.unwrap().filter;
+    assert_eq!(
+        Some(CountryCode::FRA),
+        changed.search.shipping.unwrap().country()
+    );
+    sqlx::query("DELETE FROM users WHERE user_id=$1")
+        .bind(owner.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filters WHERE user_id=$1")
+        .bind(owner.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(0, remaining);
 }

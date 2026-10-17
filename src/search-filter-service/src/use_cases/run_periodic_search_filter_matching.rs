@@ -1070,6 +1070,11 @@ fn periodic_search(
     window_end: OffsetDateTime,
     replay_overlap: Duration,
 ) -> Option<ProductListingSearch> {
+    // Shipping dependencies can change without changing canonical listing.updated. Revisit
+    // indexed membership each evaluation, retaining the user's explicit date constraints.
+    if filter.search.shipping.is_some() {
+        return Some(filter.search.clone());
+    }
     let replay_candidate = filter
         .matched_through
         .checked_sub(replay_overlap)
@@ -1655,6 +1660,35 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    #[test]
+    fn shipping_periodic_matching_revisits_old_listings_without_moving_authored_date_bounds() {
+        let mut candidate = filter();
+        candidate.search.shipping = Some(
+            product_listing_core::shipping_search::ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                None,
+                false,
+            )
+            .unwrap(),
+        );
+        candidate.matched_through = candidate.created + Duration::days(31);
+        let next = candidate.matched_through + Duration::days(1);
+        assert_eq!(
+            candidate.search,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created),
+            max: Some(candidate.created + Duration::hours(1)),
+        });
+        assert_eq!(
+            candidate.search,
+            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
+        );
     }
 
     fn geographic_filter() -> PeriodicSearchFilterCandidate {

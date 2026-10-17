@@ -1861,24 +1861,30 @@ async fn test_state(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(CreateSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator::Success,
-            SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            CreateSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                TestEmbeddingGenerator::Success,
+                SqlxSearchFilterQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(UpdateOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator::Success,
-            search_filter_reader.clone(),
-            SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            UpdateOwnedSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                TestEmbeddingGenerator::Success,
+                search_filter_reader.clone(),
+                SqlxSearchFilterQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,

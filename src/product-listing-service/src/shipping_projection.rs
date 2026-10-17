@@ -321,6 +321,86 @@ mod tests {
         derive(&EffectiveDeliveryTerms::resolve(&config, None, &[]), &[])
     }
     #[test]
+    fn only_exact_per_item_prices_are_projected_with_their_source_currency() {
+        use money::{Currency, Price};
+        use shipping_core::pricing::{PriceRange, ShippingRate};
+        let f = gallery();
+        let p = Price::new(8000_u64.into(), Currency::Eur);
+        let usd = Price::new(8000_u64.into(), Currency::Usd);
+        for (price, exact) in [
+            (ShippingPrice::Fixed(p), Some(p)),
+            (
+                ShippingPrice::Free(Some(Currency::Eur)),
+                Some(Price::new(0_u64.into(), Currency::Eur)),
+            ),
+            (ShippingPrice::Free(None), None),
+            (ShippingPrice::Fixed(usd), Some(usd)),
+            (ShippingPrice::From(p), None),
+            (
+                ShippingPrice::EstimatedRange(PriceRange::new(p, p).unwrap()),
+                None,
+            ),
+            (
+                ShippingPrice::ExternallyCalculated(Some(Currency::Eur)),
+                None,
+            ),
+            (ShippingPrice::OnRequest(Some(Currency::Eur)), None),
+        ] {
+            for basis in [
+                None,
+                Some(ChargeBasis::PerItem),
+                Some(ChargeBasis::PerLot),
+                Some(ChargeBasis::PerShipment),
+                Some(ChargeBasis::PerSellerOrder),
+            ] {
+                let service = ShippingService::new(
+                    ShippingServiceCode::new("rate".into()).unwrap(),
+                    ShippingServiceTerms {
+                        eligibility: Some(ShippingEligibility::Offered),
+                        rate: Some(ShippingRate::new(price, basis, None, Default::default())),
+                        ..Default::default()
+                    },
+                );
+                let terms = DeliveryTerms::new(
+                    Some(ShippingPolicy::coverage(
+                        ShippingCoverage::new(
+                            geo::reference::ReferenceRelease::CURRENT,
+                            CoverageCompleteness::Partial,
+                            Applicability::default(),
+                            vec![],
+                            vec![
+                                ShippingZone::new(
+                                    vec![DeliveryArea::Country(
+                                        ReferenceCountry::new(
+                                            "DE",
+                                            geo::reference::ReferenceRelease::CURRENT,
+                                        )
+                                        .unwrap(),
+                                    )],
+                                    Applicability::default(),
+                                    vec![service],
+                                )
+                                .unwrap(),
+                            ],
+                            None,
+                        )
+                        .unwrap(),
+                    )),
+                    None,
+                );
+                let projected = project(terms, f.source_id);
+                assert_eq!(1, projected.country_offers.len());
+                assert_eq!(geo::CountryCode::DEU, projected.country_offers[0].country);
+                assert_eq!(
+                    exact.filter(|_| basis == Some(ChargeBasis::PerItem)),
+                    projected.country_offers[0].per_item_fixed,
+                    "{price:?} {basis:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn unknown_and_truncated_summaries_preserve_uncertainty() {
         assert!(EffectiveListingShipping::default().conditional);
         assert!(!EffectiveListingShipping::default().prohibited);

@@ -224,8 +224,14 @@ Query-only intent uses the existing lexical search. Enhanced intent uses hybrid 
 with its write-time base-query + description embedding; the description is never appended
 as a mandatory all-words title query. Filters containing only deterministic constraints
 use ordinary search without embedding or model work. Structured predicates, including
-geography, availability, source/auction and pinned-FX prices, constrain retrieval regardless
+geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
+
+Shipping filters revisit indexed membership each evaluation instead of adding the automatic
+listing-updated replay bound: profile/default changes can affect older listings without a
+canonical price/availability change. Explicit saved date bounds remain in force. This uses
+the current scheduled matcher and shipping enrichment projection, with no event-percolator
+queue. Private destination snapshots follow the [shipping contract](../shipping.md#shipping-search-and-saved-destinations).
 
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
 and skips existing matches, withdrawn listings and missing/stale sources before selecting

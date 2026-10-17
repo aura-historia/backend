@@ -3,6 +3,7 @@ use crate::ports::{
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
     SearchFilterView,
 };
+use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
@@ -12,7 +13,9 @@ use application::operation_context::{
 use application::transaction::{Transaction, UnitOfWork};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use std::sync::Arc;
 use user_core::user_id::UserId;
+use user_service::address_book::AddressBookQueries;
 
 use embedding::{EmbeddingError, EmbeddingGenerator};
 use product_listing_core::product_listing_search::ProductListingSearch;
@@ -24,6 +27,7 @@ use user_service::ports::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateSearchFilterCommand {
+    pub accept_shipping_destination: Option<AcceptShippingDestination>,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
@@ -37,6 +41,12 @@ pub struct CreateSearchFilterResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateSearchFilterError {
+    #[error("shipping destination could not be accepted")]
+    ShippingDestination(
+        #[from]
+        #[source]
+        user_service::address_book::AddressBookError,
+    ),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -97,9 +107,15 @@ pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
     embeddings: E,
     quotas: Q,
     tier_entitlements: A,
+    shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
 impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
+    pub fn with_shipping_destinations(mut self, queries: Arc<dyn AddressBookQueries>) -> Self {
+        self.shipping_destinations = Some(queries);
+        self
+    }
+
     pub fn new(
         unit_of_work: U,
         filters: R,
@@ -113,6 +129,7 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
             embeddings,
             quotas,
             tier_entitlements,
+            shipping_destinations: None,
         }
     }
 }
@@ -142,6 +159,13 @@ where
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
         authorize_owner(context, command.user_id)?;
+        crate::shipping_destination::accept(
+            self.shipping_destinations.as_deref(),
+            context,
+            command.accept_shipping_destination.as_ref(),
+            command.search.shipping.as_ref(),
+        )
+        .await?;
         let embedding = match embedding_query(&command.search).map_err(embedding_error)? {
             Some(query) => Some(
                 self.embeddings

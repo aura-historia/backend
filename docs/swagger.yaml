@@ -3410,6 +3410,12 @@ paths:
       tags:
         - ProductListings
       parameters:
+        - name: shipping
+          in: query
+          style: deepObject
+          explode: true
+          description: Definite whole-country advertised shipping, independent of item geography and browsing preference. Nested country/service/charge predicates constrain indexed membership and totals, which may lag current returned terms. No shipping cost sorting or cart total is supported.
+          schema: {$ref: '#/components/schemas/ShippingSearchData'}
         - name: geography
           in: query
           style: deepObject
@@ -20771,6 +20777,10 @@ components:
       type: object
       description: ProductListing search criteria used by saved search filters.
       properties:
+        shipping:
+          allOf: [{$ref: '#/components/schemas/ShippingSearchData'}]
+          nullable: true
+          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country values pin their reference release and interpretation independently of browsing preferences.
         language:
           $ref: "#/components/schemas/LanguageData"
         currency:
@@ -20856,6 +20866,8 @@ components:
         - name
         - search
       properties:
+        acceptShippingDestination:
+          $ref: '#/components/schemas/AcceptShippingDestinationData'
         name:
           type: string
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
@@ -20873,6 +20885,8 @@ components:
 
         "
       properties:
+        acceptShippingDestination:
+          $ref: '#/components/schemas/AcceptShippingDestinationData'
         name:
           type: string
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
@@ -20936,6 +20950,10 @@ components:
         date ranges, and the availability query may be cleared with `null`; availability, orderability, and includeUnspecifiedAvailability`
         must be supplied together or all be `null`.
       properties:
+        shipping:
+          allOf: [{$ref: '#/components/schemas/ShippingSearchData'}]
+          nullable: true
+          description: Complete shipping predicate. Omit to leave unchanged in PATCH; null clears it. Saved country values pin their reference release and interpretation independently of browsing preferences.
         language:
           $ref: "#/components/schemas/LanguageData"
           nullable: true
@@ -25331,6 +25349,79 @@ components:
           enum: [KILOMETERS, MILES, METERS, YARDS, FEET, INCHES, CENTIMETERS, MILLIMETERS, NAUTICAL_MILES]
           example: KILOMETERS
       example: {amount: 25, unit: KILOMETERS}
+    ShippingSearchData:
+      type: object
+      additionalProperties: false
+      description: >-
+        AND predicates over the supported definite whole-country projection. Country, service,
+        currency and per-item amount must belong to one offer. Fixed and explicitly denominated
+        free PER_ITEM rates support an inclusive maximum; free is zero. FROM, estimated, external,
+        requested, absent and differently based prices cannot satisfy a maximum. Postal/variant/cart
+        uncertainty cannot become a definite country match. Missing offers do not mean unavailable
+        or collection-only. No query changes the browsing preference; returned shipping still uses
+        current PostgreSQL authority. Omitted destination selects no country. NONE alone disables
+        shipping filtering (clears it in PATCH); otherwise a country or collectionOffered=true is
+        required. Service and maximum require a country. Shipping observation age imposes no expiry.
+      properties:
+        destination:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [kind, country]
+              properties:
+                kind: {type: string, enum: [COUNTRY]}
+                country: {type: string, pattern: '^[A-Z]{2}$', description: Current ISO 3166-1 alpha-2 country in the pinned release.}
+            - type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind: {type: string, enum: [NONE]}
+        referenceRelease:
+          type: string
+          enum: [iso-codes-4.20.1]
+          default: iso-codes-4.20.1
+        interpretation:
+          type: string
+          enum: [WHOLE_COUNTRY_PER_ITEM_V1]
+          default: WHOLE_COUNTRY_PER_ITEM_V1
+        service:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Exact advertised service code; requires a destination country.
+        maximumPerItem:
+          type: object
+          additionalProperties: false
+          required: [amount, currency]
+          description: Advertised source-currency per-item charge, independent of display currency. No purchase quantity or complete landed cost is implied.
+          properties:
+            amount: {type: integer, format: int64, minimum: 0, maximum: 9223372036854775807, description: Inclusive maximum in minor units.}
+            currency: {$ref: '#/components/schemas/CurrencyData'}
+        collectionOffered:
+          type: boolean
+          default: false
+          description: True requires independently definite offered collection. False adds no collection constraint.
+    AcceptShippingDestinationData:
+      description: >-
+        Explicit create/PATCH acceptance guard. The authored search.shipping destination country
+        must equal the authorized owned address or selected preference's submitted country (or
+        subdivision country). No selection, missing asserted country or mismatch is BAD_BODY_VALUE.
+        Ownership/current-account rules apply; delegated callers additionally require users:read.
+        Only the country value/reference/interpretation is saved; postal, street, provider evidence
+        and mutable references are discarded. Later address/preference edits or deletion never move
+        a saved predicate. Omission accepts the authored country directly. No preference is changed.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, addressId]
+          properties:
+            kind: {type: string, enum: [ADDRESS]}
+            addressId: {$ref: '#/components/schemas/UserAddressId'}
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind: {type: string, enum: [PREFERENCE]}
     GeographicSearchData:
       type: object
       additionalProperties: false

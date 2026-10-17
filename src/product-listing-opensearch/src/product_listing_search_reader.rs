@@ -602,6 +602,10 @@ pub(crate) fn build_common_filter_clauses(
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
 
+    if let Some(query) = &search.shipping {
+        filter.extend(crate::shipping_query::clauses(query));
+    }
+
     if let Some(query) = &search.geography {
         filter.extend(crate::geographic_query::clauses(
             "inventoryGeography",

@@ -19,3 +19,19 @@ pub fn country_offer_query(
     }
     json!({"nested":{"path":"shipping.countryOffers","score_mode":"none","query":{"bool":{"filter":filters}}}})
 }
+
+/// All shipping predicates constrain indexed retrieval, including hybrid retrieval and totals.
+pub(crate) fn clauses(query: &product_listing_core::shipping_search::ShippingSearch) -> Vec<Value> {
+    let mut clauses = Vec::new();
+    if let Some(country) = query.country() {
+        clauses.push(country_offer_query(
+            country,
+            query.service().map(|s| s.as_str()),
+            query.maximum_per_item(),
+        ));
+    }
+    if query.collection_offered() {
+        clauses.push(json!({"term":{"shipping.collection":"OFFERED"}}));
+    }
+    clauses
+}
