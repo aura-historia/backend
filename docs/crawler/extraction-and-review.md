@@ -12,13 +12,13 @@ Availability normalization is synchronous and deterministic in `product-listing-
 
 Shipping interpretation runs in downstream raw normalization using the same pure crate. It
 combines item-specific `rawShipment`/`rawShipmentNote` text with description context;
-contradictory or unsupported delivery clauses veto the observation. Legacy
-`rawShipmentMin`/`rawShipmentMax` are retained evidence and never become inferred rates.
+contradictory or unsupported delivery clauses veto the observation. Duration ranges
+remain complete text with their units and dispatch/delivery context.
 Selectors must exclude shared footers and site policies. Explicit phrases cover all 14
 catalog languages; phrase tables, language fixtures and input bounds are executable in
 [`shipping.rs`](../../src/product-listing-normalization/src/shipping.rs). Interpretation
-uses no LLM, interpretation agent or model fallback. Optional shipping extraction does not
-affect schema generation or enable native description ingestion.
+uses no LLM, interpretation agent or model fallback, and adds no schema-generation calls
+or native description ingestion.
 
 Successful page fetch time travels as the crawler capture's `source_occurred_at`, outside
 the content hash. Schema evaluation, normalization, capture retries and queue delivery keep

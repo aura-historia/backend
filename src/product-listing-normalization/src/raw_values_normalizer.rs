@@ -304,12 +304,6 @@ impl ProductListingRawValuesNormalizer {
 }
 
 fn normalize_item_shipping(raw: &ProductListingRawValues) -> crate::shipping::ShippingQuickCheck {
-    // Numeric legacy fields lack destination/service/basis. Never reinterpret them as rates.
-    if ["rawShipmentMin", "rawShipmentMax"].iter().any(|key| {
-        matches!(raw.attributes.get(*key), Some(ProductListingRawValuesPatch::Set(v)) if v.iter().any(|s| !s.trim().is_empty()))
-    }) {
-        return crate::shipping::ShippingQuickCheck::Unsupported;
-    }
     let mut fragments = Vec::new();
     for key in ["rawShipment", "rawShipmentNote"] {
         if let Some(ProductListingRawValuesPatch::Set(values)) = raw.attributes.get(key) {
@@ -605,6 +599,21 @@ mod tests {
         assert!(
             matches!(resolved_shipping(values.clone()), crate::shipping::ShippingQuickCheck::Resolved(a) if a.prohibited)
         );
+        // Obsolete attributes in retained raw inputs do not participate in shipping interpretation.
+        let mut historical_values = values.clone();
+        historical_values["attributes"]["rawShipmentMin"] = json!({"action":"SET", "value":["10"]});
+        historical_values["attributes"]["rawShipmentMax"] = json!({"action":"SET", "value":["15"]});
+        assert!(
+            matches!(resolved_shipping(historical_values.clone()), crate::shipping::ShippingQuickCheck::Resolved(a) if a.prohibited)
+        );
+        historical_values["attributes"]
+            .as_object_mut()
+            .unwrap()
+            .remove("rawShipment");
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::NoAssertion,
+            resolved_shipping(historical_values)
+        );
         let mut contradictory = values.clone();
         contradictory["description"]["value"] =
             json!(["Shipping for this item is available worldwide"]);
@@ -613,8 +622,8 @@ mod tests {
             resolved_shipping(contradictory)
         );
         let mut unscoped_price = values.clone();
-        unscoped_price["attributes"]["rawShipmentMin"] =
-            json!({"action":"SET", "value":["EUR 80"]});
+        unscoped_price["attributes"]["rawShipment"] =
+            json!({"action":"SET", "value":["Shipping EUR 80"]});
         assert_eq!(
             crate::shipping::ShippingQuickCheck::Unsupported,
             resolved_shipping(unscoped_price)
