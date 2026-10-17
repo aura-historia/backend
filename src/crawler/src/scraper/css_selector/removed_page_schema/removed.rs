@@ -1,12 +1,11 @@
 use crate::scraper::css_selector::rule::CssSelector;
-use regex::Regex;
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
 
 use super::page_match::{
     normalize_page_classification_text, page_classification_regex_matches,
-    page_classification_text_matches,
+    page_classification_text_matches, removed_page_regex,
 };
 
 /// A stored removed-page schema together with the normalized page texts it matched.
@@ -21,7 +20,8 @@ impl RemovedPageMatch {
     /// than product data: it equals a matched text, or, for text schemas, it carries
     /// the removed-page text and sits inside a matched text because the selector
     /// picked a container around the notice heading. Regex schemas only accept an
-    /// exact match; a broad pattern would otherwise dismiss every product title.
+    /// exact match, and [`removed_page_regex`] rejects patterns that match any text,
+    /// so a stored regex cannot dismiss every product title.
     pub fn is_notice(&self, value: &str) -> bool {
         let value = normalize_page_classification_text(value);
         if self.notices.contains(&value) {
@@ -86,9 +86,9 @@ impl RemovedPageSchema {
     pub fn validate_for_llm_response(&self) -> Result<(), String> {
         match (self.text.as_deref(), self.regex.as_deref()) {
             (Some(text), None) if !text.trim().is_empty() => Ok(()),
-            (None, Some(pattern)) if !pattern.trim().is_empty() => Regex::new(pattern)
-                .map(|_| ())
-                .map_err(|err| format!("Removed page regex is invalid: {err}")),
+            (None, Some(pattern)) if !pattern.trim().is_empty() => {
+                removed_page_regex(pattern).map(|_| ())
+            }
             (Some(_), Some(_)) => {
                 Err("Removed page schema must include either text or regex, not both".to_string())
             }
@@ -205,19 +205,20 @@ mod tests {
     }
 
     #[test]
-    fn should_not_treat_value_as_notice_when_broad_regex_selects_other_text() {
+    fn should_not_match_page_when_regex_matches_any_text() {
         let html = r#"<body><h1>Biedermeier Chair</h1><p>In stock</p></body>"#;
-        let broad = RemovedPageSchema {
-            selector: CssSelector::from("body"),
-            text: None,
-            regex: Some(".*".to_string()),
-        };
+        let parsed = Html::parse_document(html);
 
-        let matched = broad
-            .match_page(&Html::parse_document(html))
-            .expect("page matches");
+        for pattern in [".*", ".+", r"\w+", "(?s).*"] {
+            let broad = RemovedPageSchema {
+                selector: CssSelector::from("h1"),
+                text: None,
+                regex: Some(pattern.to_string()),
+            };
 
-        assert!(!matched.is_notice("Biedermeier Chair"));
+            assert!(broad.validate_for_llm_response().is_err(), "{pattern}");
+            assert!(broad.clone().match_page(&parsed).is_none(), "{pattern}");
+        }
     }
 
     #[test]

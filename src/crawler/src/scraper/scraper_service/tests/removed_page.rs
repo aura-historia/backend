@@ -59,10 +59,19 @@ fn removed_repo_returning(row: ListingSourceRemovedPageSchema) -> MockRemovedPag
 }
 
 fn schema_service_with_cached_schema(id: ListingSourceId) -> MockProductListingSchemaService {
+    schema_service_with_cached_schema_read(id, 1)
+}
+
+/// `reads` is how often the scraper looks the cached schema up: once on a normal
+/// scrape, twice when the removal guard also judges the page.
+fn schema_service_with_cached_schema_read(
+    id: ListingSourceId,
+    reads: usize,
+) -> MockProductListingSchemaService {
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
-        .once()
+        .times(reads)
         .returning(move |_| {
             let schema = listing_source_product_schemas(id);
             Box::pin(async move { Ok(Some(schema)) })
@@ -71,6 +80,16 @@ fn schema_service_with_cached_schema(id: ListingSourceId) -> MockProductListingS
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
     schema_svc
+}
+
+fn normalizing_once(url: &Url) -> MockProductListingNormalizationService {
+    let expected = prepared_product(url.clone());
+    let mut norm_svc = MockProductListingNormalizationService::new();
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let product = expected.clone();
+        Box::pin(async move { Ok(normalization_success(product, 0)) })
+    });
+    norm_svc
 }
 
 fn service(
@@ -233,7 +252,7 @@ async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
 }
 
 #[tokio::test]
-async fn should_preserve_listing_when_product_image_needs_crawler_image_filtering() {
+async fn should_scrape_product_when_product_image_needs_crawler_image_filtering() {
     let id = listing_source_id();
     let url = product_url();
     // The image attribute carries a control character. The scraper's candidate
@@ -250,13 +269,10 @@ async fn should_preserve_listing_when_product_image_needs_crawler_image_filterin
             r#"<div class="error-template" hidden>Page not found</div><main>"#,
         );
 
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().never();
-
     let service = service(
         fetcher_returning(html),
-        schema_service_with_cached_schema(id),
-        norm_svc,
+        schema_service_with_cached_schema_read(id, 2),
+        normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
             ".error-template",
@@ -264,35 +280,30 @@ async fn should_preserve_listing_when_product_image_needs_crawler_image_filterin
         )),
     );
 
-    let err = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(
-        matches!(err, ScraperError::SchemaClassificationRejected { .. }),
-        "{err:?}"
-    );
+    assert!(scraped.is_some());
 }
 
 #[tokio::test]
-async fn should_preserve_listing_when_removed_page_schema_matches_extractable_product_page() {
+async fn should_scrape_product_when_removed_page_schema_matches_extractable_product_page() {
     let id = listing_source_id();
     let url = product_url();
     // A site-wide hidden not-found template makes the stored removed-page schema
-    // match a live product page that cached schemas still extract.
+    // match a live product page that cached schemas still extract. Product evidence
+    // wins: the page is scraped and the over-broad template is only logged.
     let html = sample_html().replace(
         "<main>",
         r#"<div class="error-template" hidden>Page not found</div><main>"#,
     );
 
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().never();
-
     let service = service(
         fetcher_returning(html),
-        schema_service_with_cached_schema(id),
-        norm_svc,
+        schema_service_with_cached_schema_read(id, 2),
+        normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
             ".error-template",
@@ -300,47 +311,40 @@ async fn should_preserve_listing_when_removed_page_schema_matches_extractable_pr
         )),
     );
 
-    let err = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(
-        matches!(err, ScraperError::SchemaClassificationRejected { .. }),
-        "{err:?}"
-    );
+    assert!(scraped.is_some());
 }
 
 #[tokio::test]
-async fn should_preserve_listing_when_broad_removed_page_regex_matches_product_page() {
+async fn should_scrape_product_when_stored_removed_page_regex_matches_any_text() {
     let id = listing_source_id();
     let url = product_url();
+    // A stored regex on the title element that matches any title is ignored when
+    // applied; it carries no removed-page signal and must not withdraw live products.
     let mut removed = removed_schema_set(id);
     removed.removed_page_schemas = vec![RemovedPageSchema {
-        selector: CssSelector::from("body"),
+        selector: CssSelector::from("h1"),
         text: None,
-        regex: Some(".*".to_string()),
+        regex: Some(".+".to_string()),
     }];
-
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().never();
 
     let service = service(
         fetcher_returning(sample_html()),
         schema_service_with_cached_schema(id),
-        norm_svc,
+        normalizing_once(&url),
         removed_repo_returning(removed),
     );
 
-    let err = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(
-        matches!(err, ScraperError::SchemaClassificationRejected { .. }),
-        "{err:?}"
-    );
+    assert!(scraped.is_some());
 }
 
 #[tokio::test]
@@ -348,17 +352,10 @@ async fn should_scrape_normal_product_page_when_removed_page_schema_does_not_mat
     let id = listing_source_id();
     let url = product_url();
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let product = expected.clone();
-        Box::pin(async move { Ok(normalization_success(product, 0)) })
-    });
-
     let service = service(
         fetcher_returning(sample_html()),
         schema_service_with_cached_schema(id),
-        norm_svc,
+        normalizing_once(&url),
         removed_repo_returning(removed_schema_set(id)),
     );
 

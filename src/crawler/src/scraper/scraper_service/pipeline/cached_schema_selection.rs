@@ -6,8 +6,8 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    PreparedSchemaCandidate, collect_applicable_candidates, rank_prepared_candidates,
-    score_prepared_product,
+    AppliedSchemaCandidate, PreparedSchemaCandidate, collect_applicable_candidates,
+    rank_prepared_candidates, score_prepared_product,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -69,6 +69,31 @@ pub(crate) struct PreparedCachedCandidates<'a> {
     pub(crate) candidates: Vec<PreparedSchemaCandidate<'a>>,
 }
 
+/// Applies every cached schema to an already parsed page and logs the outcome.
+/// Synchronous so the `!Send` document never lives across an await.
+pub(crate) fn apply_cached_schemas<'a>(
+    schemas: &'a [ProductCssSelectorSchema],
+    parsed: &scraper::Html,
+) -> Vec<AppliedSchemaCandidate<'a>> {
+    let candidate_set = collect_applicable_candidates(schemas, parsed);
+
+    debug!(
+        schema_candidates_total = schemas.len(),
+        schema_candidates_applied = candidate_set.candidates.len(),
+        schema_candidates_apply_failed = candidate_set.apply_failures.len(),
+        "Cached schema application complete"
+    );
+    for (schema_index, err) in &candidate_set.apply_failures {
+        debug!(
+            candidate_schema_index = schema_index,
+            candidate_apply_error = ?err,
+            "Cached schema failed to apply"
+        );
+    }
+
+    candidate_set.candidates
+}
+
 struct AppliedSchemaNormalizationContext<'a> {
     listing_source_id: &'a ListingSourceId,
     effective_url: &'a Url,
@@ -100,25 +125,18 @@ impl ScraperServiceImpl {
         // synchronous block so the parsed document is dropped before awaits.
         let candidates = {
             let parsed = scraper::Html::parse_document(html);
-            let candidate_set = collect_applicable_candidates(schemas, &parsed);
-
-            debug!(
-                schema_candidates_total = schemas.len(),
-                schema_candidates_applied = candidate_set.candidates.len(),
-                schema_candidates_apply_failed = candidate_set.apply_failures.len(),
-                "Cached schema application complete"
-            );
-            for (schema_index, err) in &candidate_set.apply_failures {
-                debug!(
-                    candidate_schema_index = schema_index,
-                    candidate_apply_error = ?err,
-                    "Cached schema failed to apply"
-                );
-            }
-
-            candidate_set.candidates
+            apply_cached_schemas(schemas, &parsed)
         };
+        self.prepare_applied_candidates(candidates, context).await
+    }
 
+    /// Validates each applied candidate's images, prepares it deterministically
+    /// and ranks the survivors; see [`Self::prepare_cached_candidates`].
+    pub(crate) async fn prepare_applied_candidates<'a>(
+        &self,
+        candidates: Vec<AppliedSchemaCandidate<'a>>,
+        context: &ProductNormalizationContext,
+    ) -> Result<PreparedCachedCandidates<'a>, ScraperError> {
         let applied_schema_count = candidates.len();
         let mut prepared_candidates = Vec::new();
         // Image validation is candidate-local and does not call the LLM. Do

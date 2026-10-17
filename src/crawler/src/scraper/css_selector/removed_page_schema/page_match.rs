@@ -40,16 +40,33 @@ pub(super) fn page_classification_text_matches(
         .collect()
 }
 
+/// Compiles a removed-page regex. Rejects empty and invalid patterns, and patterns
+/// that would match any text: such a pattern carries no removed-page signal and,
+/// stored on the product title element, would withdraw every live product.
+pub(super) fn removed_page_regex(pattern: &str) -> Result<Regex, String> {
+    if pattern.trim().is_empty() {
+        return Err("Removed page regex must not be empty".to_string());
+    }
+    let regex =
+        Regex::new(pattern).map_err(|err| format!("Removed page regex is invalid: {err}"))?;
+    if regex.is_match("") || regex.is_match(OVER_BROAD_REGEX_PROBE) {
+        return Err(
+            "Removed page regex matches any text and carries no removed-page signal".to_string(),
+        );
+    }
+    Ok(regex)
+}
+
+/// Neutral product-like text that no removed-page notice pattern should match.
+const OVER_BROAD_REGEX_PROBE: &str = "biedermeier chair 1850 sku 42";
+
 /// Normalized selector texts that match `pattern`.
 pub(super) fn page_classification_regex_matches(
     selector: &CssSelector,
     pattern: &str,
     html: &Html,
 ) -> Vec<String> {
-    if pattern.trim().is_empty() {
-        return Vec::new();
-    }
-    let Ok(regex) = Regex::new(pattern) else {
+    let Ok(regex) = removed_page_regex(pattern) else {
         return Vec::new();
     };
 

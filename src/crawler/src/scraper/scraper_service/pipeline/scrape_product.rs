@@ -10,7 +10,9 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
-use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
+use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
+    ExistingSchemaSelection, apply_cached_schemas,
+};
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use crate::scraper::scraper_service::util::hash::{
@@ -136,8 +138,9 @@ impl ScraperServiceImpl {
     /// Returns whether a cached product schema still extracts a product from the page
     /// through the same candidate preparation the scraper uses for extraction. A
     /// candidate whose title is a matched removed-page notice is that notice, not a
-    /// product. Only reads the schema cache; it never generates schemas or spends LLM
-    /// budget.
+    /// product, and is dropped before image validation so a soft-404 costs no image
+    /// requests. Only reads the schema cache; it never generates schemas or spends
+    /// LLM budget.
     #[allow(clippy::result_large_err)]
     async fn cached_schemas_extract_product(
         &self,
@@ -154,14 +157,23 @@ impl ScraperServiceImpl {
             return Ok(false);
         };
 
-        let prepared = self
-            .prepare_cached_candidates(&cached.product_schemas, html, context)
-            .await?;
-        Ok(prepared.candidates.iter().any(|candidate| {
+        // `scraper::Html` is `!Send`: apply in a synchronous block so the parsed
+        // document is dropped before image validation awaits.
+        let mut candidates = {
+            let parsed = scraper::Html::parse_document(html);
+            apply_cached_schemas(&cached.product_schemas, &parsed)
+        };
+        candidates.retain(|candidate| {
             !removed_page_matches
                 .iter()
                 .any(|matched| matched.is_notice(&candidate.raw.title))
-        }))
+        });
+        if candidates.is_empty() {
+            return Ok(false);
+        }
+
+        let prepared = self.prepare_applied_candidates(candidates, context).await?;
+        Ok(!prepared.candidates.is_empty())
     }
 }
 
@@ -337,7 +349,9 @@ impl ScraperServiceImpl {
         let removed_page_matches = self.removed_page_matches(listing_source_id, &html).await?;
         if !removed_page_matches.is_empty() {
             // Withdrawal needs unambiguous evidence: a removed-page template that also
-            // matches a still-extractable product page preserves listing state.
+            // matches a page cached schemas still extract a product from is an
+            // over-broad stored template. Product evidence wins and the page is
+            // scraped normally; the warning names the row an operator has to fix.
             if self
                 .cached_schemas_extract_product(
                     listing_source_id,
@@ -351,15 +365,29 @@ impl ScraperServiceImpl {
                 )
                 .await?
             {
-                return Err(ScraperError::SchemaClassificationRejected {
+                let selectors = removed_page_matches
+                    .iter()
+                    .map(|matched| matched.schema.selector.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let notice_count = removed_page_matches
+                    .iter()
+                    .map(|matched| matched.notices.len())
+                    .sum::<usize>();
+                warn!(
+                    listing_source_id = %listing_source_id,
+                    url = %url,
+                    removed_page_selectors = %selectors,
+                    removed_page_notice_count = notice_count,
+                    "Stored removed-page schema matched a page a cached product schema still extracts; scraping it as a product"
+                );
+            } else {
+                return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
-                    details: "removed-page schema matched a page that a cached product schema still extracts".to_string(),
+                    details: "soft-404 removed page matched configured removed-page schema"
+                        .to_string(),
                 });
             }
-            return Err(ScraperError::ProductListingRemoved {
-                url: url.clone(),
-                details: "soft-404 removed page matched configured removed-page schema".to_string(),
-            });
         }
 
         let has_main = extract_main_fragment(&html).is_some();
