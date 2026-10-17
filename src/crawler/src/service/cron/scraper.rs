@@ -541,6 +541,7 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         listing_source_id: candidate.listing_source_id,
         url: candidate.url.clone(),
         source_record_key: candidate.source_record_key.clone(),
+        last_source_listing_id: candidate.last_source_listing_id.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),

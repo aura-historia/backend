@@ -34,8 +34,8 @@ impl SchemaGenerationAttempt {
 }
 
 impl ScraperServiceImpl {
-    /// Obtains product CSS selector schemas for `listing_source_id`, loading them from
-    /// the DB or generating them via the LLM if they do not yet exist.
+    /// Generates product CSS selector schemas for `listing_source_id` via the LLM.
+    /// The caller has already read the schema cache and found it empty.
     ///
     /// The dispatcher gates concurrent scraper work per ListingSource inside one process,
     /// while database uniqueness prevents duplicate pending reviews across
@@ -51,15 +51,36 @@ impl ScraperServiceImpl {
         domain_id: Option<&CrawlerDomainId>,
         mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
-        debug!("Obtaining product CSS selector schemas");
-        if let Some(existing) = self
-            .schema_service
-            .find_product_schema(listing_source_id)
+        debug!("No cached product CSS selector schema; generating");
+        if let Some(review_id) = self
+            .pending_product_schema_review_id(listing_source_id)
             .await?
         {
-            debug!("Schema found in DB");
-            Ok(existing)
-        } else {
+            return Err(ScraperError::PendingSchemaReview {
+                url: url.clone(),
+                review_id,
+            });
+        }
+
+        let seed_pages = self
+            .collect_schema_seed_pages(
+                listing_source_id,
+                domain_id,
+                url,
+                product_url_pattern,
+                html,
+                mode,
+            )
+            .await?;
+        if self.review_repository.is_some() {
+            if let Some(existing) = self
+                .schema_service
+                .find_product_schema(listing_source_id)
+                .await?
+            {
+                debug!("Schema found in DB after seed page collection");
+                return Ok(existing);
+            }
             if let Some(review_id) = self
                 .pending_product_schema_review_id(listing_source_id)
                 .await?
@@ -69,90 +90,60 @@ impl ScraperServiceImpl {
                     review_id,
                 });
             }
+        }
 
-            let seed_pages = self
-                .collect_schema_seed_pages(
-                    listing_source_id,
-                    domain_id,
-                    url,
-                    product_url_pattern,
-                    html,
-                    mode,
-                )
-                .await?;
-            if self.review_repository.is_some() {
-                if let Some(existing) = self
-                    .schema_service
-                    .find_product_schema(listing_source_id)
-                    .await?
-                {
-                    debug!("Schema found in DB after seed page collection");
-                    return Ok(existing);
-                }
-                if let Some(review_id) = self
-                    .pending_product_schema_review_id(listing_source_id)
-                    .await?
-                {
-                    return Err(ScraperError::PendingSchemaReview {
-                        url: url.clone(),
-                        review_id,
-                    });
-                }
-            }
+        let seed_html_pages: Vec<String> = seed_pages
+            .iter()
+            .map(|page| page.raw_html.clone())
+            .collect();
+        let pages = seed_pages
+            .iter()
+            .enumerate()
+            .map(|(idx, page)| SchemaReviewPageInput {
+                url: page.url.to_string(),
+                role: if idx == 0 {
+                    PAGE_ROLE_PRIMARY.to_string()
+                } else {
+                    PAGE_ROLE_SEED.to_string()
+                },
+                raw_html: page.raw_html.clone(),
+            })
+            .collect::<Vec<_>>();
 
-            let seed_html_pages: Vec<String> = seed_pages
-                .iter()
-                .map(|page| page.raw_html.clone())
-                .collect();
-            let pages = seed_pages
-                .iter()
-                .enumerate()
-                .map(|(idx, page)| SchemaReviewPageInput {
-                    url: page.url.to_string(),
-                    role: if idx == 0 {
-                        PAGE_ROLE_PRIMARY.to_string()
-                    } else {
-                        PAGE_ROLE_SEED.to_string()
-                    },
-                    raw_html: page.raw_html.clone(),
+        self.consume_llm_budget_or_err(listing_source_id, url)
+            .await?;
+        let yaml_generated = self
+            .schema_service
+            .create_product_schemas(&seed_html_pages)
+            .await?;
+        let yaml_attempt = SchemaGenerationAttempt::new(yaml_generated, &pages);
+        let schema_count = yaml_attempt.generated.schemas.len();
+        let validation_summary = json!({
+            "seed_page_count": seed_pages.len(),
+            "schema_count": schema_count,
+            "confidence": yaml_attempt.generated.evaluation.confidence,
+            "deterministic_approval_ok": yaml_attempt.deterministic_approval_ok,
+            "unused_schema_indices": yaml_attempt.unused_schema_indices,
+        });
+        let generated = yaml_attempt.generated;
+
+        match self
+            .handle_generated_schema_review(
+                listing_source_id,
+                "initial_schema_generation",
+                generated.schemas,
+                generated.evaluation,
+                pages,
+                validation_summary,
+            )
+            .await?
+        {
+            GeneratedSchemaReviewOutcome::Persisted(saved) => Ok(saved),
+            GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                Err(ScraperError::PendingSchemaReview {
+                    url: url.clone(),
+                    review_id,
                 })
-                .collect::<Vec<_>>();
-
-            self.consume_llm_budget_or_err(listing_source_id, url)
-                .await?;
-            let yaml_generated = self
-                .schema_service
-                .create_product_schemas(&seed_html_pages)
-                .await?;
-            let yaml_attempt = SchemaGenerationAttempt::new(yaml_generated, &pages);
-            let schema_count = yaml_attempt.generated.schemas.len();
-            let validation_summary = json!({
-                "seed_page_count": seed_pages.len(),
-                "schema_count": schema_count,
-                "confidence": yaml_attempt.generated.evaluation.confidence,
-                "deterministic_approval_ok": yaml_attempt.deterministic_approval_ok,
-                "unused_schema_indices": yaml_attempt.unused_schema_indices,
-            });
-            let generated = yaml_attempt.generated;
-
-            match self
-                .handle_generated_schema_review(
-                    listing_source_id,
-                    "initial_schema_generation",
-                    generated.schemas,
-                    generated.evaluation,
-                    pages,
-                    validation_summary,
-                )
-                .await?
-            {
-                GeneratedSchemaReviewOutcome::Persisted(saved) => Ok(saved),
-                GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
-                    Err(ScraperError::PendingSchemaReview {
-                        url: url.clone(),
-                        review_id,
-                    })
-                }
             }
         }
     }
