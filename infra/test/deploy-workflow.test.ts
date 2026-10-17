@@ -150,6 +150,8 @@ describe("change-scoped CI workflows", () => {
         "infra/**",
         "mjml/**",
         "ci/**",
+        "opensearch/**",
+        "src/user-service/src/ports/consent_workflow_cleanup.rs",
         "docs/swagger.yaml",
         "src/**/Cargo.toml",
         "src/aura-historia-api/src/lib.rs",

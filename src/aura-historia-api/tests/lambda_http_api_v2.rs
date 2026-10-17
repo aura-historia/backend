@@ -552,6 +552,10 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             "https://issuer.lambda.test/.well-known/jwks.json",
         ),
         (
+            aura_historia_api::COGNITO_USER_INFO_URL_ENV,
+            "https://auth.lambda.test/oauth2/userInfo",
+        ),
+        (
             aura_historia_api::COGNITO_APP_CLIENT_IDS_ENV,
             "lambda-test-client",
         ),

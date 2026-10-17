@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Token revocation enforcement
+
+- Cognito access JWTs require `openid` or `aws.cognito.signin.user.admin` and a successful live provider check on each authenticated request. Globally signed-out or revoked tokens are rejected; unavailable or throttled provider checks return `503 AUTH_TEMPORARILY_UNAVAILABLE`.
+- OAuth token revocation rejects tokens issued to another client and personal access tokens with `403 FORBIDDEN`, preserving them. Unknown and already-revoked tokens still return `200`.
+
 ## 2026-10-17 — Advertised shipping and collection (#1997)
 
 - Listing detail, search, similar, watchlist, saved-search match and auction catalogue responses include `item.shipping`: current advertised terms, observation/dependency information and converted rates in the requested display currency. These are advertised arrangements, not checkout quotes or landed-cost totals.

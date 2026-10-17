@@ -1,3 +1,4 @@
+use super::CognitoTokenStatus;
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
@@ -86,7 +87,8 @@ struct JwksCache {
     refreshed_at: Option<Instant>,
 }
 
-pub struct CognitoJwtAuthenticator<P, R> {
+pub struct CognitoJwtAuthenticator<P, R, V> {
+    token_status: V,
     config: CognitoJwtConfig,
     identity_issuer: CognitoIssuer,
     provider: P,
@@ -97,15 +99,27 @@ pub struct CognitoJwtAuthenticator<P, R> {
     refresh_lock: Mutex<()>,
 }
 
-impl<P, R> CognitoJwtAuthenticator<P, R> {
-    pub fn new(config: CognitoJwtConfig, provider: P, resolve_user: R) -> Result<Self, AuthError> {
-        Self::with_cache_ttl(config, provider, resolve_user, DEFAULT_JWKS_CACHE_TTL)
+impl<P, R, V> CognitoJwtAuthenticator<P, R, V> {
+    pub fn new(
+        config: CognitoJwtConfig,
+        provider: P,
+        resolve_user: R,
+        token_status: V,
+    ) -> Result<Self, AuthError> {
+        Self::with_cache_ttl(
+            config,
+            provider,
+            resolve_user,
+            token_status,
+            DEFAULT_JWKS_CACHE_TTL,
+        )
     }
 
     fn with_cache_ttl(
         config: CognitoJwtConfig,
         provider: P,
         resolve_user: R,
+        token_status: V,
         cache_ttl: Duration,
     ) -> Result<Self, AuthError> {
         let identity_issuer = CognitoIssuer::try_from(config.issuer.as_str())
@@ -119,6 +133,7 @@ impl<P, R> CognitoJwtAuthenticator<P, R> {
             identity_issuer,
             provider,
             resolve_user,
+            token_status,
             verifier,
             cache_ttl,
             jwks_cache: Arc::new(RwLock::new(JwksCache {
@@ -130,7 +145,7 @@ impl<P, R> CognitoJwtAuthenticator<P, R> {
     }
 }
 
-impl<P, R> CognitoJwtAuthenticator<P, R>
+impl<P, R, V> CognitoJwtAuthenticator<P, R, V>
 where
     P: JwksProvider,
 {
@@ -205,10 +220,11 @@ where
 }
 
 #[async_trait::async_trait]
-impl<P, R> TokenAuthenticator for CognitoJwtAuthenticator<P, R>
+impl<P, R, V> TokenAuthenticator for CognitoJwtAuthenticator<P, R, V>
 where
     P: JwksProvider,
     R: ResolveCognitoUserUseCase,
+    V: CognitoTokenStatus,
 {
     async fn authenticate(
         &self,
@@ -224,6 +240,13 @@ where
         verify_access_token(&claims, &self.config.app_client_ids)?;
         let subject = CognitoSubject::try_from(claim_string(&claims, "sub")?)
             .map_err(|_| AuthError::InvalidCredentials)?;
+        self.token_status
+            .verify(
+                bearer_token,
+                subject.as_str(),
+                claim_string(&claims, "scope")?,
+            )
+            .await?;
         let resolved = self
             .resolve_user
             .execute(ResolveCognitoUserRequest {
@@ -390,8 +413,27 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeTokenStatus {
+        rejected: std::sync::atomic::AtomicBool,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl CognitoTokenStatus for FakeTokenStatus {
+        async fn verify(&self, _: &str, _: &str, _: &str) -> Result<(), AuthError> {
+            use std::sync::atomic::Ordering;
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.rejected.load(Ordering::Relaxed) {
+                Err(AuthError::InvalidCredentials)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     type TestAuthenticator =
-        CognitoJwtAuthenticator<FakeJwksProvider, FakeResolveCognitoUserUseCase>;
+        CognitoJwtAuthenticator<FakeJwksProvider, FakeResolveCognitoUserUseCase, FakeTokenStatus>;
 
     #[derive(Clone)]
     struct TestKey {
@@ -468,6 +510,7 @@ mod tests {
                 outcome,
                 calls: resolve_calls,
             },
+            FakeTokenStatus::default(),
         )
     }
 
@@ -483,10 +526,60 @@ mod tests {
             "iss": "https://issuer.example/pool",
             "sub": subject,
             "token_use": "access",
+            "scope": "openid email profile",
             "client_id": client_id,
             "iat": now,
             "exp": now + exp_delta_seconds,
         })
+    }
+
+    #[tokio::test]
+    async fn should_reject_a_revoked_jwt_even_with_cached_signing_keys()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::Ordering;
+        let key = test_key("kid-1")?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let authenticator = authenticator(vec![jwk(&key)], calls.clone())?;
+        let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
+        assert!(
+            authenticator
+                .authenticate(&token, &metadata())
+                .await
+                .is_ok()
+        );
+
+        // Cognito has globally signed out the user; the JWT signature and expiry stay valid.
+        authenticator
+            .token_status
+            .rejected
+            .store(true, Ordering::Relaxed);
+        assert!(matches!(
+            authenticator.authenticate(&token, &metadata()).await,
+            Err(AuthError::InvalidCredentials)
+        ));
+        assert_eq!(2, authenticator.token_status.calls.load(Ordering::Relaxed));
+        assert_eq!(1, lock(&calls).len());
+        assert_eq!(1, lock(&authenticator.resolve_user.calls).len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_contact_cognito_for_locally_invalid_tokens()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::Ordering;
+        let key = test_key("kid-1")?;
+        let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
+        let token = signed_jwt(
+            &key,
+            jwt_claims(OPAQUE_SUBJECT, 3_600, json!("untrusted-client")),
+        )?;
+        assert!(matches!(
+            authenticator.authenticate(&token, &metadata()).await,
+            Err(AuthError::InvalidCredentials)
+        ));
+        assert_eq!(0, authenticator.token_status.calls.load(Ordering::Relaxed));
+        assert!(lock(&authenticator.resolve_user.calls).is_empty());
+        Ok(())
     }
 
     #[test]
@@ -631,6 +724,7 @@ mod tests {
                 outcome: ResolveOutcome::Found(UserId::new()),
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
+            FakeTokenStatus::default(),
             Duration::ZERO,
         )?;
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
@@ -668,6 +762,7 @@ mod tests {
                 outcome: ResolveOutcome::Found(UserId::new()),
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
+            FakeTokenStatus::default(),
         )?);
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
         let first_authenticator = authenticator.clone();

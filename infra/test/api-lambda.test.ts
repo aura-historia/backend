@@ -57,6 +57,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
     "AURA_HISTORIA_COGNITO_ISSUER",
     "AURA_HISTORIA_COGNITO_JWKS_URL",
+    "AURA_HISTORIA_COGNITO_USER_INFO_URL",
     "AURA_HISTORIA_COGNITO_USER_POOL_ID",
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
@@ -131,6 +132,14 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.AURA_HISTORIA_COGNITO_JWKS_URL).toBeDefined();
     expect(environment.Variables.AURA_HISTORIA_COGNITO_APP_CLIENT_IDS).toBeDefined();
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
+    const [[domainId, domain]] = Object.entries(template.findResources("AWS::Cognito::UserPoolDomain"));
+    expect(domain.Properties.Domain).toBe(`primary-userpool-${stage}`);
+    expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_INFO_URL).toEqual({
+      "Fn::Join": ["", [
+        "https://", { Ref: domainId }, ".auth.", { Ref: "AWS::Region" },
+        ".amazoncognito.com/oauth2/userInfo",
+      ]],
+    });
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
     expect(environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(environment.Variables.POSTGRES_SECRET_ARN).toBeDefined();

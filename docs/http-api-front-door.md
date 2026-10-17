@@ -22,6 +22,20 @@ optional-auth routes reject invalid supplied credentials. OAuth and signed-provi
 handlers retain their dedicated credential/proof checks. A Cognito-only edge policy
 would reject valid application credentials before those handlers can evaluate them.
 
+Cognito JWT authentication checks provider revocation after local signature, issuer,
+client, token-use and expiry validation. Hosted OAuth tokens must include `openid`;
+native password/SRP tokens use `aws.cognito.signin.user.admin`. Tokens without either
+scope cannot be checked and are rejected. The provider subject must match the signed
+JWT subject. Successful checks are never cached; only signing keys are cached.
+
+CDK supplies `AURA_HISTORIA_COGNITO_USER_INFO_URL` from the same stage's user pool
+domain. Keep this trusted HTTPS endpoint aligned with the issuer/client configuration;
+redirects are disabled. Native tokens use regional Cognito `GetUser`. Every Cognito
+request now depends on provider availability and quotas; the check has a five-second
+deadline, and outages, throttling or malformed provider responses fail closed with
+`503 AUTH_TEMPORARILY_UNAVAILABLE`. Review authentication latency and provider quotas
+before release. Opaque Aura tokens continue to use their existing persisted checks.
+
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
