@@ -112,9 +112,8 @@ impl ScraperServiceImpl {
     /// Applies every cached schema to the current page, validates each
     /// candidate's images and prepares it deterministically, then ranks the
     /// survivors by completeness. A candidate-local failure rejects that
-    /// candidate only; an external failure aborts. This is the single seam that
-    /// decides whether cached schemas still extract a product from a page; it
-    /// never generates schemas or spends LLM budget.
+    /// candidate only; an external failure aborts. It never generates schemas
+    /// or spends LLM budget.
     pub(crate) async fn prepare_cached_candidates<'a>(
         &self,
         schemas: &'a [ProductCssSelectorSchema],
@@ -127,16 +126,6 @@ impl ScraperServiceImpl {
             let parsed = scraper::Html::parse_document(html);
             apply_cached_schemas(schemas, &parsed)
         };
-        self.prepare_applied_candidates(candidates, context).await
-    }
-
-    /// Validates each applied candidate's images, prepares it deterministically
-    /// and ranks the survivors; see [`Self::prepare_cached_candidates`].
-    pub(crate) async fn prepare_applied_candidates<'a>(
-        &self,
-        candidates: Vec<AppliedSchemaCandidate<'a>>,
-        context: &ProductNormalizationContext,
-    ) -> Result<PreparedCachedCandidates<'a>, ScraperError> {
         let applied_schema_count = candidates.len();
         let mut prepared_candidates = Vec::new();
         // Image validation is candidate-local and does not call the LLM. Do

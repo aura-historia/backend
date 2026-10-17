@@ -460,3 +460,106 @@ async fn should_not_mark_product_removed_when_removed_page_schema_lookup_fails()
         "{err:?}"
     );
 }
+
+#[tokio::test]
+async fn should_mark_product_removed_when_cached_schema_only_extracts_a_related_product() {
+    let id = listing_source_id();
+    let url = product_url();
+    // The soft-404 page carries a "you may also like" card that the cached schema
+    // reads as a complete product with its own title. Under the listing's known
+    // identity that card is not evidence for this listing: the page is removed, not
+    // rebound to the related product.
+    let html = r#"<html><body><main id="mainCatCol">
+        <h1>Sorry, the page you're looking for couldn't be found</h1>
+        <div class="related"><h2>Biedermeier Sofa</h2><span id="product-id">SKU-9</span>
+        <span id="state">In Stock</span><img src="/images/sofa-640x640.jpg"></div>
+        </main></body></html>"#;
+    let mut schema_svc = MockProductListingSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let mut schemas = listing_source_product_schemas(id);
+            schemas.product_schemas[0].title.selector = CssSelector::from(".related h2");
+            Box::pin(async move { Ok(Some(schemas)) })
+        });
+    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc.expect_save_product_schemas().never();
+
+    let service = service(
+        fetcher_returning(html.to_string()),
+        schema_svc,
+        MockProductListingNormalizationService::new(),
+        removed_repo_returning(removed_schema_set(id)),
+    );
+
+    let err = service
+        .scrape(ScrapeRequest {
+            last_source_listing_id: Some("SKU-42".to_string()),
+            ..primary_only_request(&id, &url)
+        })
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_not_mark_product_removed_when_cached_candidate_fails_preparation_under_over_broad_template()
+ {
+    let id = listing_source_id();
+    let url = product_url();
+    // A live product page matches a hidden site-wide not-found template while its
+    // availability text has grown past what deterministic preparation accepts. The
+    // cached schema still applies with the product's title and identity, so the
+    // page is product evidence: it must reach fresh schema generation, never
+    // withdrawal.
+    let html = sample_html().replace("In Stock", &"x".repeat(600)).replace(
+        "<main>",
+        r#"<div class="error-template" hidden>Page not found</div><main>"#,
+    );
+    let mut schema_svc = schema_service_with_cached_schema(id);
+    schema_svc
+        .expect_generate_single_schema_for_page()
+        .once()
+        .returning(|_| {
+            let mut schema = minimal_schema();
+            schema.title.selector = CssSelector::from("missing-title");
+            Box::pin(async move {
+                Ok(generated_single_product(
+                    schema,
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
+        });
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher_returning(html)),
+        Box::new(schema_svc),
+        Box::new(MockProductListingNormalizationService::new()),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+    .with_removed_page_schema_repository(Box::new(removed_repo_returning(
+        removed_schema_set_for(id, ".error-template", "Page not found"),
+    )));
+
+    let err = service
+        .scrape(ScrapeRequest {
+            last_source_listing_id: Some("SKU-42".to_string()),
+            ..primary_only_request(&id, &url)
+        })
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::SchemaRegenerationExhausted { .. }),
+        "{err:?}"
+    );
+}

@@ -23,23 +23,6 @@ fn selected_texts(selector: &CssSelector, html: &Html) -> Option<Vec<String>> {
     rule.apply(html).ok()
 }
 
-/// Normalized selector texts that contain `text`.
-pub(super) fn page_classification_text_matches(
-    selector: &CssSelector,
-    text: &str,
-    html: &Html,
-) -> Vec<String> {
-    let expected = normalize_page_classification_text(text);
-    if expected.is_empty() {
-        return Vec::new();
-    }
-
-    normalized_selected_texts(selector, html)
-        .into_iter()
-        .filter(|value| value.contains(&expected))
-        .collect()
-}
-
 /// Compiles a removed-page regex. Rejects empty and invalid patterns, and patterns
 /// that would match any text: such a pattern carries no removed-page signal and,
 /// stored on the product title element, would withdraw every live product.
@@ -49,7 +32,10 @@ pub(super) fn removed_page_regex(pattern: &str) -> Result<Regex, String> {
     }
     let regex =
         Regex::new(pattern).map_err(|err| format!("Removed page regex is invalid: {err}"))?;
-    if regex.is_match("") || regex.is_match(OVER_BROAD_REGEX_PROBE) {
+    if OVER_BROAD_REGEX_PROBES
+        .iter()
+        .any(|probe| regex.is_match(probe))
+    {
         return Err(
             "Removed page regex matches any text and carries no removed-page signal".to_string(),
         );
@@ -57,36 +43,23 @@ pub(super) fn removed_page_regex(pattern: &str) -> Result<Regex, String> {
     Ok(regex)
 }
 
-/// Neutral product-like text that no removed-page notice pattern should match.
-const OVER_BROAD_REGEX_PROBE: &str = "biedermeier chair 1850 sku 42";
+/// Neutral product-like texts that no removed-page notice pattern should match.
+/// They vary in length, case, script and punctuation so that length-only, class-only
+/// and anchored catch-all patterns are rejected too. Selected page texts are
+/// normalized (whitespace-collapsed, lowercased) before matching, so the probes
+/// cover both raw and normalized shapes.
+const OVER_BROAD_REGEX_PROBES: [&str; 6] = [
+    "",
+    "biedermeier chair 1850 sku 42",
+    "Biedermeier Chair, 1850 (SKU 42)",
+    "élégante commode louis xv – 1 750 €",
+    "vase",
+    "art-déco lampe nr. 7 / 2nd edition",
+];
 
-/// Normalized selector texts that match `pattern`.
-pub(super) fn page_classification_regex_matches(
-    selector: &CssSelector,
-    pattern: &str,
-    html: &Html,
-) -> Vec<String> {
-    let regex = match removed_page_regex(pattern) {
-        Ok(regex) => regex,
-        Err(reason) => {
-            // A stored row can fail here after the rule tightened; without a signal the
-            // source would silently lose soft-404 detection.
-            tracing::warn!(
-                removed_page_selector = %selector,
-                removed_page_regex_rejection = %reason,
-                "Stored removed-page regex is rejected and ignored; fix or delete the row"
-            );
-            return Vec::new();
-        }
-    };
-
-    normalized_selected_texts(selector, html)
-        .into_iter()
-        .filter(|value| regex.is_match(value))
-        .collect()
-}
-
-fn normalized_selected_texts(selector: &CssSelector, html: &Html) -> Vec<String> {
+/// Normalized texts selected by `selector` from the page; empty when the selector
+/// does not apply.
+pub(super) fn normalized_selected_texts(selector: &CssSelector, html: &Html) -> Vec<String> {
     selected_texts(selector, html)
         .unwrap_or_default()
         .iter()
