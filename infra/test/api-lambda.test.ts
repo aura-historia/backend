@@ -134,10 +134,12 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
     const [[domainId, domain]] = Object.entries(template.findResources("AWS::Cognito::UserPoolDomain"));
     expect(domain.Properties.Domain).toBe(`primary-userpool-${stage}`);
-    const userInfoUrl = JSON.stringify(environment.Variables.AURA_HISTORIA_COGNITO_USER_INFO_URL);
-    expect(userInfoUrl).toContain(JSON.stringify({ Ref: domainId }));
-    expect(userInfoUrl).toContain("https://");
-    expect(userInfoUrl).toContain(".auth.eu-central-1.amazoncognito.com/oauth2/userInfo");
+    expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_INFO_URL).toEqual({
+      "Fn::Join": ["", [
+        "https://", { Ref: domainId }, ".auth.", { Ref: "AWS::Region" },
+        ".amazoncognito.com/oauth2/userInfo",
+      ]],
+    });
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
     expect(environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(environment.Variables.POSTGRES_SECRET_ARN).toBeDefined();
