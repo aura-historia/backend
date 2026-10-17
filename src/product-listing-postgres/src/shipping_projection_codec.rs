@@ -13,7 +13,7 @@ use shipping_core::terms::{ShippingEligibility, ShippingServiceCode};
 struct Summary {
     schema: String,
     #[serde(deserialize_with = "required")]
-    collection: Option<String>,
+    collection: RequiredNullable<String>,
     prohibited: bool,
     conditional: bool,
     country_offers: Vec<Offer>,
@@ -24,7 +24,7 @@ struct Offer {
     country: String,
     service: String,
     #[serde(deserialize_with = "required")]
-    per_item_fixed: Option<Amount>,
+    per_item_fixed: RequiredNullable<Amount>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,12 +32,17 @@ struct Amount {
     currency: String,
     amount_minor: u64,
 }
-fn required<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+// Keep explicit null distinct from an absent schema field, as in the terms codec.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct RequiredNullable<T>(Option<T>);
+
+fn required<'de, D, T>(d: D) -> Result<RequiredNullable<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    Option::deserialize(d)
+    Option::deserialize(d).map(RequiredNullable)
 }
 fn invalid() -> ShippingProjectionError {
     ShippingProjectionError::Storage(static_error("invalid persisted effective shipping summary"))
@@ -50,7 +55,7 @@ pub(crate) fn encode(
 ) -> Result<serde_json::Value, ShippingProjectionError> {
     serde_json::to_value(Summary {
         schema: POLICY.into(),
-        collection: s.collection.map(|e| e.as_str().into()),
+        collection: RequiredNullable(s.collection.map(|e| e.as_str().into())),
         prohibited: s.prohibited,
         conditional: s.conditional,
         country_offers: s
@@ -59,10 +64,10 @@ pub(crate) fn encode(
             .map(|o| Offer {
                 country: o.country.alpha2().into(),
                 service: o.service.as_str().into(),
-                per_item_fixed: o.per_item_fixed.map(|p| Amount {
+                per_item_fixed: RequiredNullable(o.per_item_fixed.map(|p| Amount {
                     currency: p.currency.as_str().into(),
                     amount_minor: p.monetary_amount.into(),
-                }),
+                })),
             })
             .collect(),
     })
@@ -79,12 +84,13 @@ pub(crate) fn decode(
             && data
                 .country_offers
                 .iter()
-                .any(|offer| offer.per_item_fixed.is_none()))
+                .any(|offer| offer.per_item_fixed.0.is_none()))
     {
         return Err(invalid());
     }
     let collection = data
         .collection
+        .0
         .as_deref()
         .map(|s| ShippingEligibility::from_code(s).ok_or_else(invalid))
         .transpose()?;
@@ -101,6 +107,7 @@ pub(crate) fn decode(
         }
         let per_item_fixed = offer
             .per_item_fixed
+            .0
             .map(|p| {
                 Ok::<_, ShippingProjectionError>(Price::new(
                     p.amount_minor.into(),

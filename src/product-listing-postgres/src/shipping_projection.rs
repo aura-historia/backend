@@ -2,7 +2,10 @@
 use super::shipping_projection_codec::{decode, encode};
 use application::error::{box_error, static_error};
 use platform_postgres::SqlxTransaction;
-use product_listing_service::shipping_projection::*;
+use product_listing_service::shipping_projection::{
+    EffectiveListingShipping, POLICY, ShippingClaim, ShippingPage, ShippingProjectionError,
+    ShippingProjectionStore, ShippingProjectionStoreFactory, ShippingWorkId, ShippingWrite,
+};
 use shipping_service::assessment::{AssessmentDependencies, AssessmentReader};
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
