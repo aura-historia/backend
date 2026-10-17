@@ -30,7 +30,9 @@ impl LiveCognitoTokenStatus {
             || url.query().is_some()
             || url.fragment().is_some()
         {
-            return Err(AuthError::Internal("invalid Cognito userInfo URL".to_owned()));
+            return Err(AuthError::Internal(
+                "invalid Cognito userInfo URL".to_owned(),
+            ));
         }
         let client = Client::builder()
             .redirect(Policy::none())
@@ -149,7 +151,13 @@ mod tests {
         let cognito = CognitoClient::from_conf(
             aws_sdk_cognitoidentityprovider::config::Builder::new()
                 .behavior_version_latest()
-                .credentials_provider(Credentials::new("test", "test", None, None, "offline-fixture"))
+                .credentials_provider(Credentials::new(
+                    "test",
+                    "test",
+                    None,
+                    None,
+                    "offline-fixture",
+                ))
                 .region(Region::new("eu-central-1"))
                 .endpoint_url(server.uri())
                 .retry_config(RetryConfig::disabled())
@@ -199,7 +207,10 @@ mod tests {
         let server = MockServer::start().await;
         let verifier = verifier(&server);
         Mock::given(method("POST"))
-            .and(header("x-amz-target", "AWSCognitoIdentityProviderService.GetUser"))
+            .and(header(
+                "x-amz-target",
+                "AWSCognitoIdentityProviderService.GetUser",
+            ))
             .and(body_json(json!({"AccessToken": "test-token"})))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "Username": "username",
@@ -246,7 +257,7 @@ mod tests {
                 .respond_with(ResponseTemplate::new(status).set_body_string(body))
                 .expect(1)
                 .mount(&server)
-            .await;
+                .await;
             let result = verifier(&server)
                 .verify("test-token", "subject", "openid")
                 .await;
@@ -261,8 +272,16 @@ mod tests {
     #[tokio::test]
     async fn should_fail_closed_for_native_subject_mismatch_and_provider_failures() {
         for (status, body, invalid) in [
-            (200, json!({"Username": "user", "UserAttributes": [{"Name": "sub", "Value": "other"}]}), true),
-            (200, json!({"Username": "user", "UserAttributes": []}), false),
+            (
+                200,
+                json!({"Username": "user", "UserAttributes": [{"Name": "sub", "Value": "other"}]}),
+                true,
+            ),
+            (
+                200,
+                json!({"Username": "user", "UserAttributes": []}),
+                false,
+            ),
             (400, json!({"__type": "TooManyRequestsException"}), false),
             (500, json!({"__type": "InternalErrorException"}), false),
         ] {

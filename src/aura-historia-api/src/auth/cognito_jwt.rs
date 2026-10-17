@@ -541,7 +541,12 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let authenticator = authenticator(vec![jwk(&key)], calls.clone())?;
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
-        assert!(authenticator.authenticate(&token, &metadata()).await.is_ok());
+        assert!(
+            authenticator
+                .authenticate(&token, &metadata())
+                .await
+                .is_ok()
+        );
 
         // Cognito has globally signed out the user; the JWT signature and expiry stay valid.
         authenticator
@@ -564,7 +569,10 @@ mod tests {
         use std::sync::atomic::Ordering;
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
-        let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("untrusted-client")))?;
+        let token = signed_jwt(
+            &key,
+            jwt_claims(OPAQUE_SUBJECT, 3_600, json!("untrusted-client")),
+        )?;
         assert!(matches!(
             authenticator.authenticate(&token, &metadata()).await,
             Err(AuthError::InvalidCredentials)

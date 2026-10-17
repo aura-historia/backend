@@ -32,9 +32,8 @@ pub(crate) mod wire;
 
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
-    CognitoJwtConfig, CognitoTokenStatus, JwksProvider, LiveCognitoTokenStatus, ReqwestJwksProvider,
-    TokenAuthenticator,
-    UserAuthenticationAuthenticator,
+    CognitoJwtConfig, CognitoTokenStatus, JwksProvider, LiveCognitoTokenStatus,
+    ReqwestJwksProvider, TokenAuthenticator, UserAuthenticationAuthenticator,
 };
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
