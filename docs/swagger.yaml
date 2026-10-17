@@ -10726,7 +10726,11 @@ paths:
 
         flow (RFC 7009). The request body must be `application/x-www-form-urlencoded`. Client
 
-        authentication is performed via `client_id` / `client_secret` form fields.
+        authentication is performed via `client_id` / `client_secret` form fields. The token must
+
+        have been issued to that client; another client's token or a personal access token is
+
+        rejected with `403 FORBIDDEN` and is not revoked.
 
 
         After revocation the token is immediately inactive and introspection will return
@@ -10820,6 +10824,16 @@ paths:
                     title: Unauthorized
                     error: OAUTH_CLIENT_NOT_FOUND
                     detail: OAuth client not found.
+        "403":
+          description: Forbidden — the token was not issued to the authenticated OAuth client.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
         "500":
           description: Internal server error.
           content:
@@ -17498,7 +17512,13 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "Cognito JWT bearer token.
+      description: "Cognito access JWT bearer token. Tokens must include `openid` (hosted OAuth)
+
+        or `aws.cognito.signin.user.admin` (native password/SRP). Revocation is checked with
+
+        Cognito on every authenticated request. Revoked tokens return an authentication error;
+
+        provider outages or throttling return `503 AUTH_TEMPORARILY_UNAVAILABLE`.
 
         This scheme is used for authenticated user routes and for partner routes that accept Cognito user tokens.
 

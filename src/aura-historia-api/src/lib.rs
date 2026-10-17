@@ -32,7 +32,8 @@ pub(crate) mod wire;
 
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
-    CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
+    CognitoJwtConfig, CognitoTokenStatus, JwksProvider, LiveCognitoTokenStatus, ReqwestJwksProvider,
+    TokenAuthenticator,
     UserAuthenticationAuthenticator,
 };
 use crate::state::{
@@ -257,6 +258,7 @@ pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
+pub const COGNITO_USER_INFO_URL_ENV: &str = "AURA_HISTORIA_COGNITO_USER_INFO_URL";
 pub const COGNITO_USER_POOL_ID_ENV: &str = "AURA_HISTORIA_COGNITO_USER_POOL_ID";
 pub const STRIPE_API_KEY_ENV: &str = "STRIPE_API_KEY";
 pub const STRIPE_CHECKOUT_SUCCESS_URL_ENV: &str = "STRIPE_CHECKOUT_SUCCESS_URL";
@@ -330,6 +332,7 @@ pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
     cognito_user_pool_id: String,
+    cognito_user_info_url: String,
     vertex_ai_embedding: VertexAiEmbeddingConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
@@ -364,6 +367,7 @@ impl ApiConfig {
 
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
+        let cognito_user_info_url = required_config(&mut get, COGNITO_USER_INFO_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
             .split(',')
             .map(str::trim)
@@ -446,6 +450,7 @@ impl ApiConfig {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             cognito_user_pool_id,
+            cognito_user_info_url,
             vertex_ai_embedding,
             stripe_billing,
             billing_prices,
@@ -1779,6 +1784,11 @@ async fn app_state_from_config_and_pool(
     let authenticator = compose_authenticator(
         config,
         ReqwestJwksProvider::new(jwks_client),
+        LiveCognitoTokenStatus::new(
+            &config.cognito_user_info_url,
+            aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
+        )
+        .map_err(ApiStateError::CognitoJwt)?,
         resolve_cognito_user,
         AuraAccessTokenAuthenticator::new(access_token_use_case),
         authenticate_user,
@@ -2549,15 +2559,17 @@ fn google_application_default_credentials() -> Result<AccessTokenCredentials, Em
         })
 }
 
-fn compose_authenticator<P, R, A, U>(
+fn compose_authenticator<P, V, R, A, U>(
     config: &ApiConfig,
     jwks_provider: P,
+    token_status: V,
     resolve_cognito_user: R,
     access_token_authenticator: A,
     authenticate_user: U,
 ) -> Result<Arc<dyn TokenAuthenticator>, AuthError>
 where
     P: JwksProvider + 'static,
+    V: CognitoTokenStatus + 'static,
     R: user_service::use_cases::ResolveCognitoUserUseCase + 'static,
     A: TokenAuthenticator + 'static,
     U: user_service::use_cases::AuthenticateUserUseCase + 'static,
@@ -2566,6 +2578,7 @@ where
         config.cognito_jwt().clone(),
         jwks_provider,
         resolve_cognito_user,
+        token_status,
     )?;
     Ok(Arc::new(UserAuthenticationAuthenticator::new(
         ApiAuthService::new(cognito_jwt, access_token_authenticator),
@@ -2665,6 +2678,10 @@ mod tests {
             (
                 COGNITO_JWKS_URL_ENV,
                 "https://issuer.test/jwks.json".to_owned(),
+            ),
+            (
+                COGNITO_USER_INFO_URL_ENV,
+                "https://auth.test/oauth2/userInfo".to_owned(),
             ),
             (COGNITO_APP_CLIENT_IDS_ENV, "api-client".to_owned()),
             (COGNITO_USER_POOL_ID_ENV, "test-pool".to_owned()),
