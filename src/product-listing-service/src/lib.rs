@@ -11,4 +11,5 @@ pub mod user_state;
 
 pub mod geography;
 
+pub mod crawler_shipping;
 pub mod shipping;

@@ -3,6 +3,15 @@ use application::operation_context::OperationContext;
 use listing_source_core::ListingSourceId;
 use product_listing_core::{delivery::ListingDelivery, product_listing_id::ProductListingKey};
 
+/// An optimization only: the write transaction rechecks current native integration authority.
+#[async_trait::async_trait]
+pub trait CrawlerShippingSourceReader: Send + Sync {
+    async fn is_non_native(
+        &self,
+        source: ListingSourceId,
+    ) -> Result<bool, ProductListingDeliveryError>;
+}
+
 /// Current source/grant, integration, profile and location validation, held through commit.
 #[async_trait::async_trait]
 pub trait ProductListingDeliveryReferences: Send {

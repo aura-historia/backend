@@ -423,3 +423,290 @@ fn raw_write(
         provider_receipt: None,
     }
 }
+
+fn crawler_write(
+    source: ListingSourceId,
+    key: &str,
+    text: Option<&str>,
+    euros: u32,
+) -> ProductListingRawCaptureWrite {
+    let mut write = raw_write(source, key, 19, euros);
+    let mut values = write.input.raw_values().value().clone();
+    if let Some(text) = text {
+        values["attributes"] = json!({"rawShipment": {"action": "SET", "value": [text]}});
+    }
+    write.input = ProductListingNormalizationInput::new(
+        RawProductListingOperation::Upsert,
+        RawProductListingPayloadFormat::CrawlerExtractedProduct,
+        1,
+        1,
+        write.input.source_payload().clone(),
+        RawProductListingValues::new(values).unwrap(),
+        write.input.normalization_context().clone(),
+    )
+    .unwrap();
+    write.input_sha256 = write.input.hash().unwrap();
+    write.ingestion_method = ProductListingRawIngestionMethod::WebCrawl;
+    write.source_occurred_at = Some(time::OffsetDateTime::now_utc());
+    write
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_dependency() {
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool).await.unwrap();
+    let write = crawler_write(
+        source,
+        "shipping",
+        Some("Collection only. Shipping is not available for this item."),
+        100,
+    );
+    let acquired_at = write.source_occurred_at.unwrap();
+    let normalized = product_listing_normalization::ProductListingRawValuesNormalizer::new()
+        .normalize(&write.input);
+    assert!(
+        matches!(&normalized, product_listing_normalization::ProductListingRawValuesNormalizationOutcome::Resolved(v) if matches!(v.shipping, product_listing_normalization::shipping::ShippingQuickCheck::Resolved(_))),
+        "{normalized:?}"
+    );
+    let revision = capture(&pool, write).await.unwrap();
+    use product_service::ports::ProductListingRawRevisionReader;
+    let pending =
+        product_listing_postgres::SqlxPendingProductListingRawStreamReader::new(pool.clone())
+            .find_next_revision(revision.0)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        Some(acquired_at.unix_timestamp_nanos() / 1000),
+        pending
+            .acquired_at
+            .map(|at| at.unix_timestamp_nanos() / 1000)
+    );
+    // The production composition has no LLM port, client, credentials or budget configuration.
+    let use_case = compose_normalization_use_case(pool.clone());
+    assert!(
+        failure_ids(
+            handler(
+                event([("shipping", job_body(revision).unwrap())]),
+                use_case.as_ref()
+            )
+            .await
+            .unwrap()
+        )
+        .is_empty()
+    );
+    let delivery: serde_json::Value = sqlx::query_scalar(
+        "SELECT delivery_configuration FROM product_listings WHERE listing_source_id=$1",
+    )
+    .bind(source.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        json!({"kind":"REPLACE","value":{"kind":"PROHIBITED"}}),
+        delivery["shipping"]
+    );
+    assert_eq!(json!({"kind":"INHERIT"}), delivery["collection"]);
+    let window: (time::OffsetDateTime, time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,expires_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        acquired_at.unix_timestamp_nanos() / 1000,
+        window.0.unix_timestamp_nanos() / 1000
+    );
+    assert_eq!(time::Duration::days(7), window.1 - window.0);
+    assert_eq!(1, window.2);
+    let events_before = count(&pool, "product_listing_events").await.unwrap();
+    assert!(
+        failure_ids(
+            handler(
+                event([("replay", job_body(revision).unwrap())]),
+                use_case.as_ref()
+            )
+            .await
+            .unwrap()
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        events_before,
+        count(&pool, "product_listing_events").await.unwrap()
+    );
+
+    // A new acquisition, even in another language, can observe equal typed shipping.
+    let same_shipping = capture(
+        &pool,
+        crawler_write(
+            source,
+            "shipping",
+            Some("Cet article ne peut pas être expédié."),
+            110,
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(
+        failure_ids(
+            handler(
+                event([("fresh", job_body(same_shipping).unwrap())]),
+                use_case.as_ref()
+            )
+            .await
+            .unwrap()
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        events_before + 1,
+        count(&pool, "product_listing_events").await.unwrap()
+    );
+    let refreshed: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
+        .fetch_one(&pool).await.unwrap();
+    assert!(refreshed.0 > window.0);
+    assert_eq!(2, refreshed.1);
+
+    // Missing extraction and unknown text neither clear the override nor renew its freshness.
+    for (text, price) in [(None, 120), (Some("Shipping EUR 80"), 130)] {
+        let next = capture(&pool, crawler_write(source, "shipping", text, price))
+            .await
+            .unwrap();
+        assert!(
+            failure_ids(
+                handler(
+                    event([("no-match", job_body(next).unwrap())]),
+                    use_case.as_ref()
+                )
+                .await
+                .unwrap()
+            )
+            .is_empty()
+        );
+    }
+    let preserved: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(refreshed, preserved);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn unicode_crawler_shipping_crosses_the_raw_worker_and_delivery_boundaries() {
+    let pool = get_postgres_client().await;
+    let use_case = compose_normalization_use_case(pool.clone());
+    for text in [
+        "此商品僅限自取。",
+        "この商品は店頭受け取りのみです。",
+        "هذا المنتج متاح للاستلام الشخصي فقط.",
+    ] {
+        let source = seed_listing_source(&pool).await.unwrap();
+        let revision = capture(
+            &pool,
+            crawler_write(source, "unicode-shipping", Some(text), 100),
+        )
+        .await
+        .unwrap();
+        let response = handler(
+            event([("unicode-shipping", job_body(revision).unwrap())]),
+            use_case.as_ref(),
+        )
+        .await
+        .unwrap();
+        assert!(failure_ids(response).is_empty());
+        let delivery: serde_json::Value = sqlx::query_scalar(
+            "SELECT delivery_configuration FROM product_listings WHERE listing_source_id=$1",
+        )
+        .bind(source.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            json!({"kind":"REPLACE","value":{"kind":"PROHIBITED"}}),
+            delivery["shipping"],
+            "{text}"
+        );
+        assert_eq!(json!({"kind":"INHERIT"}), delivery["collection"]);
+        assert_eq!(1, head(&pool, revision.0).await.unwrap());
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn native_historical_and_expired_crawler_shipping_preserve_catalog_ingestion() {
+    let pool = get_postgres_client().await;
+    let use_case = compose_normalization_use_case(pool.clone());
+    for (index, method) in [Some("SHOPIFY"), Some("WOOCOMMERCE"), None, None]
+        .into_iter()
+        .enumerate()
+    {
+        let source = seed_listing_source(&pool).await.unwrap();
+        if let Some(method) = method {
+            sqlx::query("INSERT INTO listing_source_ingestion_methods(listing_source_id,ingestion_method) VALUES($1,$2)")
+                .bind(source.into_uuid()).bind(method).execute(&pool).await.unwrap();
+        }
+        let mut write = crawler_write(source, "skip", Some("This item is pickup only"), 100);
+        if method.is_none() {
+            write.source_occurred_at = None;
+        }
+        if index == 3 {
+            write.source_occurred_at =
+                Some(time::OffsetDateTime::now_utc() - time::Duration::days(8));
+        }
+        let revision = capture(&pool, write).await.unwrap();
+        assert!(
+            failure_ids(
+                handler(
+                    event([("skip", job_body(revision).unwrap())]),
+                    use_case.as_ref()
+                )
+                .await
+                .unwrap()
+            )
+            .is_empty()
+        );
+    }
+    assert_eq!(4, count(&pool, "product_listings").await.unwrap());
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM listing_delivery_import_state")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn optional_shipping_storage_failure_never_rolls_back_the_catalog() {
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool).await.unwrap();
+    let revision = capture(
+        &pool,
+        crawler_write(source, "optional", Some("This item is pickup only"), 100),
+    )
+    .await
+    .unwrap();
+    sqlx::query("CREATE FUNCTION reject_optional_shipping() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''synthetic optional shipping failure''; END'").execute(&pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_optional_shipping BEFORE INSERT ON listing_delivery_import_state FOR EACH ROW EXECUTE FUNCTION reject_optional_shipping()")
+        .execute(&pool).await.unwrap();
+    let use_case = compose_normalization_use_case(pool.clone());
+    let response = handler(
+        event([("optional", job_body(revision).unwrap())]),
+        use_case.as_ref(),
+    )
+    .await;
+    // The harness truncates fixture rows; test-specific DDL needs explicit cleanup too.
+    sqlx::query("DROP TRIGGER reject_optional_shipping ON listing_delivery_import_state")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION reject_optional_shipping()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(failure_ids(response.unwrap()).is_empty());
+    assert_eq!(1, count(&pool, "product_listings").await.unwrap());
+    assert_eq!(1, count(&pool, "product_listing_events").await.unwrap());
+    assert_eq!(1, head(&pool, revision.0).await.unwrap());
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM listing_delivery_import_state")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+}

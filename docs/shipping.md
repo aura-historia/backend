@@ -406,3 +406,59 @@ default commands, existing provider configuration, and changeProductListingDeliv
 retaining the exact pending request/key until confirmed admission/application; only
 successful complete provider reads generate explicit removals. External-agent SOURCE
 examples apply only to non-native sources.
+
+## Deterministic crawler item assertions
+
+The raw-normalization worker interprets bounded extracted item text through the pure
+[`shipping` normalizer](../src/product-listing-normalization/src/shipping.rs). Its explicit
+[phrase registry](../src/product-listing-normalization/src/shipping/lexicon.rs) covers all
+catalog languages: `de`, `en`, `fr`, `es`, `it`, `zh`, `pt`, `pl`, `tr`, `nl`, `cs`, `ja`,
+`ru` and `ar`, including Simplified/Traditional Chinese and Brazilian/European Portuguese
+wording. [Language fixtures](../src/product-listing-normalization/src/shipping/fixtures/languages.json)
+exercise supported statements, dispatch versus arrival, missing scope and exceptions;
+tests require coverage whenever the catalog language vocabulary grows. The worker contributes
+SOURCE-scoped item overrides only for sources without enabled Shopify/WooCommerce ingestion.
+External policy discovery and native producer acquisition retain their existing ownership.
+
+Explicit item collection-only/no-shipping statements replace only the shipping component
+with `PROHIBITED`, preserving independent collection, selection and rate inputs. They do
+not remove an override, clear an assertion or suppress profile inheritance. Missing text,
+failed selectors, unknown statements, conditional wording, contradictions and ambiguous
+prices produce no update. The crawler never interprets page disappearance as shipping
+override removal. It infers no origin or shipping class from item provenance, dimensions
+or taxonomy.
+
+Explicit item-scoped worldwide requested/externally calculated prices are representable
+as partial coverage with absent eligibility, currency and charge basis. An explicit
+worldwide offer may separately establish eligibility. Dispatch durations are handling
+only, with no invented trigger, transit or arrival duration. A duration alone is recognized
+but cannot identify an inherited service or destination, so it produces no delivery write;
+it can accompany a supported worldwide assertion. Unscoped `Shipping EUR 80` never becomes
+an exact universal rate. These are whole shipping-component replacements, not merges into
+shared profile services.
+
+Matching uses whole clauses without language detection or translation. Localized sentence
+punctuation, apostrophes, case, whitespace and decimal digit forms are normalized;
+Arabic/Persian and full-width digits retain their decimal values. Unrecognized or
+conditional delivery clauses veto recognized statements even across languages. Short
+collection-only labels need a separate explicit item prohibition. These rules preserve
+scope and uncertainty. Conditions in descriptions also veto when parenthesized or
+prefaced by a label.
+
+Application uses the existing delivery use case and producer ownership/authority fences.
+The command retains the catalog transaction's optimistic revision, raw-revision request
+identity and original successful scrape acquisition time. Its sequence is that time in
+Unix microseconds. Freshness lasts one day and eligibility expires seven days after
+acquisition. A new captured acquisition can refresh equal supported assertions without
+a shipping semantic event; reprocessing and retries keep the original deadlines. Missing
+historical acquisition evidence cannot establish freshness. The
+[extraction contract](crawler/extraction-and-review.md#extraction-contract) owns capture
+deduplication and timestamp custody.
+
+Catalog state and raw progress commit before optional shipping application. A transient
+shipping failure gets at most one identical immediate retry; conflicts never refetch a
+new version for old content. Shipping failures or interruption do not roll back catalog
+ingestion. A completed raw wake-up does not guarantee optional shipping application, and
+duplicate wake-ups do not repeat it. Diagnostics contain identifiers and named outcomes.
+Recovery/reprocessing must be bounded to selected sources and retained evidence; it must
+not fabricate acquisitions or trigger a global production rescrape.

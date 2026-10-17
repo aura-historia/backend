@@ -46,6 +46,7 @@ struct PendingRawStreamRow {
 
 #[derive(Debug, sqlx::FromRow)]
 struct RawRevisionRow {
+    source_occurred_at: Option<time::OffsetDateTime>,
     product_listing_raw_revision_id: uuid::Uuid,
     product_listing_raw_stream_id: uuid::Uuid,
     revision: i64,
@@ -140,6 +141,7 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
                 raw_values_schema_version,
                 source_payload,
                 raw_values,
+                source_occurred_at,
                 normalization_context
             FROM product_listing_raw_revisions
             WHERE product_listing_raw_stream_id = $1
@@ -249,6 +251,7 @@ impl ProductListingRawRevisionReader for SqlxPendingProductListingRawStreamReade
                 revision.raw_values_schema_version,
                 revision.source_payload,
                 revision.raw_values,
+                revision.source_occurred_at,
                 revision.normalization_context
             FROM product_listing_raw_revisions AS revision
             LEFT JOIN product_listing_raw_normalization_heads AS head
@@ -390,6 +393,11 @@ fn revision_from_row(
     let revision =
         u64::try_from(row.revision).map_err(|_| invalid_state("raw revision number is invalid"))?;
     Ok(ProductListingRawRevision {
+        acquired_at: if payload_format == RawProductListingPayloadFormat::CrawlerExtractedProduct {
+            row.source_occurred_at
+        } else {
+            None
+        },
         product_listing_raw_revision_id: try_from_uuid(
             row.product_listing_raw_revision_id,
             "ProductListing raw revision ID",

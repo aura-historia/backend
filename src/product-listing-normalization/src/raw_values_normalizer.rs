@@ -110,6 +110,7 @@ pub struct ProductListingNormalizationContextV1 {
 /// Deterministically normalized values for an UPSERT observation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingRawValuesResolved {
+    pub shipping: crate::shipping::ShippingQuickCheck,
     pub source_listing_id: SourceListingId,
     pub title: ProductListingRawValuesPatch<Localized<Language, Title>>,
     pub description: ProductListingRawValuesPatch<Localized<Language, Description>>,
@@ -216,6 +217,13 @@ impl ProductListingRawValuesNormalizer {
         let raw: ProductListingRawValues =
             serde_json::from_value(input.raw_values().value().clone())
                 .map_err(ProductListingRawValuesNormalizationError::InvalidRawValues)?;
+        let shipping = if input.payload_format()
+            == crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
+        {
+            normalize_item_shipping(&raw)
+        } else {
+            crate::shipping::ShippingQuickCheck::NoAssertion
+        };
         let context: ProductListingNormalizationContextV1 = serde_json::from_value(
             input.normalization_context().value().clone(),
         )
@@ -280,6 +288,7 @@ impl ProductListingRawValuesNormalizer {
         let url = normalize_url_patch(raw.url, &base_url)?;
         let images = normalize_images_patch(raw.images, &base_url)?;
         Ok(ProductListingRawValuesResolved {
+            shipping,
             source_listing_id,
             title,
             description,
@@ -292,6 +301,29 @@ impl ProductListingRawValuesNormalizer {
             attributes: raw.attributes,
         })
     }
+}
+
+fn normalize_item_shipping(raw: &ProductListingRawValues) -> crate::shipping::ShippingQuickCheck {
+    // Numeric legacy fields lack destination/service/basis. Never reinterpret them as rates.
+    if ["rawShipmentMin", "rawShipmentMax"].iter().any(|key| {
+        matches!(raw.attributes.get(*key), Some(ProductListingRawValuesPatch::Set(v)) if v.iter().any(|s| !s.trim().is_empty()))
+    }) {
+        return crate::shipping::ShippingQuickCheck::Unsupported;
+    }
+    let mut fragments = Vec::new();
+    for key in ["rawShipment", "rawShipmentNote"] {
+        if let Some(ProductListingRawValuesPatch::Set(values)) = raw.attributes.get(key) {
+            fragments.extend(values.iter().map(String::as_str));
+        }
+    }
+    // Keep description context too: a contradictory condition must veto an attribute match.
+    let description = match &raw.description {
+        ProductListingRawValuesPatch::Set(values) => {
+            values.iter().map(String::as_str).collect::<Vec<_>>()
+        }
+        _ => Vec::new(),
+    };
+    crate::shipping::quick_check_shipping_with_context(&fragments, &description)
 }
 
 fn title_language(
@@ -549,5 +581,78 @@ mod tests {
                 ProductListingRawValuesNormalizationError::InvalidRawValues(_)
             )
         ));
+    }
+
+    #[test]
+    fn shipping_context_is_conservative_and_optional() {
+        let values = json!({
+            "sourceListingId": "item-1", "title": {"action":"SET", "value":"An antique English vase"},
+            "description": {"action":"SET", "value":["A restored ceramic vase."]},
+            "priceFormat":"DISPLAY_TEXT", "price":{"action":"CLEAR"},
+            "priceEstimateMin":{"action":"UNCHANGED"}, "priceEstimateMax":{"action":"UNCHANGED"},
+            "availability":{"action":"UNCHANGED"}, "url":{"action":"SET", "value":"item-1"},
+            "images":{"action":"SET", "value":[]},
+            "attributes":{"rawShipment":{"action":"SET", "value":["This item is collection only"]}}
+        });
+        let resolved_shipping = |values| {
+            let ProductListingRawValuesNormalizationOutcome::Resolved(v) =
+                ProductListingRawValuesNormalizer::new().normalize(&input(values))
+            else {
+                panic!("optional shipping must not reject valid catalog data");
+            };
+            v.shipping
+        };
+        assert!(
+            matches!(resolved_shipping(values.clone()), crate::shipping::ShippingQuickCheck::Resolved(a) if a.prohibited)
+        );
+        let mut contradictory = values.clone();
+        contradictory["description"]["value"] =
+            json!(["Shipping for this item is available worldwide"]);
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::Unsupported,
+            resolved_shipping(contradictory)
+        );
+        let mut unscoped_price = values.clone();
+        unscoped_price["attributes"]["rawShipmentMin"] =
+            json!({"action":"SET", "value":["EUR 80"]});
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::Unsupported,
+            resolved_shipping(unscoped_price)
+        );
+        let mut oversized = values.clone();
+        oversized["attributes"]["rawShipment"]["value"] =
+            json!(["x".repeat(crate::shipping::MAX_SHIPPING_TEXT_BYTES + 1)]);
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::Unsupported,
+            resolved_shipping(oversized)
+        );
+        let mut cleared = values.clone();
+        cleared["attributes"]["rawShipment"] = json!({"action":"CLEAR"});
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::NoAssertion,
+            resolved_shipping(cleared)
+        );
+        let historical = input(values);
+        for format in [
+            crate::RawProductListingPayloadFormat::ShopifyProduct,
+            crate::RawProductListingPayloadFormat::WoocommerceProduct,
+        ] {
+            let native = ProductListingNormalizationInput::new(
+                historical.operation(),
+                format,
+                1,
+                1,
+                historical.source_payload().clone(),
+                historical.raw_values().clone(),
+                historical.normalization_context().clone(),
+            )
+            .unwrap();
+            let ProductListingRawValuesNormalizationOutcome::Resolved(v) =
+                ProductListingRawValuesNormalizer::new().normalize(&native)
+            else {
+                panic!("native catalog");
+            };
+            assert_eq!(crate::shipping::ShippingQuickCheck::NoAssertion, v.shipping);
+        }
     }
 }

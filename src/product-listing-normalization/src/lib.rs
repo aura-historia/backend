@@ -11,6 +11,7 @@ pub mod language;
 pub mod normalization_input;
 pub mod price;
 pub mod raw_values_normalizer;
+pub mod shipping;
 pub mod source_listing_id;
 pub mod text;
 

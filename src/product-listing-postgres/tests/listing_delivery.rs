@@ -20,6 +20,9 @@ use product_listing_postgres::{
     },
 };
 use product_listing_service::{
+    crawler_shipping::{
+        ApplyCrawlerShippingHandler, ApplyCrawlerShippingUseCase, CrawlerShippingObservation,
+    },
     ports::{
         ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
         ProductListingRepositoryFactory, ProductListingStorageVersion, stamp_product_listing_event,
@@ -43,6 +46,179 @@ fn context() -> OperationContext {
         request_id: "synthetic-delivery".into(),
         correlation_id: "synthetic-delivery".into(),
     }
+}
+
+fn crawler_observation(
+    key: &ProductListingKey,
+    version: ProductListingStorageVersion,
+    text: &str,
+) -> CrawlerShippingObservation {
+    let product_listing_normalization::shipping::ShippingQuickCheck::Resolved(assertions) =
+        product_listing_normalization::shipping::quick_check_shipping_with_context(&[text], &[])
+    else {
+        panic!("supported item fixture");
+    };
+    CrawlerShippingObservation {
+        raw_revision_id: product_listing_service::ports::ProductListingRawRevisionId::new(),
+        product_key: key.clone(),
+        expected_version: version,
+        acquired_at: Some(time::OffsetDateTime::now_utc()),
+        assertions,
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn crawler_prohibition_preserves_shared_collection_and_producer_fences() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let profile = create_profile(&pool, source, 8000).await;
+    AssignShippingDefaultHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        shipping_postgres::SqlxShippingRepositoryFactory,
+        listing_source_postgres::SqlxSourceLocationAccessFactory,
+    )
+    .execute(
+        &context(),
+        AssignDefaultCommand {
+            import: None,
+            source_id: source,
+            profile_id: profile.id,
+            expected_revision: ShippingDefaultRevision::INITIAL,
+        },
+    )
+    .await
+    .unwrap();
+    let key = listing(&pool, source, "crawler-cabinet").await;
+    let shipping = ApplyCrawlerShippingHandler::new(
+        product_listing_postgres::delivery::SqlxCrawlerShippingSourceReader::new(pool.clone()),
+        changer(&pool),
+    );
+    let first = crawler_observation(
+        &key,
+        ProductListingStorageVersion::INITIAL,
+        "Collection only. Shipping is not available for this item.",
+    );
+    assert_eq!("APPLIED", shipping.execute(first.clone()).await.unwrap());
+    let current = view(&pool, &key).await;
+    let terms = effective(&current, source, &profile);
+    assert_eq!(Some(&ShippingPolicy::Prohibited), terms.terms().shipping());
+    assert_eq!(
+        profile.content.terms.collection(),
+        terms.terms().collection()
+    );
+    let event_count = events(&pool, &key).await;
+    // A committed lost-response retry retains the original request and expected revision.
+    assert_eq!("APPLIED", shipping.execute(first.clone()).await.unwrap());
+    assert_eq!(event_count, events(&pool, &key).await);
+    let stale = crawler_observation(
+        &key,
+        ProductListingStorageVersion::INITIAL,
+        "Shipping for this item is available worldwide",
+    );
+    assert!(matches!(
+        shipping.execute(stale).await,
+        Err(ProductListingDeliveryError::StaleRevision)
+    ));
+    assert_eq!(current, view(&pool, &key).await);
+    assert_eq!(event_count, events(&pool, &key).await);
+    let mut fresh = crawler_observation(&key, current.version, "This item is collection only");
+    assert_eq!("APPLIED", shipping.execute(fresh.clone()).await.unwrap());
+    assert_eq!(
+        event_count,
+        events(&pool, &key).await,
+        "a new observation of equal terms is not a semantic change"
+    );
+
+    // Another request cannot relabel the old acquisition as a newer observation.
+    let mut delayed = first;
+    delayed.raw_revision_id = product_listing_service::ports::ProductListingRawRevisionId::new();
+    assert!(matches!(
+        shipping.execute(delayed).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportOutOfOrder
+        ))
+    ));
+
+    // Equal manual edits take ownership without needing a semantic change.
+    let manual = apply(
+        &pool,
+        &key,
+        current.version,
+        ProductListingDeliveryPatch {
+            shipping: PatchField::Set(ComponentOverride::Replace(ShippingPolicy::Prohibited)),
+            ..Default::default()
+        },
+    )
+    .await;
+    fresh = crawler_observation(&key, manual.version, "This item is collection only");
+    assert!(matches!(
+        shipping.execute(fresh).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportOwnershipConflict
+        ))
+    ));
+
+    // Manual removal remains protected even when a later crawler obtains the latest version.
+    let cleared = apply(
+        &pool,
+        &key,
+        manual.version,
+        ProductListingDeliveryPatch {
+            shipping: PatchField::Set(ComponentOverride::Inherit),
+            ..Default::default()
+        },
+    )
+    .await;
+    let after_clear = crawler_observation(&key, cleared.version, "This item is collection only");
+    assert!(matches!(
+        shipping.execute(after_clear).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportOwnershipConflict
+        ))
+    ));
+    let restored_shared = effective(&view(&pool, &key).await, source, &profile);
+    assert_eq!(
+        profile.content.terms.shipping(),
+        restored_shared.terms().shipping()
+    );
+    assert_eq!(
+        profile.content.terms.collection(),
+        restored_shared.terms().collection()
+    );
+
+    let partner_key = listing(&pool, source, "partner-managed-cabinet").await;
+    let partner_context = OperationContext {
+        principal: Principal::Service("partner-producer".into()),
+        ..context()
+    };
+    let partner = changer(&pool)
+        .execute(
+            &partner_context,
+            ChangeProductListingDeliveryCommand {
+                product_key: partner_key.clone(),
+                expected_version: ProductListingStorageVersion::INITIAL,
+                import: Some(import_metadata(1, "partner-shipping")),
+                delivery: PatchField::Set(ProductListingDeliveryPatch {
+                    shipping: PatchField::Set(ComponentOverride::Replace(
+                        ShippingPolicy::Prohibited,
+                    )),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    let crawler = crawler_observation(
+        &partner_key,
+        partner.version,
+        "This item is collection only",
+    );
+    assert!(matches!(
+        shipping.execute(crawler).await,
+        Err(ProductListingDeliveryError::Import(
+            shipping_service::ShippingError::ImportOwnershipConflict
+        ))
+    ));
 }
 async fn seed_source(pool: &PgPool) -> ListingSourceId {
     let party = PartyId::new();
