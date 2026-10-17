@@ -1,4 +1,5 @@
 use crate::ports::PersistedSearchFilterMatch;
+use application::error::BoxError;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::event_id::EventId;
 use domain_primitives::sort::SortOrder;
@@ -62,9 +63,15 @@ pub struct SearchFilterMatchListQuery {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterMatchReadError {
     #[error("search filter match read failed")]
-    ReadFailed,
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("persisted search filter match state is invalid")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
