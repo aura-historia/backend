@@ -311,7 +311,7 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
             .unwrap()
     };
     imported["import"]["acquiredAt"] = json!(stamp(now));
-    imported["import"]["observation"] = json!({"freshUntil":stamp(now+time::Duration::days(1)),"expiresAt":stamp(now+time::Duration::days(7))});
+    imported["import"]["observation"] = json!({});
     let (status, created) = request(&router, "POST", &path, Some("admin"), imported.clone()).await;
     assert_eq!(StatusCode::OK, status, "{created}");
     let mut expected = fixture["committedProfile"].clone();
@@ -359,7 +359,7 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
         provider["import"]["requestKey"] = json!(format!("provider-request-{method}"));
         provider["import"]["integration"] = json!({"kind":"PROVIDER","method":method});
         provider["import"]["acquiredAt"] = json!(stamp(now));
-        provider["import"]["observation"] = json!({"freshUntil":stamp(now+time::Duration::days(1)),"expiresAt":stamp(now+time::Duration::days(7))});
+        provider["import"]["observation"] = json!({});
         let mut invalid = provider.clone();
         invalid["import"]["integration"]["domain"] = json!("synthetic.example");
         assert_eq!(

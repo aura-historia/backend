@@ -10,3 +10,6 @@ mod product_listing_similar_products_reader;
 pub use product_listing_search_projection::OpenSearchProductListingSearchProjection;
 pub use product_listing_search_reader::OpenSearchProductListingSearchReader;
 pub use product_listing_similar_products_reader::OpenSearchProductListingSimilarProductListingsReader;
+
+mod shipping_document;
+pub mod shipping_query;

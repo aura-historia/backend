@@ -30,10 +30,13 @@ require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
 
 [Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable
 profile/default signals, retained deletion fences and protected history. Only the
-minimal address-free signal is eligible for future invalidation delivery; terms,
-evidence and creation receipts remain outside ordinary CDC. Profile management commits
-signals locally and performs no synchronous fan-out. Shipping fan-out routing and
-consumers are not activated by profile management.
+minimal address-free signals atomically coalesce durable shipping dependency work.
+Terms, evidence, creation receipts and original signals remain outside ordinary CDC.
+Only `listing_shipping_wakeups` (work UUID and positive bigint generation) is selected;
+schema-2 `LISTING_SHIPPING` jobs target the isolated `listing-shipping` worker scope.
+Workers reread current committed dependencies and checkpoint bounded pages. See the
+[projection contract](../shipping.md#effective-shipping-discovery-projection) and
+[recovery runbook](../durable-worker-runbook.md#listing-shipping-recovery).
 
 ## ProductListing write flow
 
@@ -104,6 +107,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
+| `listing_shipping_wakeups` | INSERT | Effective listing shipping worker |
 
 Product event fanout:
 
@@ -111,7 +115,7 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond product projector; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
@@ -147,7 +151,7 @@ assertion or complete previous/current change; version 1 remains strict and read
 The CDC router validates the versioned configuration and emits existing compact event jobs.
 Delivery-only changes project the listing without triggering price/availability watchlist
 notifications or image embedding. Protected delivery terms never enter ordinary jobs or
-public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
+public history. Ingestion `CHANGE_DELIVERY` uses envelope version 3; earlier operations
 retain their exact version 1 codecs, semantic fingerprints and retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
@@ -319,10 +323,23 @@ are durable; see [listing geography recovery](../durable-worker-runbook.md#listi
 ### Shipping observation validity
 
 Incremental shipping imports commit address-free shipping_validity_changes with their
-assertion windows/ownership. OBSERVED is independent of management/terms/listing semantic
+observations/ownership. OBSERVED is independent of management/terms/listing semantic
 revisions; AUTHORITY_CHANGED follows existing source/configuration or grant lifecycle changes.
 Subject identity is a profile, source default, listing or source; defaults and sources use the
 source ID. The subject kind, ID and revision identify an immutable signal. The owning
 [shipping contract](../shipping.md#incremental-typed-imports) defines application/replay and
-expiry. B09 consumers must reread current state and tolerate duplicate/out-of-order signals;
-no new router/projection worker is activated by this contract.
+source authority. Shipping invalidation consumes these committed records without a refresh barrier,
+rereads current state and tolerates duplicate/out-of-order signals. Profile/source-default
+management signals, canonical listing events and geographic lifecycle/rights signals use
+the same durable work basis. Neither original assertion content nor producer ownership
+keys enter the CDC job.
+
+Effective shipping appends schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `{}` only
+when the public compact summary changes. It advances the existing listing projection
+fence/current-event pointer and routes only to the complete ProductListing projector.
+Canonical revision, updated time, content/embedding source pointers and public history
+remain unchanged. Dependency-only refreshes update reverse references silently.
+The event codec rejects unknown versions or payload fields. Deploy compatible event/job
+readers, strict camelCase mappings and the isolated queue/consumer with the migration;
+older readers cannot consume the new event or scope. Rebuild and lag semantics belong
+to the [shipping contract](../shipping.md#effective-shipping-discovery-projection).

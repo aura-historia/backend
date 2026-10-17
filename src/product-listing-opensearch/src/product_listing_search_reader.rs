@@ -988,6 +988,7 @@ mod tests {
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
+            shipping: None,
             business_geography: None,
             inventory_geography: None,
             auction_id: None,

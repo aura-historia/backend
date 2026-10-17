@@ -16,6 +16,8 @@ domain_primitives::object_id_newtype!(ResolutionId, "gres");
 pub const POLICY_VERSION: &str = "PRECISION_FIRST_V1";
 pub const USER_BROWSING_POLICY_VERSION: &str = "AUTOMATIC_USER_BROWSING_V1";
 pub const MAX_ATTEMPTS: u32 = 5;
+/// Maximum subjects in one coherent resolution read. Larger callers batch within their snapshot.
+pub const MAX_RESOLUTION_SUBJECTS: usize = 100;
 
 pub fn retry_delay(attempt: u32) -> time::Duration {
     time::Duration::seconds(30 * 2_i64.pow(attempt.saturating_sub(1).min(MAX_ATTEMPTS - 1)))
@@ -579,7 +581,7 @@ pub trait ResolutionReader: Send {
         &mut self,
         subject: ResolutionSubject,
     ) -> Result<Option<ResolutionView>, ResolutionError>;
-    /// Bounded presentation hydration; preserve order and avoid one read per address.
+    /// At most `MAX_RESOLUTION_SUBJECTS`; preserve order and avoid one read per address.
     async fn inspect_many(
         &mut self,
         subjects: &[ResolutionSubject],

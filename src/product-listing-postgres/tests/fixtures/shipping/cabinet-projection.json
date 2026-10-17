@@ -1,0 +1,7 @@
+{
+  "schema": "EFFECTIVE_SHIPPING_V1",
+  "collection": "OFFERED",
+  "prohibited": true,
+  "conditional": false,
+  "country_offers": []
+}

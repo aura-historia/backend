@@ -13,10 +13,11 @@ pub enum WorkerScope {
     MarketingConsentSync,
     GeoResolution,
     ListingGeography,
+    ListingShipping,
 }
 
 impl WorkerScope {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::SearchFilterMatchNotification,
         Self::WatchlistNotification,
         Self::ProductListingContentAssessment,
@@ -28,6 +29,7 @@ impl WorkerScope {
         Self::MarketingConsentSync,
         Self::GeoResolution,
         Self::ListingGeography,
+        Self::ListingShipping,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -43,6 +45,7 @@ impl WorkerScope {
             Self::MarketingConsentSync => "marketing-consent-sync",
             Self::GeoResolution => "geo-resolution",
             Self::ListingGeography => "listing-geography",
+            Self::ListingShipping => "listing-shipping",
         }
     }
 
@@ -71,6 +74,7 @@ impl WorkerScope {
             Self::MarketingConsentSync => "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
             Self::GeoResolution => "AURA_HISTORIA_ROUTER_QUEUE_URL_GEO_RESOLUTION",
             Self::ListingGeography => "AURA_HISTORIA_ROUTER_QUEUE_URL_LISTING_GEOGRAPHY",
+            Self::ListingShipping => "AURA_HISTORIA_ROUTER_QUEUE_URL_LISTING_SHIPPING",
         }
     }
 
@@ -87,6 +91,7 @@ impl WorkerScope {
             Self::MarketingConsentSync => WorkerQueue::MarketingConsentSync,
             Self::GeoResolution => WorkerQueue::GeoResolution,
             Self::ListingGeography => WorkerQueue::ListingGeography,
+            Self::ListingShipping => WorkerQueue::ListingShipping,
         }
     }
 
@@ -135,8 +140,9 @@ mod tests {
             ("marketing-consent-sync", WorkerQueue::MarketingConsentSync),
             ("geo-resolution", WorkerQueue::GeoResolution),
             ("listing-geography", WorkerQueue::ListingGeography),
+            ("listing-shipping", WorkerQueue::ListingShipping),
         ];
-        assert_eq!(11, WorkerScope::ALL.len());
+        assert_eq!(12, WorkerScope::ALL.len());
         assert_eq!(expected.len(), WorkerScope::ALL.len());
         assert_eq!(
             WorkerScope::ALL,

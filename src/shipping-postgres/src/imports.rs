@@ -122,13 +122,10 @@ fn fingerprint(
             ])
         }
     };
-    let observation = write.observation.as_ref().map(|o| {
-        json!([
-            o.acquired_at.unix_timestamp_nanos().to_string(),
-            o.fresh_until.unix_timestamp_nanos().to_string(),
-            o.expires_at.unix_timestamp_nanos().to_string()
-        ])
-    });
+    let observation = write
+        .observation
+        .as_ref()
+        .map(|o| json!([o.acquired_at.unix_timestamp_nanos().to_string()]));
     Ok(hash(
         serde_json::to_vec(&json!([
             1,
@@ -191,7 +188,7 @@ fn check_owner(
         if write.observation.as_ref().is_some_and(|o| {
             row.verified_at.is_some_and(|at| {
                 // Match PostgreSQL timestamp precision so the same acquisition cannot
-                // gain freshness by retaining nanoseconds discarded during persistence.
+                // appear newer by retaining nanoseconds discarded during persistence.
                 o.acquired_at.unix_timestamp_nanos() / 1000 <= at.unix_timestamp_nanos() / 1000
             })
         }) {
@@ -369,7 +366,7 @@ impl ShippingImportAccess for Repository<'_> {
                     matches!(op, ShippingImportOperation::ClearDefault(_)),
                 )?;
                 if let ShippingImportOperation::AssignDefault(c) = op {
-                    let compatible:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shipping_profiles p WHERE p.shipping_profile_id=$1 AND p.listing_source_id=$2 AND p.current_source_id=$2 AND p.lifecycle='ACTIVE' AND p.integration_method IS NOT DISTINCT FROM $3 AND (p.expires_at IS NULL OR p.expires_at>now()) AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision)))")
+                    let compatible:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shipping_profiles p WHERE p.shipping_profile_id=$1 AND p.listing_source_id=$2 AND p.current_source_id=$2 AND p.lifecycle='ACTIVE' AND p.integration_method IS NOT DISTINCT FROM $3 AND NOT EXISTS(SELECT 1 FROM shipping_profile_import_state i WHERE i.shipping_profile_id=p.shipping_profile_id AND i.owner_hash IS NOT NULL AND NOT shipping_import_current(p.listing_source_id,i.source_revision)))")
                         .bind(c.profile_id.into_uuid()).bind(source.into_uuid()).bind(&scope.integration_method).fetch_one(&mut *self.0).await.map_err(sql_error)?;
                     if !compatible {
                         return Err(ShippingError::ImportAuthorityStale);
@@ -444,8 +441,6 @@ impl ShippingImportAccess for Repository<'_> {
         let owner = scope.owner();
         let observed = write.observation.is_some();
         let acquired = write.observation.as_ref().map(|o| o.acquired_at);
-        let fresh = write.observation.as_ref().map(|o| o.fresh_until);
-        let expiry = write.observation.as_ref().map(|o| o.expires_at);
         let (kind, id) = match subject {
             ShippingImportSubject::Profile(id) => {
                 if let ShippingImportOperation::CreateProfile { .. } = op {
@@ -456,21 +451,27 @@ impl ShippingImportAccess for Repository<'_> {
                 sqlx::query("UPDATE shipping_profile_import_state SET owner_hash=$2,source_revision=CASE WHEN $6 THEN source_revision ELSE $3 END,sequence=$4,observation_revision=observation_revision+$5 WHERE shipping_profile_id=$1")
                     .bind(id.into_uuid()).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(matches!(op, ShippingImportOperation::ProfileLifecycle { .. })).execute(&mut *self.0).await.map_err(sql_error)?;
                 if observed {
-                    sqlx::query("UPDATE shipping_profiles SET verified_at=$2,fresh_until=$3,expires_at=$4 WHERE shipping_profile_id=$1").bind(id.into_uuid()).bind(acquired).bind(fresh).bind(expiry).execute(&mut *self.0).await.map_err(sql_error)?;
+                    sqlx::query(
+                        "UPDATE shipping_profiles SET verified_at=$2 WHERE shipping_profile_id=$1",
+                    )
+                    .bind(id.into_uuid())
+                    .bind(acquired)
+                    .execute(&mut *self.0)
+                    .await
+                    .map_err(sql_error)?;
                 }
                 ("PROFILE", id.into_uuid())
             }
             ShippingImportSubject::SourceDefault => {
-                sqlx::query("INSERT INTO shipping_default_import_state(listing_source_id,owner_hash,source_revision,sequence,observation_revision,verified_at,fresh_until,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(listing_source_id) DO UPDATE SET owner_hash=$2,source_revision=$3,sequence=$4,observation_revision=shipping_default_import_state.observation_revision+$5,verified_at=COALESCE($6,shipping_default_import_state.verified_at),fresh_until=COALESCE($7,shipping_default_import_state.fresh_until),expires_at=COALESCE($8,shipping_default_import_state.expires_at)")
-                    .bind(source.into_uuid()).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(acquired).bind(fresh).bind(expiry).execute(&mut *self.0).await.map_err(sql_error)?;
+                sqlx::query("INSERT INTO shipping_default_import_state(listing_source_id,owner_hash,source_revision,sequence,observation_revision,verified_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(listing_source_id) DO UPDATE SET owner_hash=$2,source_revision=$3,sequence=$4,observation_revision=shipping_default_import_state.observation_revision+$5,verified_at=COALESCE($6,shipping_default_import_state.verified_at)")
+                    .bind(source.into_uuid()).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(acquired).execute(&mut *self.0).await.map_err(sql_error)?;
                 ("SOURCE_DEFAULT", source.into_uuid())
             }
             ShippingImportSubject::Listing(id) => {
                 for part in components(op) {
-                    sqlx::query("INSERT INTO listing_delivery_import_state(product_listing_id,component,owner_hash,source_revision,sequence,observation_revision,verified_at,fresh_until,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(product_listing_id,component) DO UPDATE SET owner_hash=$3,source_revision=$4,sequence=$5,observation_revision=listing_delivery_import_state.observation_revision+$6,verified_at=COALESCE($7,listing_delivery_import_state.verified_at),fresh_until=COALESCE($8,listing_delivery_import_state.fresh_until),expires_at=COALESCE($9,listing_delivery_import_state.expires_at)")
-                        .bind(id.into_uuid()).bind(part).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(acquired).bind(fresh).bind(expiry).execute(&mut *self.0).await.map_err(sql_error)?;
+                    sqlx::query("INSERT INTO listing_delivery_import_state(product_listing_id,component,owner_hash,source_revision,sequence,observation_revision,verified_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(product_listing_id,component) DO UPDATE SET owner_hash=$3,source_revision=$4,sequence=$5,observation_revision=listing_delivery_import_state.observation_revision+$6,verified_at=COALESCE($7,listing_delivery_import_state.verified_at)")
+                        .bind(id.into_uuid()).bind(part).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(acquired).execute(&mut *self.0).await.map_err(sql_error)?;
                 }
-                sqlx::query("UPDATE product_listings SET delivery_fresh_until=NULL,delivery_expires_at=NULL WHERE product_listing_id=$1").bind(id.into_uuid()).execute(&mut *self.0).await.map_err(sql_error)?;
                 ("LISTING", id.into_uuid())
             }
         };

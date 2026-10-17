@@ -53,6 +53,7 @@ struct SourceRow {
     current_event_id: uuid::Uuid,
     projection_version: i64,
     effective_geography: Option<serde_json::Value>,
+    effective_shipping: Option<serde_json::Value>,
     product_listing_id: uuid::Uuid,
     product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
@@ -205,6 +206,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.current_event_id,
                 product.projection_version,
                 geography.geography AS effective_geography,
+                shipping.summary AS effective_shipping,
                 product.product_listing_id,
                 product.product_listing_title_slug_id,
                 listing_source.listing_source_id,
@@ -246,6 +248,7 @@ impl ProductListingSearchFilterMatchSourceReader
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
 
+            LEFT JOIN product_listing_shipping shipping ON shipping.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_geographies geography ON geography.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
@@ -370,6 +373,13 @@ fn source_from_rows(
         current_event_id: try_from_uuid(row.current_event_id, "current event ID")
             .map_err(SourceRowMappingError::with_source)?,
         projection_version: row.projection_version,
+        shipping: row
+            .effective_shipping
+            .clone()
+            .map(crate::shipping_projection_codec::decode)
+            .transpose()
+            .map_err(SourceRowMappingError::with_source)?
+            .unwrap_or_default(),
         geography: row
             .effective_geography
             .clone()
@@ -664,7 +674,8 @@ fn event_kind_from_row(
             ProductListingSearchFilterMatchSourceEventKind::Domain
         }
         product_listing_event_codec::ProductListingPersistedEvent::Embedded
-        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles
+        | product_listing_event_codec::ProductListingPersistedEvent::ShippingUpdated => {
             ProductListingSearchFilterMatchSourceEventKind::Enrichment
         }
         product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {

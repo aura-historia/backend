@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Continuing shipping assertions
+
+- Shipping terms, imported defaults and item components remain valid until updated, withdrawn,
+  or their source loses authority. Observation age no longer removes advertised shipping.
+- Import `observation` is an empty acquisition marker; `freshUntil` and `expiresAt` are removed.
+  Listing evidence contains only `verifiedAt`; expiry `status` and `validityDeadline` are removed.
+
 ## 2026-10-15 — Incremental typed shipping imports (#2065)
 
 - Existing profile/default and listing delivery commands accept optional import identity,
@@ -12,8 +19,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - Manual components remain protected. Exact retries retain identity; conflicts require
   refetch/reconciliation. Missing catalog listings return retryable dependency outcomes.
 - New observations can refresh unchanged terms without a semantic listing change.
-  Imported component/default deadlines cap anonymous caching through validityDeadline;
-  expiry/disconnect preserve independent manual overrides. See [shipping](shipping.md).
+  Source authority revocation preserves independent manual overrides. See [shipping](shipping.md).
 - Shipping enum schemas preserve nullable assertions in generated clients.
 
 ## 2026-10-15 — Shipping on listing responses (#2064)
@@ -26,8 +32,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
   remain explained unknowns; advertised prices are neither quotes nor complete landed costs.
 - Public terms omit dispatch/pickup sites; private results omit street text, coordinates
   and saved-address identities. Authenticated responses/errors are `no-store`;
-  anonymous discovery caching is bounded by shipping evidence deadlines. Expired assertions
-  cannot establish current availability, and hidden/withdrawn entries expose no shipping.
+  anonymous discovery caching follows discovery TTLs and geographic provider retention.
+  Hidden/withdrawn entries expose no shipping.
 
 ## 2026-10-14 — Listing delivery assignments and overrides (#2063)
 

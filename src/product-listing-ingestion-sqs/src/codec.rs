@@ -50,6 +50,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
 pub const SCHEMA_VERSION: u8 = 1;
+const DELIVERY_SCHEMA_VERSION: u8 = 3;
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const GROUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-group.v1";
 const DEDUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-dedup.v1";
@@ -69,7 +70,7 @@ pub enum CodecError {
 type Result<T> = std::result::Result<T, CodecError>;
 
 /// Version-dispatched durable envelope. The Rust name remains compatible with earlier callers.
-/// Earlier operations require v1; delivery requires v2. Unknown fields/versions are rejected.
+/// Earlier operations require v1; delivery requires v3. Unknown fields/versions are rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IngestionEnvelopeV1 {
@@ -172,7 +173,7 @@ impl IngestionEnvelopeV1 {
     fn validate(&self) -> Result<()> {
         if self.schema_version
             != if matches!(self.payload, WirePayload::ChangeDelivery(_)) {
-                2
+                DELIVERY_SCHEMA_VERSION
             } else {
                 SCHEMA_VERSION
             }
@@ -854,7 +855,7 @@ pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnv
             message.intent,
             ProductListingIngestionIntent::ChangeDelivery(_)
         ) {
-            2
+            DELIVERY_SCHEMA_VERSION
         } else {
             SCHEMA_VERSION
         },

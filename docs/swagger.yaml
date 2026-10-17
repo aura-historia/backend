@@ -17670,32 +17670,14 @@ components:
     DeliveryAssertionEvidence:
       type: object
       additionalProperties: false
-      required:
-      - status
-      - verifiedAt
-      - freshUntil
-      - expiresAt
+      required: [verifiedAt]
       properties:
-        status:
-          type: string
-          enum:
-          - FRESH
-          - STALE
-          - EXPIRED
         verifiedAt:
           type: string
           format: date-time
-        freshUntil:
-          type: string
-          format: date-time
-          nullable: true
-        expiresAt:
-          type: string
-          format: date-time
-          nullable: true
-      description: Age never resets on a failed recrawl, unrelated edit, evidence-only correction or lifecycle
-        change. STALE remains usable until expiry. EXPIRED cannot establish a current definite assertion.
-        Manual continuing assertions have no implicit deadline; FRESH does not claim recent acquisition.
+      description: Last successful assertion observation. Terms remain valid until updated, withdrawn,
+        or their source loses authority. Observation age alone never withdraws terms. Failed recrawls,
+        unrelated edits, evidence-only corrections and lifecycle commands do not advance this time.
     DeliveryAssessmentProfileBasis:
       type: object
       additionalProperties: false
@@ -17893,11 +17875,6 @@ components:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
           nullable: true
-        validityDeadline:
-          type: string
-          format: date-time
-          nullable: true
-          description: Next imported component or default freshness/expiry transition; also caps anonymous cache lifetime.
         listingEvidence:
           allOf:
           - $ref: '#/components/schemas/DeliveryAssertionEvidence'
@@ -17913,7 +17890,7 @@ components:
           type: array
           items:
             type: string
-            enum: [ASSIGNMENT_UNRESOLVED, LISTING_EVIDENCE_EXPIRED, PROVIDER_INTEGRATION_CHANGED, PROFILE_INTEGRATION_MISMATCH, PROFILE_EVIDENCE_EXPIRED]
+            enum: [ASSIGNMENT_UNRESOLVED, INTEGRATION_MISMATCH, PROFILE_INTEGRATION_MISMATCH]
     PersonalizedListingShippingData:
       type: object
       additionalProperties: false
@@ -18161,20 +18138,10 @@ components:
     ShippingImportObservationData:
       type: object
       additionalProperties: false
-      required:
-      - freshUntil
-      - expiresAt
-      properties:
-        freshUntil:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-      description: Explicit successful new acquisition. acquiredAt <= freshUntil <= expiresAt; acquiredAt
-        cannot be in the future, expiry must be future and at most 30 days after acquisition. Replays and ordinary writes
-        without observation never refresh validity. Evidence-only corrections and lifecycle/removal commands cannot
-        supply observation.
+      description: Explicit successful new acquisition marker (empty object). Uses the parent acquiredAt,
+        which cannot be in the future. Shipping assertions have no freshness or expiry deadline.
+        Replays and ordinary writes without observation never advance observation time.
+        Evidence-only corrections and lifecycle/removal commands cannot supply observation.
     ShippingImportWriteData:
       type: object
       additionalProperties: false

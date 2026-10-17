@@ -763,6 +763,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: origin_event_id,
             projection_version: 1,
+            shipping: Default::default(),
             geography: Default::default(),
             product_listing_id,
             product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")

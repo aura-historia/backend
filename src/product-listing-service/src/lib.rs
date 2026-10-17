@@ -13,3 +13,5 @@ pub mod geography;
 
 pub mod crawler_shipping;
 pub mod shipping;
+
+pub mod shipping_projection;

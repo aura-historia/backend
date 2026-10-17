@@ -1094,11 +1094,7 @@ fn import_metadata(sequence: u64, key: &str) -> shipping_service::imports::Shipp
         acquired_at: at,
         request_key: key.into(),
         object_key: None,
-        observation: Some(shipping_service::imports::ShippingObservation {
-            acquired_at: at,
-            fresh_until: at + time::Duration::hours(1),
-            expires_at: at + time::Duration::days(1),
-        }),
+        observation: Some(shipping_service::imports::ShippingObservation { acquired_at: at }),
     }
 }
 async fn dependencies(
@@ -1270,8 +1266,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn incremental_imports_preserve_manual_components_and_bound_validity_without_listing_events()
-{
+async fn incremental_imports_preserve_manual_components_and_observations_without_listing_events() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
     let mut metadata = import_metadata(1, "create-profile");
@@ -1364,14 +1359,6 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
             .evidence
             .is_some()
     );
-    assert!(
-        d.listings
-            .iter()
-            .find(|l| l.id == applied.product_listing_id)
-            .unwrap()
-            .validity_deadline
-            .is_some()
-    );
     let updated = ReplaceShippingProfileHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         shipping_postgres::SqlxShippingRepositoryFactory,
@@ -1412,23 +1399,17 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
             .collection()
     );
 
-    sqlx::query("UPDATE listing_delivery_import_state SET fresh_until=verified_at,expires_at=verified_at WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).execute(&pool).await.unwrap();
-    let expired = dependencies(&pool, &ids).await;
-    let painting = expired
+    // An old imported selection remains authoritative until explicitly changed or revoked.
+    sqlx::query("UPDATE listing_delivery_import_state SET verified_at=now()-interval '3650 days' WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).execute(&pool).await.unwrap();
+    let current = dependencies(&pool, &ids).await;
+    let painting = current
         .listings
         .iter()
         .find(|l| l.id == applied.product_listing_id)
         .unwrap();
-    assert!(painting.delivery.selection().is_none());
-    assert!(matches!(
-        painting.delivery.configuration().selection(),
-        ProfileSelection::SuppressInheritance
-    ));
-    assert!(
-        expired
-            .defaults
-            .iter()
-            .any(|d| d.selection.profile_id() == Some(profile.id))
+    assert_eq!(
+        Some(&ProfileSelection::InheritSourceDefault),
+        painting.delivery.selection()
     );
     let mut renewed = command.clone();
     renewed.expected_version = applied.version;
@@ -1506,18 +1487,17 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
     )
     .await;
     assert_eq!(ChangeOutcome::Unchanged, manual_equal.outcome);
-    assert!(sqlx::query_scalar::<_,bool>("SELECT owner_hash IS NULL AND expires_at IS NOT NULL FROM listing_delivery_import_state WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).fetch_one(&pool).await.unwrap());
-    sqlx::query("UPDATE listing_delivery_import_state SET fresh_until=verified_at,expires_at=verified_at WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).execute(&pool).await.unwrap();
-    let expired_manual = dependencies(&pool, &ids).await;
-    assert!(
-        expired_manual
+    assert!(sqlx::query_scalar::<_,bool>("SELECT owner_hash IS NULL AND verified_at IS NOT NULL FROM listing_delivery_import_state WHERE product_listing_id=$1 AND component='SELECTION'").bind(applied.product_listing_id.into_uuid()).fetch_one(&pool).await.unwrap());
+    let manual_dependencies = dependencies(&pool, &ids).await;
+    assert_eq!(
+        Some(&ProfileSelection::InheritSourceDefault),
+        manual_dependencies
             .listings
             .iter()
             .find(|l| l.id == applied.product_listing_id)
             .unwrap()
             .delivery
             .selection()
-            .is_none()
     );
 
     assert_eq!(before, events(&pool, &key).await);
@@ -1541,13 +1521,7 @@ async fn incremental_imports_preserve_manual_components_and_bound_validity_witho
             shipping_service::ShippingError::ImportOwnershipConflict
         ))
     ));
-    // Expiry and disconnect remove imported dependencies while preserving the manual prohibition.
-    sqlx::query("UPDATE shipping_profiles SET expires_at=verified_at,fresh_until=verified_at WHERE shipping_profile_id=$1").bind(profile.id.into_uuid()).execute(&pool).await.unwrap();
-    let d = dependencies(&pool, &ids).await;
-    assert_eq!(
-        shipping_service::assessment::EvidenceStatus::Expired,
-        d.profiles[0].evidence.status(d.evaluated_at)
-    );
+    // Disconnect removes imported dependencies while preserving the manual prohibition.
     sqlx::query("INSERT INTO listing_source_ingestion_methods VALUES($1,'SHOPIFY')")
         .bind(source.into_uuid())
         .execute(&pool)
