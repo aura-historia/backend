@@ -31,6 +31,7 @@ fn primary_request(
         domain_id: None,
         listing_source_id,
         source_record_key: url.to_string(),
+        last_source_listing_id: None,
         url,
         product_url_pattern: None,
         last_scraped_hash: None,
