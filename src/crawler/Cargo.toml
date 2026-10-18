@@ -89,6 +89,10 @@ path = "src/bin/dev.rs"
 name = "fetch-fixture"
 path = "src/bin/fetch_fixture.rs"
 
+[[bin]]
+name = "normalization-replay"
+path = "src/bin/normalization_replay.rs"
+
 [features]
 default = []
 test-data = [

@@ -40,11 +40,12 @@ pub use normalization_input::{
 };
 pub use price::{PriceNormalizationError, normalize_price, normalize_product_listing_price};
 pub use raw_values_normalizer::{
-    PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION, ProductListingNormalizationContextV1,
-    ProductListingRawValues, ProductListingRawValuesEvaluation,
-    ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
-    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
-    ProductListingRawValuesPriceFormat, ProductListingRawValuesResolved,
+    PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+    ProductListingNormalizationContextV1, ProductListingRawValues,
+    ProductListingRawValuesEvaluation, ProductListingRawValuesNormalizationError,
+    ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
+    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat,
+    ProductListingRawValuesResolved,
 };
 pub use source_listing_id::{
     SourceListingIdNormalizationError, normalize_source_listing_id_with_url_sha_fallback,

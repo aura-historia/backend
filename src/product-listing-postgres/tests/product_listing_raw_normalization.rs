@@ -982,6 +982,195 @@ async fn should_reject_changed_derived_source_listing_id_without_second_listing(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
+    use product_listing_postgres::{
+        SqlxNormalizationDiagnosticCaseStore, SqlxNormalizationDiagnosticCaseWriterFactory,
+    };
+    use product_listing_service::ports::{
+        NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter,
+        NormalizationDiagnosticCasePageRequest, NormalizationDiagnosticCaseReader,
+        NormalizationDiagnosticCaseRecorder, NormalizationDiagnosticEntryPoint,
+        NormalizationDiagnosticEvidence, NormalizationDiagnosticOutcome,
+        NormalizationDiagnosticProvenance, RetainedProductListingRawRevisionRead,
+        RetainedProductListingRawRevisionReader, StoredNormalizationDiagnosticEvidence,
+    };
+
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-normalization-diagnostics").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let write = raw_write(
+        listing_source_id,
+        RawProductListingOperation::Upsert,
+        upsert_values("-100 EUR"),
+        normalization_context(),
+        "negative-price",
+    );
+    let input = write.input.clone();
+    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) = changed_parts(
+        capture(
+            &unit_of_work,
+            &SqlxProductListingRawCaptureWriterFactory::new(),
+            write,
+        )
+        .await,
+    );
+
+    let result = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work,
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .with_diagnostic_cases(SqlxNormalizationDiagnosticCaseWriterFactory::new())
+    .execute(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 2,
+        pending_stream_limit: 1,
+    })
+    .await
+    .unwrap_or_else(|error| panic!("normalize stream: {error}"));
+    assert_eq!(
+        ProductListingRawNormalizationOutcome::Rejected,
+        result.revisions[0].outcome
+    );
+
+    let store = SqlxNormalizationDiagnosticCaseStore::new(pool.clone());
+    let bound = NormalizationDiagnosticCaseReader::snapshot_bound(&store)
+        .await
+        .unwrap_or_else(|error| panic!("case bound: {error}"))
+        .unwrap_or_else(|| panic!("a case must be recorded"));
+    let page = |filter| NormalizationDiagnosticCasePageRequest {
+        after_generation: 0,
+        through_generation: bound,
+        limit: 10,
+        filter,
+    };
+    let cases = NormalizationDiagnosticCaseReader::page(
+        &store,
+        page(NormalizationDiagnosticCaseFilter::default()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("case page: {error}"));
+    let [case] = cases.as_slice() else {
+        panic!("one unsolved revision expected: {cases:?}");
+    };
+    assert_eq!("REJECTED", case.recorded_outcome);
+    assert_eq!(input.hash().unwrap().as_bytes().to_vec(), case.input_sha256);
+    assert_eq!(json!("PRICE_NEGATIVE"), case.recorded_issues[0]["reason"]);
+    assert!(matches!(
+        &case.evidence,
+        StoredNormalizationDiagnosticEvidence::RawRevision { product_listing_raw_revision_id: id, input: stored }
+            if *id == product_listing_raw_revision_id && **stored == input
+    ));
+
+    // Retries deduplicate on input identity; implementation provenance is updated.
+    let retry = NormalizationDiagnosticCase {
+        entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
+        input_sha256: *input.hash().unwrap().as_bytes(),
+        listing_source_id,
+        evidence: NormalizationDiagnosticEvidence::RawRevision(product_listing_raw_revision_id),
+        outcome: NormalizationDiagnosticOutcome::EvaluatedInvalid,
+        issues: Vec::new(),
+        provenance: NormalizationDiagnosticProvenance {
+            diagnostics_version: 1,
+            evaluator_version: 8,
+            build: "retry-build".to_owned(),
+        },
+    };
+    assert_eq!(
+        case.case_id,
+        NormalizationDiagnosticCaseRecorder::record(&store, retry)
+            .await
+            .unwrap_or_else(|error| panic!("record retry: {error}"))
+    );
+    let crawler_case = NormalizationDiagnosticCase {
+        entry_point: NormalizationDiagnosticEntryPoint::CrawlerPreparationV1,
+        input_sha256: [3; 32],
+        listing_source_id,
+        evidence: NormalizationDiagnosticEvidence::Snapshot(json!({"extractedProduct": {}})),
+        outcome: NormalizationDiagnosticOutcome::Discarded,
+        issues: Vec::new(),
+        provenance: NormalizationDiagnosticProvenance {
+            diagnostics_version: 1,
+            evaluator_version: 1,
+            build: "unknown".to_owned(),
+        },
+    };
+    NormalizationDiagnosticCaseRecorder::record(&store, crawler_case)
+        .await
+        .unwrap_or_else(|error| panic!("record crawler case: {error}"));
+
+    let bound = NormalizationDiagnosticCaseReader::snapshot_bound(&store)
+        .await
+        .unwrap()
+        .unwrap();
+    let page = |filter| NormalizationDiagnosticCasePageRequest {
+        after_generation: 0,
+        through_generation: bound,
+        limit: 10,
+        filter,
+    };
+    let all = NormalizationDiagnosticCaseReader::page(&store, page(Default::default()))
+        .await
+        .unwrap();
+    assert_eq!(2, all.len());
+    assert_eq!(2, all[0].occurrences);
+    assert_eq!("retry-build", all[0].build);
+    assert_eq!(8, all[0].evaluator_version);
+    let crawler_only = NormalizationDiagnosticCaseReader::page(
+        &store,
+        page(NormalizationDiagnosticCaseFilter {
+            entry_point: Some(NormalizationDiagnosticEntryPoint::CrawlerPreparationV1),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        crawler_only.as_slice(),
+        [stored] if matches!(stored.evidence, StoredNormalizationDiagnosticEvidence::Snapshot(_))
+    ));
+
+    let retained = RetainedProductListingRawRevisionReader::page(
+        &store,
+        0,
+        RetainedProductListingRawRevisionReader::snapshot_bound(&store)
+            .await
+            .unwrap()
+            .unwrap(),
+        10,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        retained.as_slice(),
+        [RetainedProductListingRawRevisionRead::Readable(revision)]
+            if revision.product_listing_raw_revision_id == product_listing_raw_revision_id
+                && revision.listing_source_id == listing_source_id
+    ));
+
+    // Deleting retained evidence deletes its case, so every remaining reference replays.
+    sqlx::query(
+        "DELETE FROM product_listing_raw_revisions WHERE product_listing_raw_revision_id = $1",
+    )
+    .bind(product_listing_raw_revision_id.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("delete raw revision: {error}"));
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM product_listing_normalization_diagnostic_cases")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(1, remaining);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_normalize_valid_long_incompressible_url() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-long-url-source").await;

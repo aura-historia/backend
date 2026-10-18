@@ -8,7 +8,9 @@ Raw extraction remains source evidence. The crawler keeps raw strings, ordered i
 
 A matching page hash and effective schema-set fingerprint can skip extraction. Otherwise the crawler hashes its generic raw-input envelope. Equal input refreshes crawler scrape metadata without creating a new operational capture.
 
-Availability normalization is synchronous and deterministic in `product-listing-normalization`. Only a resolved `SoldOut` changes the crawler disposition. Description language may inherit title language only when the title itself supplied the detected language.
+Availability normalization is synchronous and deterministic in `product-listing-normalization`. Only a resolved `SoldOut` changes the crawler disposition. Quantity evidence resolves only as a whole label; negated, future or contradicted quantities stay unresolved.
+
+Generic raw values keep every supplied price string. A price that preparation cannot resolve for lack of currency still reaches the worker, which preserves the canonical field and reports it. A candidate discarded during preparation is snapshotted into the [normalization replay corpus](../normalization-replay.md) before the scrape drops it. Description language may inherit title language only when the title itself supplied the detected language.
 
 Shipping interpretation runs in downstream raw normalization using the same pure crate. It
 combines item-specific `rawShipment`/`rawShipmentNote` text with description context;

@@ -247,6 +247,10 @@ pub enum NormalizationIssueDetails {
     ConflictingCandidates {
         candidates: usize,
     },
+    /// Number of candidates evaluated when none remained valid.
+    Candidates {
+        count: usize,
+    },
     /// Location and category of a JSON contract violation; serde messages may echo input.
     JsonContract {
         category: String,
@@ -402,9 +406,7 @@ impl NormalizationIssue {
                 NormalizationField::Images,
                 Reason::NoValidImages,
                 rejected,
-                NormalizationIssueDetails::ConflictingCandidates {
-                    candidates: *candidates,
-                },
+                NormalizationIssueDetails::Candidates { count: *candidates },
             ),
             NormalizationError::AvailabilityTextTooLong { len, max } => Self::field(
                 NormalizationField::Availability,

@@ -185,7 +185,7 @@ Assessment does not block ingestion, change aggregate revision/history or become
 
 ## Source anti-corruption rules
 
-Boundary uncertainty never becomes invented domain truth. Reliable assertions set availability; reliable absence clears it; ambiguous or failed extraction preserves it. Only reliable removal evidence withdraws a listing, never timeout, blocking or parsing failure. Missing/untracked inventory is not zero; zero stock is not sold evidence. Explicit sold availability still does not implicitly create a sale observation.
+Boundary uncertainty never becomes invented domain truth. Reliable assertions set availability; reliable absence clears it; ambiguous or failed extraction preserves it. A supplied price or estimate whose currency cannot be determined is unresolved, not absent: it preserves the canonical field. Negative prices and nonzero precision beyond the currency's minor unit are rejected, never sign-stripped or truncated. Unresolved and failed evaluations enter the [replay corpus](normalization-replay.md). Only reliable removal evidence withdraws a listing, never timeout, blocking or parsing failure. Missing/untracked inventory is not zero; zero stock is not sold evidence. Explicit sold availability still does not implicitly create a sale observation.
 
 Provider mappings and ordering/recovery details belong to [event flow](events/flow.md); crawler-specific contracts remain in the [crawler docs](crawler/README.md).
 

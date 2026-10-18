@@ -40,7 +40,8 @@ use product_listing_service::ports::{
 use std::time::Instant;
 use time::OffsetDateTime;
 
-pub const NORMALIZER_VERSION: u16 = 7;
+pub const NORMALIZER_VERSION: u16 =
+    product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION;
 
 const SOURCE_LISTING_ID_MISMATCH: &str = "SOURCE_LISTING_ID_MISMATCH";
 const CANONICAL_PRODUCT_LISTING_INVALID: &str = "CANONICAL_PRODUCT_LISTING_INVALID";
