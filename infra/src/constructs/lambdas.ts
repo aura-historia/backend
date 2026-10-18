@@ -194,6 +194,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     maxPostgresConnections: 1,
     timeoutSeconds: 45,
   },
+  listingShipping: {
+    id: "ListingShippingLambda",
+    binaryName: "listing-shipping-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+  },
   geoResolution: {
     id: "GeoResolutionLambda",
     binaryName: "geo-resolution-lambda",
@@ -256,6 +264,7 @@ export class Lambdas extends Construct {
   readonly marketingConsentSyncVersion: lambda.Version;
   readonly geoResolutionVersion: lambda.Version;
   readonly listingGeographyVersion: lambda.Version;
+  readonly listingShippingVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
 
@@ -324,7 +333,7 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" ? 2 : undefined,
+        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" || key === "listingShipping" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"
@@ -389,6 +398,10 @@ export class Lambdas extends Construct {
     this.listingGeographyVersion = new lambda.Version(this, "ListingGeographyVersion", {
       lambda: this.functions.listingGeography,
       description: `listing-geography-${props.parameters.commitSha}`,
+    });
+    this.listingShippingVersion = new lambda.Version(this, "ListingShippingVersion", {
+      lambda: this.functions.listingShipping,
+      description: `listing-shipping-${props.parameters.commitSha}`,
     });
     this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
       lambda: this.functions.geoResolution,
@@ -672,11 +685,17 @@ function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<st
   };
 }
 
+/** Web app origin that emails link to. */
+function frontendOrigin(config: StageConfig): string {
+  return config.isProd ? "https://aura-historia.com" : "https://stage.aura-historia.com";
+}
+
 function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     COMMIT_SHA: context.commitSha,
     NOTIFICATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
+    NOTIFICATION_EMAIL_FRONTEND_ORIGIN: frontendOrigin(context.config),
     NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
     STAGE: context.config.stage,
@@ -711,9 +730,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
     NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
-    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: config.isProd
-      ? "https://aura-historia.com"
-      : "https://stage.aura-historia.com",
+    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: frontendOrigin(config),
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
     STAGE: config.stage,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,

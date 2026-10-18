@@ -1049,6 +1049,13 @@ mod tests {
         ) -> Result<Option<CognitoIdentity>, UserCognitoIdentityRegistryError> {
             unreachable!()
         }
+        async fn revoke_sessions(
+            &mut self,
+            _: &CognitoIdentity,
+        ) -> Result<(), UserCognitoIdentityRegistryError> {
+            unreachable!("session revocation is not part of registration")
+        }
+
         async fn bind(
             &mut self,
             _: &CognitoIdentity,

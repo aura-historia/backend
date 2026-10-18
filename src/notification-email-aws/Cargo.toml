@@ -19,6 +19,7 @@ notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 
 
 [dev-dependencies]
@@ -26,5 +27,5 @@ search-filter-core = { workspace = true }
 time = { workspace = true }
 listing-source-core = { workspace = true }
 party-core = { workspace = true }
+partnership-core = { workspace = true }
 rstest = { workspace = true }
-url = { workspace = true }

@@ -365,6 +365,8 @@ pub(crate) struct ProductListingDocument {
     pub(crate) source_listing_id: SourceListingId,
     pub(crate) event_id: EventId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) shipping: Option<crate::shipping_document::ShippingDocument>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) business_geography: Option<GeographicDimensionDocument>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) inventory_geography: Option<GeographicDimensionDocument>,
@@ -544,6 +546,7 @@ mod tests {
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
+            shipping: None,
             business_geography: None,
             inventory_geography: None,
             auction_id: None,

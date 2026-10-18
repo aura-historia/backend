@@ -39,6 +39,12 @@ pub enum GetSimilarProductListingsResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetSimilarProductListingsError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        crate::shipping::ShippingReadError,
+    ),
     #[error("product not found")]
     NotFound,
     #[error("product embedding query failed")]
@@ -116,6 +122,7 @@ pub trait GetSimilarProductListingsUseCase: Send + Sync {
 }
 
 pub struct GetSimilarProductListingsHandler<U, E, F, S, L, P, A> {
+    shipping: crate::shipping::ShippingEnrichment,
     unit_of_work: U,
     embedding_reader: E,
     fx_rates: F,
@@ -135,8 +142,11 @@ impl<U, E, F, S, L, P, A> GetSimilarProductListingsHandler<U, E, F, S, L, P, A> 
         listing_sources: L,
         user_states: P,
         assessments: A,
+
+        shipping: crate::shipping::ShippingEnrichment,
     ) -> Self {
         Self {
+            shipping,
             unit_of_work,
             embedding_reader,
             fx_rates,
@@ -200,11 +210,12 @@ where
             .await?
             .ok_or(GetSimilarProductListingsError::PricingFxSnapshotMissing)?;
         let price_filter_plan =
-            ProductListingPriceFilterPlan::compile(snapshot, request.currency, None).map_err(
-                |source| GetSimilarProductListingsError::PricingFxSnapshotInvalid {
-                    source: box_error(source),
-                },
-            )?;
+            ProductListingPriceFilterPlan::compile(snapshot.clone(), request.currency, None)
+                .map_err(
+                    |source| GetSimilarProductListingsError::PricingFxSnapshotInvalid {
+                        source: box_error(source),
+                    },
+                )?;
 
         tx.commit().await.map_err(|source| {
             GetSimilarProductListingsError::CommitTransactionFailed(Box::new(source))
@@ -231,10 +242,13 @@ where
         if let Some(user_id) = personalization_user_id(&context.principal) {
             hydrate_product_search_items(&mut products, user_id, &self.user_states).await?;
         }
-        let products = present_product_summaries(products, &self.assessments)
+        let mut products = present_product_summaries(products, &self.assessments)
             .await
             .map_err(GetSimilarProductListingsError::from)?;
 
+        self.shipping
+            .summaries(context, &mut products, request.currency, &snapshot)
+            .await?;
         Ok(GetSimilarProductListingsResult::Ready(products))
     }
 }
@@ -685,6 +699,7 @@ mod tests {
             StaticListingSourceSummaryReader,
             EmptyUserStateReader,
             EmptyAssessmentReader,
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
     }
 
@@ -847,6 +862,7 @@ mod tests {
                 states: HashMap::from([(product_listing_id, user_state)]),
             },
             EmptyAssessmentReader,
+            crate::shipping::ShippingEnrichment::for_tests(),
         );
 
         let result = handler
@@ -910,6 +926,7 @@ mod tests {
                 )]),
                 requests: Arc::clone(&requests),
             },
+            crate::shipping::ShippingEnrichment::for_tests(),
         );
 
         let result = handler.execute(&context(), request()).await?;

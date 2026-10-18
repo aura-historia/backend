@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shipping-core = { workspace = true }
+shipping-service = { workspace = true }
 geo = { workspace = true }
 geo-service = { workspace = true }
 party-core = { workspace = true }
@@ -44,6 +46,7 @@ url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+shipping-core = { workspace = true, features = ["test-data"] }
 notification-core = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

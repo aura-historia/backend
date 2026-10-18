@@ -6,8 +6,8 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    PreparedSchemaCandidate, collect_applicable_candidates, rank_prepared_candidates,
-    score_prepared_product,
+    AppliedSchemaCandidate, PreparedSchemaCandidate, collect_applicable_candidates,
+    rank_prepared_candidates, score_prepared_product,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -61,6 +61,39 @@ pub(crate) enum ExistingSchemaSelection {
     },
 }
 
+/// Cached candidates that applied to the page and passed deterministic
+/// preparation, in production ranking order.
+pub(crate) struct PreparedCachedCandidates<'a> {
+    /// How many cached schemas applied, before preparation rejected any.
+    pub(crate) applied_schema_count: usize,
+    pub(crate) candidates: Vec<PreparedSchemaCandidate<'a>>,
+}
+
+/// Applies every cached schema to an already parsed page and logs the outcome.
+/// Synchronous so the `!Send` document never lives across an await.
+pub(crate) fn apply_cached_schemas<'a>(
+    schemas: &'a [ProductCssSelectorSchema],
+    parsed: &scraper::Html,
+) -> Vec<AppliedSchemaCandidate<'a>> {
+    let candidate_set = collect_applicable_candidates(schemas, parsed);
+
+    debug!(
+        schema_candidates_total = schemas.len(),
+        schema_candidates_applied = candidate_set.candidates.len(),
+        schema_candidates_apply_failed = candidate_set.apply_failures.len(),
+        "Cached schema application complete"
+    );
+    for (schema_index, err) in &candidate_set.apply_failures {
+        debug!(
+            candidate_schema_index = schema_index,
+            candidate_apply_error = ?err,
+            "Cached schema failed to apply"
+        );
+    }
+
+    candidate_set.candidates
+}
+
 struct AppliedSchemaNormalizationContext<'a> {
     listing_source_id: &'a ListingSourceId,
     effective_url: &'a Url,
@@ -76,55 +109,23 @@ struct AppliedSchemaNormalizationContext<'a> {
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
-    /// Applies every cached schema to the current page, ranks successful
-    /// extractions by attribute completeness, and normalizes candidates from
-    /// richest to least rich.
-    ///
-    /// The first candidate that normalizes successfully wins. When no cached
-    /// candidate succeeds — either because none applied or none prepared —
-    /// returns [`ExistingSchemaSelection::GenerateNewSchema`] so the caller
-    /// falls back to fresh schema generation. No cached schema is ever
-    /// selected as generation input.
-    #[tracing::instrument(
-        skip(self, schemas, html),
-        fields(
-            listing_source_id = %listing_source_id,
-            url = %url,
-            schema_count = schemas.len()
-        )
-    )]
-    pub(crate) async fn select_existing_schema_with_normalization(
+    /// Applies every cached schema to the current page, validates each
+    /// candidate's images and prepares it deterministically, then ranks the
+    /// survivors by completeness. A candidate-local failure rejects that
+    /// candidate only; an external failure aborts. It never generates schemas
+    /// or spends LLM budget.
+    pub(crate) async fn prepare_cached_candidates<'a>(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        source_record_key: &str,
+        schemas: &'a [ProductCssSelectorSchema],
         html: &str,
-        schemas: &[ProductCssSelectorSchema],
-        fallback_currency: Option<Currency>,
-    ) -> Result<ExistingSchemaSelection, ScraperError> {
+        context: &ProductNormalizationContext,
+    ) -> Result<PreparedCachedCandidates<'a>, ScraperError> {
         // `scraper::Html` is `!Send`: parse and apply every cached schema in a
         // synchronous block so the parsed document is dropped before awaits.
         let candidates = {
             let parsed = scraper::Html::parse_document(html);
-            let candidate_set = collect_applicable_candidates(schemas, &parsed);
-
-            debug!(
-                schema_candidates_total = schemas.len(),
-                schema_candidates_applied = candidate_set.candidates.len(),
-                schema_candidates_apply_failed = candidate_set.apply_failures.len(),
-                "Cached schema application complete"
-            );
-            for (schema_index, err) in &candidate_set.apply_failures {
-                debug!(
-                    candidate_schema_index = schema_index,
-                    candidate_apply_error = ?err,
-                    "Cached schema failed to apply"
-                );
-            }
-
-            candidate_set.candidates
+            apply_cached_schemas(schemas, &parsed)
         };
-
         let applied_schema_count = candidates.len();
         let mut prepared_candidates = Vec::new();
         // Image validation is candidate-local and does not call the LLM. Do
@@ -134,20 +135,18 @@ impl ScraperServiceImpl {
             let raw = candidate.raw;
             let mut validated_raw = raw.clone();
             let images = std::mem::take(&mut validated_raw.images);
-            validated_raw.images =
-                match filter_valid_image_urls(images, url, &*self.image_validator).await {
-                    Ok(images) => images,
-                    Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                    Err(err) => return Err(ScraperError::NormalizationError(err)),
-                };
-            match prepare_product(
-                validated_raw.clone(),
-                ProductNormalizationContext {
-                    effective_url: url.clone(),
-                    source_record_key: source_record_key.to_owned(),
-                    fallback_currency,
-                },
-            ) {
+            validated_raw.images = match filter_valid_image_urls(
+                images,
+                &context.effective_url,
+                &*self.image_validator,
+            )
+            .await
+            {
+                Ok(images) => images,
+                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+                Err(err) => return Err(ScraperError::NormalizationError(err)),
+            };
+            match prepare_product(validated_raw.clone(), context.clone()) {
                 Ok(prepared) => {
                     let score = score_prepared_product(&validated_raw, &prepared);
                     prepared_candidates.push(PreparedSchemaCandidate {
@@ -177,6 +176,53 @@ impl ScraperServiceImpl {
                 "Ranked cached schema candidate"
             );
         }
+
+        Ok(PreparedCachedCandidates {
+            applied_schema_count,
+            candidates: prepared_candidates,
+        })
+    }
+
+    /// Applies every cached schema to the current page, ranks successful
+    /// extractions by attribute completeness, and normalizes candidates from
+    /// richest to least rich.
+    ///
+    /// The first candidate that normalizes successfully wins. When no cached
+    /// candidate succeeds — either because none applied or none prepared —
+    /// returns [`ExistingSchemaSelection::GenerateNewSchema`] so the caller
+    /// falls back to fresh schema generation. No cached schema is ever
+    /// selected as generation input.
+    #[tracing::instrument(
+        skip(self, schemas, html),
+        fields(
+            listing_source_id = %listing_source_id,
+            url = %url,
+            schema_count = schemas.len()
+        )
+    )]
+    pub(crate) async fn select_existing_schema_with_normalization(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        source_record_key: &str,
+        html: &str,
+        schemas: &[ProductCssSelectorSchema],
+        fallback_currency: Option<Currency>,
+    ) -> Result<ExistingSchemaSelection, ScraperError> {
+        let PreparedCachedCandidates {
+            applied_schema_count,
+            candidates: prepared_candidates,
+        } = self
+            .prepare_cached_candidates(
+                schemas,
+                html,
+                &ProductNormalizationContext {
+                    effective_url: url.clone(),
+                    source_record_key: source_record_key.to_owned(),
+                    fallback_currency,
+                },
+            )
+            .await?;
 
         if prepared_candidates.is_empty() {
             let reason = if applied_schema_count == 0 {

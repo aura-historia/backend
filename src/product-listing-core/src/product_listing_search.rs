@@ -93,6 +93,7 @@ pub struct ListingAvailabilityQuery {
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductListingSearch {
     pub geography: Option<geo::core::discovery::GeographicQuery>,
+    pub shipping: Option<crate::shipping_search::ShippingSearch>,
     pub language: Language,
     pub currency: Currency,
     pub product_listing_query: Vec<TextQuery<1>>,
@@ -123,6 +124,7 @@ impl ProductListingSearch {
     pub fn new(language: Language, currency: Currency) -> Self {
         Self {
             geography: None,
+            shipping: None,
             language,
             currency,
             product_listing_query: Vec::new(),
@@ -313,6 +315,7 @@ pub mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductListingSearch {
                 geography: None,
+                shipping: None,
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_listing_query: config.fake_with_rng(rng),

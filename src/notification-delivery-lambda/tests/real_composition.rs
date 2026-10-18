@@ -341,6 +341,7 @@ async fn provider(
             configuration_set,
             stage.to_owned(),
             commit,
+            "https://stage.aura-historia.com",
         )?,
     ))
 }

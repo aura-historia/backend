@@ -198,6 +198,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect(includedTables).toEqual([
       "geo_resolution_wakeups",
       "listing_geography_wakeups",
+      "listing_shipping_wakeups",
       "marketing_email_consent_sync_intents",
       "notification_deliveries",
       "product_listing_events",
@@ -253,6 +254,14 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "user_id",
     ]);
 
+    const matchRemovedColumns = mappings.rules
+      .filter((rule) => rule["rule-type"] === "transformation"
+        && (rule["object-locator"] as Record<string, string>)["table-name"] === "search_filter_matches"
+        && rule["rule-action"] === "remove-column")
+      .map((rule) => (rule["object-locator"] as Record<string, string>)["column-name"]);
+    expect(matchRemovedColumns).toEqual(expect.arrayContaining([
+      "shipping_fx_rate_id", "shipping_fx_captured_at", "shipping_target_currency", "shipping_maximum_minor",
+    ]));
     const removedColumns = mappings.rules
       .filter((rule) => rule["rule-action"] === "remove-column")
       .map((rule) => {
@@ -277,6 +286,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect(decimalStrings).toEqual([
       "geo_resolution_wakeups.generation",
       "listing_geography_wakeups.generation",
+      "listing_shipping_wakeups.generation",
       "product_listing_raw_revisions.revision",
     ]);
     expect(settings.TargetMetadata).toMatchObject({

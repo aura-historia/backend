@@ -71,6 +71,7 @@ struct ProductListingRow {
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
+    delivery_configuration: Option<serde_json::Value>,
     embedding: Option<Vec<f32>>,
     auction_id: Option<uuid::Uuid>,
     lot_number: Option<String>,
@@ -121,7 +122,7 @@ impl SqlxProductListingRepository<'_> {
                 price_kind, price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
-                product_images, embedding,
+                product_images, delivery_configuration, embedding,
                 auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
                 lot_scheduled_closes_at, lot_reported_closed_at,
                 product_listings.created, product_listings.updated
@@ -169,7 +170,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_kind, price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
-                product_images, embedding,
+                product_images, delivery_configuration, embedding,
                 auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
                 lot_scheduled_closes_at, lot_reported_closed_at,
                 product_listings.created, product_listings.updated
@@ -221,10 +222,10 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
                 availability, lifecycle, url, product_images,
                 auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
-                lot_scheduled_closes_at, lot_reported_closed_at
+                lot_scheduled_closes_at, lot_reported_closed_at, delivery_configuration
             ) VALUES (
                 $1, $2, $3, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
             )
             RETURNING version
             "#,
@@ -269,6 +270,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(auction.lot_bidding_opens_at)
         .bind(auction.lot_scheduled_closes_at)
         .bind(auction.lot_reported_closed_at)
+        .bind(product.delivery().map(crate::delivery_codec::encode).transpose().map_err(|source|ProductListingRepositoryError::InvalidDeliveryPersisted {source})?)
         .fetch_one(&mut *self.connection)
         .await
         .map_err(ProductListingInsertSqlxError)?;
@@ -336,6 +338,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 lot_bidding_opens_at = $23,
                 lot_scheduled_closes_at = $24,
                 lot_reported_closed_at = $25,
+                delivery_configuration = $28,
                 version = version + 1,
                 projection_version = projection_version + 1,
                 updated = now()
@@ -382,6 +385,15 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(auction.lot_reported_closed_at)
         .bind(product.id().as_uuid())
         .bind(expected_version)
+        .bind(
+            product
+                .delivery()
+                .map(crate::delivery_codec::encode)
+                .transpose()
+                .map_err(
+                    |source| ProductListingRepositoryError::InvalidDeliveryPersisted { source },
+                )?,
+        )
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingUpdateSqlxError)?
@@ -413,6 +425,13 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
         })
         .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
         let product = ProductListing::rehydrate(RehydratedProductListingState {
+            delivery: row
+                .delivery_configuration
+                .map(crate::delivery_codec::decode)
+                .transpose()
+                .map_err(
+                    |source| ProductListingRepositoryError::InvalidDeliveryPersisted { source },
+                )?,
             id: try_from_uuid(row.product_listing_id, "ProductListing ID")
                 .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?,
             title_slug_id: ProductListingSlugId::raw(&row.product_listing_title_slug_id)
@@ -448,7 +467,12 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
             images: images_from_json(row.product_images)?,
             auction,
         })
-        .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
+        .map_err(|error| match error {
+            product_listing_core::product_listing::RehydrateProductListingError::DeliverySourceMismatch => {
+                ProductListingRepositoryError::InvalidDeliveryPersisted { source: box_error(error) }
+            }
+            _ => ProductListingRepositoryError::InvalidAggregateStatePersisted,
+        })?;
 
         let _current_event_id = try_from_uuid::<EventId>(row.current_event_id, "current event ID")
             .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
@@ -957,6 +981,7 @@ mod tests {
         let source_listing_id = SourceListingId::try_from("unit-product")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
         ProductListingRow {
+            delivery_configuration: None,
             product_listing_id: ProductListingId::new().into_uuid(),
             product_listing_title_slug_id: title_slug,
             version: 1,

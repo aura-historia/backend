@@ -1,0 +1,16 @@
+{
+  "schema": "EFFECTIVE_SHIPPING_V1",
+  "collection": "OFFERED",
+  "prohibited": false,
+  "conditional": true,
+  "country_offers": [
+    {
+      "country": "DE",
+      "service": "gallery-delivery",
+      "per_item_fixed": {
+        "currency": "EUR",
+        "amount_minor": 9500
+      }
+    }
+  ]
+}

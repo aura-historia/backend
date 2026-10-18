@@ -1001,8 +1001,8 @@ mod tests {
         assert!(instruction.contains("specific measurement or origin keys only"));
         assert!(instruction.contains("rawShipment"));
         assert!(instruction.contains("rawShipmentNote"));
-        assert!(instruction.contains("rawShipmentMin"));
-        assert!(instruction.contains("rawShipmentMax"));
+        assert!(!instruction.contains("rawShipmentMin"));
+        assert!(!instruction.contains("rawShipmentMax"));
         assert!(instruction.contains("rawCondition"));
         assert!(instruction.contains("rawConditionNote"));
         assert!(instruction.contains("rawMaterial"));

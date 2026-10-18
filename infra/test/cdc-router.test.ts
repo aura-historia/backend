@@ -16,6 +16,7 @@ const ROUTER_QUEUES = {
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
   GEO_RESOLUTION: "geo-resolution",
   LISTING_GEOGRAPHY: "listing-geography",
+  LISTING_SHIPPING: "listing-shipping",
 } as const;
 
 const KINESIS_READ_ACTIONS = [

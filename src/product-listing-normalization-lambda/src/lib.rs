@@ -27,13 +27,25 @@ pub const PENDING_STREAM_LIMIT: u32 = 100;
 pub fn compose_normalization_use_case(
     pool: sqlx::PgPool,
 ) -> Arc<dyn NormalizeProductListingRawRevisionUseCase> {
-    Arc::new(NormalizeProductListingRawRevisionHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        SqlxProductListingRawNormalizationWriterFactory::new(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPendingProductListingRawStreamReader::new(pool),
-    ))
+    let shipping = product_listing_service::crawler_shipping::ApplyCrawlerShippingHandler::new(
+        product_listing_postgres::delivery::SqlxCrawlerShippingSourceReader::new(pool.clone()),
+        product_listing_service::use_cases::ChangeProductListingDeliveryHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
+        ),
+    );
+    Arc::new(
+        NormalizeProductListingRawRevisionHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxProductListingRawNormalizationWriterFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            SqlxPendingProductListingRawStreamReader::new(pool),
+        )
+        .with_crawler_shipping(Arc::new(shipping)),
+    )
 }
 
 /// Uses a single deadline for credential refresh, composition, record work, and Lambda response headroom.

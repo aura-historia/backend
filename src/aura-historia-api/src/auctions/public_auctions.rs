@@ -113,12 +113,18 @@ pub async fn get_auction_catalogue(
         )
         .await
     {
-        Ok(page) => crate::transport::cache::anonymous_shared_success(
-            Json(CatalogueData::from(page)).into_response(),
-            &headers,
-            matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
-            60,
-        ),
+        Ok(page) => {
+            let ttl = crate::shipping::listing::cache_ttl(
+                page.items.iter().map(|i| i.item.shipping.as_ref()),
+                60,
+            );
+            crate::transport::cache::anonymous_shared_success(
+                Json(CatalogueData::from(page)).into_response(),
+                &headers,
+                matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+                ttl,
+            )
+        }
         Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }
@@ -639,6 +645,7 @@ impl From<GetPublicAuctionError> for ApiError {
 impl From<product_listing_service::use_cases::GetAuctionCatalogueError> for ApiError {
     fn from(error: product_listing_service::use_cases::GetAuctionCatalogueError) -> Self {
         match error {
+            product_listing_service::use_cases::GetAuctionCatalogueError::Shipping(error) => error.into(),
             product_listing_service::use_cases::GetAuctionCatalogueError::AuctionNotFound => {
                 ApiError::not_found(AUCTION_NOT_FOUND)
             }

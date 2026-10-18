@@ -221,6 +221,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
         "watchlist-notification-lambda",
         "notification-delivery-lambda",
         "marketing-consent-sync-lambda",
+        "listing-shipping-lambda",
       ]
         .some((name) => resource.Properties.FunctionName === `${name}-${stage}`),
     );
@@ -239,7 +240,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
 
     const vpcAttachedFunctions = [...computeFunctions, ...initializationFunctions]
       .filter((resource) => resource.Properties.VpcConfig !== undefined);
-    expect(applicationFunctions).toHaveLength(17);
+    expect(applicationFunctions).toHaveLength(18);
     expect(applicationFunctions.every((resource) => resource.Properties.VpcConfig !== undefined)).toBe(true);
     expect(migrationSecurityGroup).toBeDefined();
     expect(migration?.Properties.VpcConfig).toBeDefined();
@@ -247,7 +248,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(migrationEgress).toHaveLength(2);
     expect(migrationEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
     expect(migrationEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(20);
+    expect(vpcAttachedFunctions).toHaveLength(21);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

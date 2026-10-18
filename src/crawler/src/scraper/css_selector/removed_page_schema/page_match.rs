@@ -12,8 +12,7 @@ pub(super) fn normalize_page_classification_text(value: &str) -> String {
         .to_lowercase()
 }
 
-fn selected_texts(selector: &CssSelector, html: &str) -> Option<Vec<String>> {
-    let parsed = Html::parse_document(html);
+fn selected_texts(selector: &CssSelector, html: &Html) -> Option<Vec<String>> {
     let rule = ExtractionRule {
         selector: selector.clone(),
         additional_selectors: vec![],
@@ -21,45 +20,49 @@ fn selected_texts(selector: &CssSelector, html: &str) -> Option<Vec<String>> {
         cardinality: ExtractionCardinality::All,
     };
 
-    rule.apply(&parsed).ok()
+    rule.apply(html).ok()
 }
 
-pub(super) fn page_classification_text_matches(
-    selector: &CssSelector,
-    text: &str,
-    html: &str,
-) -> bool {
-    let Some(values) = selected_texts(selector, html) else {
-        return false;
-    };
-    let expected = normalize_page_classification_text(text);
-    if expected.is_empty() {
-        return false;
-    }
-
-    values
-        .iter()
-        .map(|value| normalize_page_classification_text(value))
-        .any(|value| value.contains(&expected))
-}
-
-pub(super) fn page_classification_regex_matches(
-    selector: &CssSelector,
-    pattern: &str,
-    html: &str,
-) -> bool {
+/// Compiles a removed-page regex. Rejects empty and invalid patterns, and patterns
+/// that would match any text: such a pattern carries no removed-page signal and,
+/// stored on the product title element, would withdraw every live product.
+pub(super) fn removed_page_regex(pattern: &str) -> Result<Regex, String> {
     if pattern.trim().is_empty() {
-        return false;
+        return Err("Removed page regex must not be empty".to_string());
     }
-    let Ok(regex) = Regex::new(pattern) else {
-        return false;
-    };
-    let Some(values) = selected_texts(selector, html) else {
-        return false;
-    };
+    let regex =
+        Regex::new(pattern).map_err(|err| format!("Removed page regex is invalid: {err}"))?;
+    if OVER_BROAD_REGEX_PROBES
+        .iter()
+        .any(|probe| regex.is_match(probe))
+    {
+        return Err(
+            "Removed page regex matches any text and carries no removed-page signal".to_string(),
+        );
+    }
+    Ok(regex)
+}
 
-    values
+/// Neutral product-like texts that no removed-page notice pattern should match.
+/// They vary in length, case, script and punctuation so that length-only, class-only
+/// and anchored catch-all patterns are rejected too. Selected page texts are
+/// normalized (whitespace-collapsed, lowercased) before matching, so the probes
+/// cover both raw and normalized shapes.
+const OVER_BROAD_REGEX_PROBES: [&str; 6] = [
+    "",
+    "biedermeier chair 1850 sku 42",
+    "Biedermeier Chair, 1850 (SKU 42)",
+    "élégante commode louis xv – 1 750 €",
+    "vase",
+    "art-déco lampe nr. 7 / 2nd edition",
+];
+
+/// Normalized texts selected by `selector` from the page; empty when the selector
+/// does not apply.
+pub(super) fn normalized_selected_texts(selector: &CssSelector, html: &Html) -> Vec<String> {
+    selected_texts(selector, html)
+        .unwrap_or_default()
         .iter()
         .map(|value| normalize_page_classification_text(value))
-        .any(|value| regex.is_match(&value))
+        .collect()
 }

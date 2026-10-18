@@ -14,6 +14,8 @@ use url::Url;
 /// metadata needed to mark the URL as scraped after durable raw capture.
 #[derive(Debug)]
 pub struct ScrapedProduct {
+    /// Successful page acquisition, before schema evaluation or normalization.
+    pub acquired_at: time::OffsetDateTime,
     /// Complete source-neutral normalization input. The worker later performs canonical writes.
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
@@ -65,6 +67,9 @@ pub struct ScrapeRequest {
     pub listing_source_id: ListingSourceId,
     pub url: Url,
     pub source_record_key: String,
+    /// Source listing id captured by the last successful scrape of this URL, when
+    /// known. The removal guard only accepts product evidence under this identity.
+    pub last_source_listing_id: Option<String>,
     pub product_url_pattern: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,

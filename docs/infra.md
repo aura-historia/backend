@@ -38,6 +38,17 @@ engine availability, backups, retention/removal policies, quotas and cost before
 execution; dev resources may be destructive on deletion. Retained resources still
 require ownership and recovery planning.
 
+### Local Cognito session revocation
+
+Apply [the additive session-cutoff migration](../migrations/20261018063800_cognito_session_revocation.sql)
+with the approved initialization/migration workflow before deploying the API version
+that reads it. Deploy all API instances/versions that can serve traffic before relying
+on local revocation; older versions ignore the cutoff. Do not roll back to a version
+that ignores it while affected JWTs can still be valid. Keep issuer, API and database
+clocks synchronized within the 60-second allowance. The
+[authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
+owns cutoff, provider-failure and out-of-band revocation semantics.
+
 ### Removing geography creation receipts
 
 The [receipt cleanup migration](../migrations/20261014120000_remove_geography_creation_receipts.sql)

@@ -1613,3 +1613,73 @@ async fn should_revoke_and_introspect_tokens() {
         .unwrap();
     assert!(!inactive.active);
 }
+
+#[tokio::test]
+async fn should_reject_revocation_of_another_clients_or_personal_token() {
+    for origin in [
+        AccessTokenOrigin::OAuth {
+            client_id: OAuthClientId::new(),
+        },
+        AccessTokenOrigin::User,
+    ] {
+        let ports = FakePorts::default();
+        let raw_secret = RawOAuthClientSecret::new();
+        let client = client_with_secret(&raw_secret);
+        let raw_token = RawAccessToken::new();
+        let token = AccessToken::create(NewAccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: raw_token.clone().into(),
+            user_id: UserId::new(),
+            name: AccessTokenName::from("Token outside the requesting client"),
+            scopes: HashSet::from([Scope::ProductListingsWrite]),
+            origin,
+            expires: None,
+        });
+        {
+            let mut state = lock(&ports.0);
+            state.client = Some(client.clone());
+            state.issued = Some(token.clone());
+        }
+        let result =
+            RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+                .execute(
+                    &ctx(),
+                    RevokeTokenRequest {
+                        token: raw_token,
+                        client_id: client.client_id(),
+                        client_secret: raw_secret,
+                    },
+                )
+                .await;
+
+        assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
+        let state = lock(&ports.0);
+        assert_eq!(Some(token), state.issued);
+        assert_eq!(0, state.deleted_raw);
+        assert_eq!(0, state.transaction_commits);
+    }
+}
+
+#[tokio::test]
+async fn should_succeed_when_revoking_an_unknown_token() {
+    let ports = FakePorts::default();
+    let secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&secret);
+    lock(&ports.0).client = Some(client.clone());
+
+    RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+        .execute(
+            &ctx(),
+            RevokeTokenRequest {
+                token: RawAccessToken::new(),
+                client_id: client.client_id(),
+                client_secret: secret,
+            },
+        )
+        .await
+        .unwrap();
+
+    let state = lock(&ports.0);
+    assert_eq!(0, state.deleted_raw);
+    assert_eq!(1, state.transaction_commits);
+}

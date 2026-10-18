@@ -39,10 +39,12 @@ Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr
 
 ## Binaries
 
-- `server` runs the scheduled crawler and review console.
-- `dev` exercises the local crawler flow with crawler-local migrations.
+- `server` runs the scheduled crawler and review console against authoritative ListingSources and ProductListing raw capture.
+- `dev` runs the same crawler locally against demo ListingSources, writes raw observations to a file, and needs neither AWS nor the business database.
 - `dev-spider` and `dev-scraper` are focused development entry points for their respective passes.
 - `fetch-fixture` saves source HTML for stable parser and schema snapshots; it is not a production ingestion path.
+
+`server` and `dev` share one composition root, [`crawler::runtime`](../../src/crawler/src/runtime.rs). Each binary supplies only its ListingSource source, raw-capture sink, cron settings and review-console settings, so new crawler dependencies are wired there rather than in a binary. They stay separate binaries so local fixtures and the tokenless review console never ship in `server`.
 
 ## Boundaries
 

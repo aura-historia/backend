@@ -104,6 +104,11 @@ pub enum CreateProductListingError {
     CreatedEventMissing,
     #[error("product listing persistence failed")]
     PersistenceFailed,
+    #[error("persisted listing delivery is invalid")]
+    InvalidDeliveryPersisted {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event append failed")]
     EventAppenderFailed {
         #[source]
@@ -388,6 +393,9 @@ impl From<ProductListingRepositoryError> for CreateProductListingError {
             }
             ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
                 Self::ProductListingTitleSlugAlreadyExists
+            }
+            ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
+                Self::InvalidDeliveryPersisted { source }
             }
             _ => Self::PersistenceFailed,
         }

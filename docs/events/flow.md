@@ -26,6 +26,18 @@ success may confirm a transaction or queue custody; neither implies search visib
 or external delivery. PostgreSQL remains authoritative. DMS start and router activation
 require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
 
+## Shipping management signals
+
+[Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable
+profile/default signals, retained deletion fences and protected history. Only the
+minimal address-free signals atomically coalesce durable shipping dependency work.
+Terms, evidence, creation receipts and original signals remain outside ordinary CDC.
+Only `listing_shipping_wakeups` (work UUID and positive bigint generation) is selected;
+schema-2 `LISTING_SHIPPING` jobs target the isolated `listing-shipping` worker scope.
+Workers reread current committed dependencies and checkpoint bounded pages. See the
+[projection contract](../shipping.md#effective-shipping-discovery-projection) and
+[recovery runbook](../durable-worker-runbook.md#listing-shipping-recovery).
+
 ## ProductListing write flow
 
 - Partner writes commit canonical state and at most one semantic event atomically.
@@ -39,6 +51,10 @@ require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
   and commits terminal progress with any canonical change. Invalid candidate data
   may be terminally rejected; dependency/configuration failures leave work pending.
   Capped or unfinished drains are not complete. There is no scheduled raw-backlog reconciler.
+- Optional [crawler shipping assertions](../shipping.md#deterministic-crawler-item-assertions)
+  apply through the existing delivery use case after catalog normalization commits.
+  Their failures do not undo terminal raw progress. Existing shipping change and validity
+  signals retain their ordinary transaction boundaries.
 - Async partner commands and mapped Shopify/WooCommerce observations use a separate
   ProductListing FIFO. The consumer commits canonical state/event or raw capture
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)
@@ -91,6 +107,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
+| `listing_shipping_wakeups` | INSERT | Effective listing shipping worker |
 
 Product event fanout:
 
@@ -98,7 +115,7 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond product projector; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
@@ -129,6 +146,13 @@ including when they retain the same resolution identity. Unchanged binding repla
 
 Jobs use schema version **2** and typed application IDs; version 1 is rejected.
 ProductListing event payloads have their own version, independent of the job envelope.
+Domain events containing delivery use version 2 with a required `delivery` discovery
+assertion or complete previous/current change; version 1 remains strict and readable.
+The CDC router validates the versioned configuration and emits existing compact event jobs.
+Delivery-only changes project the listing without triggering price/availability watchlist
+notifications or image embedding. Protected delivery terms never enter ordinary jobs or
+public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
+retain their exact version 1 codecs, semantic fingerprints and retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
 credentials, signatures and signed request headers still never enter it.
@@ -160,7 +184,8 @@ resurrect deleted state. Tombstones must outlive physical-delete version memory.
 [Rebuild and deletion recovery](../durable-worker-runbook.md#projection-fences-and-rebuild)
 require authoritative facts and fenced writers, not an index reset.
 
-FX capture alone does not trigger matching, projection or notification.
+FX capture alone does not enqueue matching, projection or notification; scheduled matching
+can discover explicitly opted-in shipping FX threshold crossings on its next evaluation.
 
 ## Provider and scheduled flows
 
@@ -200,8 +225,17 @@ Query-only intent uses the existing lexical search. Enhanced intent uses hybrid 
 with its write-time base-query + description embedding; the description is never appended
 as a mandatory all-words title query. Filters containing only deterministic constraints
 use ordinary search without embedding or model work. Structured predicates, including
-geography, availability, source/auction and pinned-FX prices, constrain retrieval regardless
+geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
+
+Shipping filters revisit indexed membership each evaluation without the automatic lower
+listing-updated replay bound: profile/default changes can affect older listings without a
+canonical price/availability change. Explicit FX-aware shipping maximums also reevaluate
+older listings against the run's persisted window-end snapshot, so an FX-only threshold
+crossing can create a new match. FX capture itself emits no listing/shipping event and
+requires no profile rewrite, projection fan-out or reindex. Explicit saved date bounds
+and the evaluation cutoff remain in force. This uses the current scheduled matcher and shipping enrichment projection, with no event-percolator
+queue. Private destination snapshots follow the [shipping contract](../shipping.md#shipping-search-and-saved-destinations).
 
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
 and skips existing matches, withdrawn listings and missing/stale sources before selecting
@@ -257,8 +291,12 @@ A run excludes overlapping execution and uses projection lag and replay overlap.
 work has bounded concurrency outside transactions; cancellation/timeouts and failed filters
 remain incomplete task outcomes. The final short transaction rechecks filter version,
 state/progress and current listing event before idempotent insertion. Matching pins persisted
-FX at the window end and retains historical sale-observation valuations. Persisted match
-INSERTs feed the existing CDC notification route independently of external notification
+FX at the window end and retains historical sale-observation valuations. An opted-in
+shipping match separately retains immutable FX ID/capture time and target maximum, without
+changing its private destination snapshot. Shipping valuation columns remain excluded from
+CDC; notification wake-ups still carry match identifiers only. Existing source-currency predicates retain their
+meaning. Subsequent FX captures do not rewrite matches or repeat their notifications.
+Persisted match INSERTs feed the existing CDC notification route independently of external notification
 eligibility and monthly quotas.
 
 The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)
@@ -369,3 +407,27 @@ Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly
 object payload only when compact derived values change. It routes to product projection,
 with no watchlist/price noise or enrichment loop. Work continuations and crash recovery
 are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).
+
+### Shipping observation validity
+
+Incremental shipping imports commit address-free shipping_validity_changes with their
+observations/ownership. OBSERVED is independent of management/terms/listing semantic
+revisions; AUTHORITY_CHANGED follows existing source/configuration or grant lifecycle changes.
+Subject identity is a profile, source default, listing or source; defaults and sources use the
+source ID. The subject kind, ID and revision identify an immutable signal. The owning
+[shipping contract](../shipping.md#incremental-typed-imports) defines application/replay and
+source authority. Shipping invalidation consumes these committed records without a refresh barrier,
+rereads current state and tolerates duplicate/out-of-order signals. Profile/source-default
+management signals, canonical listing events and geographic lifecycle/rights signals use
+the same durable work basis. Neither original assertion content nor producer ownership
+keys enter the CDC job.
+
+Effective shipping appends schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `{}` only
+when the public compact summary changes. It advances the existing listing projection
+fence/current-event pointer and routes only to the complete ProductListing projector.
+Canonical revision, updated time, content/embedding source pointers and public history
+remain unchanged. Dependency-only refreshes update reverse references silently.
+The event codec rejects unknown versions or payload fields. Deploy compatible event/job
+readers, strict camelCase mappings and the isolated queue/consumer with the migration;
+older readers cannot consume the new event or scope. Rebuild and lag semantics belong
+to the [shipping contract](../shipping.md#effective-shipping-discovery-projection).

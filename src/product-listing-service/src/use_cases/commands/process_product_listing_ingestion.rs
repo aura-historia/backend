@@ -9,6 +9,13 @@ use super::{
     upsert_product_listing::UpsertProductListingApplyError,
     withdraw_product_listing::WithdrawTarget,
 };
+use crate::ports::product_listing_delivery::{
+    ProductListingDeliveryReferencesFactory, UnavailableProductListingDeliveryReferences,
+};
+use crate::use_cases::{
+    ChangeProductListingDeliveryHandler, ChangeProductListingDeliveryResult,
+    ProductListingDeliveryError,
+};
 use crate::{
     ports::{
         PartnerProductListingAuthorizerFactory, ProductListingCommandCompletionCode,
@@ -54,12 +61,15 @@ pub enum ProductListingIngestionEffect {
     Upserted(UpsertProductListingResult),
     Withdrawn(WithdrawProductListingResult),
     RawCaptured(CaptureProductListingRawObservationResult),
+    DeliveryChanged(ChangeProductListingDeliveryResult),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingIngestionError {
     #[error("invalid ingestion command metadata")]
     InvalidMetadata,
+    #[error(transparent)]
+    Delivery(#[from] ProductListingDeliveryError),
     #[error("command identity was reused for different content")]
     FingerprintConflict,
     #[error("failed to begin ingestion transaction")]
@@ -85,6 +95,7 @@ impl ProductListingIngestionError {
     /// newly introduced failure variants cannot silently collapse into a generic retry reason.
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
+            Self::Delivery(e)=>e.diagnostic_code(),
             Self::InvalidMetadata => "INVALID_METADATA",
             Self::FingerprintConflict => "FINGERPRINT_CONFLICT",
             Self::BeginTransactionFailed(_) => "BEGIN_TRANSACTION_FAILED",
@@ -110,6 +121,9 @@ impl ProductListingIngestionError {
                 CreateProductListingError::InvalidProductListing => "CREATE_INVALID_PRODUCT_LISTING",
                 CreateProductListingError::CreatedEventMissing => "CREATE_CREATED_EVENT_MISSING",
                 CreateProductListingError::PersistenceFailed => "CREATE_PERSISTENCE_FAILED",
+                CreateProductListingError::InvalidDeliveryPersisted { .. } => {
+                    "CREATE_INVALID_DELIVERY_PERSISTED"
+                }
                 CreateProductListingError::EventAppenderFailed { .. } => "CREATE_EVENT_APPENDER_FAILED",
                 CreateProductListingError::BeginTransactionFailed(_) => "CREATE_BEGIN_TRANSACTION_FAILED",
                 CreateProductListingError::CommitTransactionFailed(_) => "CREATE_COMMIT_TRANSACTION_FAILED",
@@ -128,6 +142,9 @@ impl ProductListingIngestionError {
                 UpdateProductListingError::UrlRequired => "UPDATE_URL_REQUIRED",
                 UpdateProductListingError::InvalidProductListing => "UPDATE_INVALID_PRODUCT_LISTING",
                 UpdateProductListingError::PersistenceFailed => "UPDATE_PERSISTENCE_FAILED",
+                UpdateProductListingError::InvalidDeliveryPersisted { .. } => {
+                    "UPDATE_INVALID_DELIVERY_PERSISTED"
+                }
                 UpdateProductListingError::EventAppenderFailed { .. } => "UPDATE_EVENT_APPENDER_FAILED",
                 UpdateProductListingError::BeginTransactionFailed(_) => "UPDATE_BEGIN_TRANSACTION_FAILED",
                 UpdateProductListingError::CommitTransactionFailed(_) => "UPDATE_COMMIT_TRANSACTION_FAILED",
@@ -145,6 +162,9 @@ impl ProductListingIngestionError {
                 UpsertProductListingError::InvalidProductListing { .. } => "UPSERT_INVALID_PRODUCT_LISTING",
                 UpsertProductListingError::ProductListingTitleSlugGenerationExhausted => "UPSERT_TITLE_SLUG_GENERATION_EXHAUSTED",
                 UpsertProductListingError::PersistenceFailed => "UPSERT_PERSISTENCE_FAILED",
+                UpsertProductListingError::InvalidDeliveryPersisted { .. } => {
+                    "UPSERT_INVALID_DELIVERY_PERSISTED"
+                }
                 UpsertProductListingError::EventAppenderFailed { .. } => "UPSERT_EVENT_APPENDER_FAILED",
                 UpsertProductListingError::BeginTransactionFailed(_) => "UPSERT_BEGIN_TRANSACTION_FAILED",
                 UpsertProductListingError::CommitTransactionFailed(_) => "UPSERT_COMMIT_TRANSACTION_FAILED",
@@ -157,6 +177,9 @@ impl ProductListingIngestionError {
                 WithdrawProductListingError::PartnerAuthorizationInternal { .. } => "WITHDRAW_PARTNER_AUTHORIZATION_INTERNAL",
                 WithdrawProductListingError::NotFound => "WITHDRAW_NOT_FOUND",
                 WithdrawProductListingError::PersistenceFailed => "WITHDRAW_PERSISTENCE_FAILED",
+                WithdrawProductListingError::InvalidDeliveryPersisted { .. } => {
+                    "WITHDRAW_INVALID_DELIVERY_PERSISTED"
+                }
                 WithdrawProductListingError::EventAppenderFailed { .. } => "WITHDRAW_EVENT_APPENDER_FAILED",
                 WithdrawProductListingError::BeginTransactionFailed(_) => "WITHDRAW_BEGIN_TRANSACTION_FAILED",
                 WithdrawProductListingError::CommitTransactionFailed(_) => "WITHDRAW_COMMIT_TRANSACTION_FAILED",
@@ -190,7 +213,16 @@ pub trait ProcessProductListingIngestionUseCase: Send + Sync {
     ) -> Result<ProductListingIngestionCompletion, ProductListingIngestionError>;
 }
 
-pub struct ProcessProductListingIngestionHandler<U, R, E, A, V, W, C> {
+pub struct ProcessProductListingIngestionHandler<
+    U,
+    R,
+    E,
+    A,
+    V,
+    W,
+    C,
+    D = UnavailableProductListingDeliveryReferences,
+> {
     unit_of_work: U,
     products: R,
     events: E,
@@ -198,6 +230,7 @@ pub struct ProcessProductListingIngestionHandler<U, R, E, A, V, W, C> {
     auction_references: V,
     raw_writer: W,
     receipts: C,
+    delivery_references: D,
 }
 
 impl<U, R, E, A, V, W, C> ProcessProductListingIngestionHandler<U, R, E, A, V, W, C> {
@@ -218,13 +251,31 @@ impl<U, R, E, A, V, W, C> ProcessProductListingIngestionHandler<U, R, E, A, V, W
             auction_references,
             raw_writer,
             receipts,
+            delivery_references: UnavailableProductListingDeliveryReferences,
         }
     }
 }
 
+impl<U, R, E, A, V, W, C, D> ProcessProductListingIngestionHandler<U, R, E, A, V, W, C, D> {
+    pub fn with_delivery_references<D2>(
+        self,
+        delivery_references: D2,
+    ) -> ProcessProductListingIngestionHandler<U, R, E, A, V, W, C, D2> {
+        ProcessProductListingIngestionHandler {
+            unit_of_work: self.unit_of_work,
+            products: self.products,
+            events: self.events,
+            authorizer: self.authorizer,
+            auction_references: self.auction_references,
+            raw_writer: self.raw_writer,
+            receipts: self.receipts,
+            delivery_references,
+        }
+    }
+}
 #[async_trait::async_trait]
-impl<U, R, E, A, V, W, C> ProcessProductListingIngestionUseCase
-    for ProcessProductListingIngestionHandler<U, R, E, A, V, W, C>
+impl<U, R, E, A, V, W, C, D> ProcessProductListingIngestionUseCase
+    for ProcessProductListingIngestionHandler<U, R, E, A, V, W, C, D>
 where
     U: UnitOfWork + Clone,
     R: ProductListingRepositoryFactory<U::Tx> + Clone,
@@ -233,6 +284,7 @@ where
     V: AuctionReferenceValidatorFactory<U::Tx> + Clone,
     W: ProductListingRawCaptureWriterFactory<U::Tx>,
     C: ProductListingCommandReceiptStoreFactory<U::Tx>,
+    D: ProductListingDeliveryReferencesFactory<U::Tx> + Clone,
 {
     async fn execute(
         &self,
@@ -296,6 +348,12 @@ where
             self.events.clone(),
             self.authorizer.clone(),
         );
+        let delivery = ChangeProductListingDeliveryHandler::new(
+            self.unit_of_work.clone(),
+            self.products.clone(),
+            self.events.clone(),
+            self.delivery_references.clone(),
+        );
         let listing_id = ProductListingId::new();
         let mut slug_attempts = 0;
         let mut source_race_retried = false;
@@ -319,6 +377,15 @@ where
                 if receipt.completion_code != ProductListingCommandCompletionCode::Applied {
                     return Err(ProductListingIngestionError::InvalidMetadata);
                 }
+                if let ProductListingIngestionIntent::ChangeDelivery(command) = intent
+                    && command.import.is_some()
+                {
+                    // The outer queue receipt is not an authority grant. Recheck current
+                    // source/grant/connection fences even for already committed imports.
+                    delivery
+                        .apply_in_transaction(&mut tx, &context, command)
+                        .await?;
+                }
                 tx.commit().await.map_err(|source| {
                     ProductListingIngestionError::CommitTransactionFailed(Box::new(source))
                 })?;
@@ -328,6 +395,13 @@ where
             // No separately committing use case may participate here. These operations only
             // borrow the handler-owned transaction; a race drops it before the next lookup.
             let effect = match intent {
+                ProductListingIngestionIntent::ChangeDelivery(command) => {
+                    ProductListingIngestionEffect::DeliveryChanged(
+                        delivery
+                            .apply_in_transaction(&mut tx, &context, command)
+                            .await?,
+                    )
+                }
                 ProductListingIngestionIntent::Create(command) => {
                     let slug = create.generate_title_slug_id(command)?;
                     match create

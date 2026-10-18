@@ -1,3 +1,4 @@
+use application::error::BoxError;
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::{
     SearchFilterProductListingMatch, user_search_filter_id::UserSearchFilterId,
@@ -14,13 +15,25 @@ pub struct PersistedSearchFilterMatch {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterMatchRepositoryError {
     #[error("search filter match lookup failed")]
-    LookupFailed,
+    LookupFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter match insert failed")]
-    InsertFailed,
+    InsertFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter match update failed")]
-    UpdateFailed,
+    UpdateFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("persisted search filter match is invalid")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

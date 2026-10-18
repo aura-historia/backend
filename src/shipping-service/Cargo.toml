@@ -1,0 +1,30 @@
+[package]
+name = "shipping-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+fake = { workspace = true, optional = true }
+geo = { workspace = true }
+listing-source-core = { workspace = true }
+listing-source-service = { workspace = true }
+party-core = { workspace = true }
+product-listing-core = { workspace = true }
+serde = { workspace = true }
+shipping-core = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+
+[dev-dependencies]
+shipping-core = { workspace = true, features = ["test-data"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = []
+test-data = ["domain-primitives/test-data", "dep:fake"]

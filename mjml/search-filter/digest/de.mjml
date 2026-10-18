@@ -1,22 +1,78 @@
-<mjml>
-<mj-head><mj-title>Neue Treffer für deine gespeicherten Suchen</mj-title><mj-preview>{{match_count}} neue Treffer für {{listing_count}} Artikel</mj-preview>
-<mj-attributes><mj-all font-family="Manrope, Helvetica, Arial, sans-serif" /><mj-text color="#1c1c16" font-size="15px" line-height="1.6" /><mj-button background-color="#42120f" color="#ffffff" border-radius="4px" /></mj-attributes></mj-head>
-<mj-body background-color="#F7F4E9" width="600px">
-<mj-section background-color="#ffffff" padding="32px"><mj-column>
-<mj-text font-size="22px">Neue Treffer für deine gespeicherten Suchen</mj-text><mj-text>Hallo{{#if first_name}} {{first_name}}{{/if}},</mj-text>
-<mj-text>{{match_count}} neue Treffer für {{listing_count}} Artikel.</mj-text>
-<mj-text><b>Gespeicherte Suchen</b><br />{{#each groups}}<a href="{{url}}">{{name}}</a> ({{match_count}})<br />{{/each}}</mj-text>
-</mj-column></mj-section>
-<mj-raw>{{#each listings}}</mj-raw>
-<mj-section background-color="#ffffff" padding="16px 32px"><mj-column>
-<mj-text font-size="20px">{{#if title}}{{title}}{{else}}{{listing_source_name}}{{/if}}</mj-text>
-<mj-text>{{listing_source_name}}<br />{{#each searches}}<a href="{{url}}">{{name}}</a><br />{{/each}}</mj-text>
-<mj-raw>{{#if image_url}}</mj-raw><mj-image src="{{image_url}}" alt="{{listing_source_name}}" padding="8px 0" /><mj-raw>{{/if}}</mj-raw>
-<mj-button href="{{product_listing_url}}">Artikel ansehen</mj-button>
-</mj-column></mj-section>
-<mj-raw>{{/each}}</mj-raw>
-<mj-section padding="24px 32px"><mj-column>
-<mj-text>Vorschau: {{preview_count}} von {{listing_count}} Artikeln. Alle Ergebnisse findest du in deinen gespeicherten Suchen.</mj-text>
-<mj-button href="{{results_url}}">Alle gespeicherten Suchen ansehen</mj-button><mj-text align="center"><a href="{{settings_url}}">Benachrichtigungen verwalten</a></mj-text>
-<mj-text align="center" font-size="12px">© 2026 Aura Historia<br />Julian Bruder Einzelunternehmen · Hardenbergstraße 80, 04275 Leipzig, Germany<br /><a href="mailto:contact@aura-historia.com">contact@aura-historia.com</a></mj-text>
-</mj-column></mj-section></mj-body></mjml>
+<mjml lang="de">
+  <mj-head>
+    <mj-title>Neue Treffer für deine gespeicherten Suchen</mj-title>
+    <mj-preview>{{#if (eq match_count 1)}}1 neuer Treffer{{else}}{{match_count}} neue Treffer{{/if}} {{#if (eq listing_count 1)}}in 1 Angebot{{else}}in {{listing_count}} Angeboten{{/if}}</mj-preview>
+    <mj-font name="Newsreader" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" />
+    <mj-font name="Geist" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+    <mj-attributes>
+      <mj-all font-family="Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif" />
+      <mj-wrapper padding="20px 0" />
+      <mj-section padding="0 40px" background-color="#F4EEE3" css-class="ah-px" />
+      <mj-column padding="0" />
+      <mj-text padding="0" color="#4F4441" font-size="16px" line-height="1.6" />
+      <mj-image padding="0" />
+      <mj-spacer height="28px" />
+      <mj-class name="eyebrow" font-family="'Geist Mono', Menlo, Consolas, 'Courier New', monospace" font-size="12px" line-height="1.4" letter-spacing="0.2em" color="#7A5C30" padding="0 0 18px" />
+      <mj-class name="headline" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40px" line-height="1.06" letter-spacing="-0.02em" color="#170D0E" css-class="ah-headline" />
+      <mj-class name="note" font-size="14px" color="#6B5E58" />
+      <mj-class name="footnote" font-size="13px" color="#6B5E58" />
+      <mj-divider padding="0 0 24px" border-width="1px" border-color="#D5CFC5" />
+    </mj-attributes>
+    <mj-style>
+      a { color: #170D0E; }
+      @media only screen and (max-width: 480px) {
+        .ah-px > table > tbody > tr > td { padding-left: 20px !important; padding-right: 20px !important; }
+        .ah-headline > div { font-size: 32px !important; }
+      }
+      @media only screen and (max-width: 480px) {
+        .ah-grid-card { max-width: 100% !important; width: 100% !important; margin-right: 0 !important; }
+      }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#EDE5D7" width="600px">
+    <mj-wrapper>
+    <mj-section background-color="#170D0E" padding="30px 40px" border-radius="14px 14px 0 0">
+      <mj-column>
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="{{home_url}}" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">SUCHALARM</td></tr></table></mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section padding="44px 40px 48px">
+      <mj-column>
+        <mj-text mj-class="eyebrow">GESPEICHERTE SUCHEN — ÜBERSICHT</mj-text>
+        <mj-text mj-class="headline">{{#if (eq match_count 1)}}1 neuer Treffer{{else}}{{match_count}} neue Treffer{{/if}} <em>{{#if (eq listing_count 1)}}in 1 Angebot{{else}}in {{listing_count}} Angeboten{{/if}}.</em></mj-text>
+        <mj-spacer />
+        <mj-text padding="0 0 12px" color="#170D0E">{{#if first_name}}Hallo {{first_name}},{{else}}Guten Tag,{{/if}}</mj-text>
+        <mj-text>Das ist neu bei Ihren gespeicherten Suchen.</mj-text>
+        <mj-spacer />
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background-color:#FBF8F2;border:1px solid #E5DED4;border-radius:14px;"><tr><td colspan="2" style="padding:16px 22px 14px;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">IHRE GESPEICHERTEN SUCHEN</span></td></tr>{{#each groups}}<tr><td style="padding:14px 12px 14px 22px;border-top:1px solid #E9E5E0;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:500;"><a href="{{url}}" style="color:#170D0E;text-decoration:none;">{{name}}</a></td><td align="right" style="padding:14px 22px 14px 0;border-top:1px solid #E9E5E0;white-space:nowrap;text-align:right;"><a href="{{url}}" style="text-decoration:none;"><span style="display:inline-block;padding:4px 9px;border-radius:999px;background-color:#EDE5D7;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.2;letter-spacing:0.06em;color:#4F4441;">{{match_count}} NEU</span><span style="padding-left:10px;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:16px;color:#6B5E58;">&rsaquo;</span></a></td></tr>{{/each}}</table></mj-text>
+        <mj-spacer />
+        <mj-text padding="0 0 16px"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">NEUESTE ANGEBOTE</span></mj-text>
+        <mj-text font-size="0px" line-height="0">{{#each listings}}<div class="ah-grid-card" style="display:inline-block;vertical-align:top;box-sizing:border-box;width:100%;max-width:248px;margin:0 12px 16px 0;background-color:#FBF8F2;border:1px solid #E5DED4;border-radius:14px;text-align:left;font-size:16px;line-height:1.6;">{{#if image_url}}<a href="{{product_listing_url}}" style="text-decoration:none;"><img src="{{image_url}}" alt="{{#if title}}{{title}}{{else}}{{listing_source_name}}{{/if}}" width="250" style="display:block;width:100%;height:auto;border:0;border-radius:13px 13px 0 0;background-color:#E6DDCD;" /></a>{{else}}<a href="{{product_listing_url}}" style="display:block;text-decoration:none;background-color:#E6DDCD;border-radius:13px 13px 0 0;"><div style="height:188px;line-height:188px;text-align:center;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">KEIN BILD</span></div></a>{{/if}}<div style="padding:14px 16px 6px;"><a href="{{product_listing_url}}" style="text-decoration:none;"><div style="font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:17px;line-height:1.25;color:#170D0E;padding-bottom:8px;">{{#if title}}{{title}}{{else}}{{listing_source_name}}{{/if}}</div></a><div style="font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:13px;line-height:1.4;color:#6B5E58;padding-bottom:12px;">{{listing_source_name}}</div><div style="padding-bottom:6px;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">TREFFER FÜR</span></div><div style="line-height:26px;">{{#each searches}}<a href="{{url}}" style="display:inline-block;margin:0 6px 6px 0;padding:4px 9px;border-radius:999px;border:1px solid #D5CFC5;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:12px;line-height:1.3;color:#4F4441;text-decoration:none;">{{name}}</a>{{/each}}</div><a href="{{product_listing_url}}" style="display:inline-block;padding:10px 0;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:14px;line-height:20px;font-weight:500;color:#170D0E;text-decoration:none;">Angebot ansehen<span style="padding-left:8px;">&rarr;</span></a></div></div>{{/each}}</mj-text>
+        <mj-spacer height="12px" />
+        <mj-raw>{{#if has_more}}</mj-raw>
+        <mj-text mj-class="note">{{preview_count}} von {{listing_count}} Angeboten werden angezeigt. Alle Ergebnisse finden Sie weiterhin in Ihren gespeicherten Suchen.</mj-text>
+        <mj-spacer height="20px" />
+        <mj-raw>{{/if}}</mj-raw>
+<mj-text padding="0" font-size="0px" line-height="0"><table role="presentation" border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:separate;vertical-align:top;margin:0 6px 10px 0;"><tr><td bgcolor="#170D0E" style="background-color:#170D0E;border-radius:999px;padding:14px 24px;"><a href="{{results_url}}" style="display:inline-block;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;font-weight:500;line-height:20px;color:#FBF8F2;text-decoration:none;white-space:nowrap;">Alle gespeicherten Suchen ansehen<span style="padding-left:8px;">&rarr;</span></a></td></tr></table></mj-text>
+        <mj-spacer />
+        <mj-divider />
+        <mj-text mj-class="footnote">Sie erhalten diese Übersicht, weil E-Mail-Benachrichtigungen für Ihre gespeicherten Suchen aktiviert sind. <a href="{{settings_url}}" style="color:#170D0E;text-decoration:underline;text-underline-offset:3px;">Benachrichtigungseinstellungen verwalten</a>.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#170D0E" padding="36px 40px 40px" border-radius="0 0 14px 14px">
+      <mj-column>
+        <mj-text font-size="14px" color="#D8CABE">
+          <div style="padding-bottom:10px;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:20px;line-height:1;letter-spacing:0.22em;color:#F4EEE3;">AURA HISTORIA</div>
+          <div style="padding-bottom:16px;">Der weltweite Antiquitätenmarkt in einer einzigen Suche.</div>
+          <div style="padding-bottom:22px;line-height:2;"><a href="{{home_url}}" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
+          <div style="border-top:1px solid #362D2C;padding-top:22px;font-size:12px;color:#A8988D;">
+            <div style="padding-bottom:10px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#D8CABE;">IMPRESSUM</div>
+            <div style="padding-bottom:10px;">Handelsname: Aura Historia &middot; Inhaber: Julian Bruder Einzelunternehmen<br />Anschrift: Hardenbergstraße 80, 04275 Leipzig, Deutschland<br />Kontakt: contact@aura-historia.com &middot; USt-IdNr.: beantragt</div>
+            <div>© 2026 Aura Historia — Alle Rechte vorbehalten.</div>
+          </div>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    </mj-wrapper>
+  </mj-body>
+</mjml>

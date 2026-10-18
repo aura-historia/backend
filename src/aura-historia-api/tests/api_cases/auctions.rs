@@ -1347,6 +1347,12 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
         json!(true),
         hidden_body["items"][0]["userState"]["searchFilter"]["hidden"]
     );
+    assert!(hidden_body["items"][0]["item"]["shipping"].is_null());
+    assert!(
+        hidden_body["items"][0]["userState"]
+            .get("shipping")
+            .is_none()
+    );
     assert!(hidden_body["items"][0]["item"]["auction"].is_null());
     assert!(hidden_body["items"][0]["item"]["lot"].is_null());
     assert!(

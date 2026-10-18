@@ -24,11 +24,32 @@ impl ResolutionRepositoryFactory<SqlxTransaction> for SqlxResolutionRepositoryFa
     }
 }
 impl SqlxResolutionRepositoryFactory {
+    /// Read permitted, unexpired evidence inside an already established repeatable read
+    /// transaction. This reader takes no row locks and performs no writes or provider I/O.
+    pub fn snapshot_reader(connection: &mut PgConnection) -> impl ResolutionReader + '_ {
+        SnapshotReader(Repository { connection })
+    }
     /// Compose multiple service-owned capabilities on the same authoritative transaction.
     pub fn on_connection(
         connection: &mut PgConnection,
     ) -> impl ResolutionRepository + ResolutionReader + '_ {
         Repository { connection }
+    }
+}
+struct SnapshotReader<'a>(Repository<'a>);
+#[async_trait::async_trait]
+impl ResolutionReader for SnapshotReader<'_> {
+    async fn inspect(
+        &mut self,
+        subject: ResolutionSubject,
+    ) -> Result<Option<ResolutionView>, ResolutionError> {
+        Ok(self.inspect_many(&[subject]).await?.pop().flatten())
+    }
+    async fn inspect_many(
+        &mut self,
+        subjects: &[ResolutionSubject],
+    ) -> Result<Vec<Option<ResolutionView>>, ResolutionError> {
+        self.0.inspect_snapshot(subjects, false).await
     }
 }
 struct Repository<'a> {
@@ -862,7 +883,16 @@ impl ResolutionReader for Repository<'_> {
         &mut self,
         subjects: &[ResolutionSubject],
     ) -> Result<Vec<Option<ResolutionView>>, ResolutionError> {
-        if subjects.len() > 100 {
+        self.inspect_snapshot(subjects, true).await
+    }
+}
+impl Repository<'_> {
+    async fn inspect_snapshot(
+        &mut self,
+        subjects: &[ResolutionSubject],
+        lock: bool,
+    ) -> Result<Vec<Option<ResolutionView>>, ResolutionError> {
+        if subjects.len() > MAX_RESOLUTION_SUBJECTS {
             return Err(ResolutionError::InvalidInput);
         }
         if subjects.is_empty() {
@@ -885,16 +915,19 @@ impl ResolutionReader for Repository<'_> {
             return Ok(vec![None; subjects.len()]);
         }
         let (ids, profiles): (Vec<_>, Vec<_>) = identities.into_iter().unzip();
-        sqlx::query("SELECT profile FROM geo_resolution_provider_controls WHERE profile=ANY($1) ORDER BY profile FOR SHARE")
-            .bind(profiles).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        if lock {
+            sqlx::query("SELECT profile FROM geo_resolution_provider_controls WHERE profile=ANY($1) ORDER BY profile FOR SHARE")
+                .bind(profiles).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        }
         // Lock each resolution once in stable order, then reread and lock bindings.
         // This preserves selection/expiry coordination with a constant query count.
         let rows: Vec<ResolutionRow> = sqlx::query_as(
-            "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE",
+            if lock { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE" }
+            else { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id" },
         ).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         let rows: std::collections::HashMap<_, _> =
             rows.into_iter().map(|r| (r.resolution_id, r)).collect();
-        let bindings: Vec<BindingReadRow> = sqlx::query_as(
+        let mut binding_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             r#"
             SELECT b.subject_kind,b.subject_id,b.resolution_id,b.input_revision,b.guard,
                 b.selected_candidate,b.selected_generation,c.storage_permitted
@@ -902,9 +935,20 @@ impl ResolutionReader for Repository<'_> {
             JOIN unnest($1::text[],$2::uuid[]) AS wanted(subject_kind,subject_id) USING(subject_kind,subject_id)
             JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
-            WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id FOR SHARE OF b
+            WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id
             "#,
-        ).bind(&kinds).bind(&subject_ids).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        );
+        if lock {
+            binding_query.push(" FOR SHARE OF b");
+        }
+        let bindings: Vec<BindingReadRow> = binding_query
+            .build_query_as::<BindingReadRow>()
+            .bind(&kinds)
+            .bind(&subject_ids)
+            .bind(&ids)
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(sql_error)?;
         let bindings: std::collections::HashMap<_, _> = bindings
             .into_iter()
             .map(|b| ((b.subject_kind.clone(), b.subject_id), b))

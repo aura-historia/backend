@@ -133,6 +133,14 @@ pub struct PriceMatchValuation {
     pub fx_rate_id: FxRateId,
 }
 
+/// Immutable explanation of an explicitly FX-aware shipping maximum at evaluation time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShippingMatchValuation {
+    pub fx_rate_id: FxRateId,
+    pub captured_at: time::OffsetDateTime,
+    pub maximum_per_item: money::Price,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterProductListingMatch {
     pub user_id: UserId,
@@ -142,6 +150,7 @@ pub struct SearchFilterProductListingMatch {
     pub origin_event_id: EventId,
     /// Immutable valuation used only when this filter had a price condition.
     pub price_match_valuation: Option<PriceMatchValuation>,
+    pub shipping_match_valuation: Option<ShippingMatchValuation>,
     pub feedback: Option<bool>,
 }
 
@@ -231,6 +240,7 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
+            shipping_match_valuation: None,
             feedback: Some(true),
         };
 

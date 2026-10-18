@@ -5,6 +5,7 @@ use search_filter_core::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingUserState {
+    pub shipping: Option<crate::shipping::PersonalizedShipping>,
     pub watchlist: WatchlistUserState,
     pub content_visibility: ContentVisibilityUserState,
     pub notification: NotificationUserState,
@@ -34,6 +35,7 @@ pub struct SearchFilterUserState {
     pub user_search_filter_id: Option<UserSearchFilterId>,
     pub user_search_filter_name: Option<UserSearchFilterName>,
     pub match_feedback: Option<bool>,
+    pub shipping_match_valuation: Option<search_filter_core::ShippingMatchValuation>,
 }
 
 #[cfg(test)]

@@ -1420,6 +1420,19 @@ async fn test_state(
             partner_management_mutations,
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         );
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
+        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
+            unit_of_work.clone(),
+            shipping_postgres::assessment::SqlxAssessmentReaderFactory,
+            address_book.clone(),
+        )),
+        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
+    );
     let public_auctions_state = PublicAuctionsState::new(
         Arc::new(GetPublicAuctionHandler::new(
             SqlxPublicAuctionDetailsReader::new(pool.clone()),
@@ -1432,6 +1445,7 @@ async fn test_state(
             SqlxAuctionCatalogueReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             SqlxPublicAuctionDetailsReader::new(pool.clone()),
+            shipping.clone(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
@@ -1618,6 +1632,7 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(GetSimilarProductListingsHandler::new(
             unit_of_work.clone(),
@@ -1627,6 +1642,7 @@ async fn test_state(
             SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
+            shipping.clone(),
         )),
         Arc::new(SearchProductListingsHandler::new(
             OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
@@ -1641,6 +1657,7 @@ async fn test_state(
             ),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
+            shipping.clone(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
@@ -1845,24 +1862,30 @@ async fn test_state(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(CreateSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator::Success,
-            SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            CreateSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                TestEmbeddingGenerator::Success,
+                SqlxSearchFilterQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
         )),
-        Arc::new(UpdateOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator::Success,
-            search_filter_reader.clone(),
-            SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserTierEntitlementsFactory::new(),
-        )),
+        Arc::new(
+            UpdateOwnedSearchFilterHandler::new(
+                unit_of_work.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                TestEmbeddingGenerator::Success,
+                search_filter_reader.clone(),
+                SqlxSearchFilterQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            )
+            .with_shipping_destinations(address_book.clone()),
+        ),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
@@ -1872,6 +1895,7 @@ async fn test_state(
             search_filter_reader.clone(),
             SqlxProductListingDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -1908,6 +1932,7 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(WatchProductListingHandler::new(
             unit_of_work.clone(),

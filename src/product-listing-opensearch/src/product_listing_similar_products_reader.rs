@@ -92,10 +92,15 @@ impl ProductListingSimilarProductListingsReader
         })?;
         let search =
             ProductListingSearch::new(request.language, request.price_filter_plan.target_currency);
-        let compiled_search = CompiledProductListingSearch {
+        let compiled_search = CompiledProductListingSearch::new(
             search,
-            price_filter_plan: request.price_filter_plan.clone(),
-        };
+            request.price_filter_plan.clone(),
+        )
+        .map_err(|source| {
+            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
+                source: box_error(source),
+            }
+        })?;
 
         map_search_response(&compiled_search, search_response)
             .map(|result| result.items)

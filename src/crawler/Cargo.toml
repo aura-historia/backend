@@ -83,7 +83,7 @@ path = "src/bin/server.rs"
 
 [[bin]]
 name = "dev"
-path = "src/dev.rs"
+path = "src/bin/dev.rs"
 
 [[bin]]
 name = "fetch-fixture"

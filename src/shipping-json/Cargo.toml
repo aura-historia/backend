@@ -1,0 +1,15 @@
+[package]
+name = "shipping-json"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+product-listing-core = { workspace = true }
+application = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+listing-source-core = { workspace = true }
+money = { workspace = true }
+party-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shipping-core = { workspace = true }

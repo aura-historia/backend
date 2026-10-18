@@ -45,6 +45,8 @@ struct ProductListingSearchData {
     #[serde(default)]
     geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
+    shipping: Option<crate::shipping_search::ShippingSearchData>,
+    #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
@@ -133,6 +135,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
     fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
             geography: crate::geographic_search::parse_query(data.geography, "geography")?,
+            shipping: crate::shipping_search::parse(data.shipping, false)?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -306,6 +309,10 @@ async fn handle_search(
         .await
     {
         Ok(result) => {
+            let ttl = crate::shipping::listing::cache_ttl(
+                result.items.iter().map(|i| i.item.shipping.as_ref()),
+                60,
+            );
             let items = result
                 .items
                 .into_iter()
@@ -322,7 +329,7 @@ async fn handle_search(
                 response,
                 &headers,
                 !geographic && matches!(&context.principal, Principal::Anonymous),
-                60,
+                ttl,
             )
         }
         Err(error) => ApiError::from(error).into_response(),

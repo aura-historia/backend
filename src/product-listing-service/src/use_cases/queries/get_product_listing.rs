@@ -159,6 +159,7 @@ pub struct ProductListingImageView {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingDetailsView {
+    pub shipping: Option<crate::shipping::AdvertisedShipping>,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
@@ -186,6 +187,12 @@ pub type PersonalizedProductListingDetailsView =
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetProductListingError {
+    #[error("shipping enrichment failed")]
+    Shipping(
+        #[from]
+        #[source]
+        crate::shipping::ShippingReadError,
+    ),
     #[error("product not found")]
     NotFound,
     #[error("product details query failed")]
@@ -231,14 +238,21 @@ pub trait GetProductListingUseCase: Send + Sync {
 }
 
 pub struct GetProductListingHandler<U, D, F> {
+    shipping: crate::shipping::ShippingEnrichment,
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
 }
 
 impl<U, D, F> GetProductListingHandler<U, D, F> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        details_reader: D,
+        fx_rates: F,
+        shipping: crate::shipping::ShippingEnrichment,
+    ) -> Self {
         Self {
+            shipping,
             unit_of_work,
             details_reader,
             fx_rates,
@@ -297,6 +311,13 @@ where
             valuation_at,
         )
         .await?;
+        let current_shipping_snapshot = applicable_sale_observation(
+            factual_details.item.sale_observation,
+            factual_details.item.availability,
+            factual_details.item.lifecycle,
+        )
+        .is_none()
+        .then_some(&snapshot);
         let mut details = present_product_details(factual_details, &snapshot, request.currency)?;
 
         tx.commit()
@@ -314,6 +335,15 @@ where
             redact_hidden_product(&mut details.item)?;
         }
 
+        self.shipping
+            .details(
+                context,
+                std::slice::from_mut(&mut details),
+                request.currency,
+                current_shipping_snapshot,
+                valuation_at,
+            )
+            .await?;
         Ok(details)
     }
 }
@@ -349,6 +379,7 @@ pub fn present_product_details(
     )?;
     Ok(Personalized {
         item: ProductListingDetailsView {
+            shipping: None,
             product_listing_id: item.product_listing_id,
             product_listing_title_slug_id: Some(item.product_listing_title_slug_id),
             event_id: item.event_id,
@@ -750,6 +781,7 @@ mod tests {
             FakeFxRateSnapshotRepositoryFactory {
                 state: Arc::clone(state),
             },
+            crate::shipping::ShippingEnrichment::for_tests(),
         )
     }
 

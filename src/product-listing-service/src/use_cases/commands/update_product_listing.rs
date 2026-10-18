@@ -89,6 +89,11 @@ pub enum UpdateProductListingError {
     InvalidProductListing,
     #[error("product listing persistence failed")]
     PersistenceFailed,
+    #[error("persisted listing delivery is invalid")]
+    InvalidDeliveryPersisted {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event storage failed")]
     EventAppenderFailed {
         #[source]
@@ -420,8 +425,13 @@ impl From<ChangeProductListingError> for UpdateProductListingError {
     }
 }
 impl From<ProductListingRepositoryError> for UpdateProductListingError {
-    fn from(_: ProductListingRepositoryError) -> Self {
-        Self::PersistenceFailed
+    fn from(error: ProductListingRepositoryError) -> Self {
+        match error {
+            ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
+                Self::InvalidDeliveryPersisted { source }
+            }
+            _ => Self::PersistenceFailed,
+        }
     }
 }
 impl From<ProductListingEventAppendError> for UpdateProductListingError {

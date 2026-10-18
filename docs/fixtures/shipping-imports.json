@@ -1,0 +1,382 @@
+{
+  "create": {
+    "creationKey": "create-policy",
+    "content": {
+      "name": "Gallery advertised terms",
+      "attributedPartyId": null,
+      "terms": {
+        "schema": "SHIP_TERMS_V1",
+        "shipping": {
+          "kind": "COVERAGE",
+          "coverage": {
+            "reference_release": "iso-codes-4.20.1",
+            "completeness": "PARTIAL",
+            "applicability": {
+              "class": null,
+              "variants": null,
+              "quantity": null,
+              "threshold": null
+            },
+            "exclusions": [],
+            "dispatch_origin": null,
+            "zones": [
+              {
+                "areas": [
+                  {
+                    "kind": "COUNTRY",
+                    "code": "DE",
+                    "reference_release": "iso-codes-4.20.1"
+                  }
+                ],
+                "applicability": {
+                  "class": null,
+                  "variants": null,
+                  "quantity": null,
+                  "threshold": null
+                },
+                "services": [
+                  {
+                    "code": "gallery-delivery",
+                    "applicability": {
+                      "class": null,
+                      "variants": null,
+                      "quantity": null,
+                      "threshold": null
+                    },
+                    "eligibility": "OFFERED",
+                    "rate": {
+                      "price": {
+                        "kind": "FIXED",
+                        "amount": {
+                          "amount_minor": 8000,
+                          "currency": "EUR"
+                        }
+                      },
+                      "basis": "PER_ITEM",
+                      "qualifying_scope": null,
+                      "components": {}
+                    },
+                    "lead_times": {
+                      "handling": null,
+                      "transit": null,
+                      "total": null
+                    },
+                    "features": [],
+                    "arranger": null,
+                    "performer": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "collection": {
+          "applicability": {
+            "class": null,
+            "variants": null,
+            "quantity": null,
+            "threshold": null
+          },
+          "dependency": "INDEPENDENT",
+          "eligibility": "OFFERED",
+          "site": null,
+          "arrangement": {
+            "kind": "BY_APPOINTMENT"
+          }
+        }
+      }
+    },
+    "evidence": [],
+    "import": {
+      "sequence": 1,
+      "requestKey": "create-policy-v1",
+      "objectKey": "website-policy",
+      "observation": {},
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "SOURCE"
+      }
+    }
+  },
+  "membership": {
+    "expectedVersion": 1,
+    "import": {
+      "sequence": 2,
+      "requestKey": "membership-v1",
+      "observation": {},
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "SOURCE"
+      }
+    },
+    "delivery": {
+      "state": "SET",
+      "value": {
+        "integration": {
+          "kind": "SOURCE"
+        },
+        "selection": {
+          "state": "SET",
+          "value": {
+            "kind": "INHERIT_SOURCE_DEFAULT"
+          }
+        },
+        "rateInputs": {
+          "state": "UNCHANGED"
+        },
+        "shipping": {
+          "state": "UNCHANGED"
+        },
+        "collection": {
+          "state": "UNCHANGED"
+        }
+      }
+    }
+  },
+  "providerMembership": {
+    "expectedVersion": 1,
+    "import": {
+      "sequence": 2,
+      "requestKey": "provider-membership-v1",
+      "observation": {},
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "PROVIDER",
+        "method": "SHOPIFY"
+      }
+    },
+    "delivery": {
+      "state": "SET",
+      "value": {
+        "integration": {
+          "kind": "PROVIDER",
+          "method": "SHOPIFY"
+        },
+        "selection": {
+          "state": "SET",
+          "value": {
+            "kind": "EXPLICIT",
+            "profile_id": "shp_01h455vb4pex5vy7enb1p677v3"
+          }
+        },
+        "rateInputs": {
+          "state": "SET",
+          "value": {
+            "classes": {
+              "codes": [
+                "fragile"
+              ],
+              "completeness": "PARTIAL"
+            },
+            "variants": [
+              "gid://synthetic/Variant/2"
+            ]
+          }
+        },
+        "shipping": {
+          "state": "UNCHANGED"
+        },
+        "collection": {
+          "state": "UNCHANGED"
+        }
+      }
+    }
+  },
+  "committedProfile": {
+    "shippingProfileId": "shp_01h455vb4pex5vy7enb1p677v3",
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677v1",
+    "managementRevision": 1,
+    "termsRevision": 1,
+    "lifecycle": "ACTIVE",
+    "content": {
+      "name": "Gallery advertised terms",
+      "attributedPartyId": null,
+      "terms": {
+        "schema": "SHIP_TERMS_V1",
+        "shipping": {
+          "kind": "COVERAGE",
+          "coverage": {
+            "reference_release": "iso-codes-4.20.1",
+            "completeness": "PARTIAL",
+            "applicability": {
+              "class": null,
+              "variants": null,
+              "quantity": null,
+              "threshold": null
+            },
+            "exclusions": [],
+            "dispatch_origin": null,
+            "zones": [
+              {
+                "areas": [
+                  {
+                    "kind": "COUNTRY",
+                    "code": "DE",
+                    "reference_release": "iso-codes-4.20.1"
+                  }
+                ],
+                "applicability": {
+                  "class": null,
+                  "variants": null,
+                  "quantity": null,
+                  "threshold": null
+                },
+                "services": [
+                  {
+                    "code": "gallery-delivery",
+                    "applicability": {
+                      "class": null,
+                      "variants": null,
+                      "quantity": null,
+                      "threshold": null
+                    },
+                    "eligibility": "OFFERED",
+                    "rate": {
+                      "price": {
+                        "kind": "FIXED",
+                        "amount": {
+                          "amount_minor": 8000,
+                          "currency": "EUR"
+                        }
+                      },
+                      "basis": "PER_ITEM",
+                      "qualifying_scope": null,
+                      "components": {}
+                    },
+                    "lead_times": {
+                      "handling": null,
+                      "transit": null,
+                      "total": null
+                    },
+                    "features": [],
+                    "arranger": null,
+                    "performer": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "collection": {
+          "applicability": {
+            "class": null,
+            "variants": null,
+            "quantity": null,
+            "threshold": null
+          },
+          "dependency": "INDEPENDENT",
+          "eligibility": "OFFERED",
+          "site": null,
+          "arrangement": {
+            "kind": "BY_APPOINTMENT"
+          }
+        }
+      }
+    }
+  },
+  "committedMembership": {
+    "productListingId": "pl_01h455vb4pex5vy7enb1p677v4",
+    "expectedVersion": 1,
+    "outcome": "UNCHANGED"
+  },
+  "providerCreate": {
+    "creationKey": "create-provider-policy",
+    "content": {
+      "name": "Gallery advertised terms",
+      "attributedPartyId": null,
+      "terms": {
+        "schema": "SHIP_TERMS_V1",
+        "shipping": {
+          "kind": "COVERAGE",
+          "coverage": {
+            "reference_release": "iso-codes-4.20.1",
+            "completeness": "PARTIAL",
+            "applicability": {
+              "class": null,
+              "variants": null,
+              "quantity": null,
+              "threshold": null
+            },
+            "exclusions": [],
+            "dispatch_origin": null,
+            "zones": [
+              {
+                "areas": [
+                  {
+                    "kind": "COUNTRY",
+                    "code": "DE",
+                    "reference_release": "iso-codes-4.20.1"
+                  }
+                ],
+                "applicability": {
+                  "class": null,
+                  "variants": null,
+                  "quantity": null,
+                  "threshold": null
+                },
+                "services": [
+                  {
+                    "code": "gallery-delivery",
+                    "applicability": {
+                      "class": null,
+                      "variants": null,
+                      "quantity": null,
+                      "threshold": null
+                    },
+                    "eligibility": "OFFERED",
+                    "rate": {
+                      "price": {
+                        "kind": "FIXED",
+                        "amount": {
+                          "amount_minor": 8000,
+                          "currency": "EUR"
+                        }
+                      },
+                      "basis": "PER_ITEM",
+                      "qualifying_scope": null,
+                      "components": {}
+                    },
+                    "lead_times": {
+                      "handling": null,
+                      "transit": null,
+                      "total": null
+                    },
+                    "features": [],
+                    "arranger": null,
+                    "performer": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "collection": {
+          "applicability": {
+            "class": null,
+            "variants": null,
+            "quantity": null,
+            "threshold": null
+          },
+          "dependency": "INDEPENDENT",
+          "eligibility": "OFFERED",
+          "site": null,
+          "arrangement": {
+            "kind": "BY_APPOINTMENT"
+          }
+        }
+      }
+    },
+    "evidence": [],
+    "import": {
+      "sequence": 1,
+      "requestKey": "provider-create-v1",
+      "objectKey": "provider-policy",
+      "observation": {},
+      "acquiredAt": "2026-10-15T10:00:00Z",
+      "integration": {
+        "kind": "PROVIDER",
+        "method": "SHOPIFY"
+      }
+    }
+  }
+}

@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
+shipping-core = { workspace = true }
+shipping-json = { workspace = true }
+listing-source-core = { workspace = true }
+party-core = { workspace = true }
 product-listing-service = { workspace = true }
 geo-service = { workspace = true }
 aura-historia-jobs = { path = "../aura-historia-jobs" }

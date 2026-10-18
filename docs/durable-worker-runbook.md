@@ -205,6 +205,46 @@ approved reader/alias target. Withdrawn listings retain authoritative source sta
 Index reset, expired queues and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
 
+## Listing shipping recovery
+
+[Shipping](shipping.md#effective-shipping-discovery-projection) owns the conservative
+index subset, observation eligibility and distinction between current listing
+responses and delayed indexed discovery. The worker accepts only compact work ID/generation
+wake-ups, rereads canonical PostgreSQL and commits a bounded page with its checkpoint.
+It never calls providers or writes OpenSearch. Stale/superseded work cannot commit a page;
+active claims, malformed input and dependency failures retain SQS retry/DLQ custody.
+Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redrive. There
+is no scheduled shipping expiry or pending-work recovery scan.
+
+Apply the migration with compatible shipping/event codecs, CDC table selection, dedicated
+queue/consumer, ingestion delivery envelope v2 and strict nested shipping mapping under the
+[schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
+Fence/drain incompatible old complete-projector binaries before activating shipping work;
+old document builders omit shipping even when they read a newer listing fence.
+Original shipping journals, policies, observations, dependency rows and checkpoints stay
+outside DMS. The router publishes the address-free wake-up pair only; its existing private
+archive retains router failures. Worker source/DLQ retention and scoped runtime/operator
+permissions follow the shared queue contract.
+
+For bounded rebuilds, enqueue selected source UUIDs in reviewed keyset pages with `SELECT enqueue_listing_shipping('SOURCE', $1)` in the
+operational transaction. Preserve work generations, live leases, reverse references,
+canonical revisions and deletion fences; never manufacture listing changes to drive a
+rebuild. Source jobs and independent listing jobs cover overlapping creation/assignment
+changes. No provider access or copied addresses are needed. Unknown schema/invalid storage
+requires correction through its owning contract, not replacement with an empty policy.
+
+An empty replacement index also needs replay of the existing complete product-projection
+journal after derived state catches up: equal shipping summaries intentionally emit no
+new events. Follow the isolated index-generation procedure above, including old-writer
+fencing and retained tombstones, before switching readers. Verify safe identities/versions,
+country-service-price nesting and deletion visibility. Runtime acknowledgment means an
+accepted or externally fenced write, not search visibility.
+
+Monitor oldest pending work, expired leases, changed/scanned page counts and shipping
+and product-projector queue age/depth/DLQs. Repair both pipeline stages; queries remain available during catch-up. Use only identities,
+revision/generation, policy and failure categories in operator evidence. Never
+export terms, addresses, producer ownership keys, buyer data or provider payloads.
+
 ## Periodic matching recovery
 
 [Event flow](events/flow.md#periodic-saved-filter-matching) owns matching semantics;
@@ -238,10 +278,19 @@ preserve checkpoints and match identities instead of resetting progress or delet
 matches to force a replay. The replay overlap tolerates bounded projection lag, not an
 unlimited outage: review uncovered windows after prolonged search/projection failures.
 
-Match INSERTs normally wake generation through CDC/router/notification workers;
+Shipping filters revisit current indexed membership on the next matching evaluation,
+including listings older than the automatic replay window; authored date bounds and the
+evaluation cutoff still apply. Candidate/scan limits remain bounded, so inspect cap outcomes
+for broad shipping filters. Recover shipping projection custody before investigating missing indexed offers;
+current response terms may already reflect a change. Never generate a canonical price or
+availability event to force discovery, or reset saved destination snapshots after an
+address/preference change. See [shipping search](shipping.md#shipping-search-and-saved-destinations).
+
+Match INSERTs normally wake generation through healthy CDC/router/notification workers;
 [digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
 and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
-must not blindly resend historical mail or replace recovery of legacy notification jobs.
+is not a substitute for recovering retained notification jobs and must not blindly resend
+historical mail.
 
 ### Saved-search batching quality gate
 

@@ -3,6 +3,7 @@ use crate::ports::{
     SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
     SearchFilterRepositoryFactory, SearchFilterView,
 };
+use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{
     active_filter_quota, validate_search_feature_changes, validate_search_features,
 };
@@ -27,8 +28,10 @@ use product_listing_core::product_listing_search::{
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
+use user_service::address_book::AddressBookQueries;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -36,6 +39,7 @@ use user_service::ports::{
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingSearchPatch {
     pub geography: PatchField<geo::core::discovery::GeographicQuery>,
+    pub shipping: PatchField<product_listing_core::shipping_search::ShippingSearch>,
     pub language: PatchField<Language>,
     pub currency: PatchField<Currency>,
     pub product_listing_query: PatchField<Vec<TextQuery<1>>>,
@@ -53,6 +57,7 @@ pub struct ProductListingSearchPatch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateOwnedSearchFilterCommand {
+    pub accept_shipping_destination: Option<AcceptShippingDestination>,
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
     pub name: PatchField<UserSearchFilterName>,
@@ -68,6 +73,12 @@ pub struct UpdateOwnedSearchFilterResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateOwnedSearchFilterError {
+    #[error("shipping destination could not be accepted")]
+    ShippingDestination(
+        #[from]
+        #[source]
+        user_service::address_book::AddressBookError,
+    ),
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -138,9 +149,15 @@ pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
     filter_reader: F,
     quotas: Q,
     tier_entitlements: A,
+    shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
 impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
+    pub fn with_shipping_destinations(mut self, queries: Arc<dyn AddressBookQueries>) -> Self {
+        self.shipping_destinations = Some(queries);
+        self
+    }
+
     pub fn new(
         unit_of_work: U,
         filters: R,
@@ -156,6 +173,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
             filter_reader,
             quotas,
             tier_entitlements,
+            shipping_destinations: None,
         }
     }
 }
@@ -196,6 +214,13 @@ where
         let mut prepared_search = prepared_view.search;
         let prepared_search_changed =
             apply_product_search_patch(&mut prepared_search, &command.search)?;
+        crate::shipping_destination::accept(
+            self.shipping_destinations.as_deref(),
+            context,
+            command.accept_shipping_destination.as_ref(),
+            prepared_search.shipping.as_ref(),
+        )
+        .await?;
         let prepare_embedding = prepared_search_changed
             || (prepared_view.embedding.is_none()
                 && crate::use_cases::embedding_query(&prepared_search)
@@ -239,6 +264,11 @@ where
         let mut filter = persisted.filter.clone();
 
         let mut changed = apply_filter_patch(&mut filter, &command)?;
+        if command.accept_shipping_destination.is_some()
+            && filter.search().shipping != prepared_search.shipping
+        {
+            return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
+        }
         validate_search_feature_changes(tier, persisted.filter.search(), filter.search()).map_err(
             |feature| UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature },
         )?;
@@ -348,6 +378,7 @@ fn apply_product_search_patch(
 ) -> Result<bool, UpdateOwnedSearchFilterError> {
     let mut changed = false;
     changed |= apply_optional_patch(&patch.geography, &mut search.geography);
+    changed |= apply_optional_patch(&patch.shipping, &mut search.shipping);
 
     changed |= apply_required_patch(&patch.language, &mut search.language)?;
     changed |= apply_required_patch(&patch.currency, &mut search.currency)?;

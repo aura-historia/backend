@@ -1,0 +1,15 @@
+{
+  "collection": "OFFERED",
+  "prohibited": false,
+  "conditional": true,
+  "countryOffers": [
+    {
+      "country": "DE",
+      "service": "gallery-delivery",
+      "perItemFixed": {
+        "currency": "EUR",
+        "amountMinor": 9500
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 use crate::ports::PersistedSearchFilterMatch;
+use application::error::BoxError;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::event_id::EventId;
 use domain_primitives::sort::SortOrder;
@@ -15,6 +16,7 @@ pub struct SearchFilterMatchView {
     pub search_filter_name: Option<UserSearchFilterName>,
     pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
+    pub shipping_match_valuation: Option<search_filter_core::ShippingMatchValuation>,
     pub feedback: Option<bool>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -29,6 +31,7 @@ impl From<PersistedSearchFilterMatch> for SearchFilterMatchView {
             search_filter_name: product_match.user_search_filter_name,
             product_listing_id: product_match.product_listing_id,
             origin_event_id: product_match.origin_event_id,
+            shipping_match_valuation: product_match.shipping_match_valuation,
             feedback: product_match.feedback,
             created: persisted.created,
             updated: persisted.updated,
@@ -44,6 +47,7 @@ pub struct SearchFilterMatchCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchFilterMatchListItem {
+    pub shipping_match_valuation: Option<search_filter_core::ShippingMatchValuation>,
     pub product_listing_id: ProductListingId,
     pub created: OffsetDateTime,
 }
@@ -59,9 +63,15 @@ pub struct SearchFilterMatchListQuery {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterMatchReadError {
     #[error("search filter match read failed")]
-    ReadFailed,
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("persisted search filter match state is invalid")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

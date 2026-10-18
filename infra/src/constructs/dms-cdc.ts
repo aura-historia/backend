@@ -214,6 +214,7 @@ function tableMappings(): Record<string, unknown> {
   const selectedTables = [
     { table: "geo_resolution_wakeups", removedColumns: [] },
     { table: "listing_geography_wakeups", removedColumns: [] },
+    { table: "listing_shipping_wakeups", removedColumns: [] },
     {
       table: "product_listing_events",
       removedColumns: ["created"],
@@ -241,6 +242,10 @@ function tableMappings(): Record<string, unknown> {
       removedColumns: [
         "price_valuation_basis",
         "price_fx_rate_id",
+        "shipping_fx_rate_id",
+        "shipping_fx_captured_at",
+        "shipping_target_currency",
+        "shipping_maximum_minor",
         "user_search_filter_name",
         "feedback",
         "created",
@@ -331,6 +336,7 @@ function tableMappings(): Record<string, unknown> {
     { table: "product_listing_raw_revisions", column: "revision" },
     { table: "geo_resolution_wakeups", column: "generation" },
     { table: "listing_geography_wakeups", column: "generation" },
+    { table: "listing_shipping_wakeups", column: "generation" },
   ]) {
     rules.push({
       "rule-type": "transformation",

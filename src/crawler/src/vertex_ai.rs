@@ -44,6 +44,13 @@ pub enum CrawlerVertexAiConfigError {
 }
 
 impl CrawlerVertexAiConfig {
+    pub fn new(project_id: impl Into<String>, location: impl Into<String>) -> Self {
+        Self {
+            project_id: project_id.into(),
+            location: location.into(),
+        }
+    }
+
     pub fn from_env() -> Result<Self, CrawlerVertexAiConfigError> {
         Ok(Self {
             project_id: required_env("VERTEX_AI_PROJECT_ID")?,
