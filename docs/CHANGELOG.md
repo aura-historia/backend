@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-17 — Token revocation enforcement
+
+- Cognito session revocations requested through the administrator API are enforced by a persisted cutoff in the existing identity lookup, without a live Cognito status request. Signed `auth_time` and `iat` are required; refresh cannot bypass the cutoff. A 60-second clock-skew allowance can temporarily reject fresh logins. Provider errors can leave local revocation applied. Revocations made only in Cognito remain unobserved until JWT expiry.
+- OAuth token revocation rejects tokens issued to another client and personal access tokens with `403 FORBIDDEN`, preserving them. Unknown and already-revoked tokens still return `200`.
+
 ## 2026-10-17 — Advertised shipping and collection (#1997)
 
 - Listing detail, search, similar, watchlist, saved-search match and auction catalogue responses include `item.shipping`: current advertised terms, observation/dependency information and converted rates in the requested display currency. These are advertised arrangements, not checkout quotes or landed-cost totals.

@@ -1,5 +1,8 @@
 use application::error::BoxError;
+use time::OffsetDateTime;
 use user_core::user_id::UserId;
+
+pub const COGNITO_SESSION_CLOCK_SKEW_SECONDS: i64 = 60;
 
 const MAX_COGNITO_IDENTITY_BYTES: usize = 2_048;
 
@@ -120,6 +123,12 @@ pub trait UserCognitoIdentityRegistry: Send {
         user_id: UserId,
     ) -> Result<Option<CognitoIdentity>, UserCognitoIdentityRegistryError>;
 
+    /// Advance the local session cutoff using the persistence clock; never move it backward.
+    async fn revoke_sessions(
+        &mut self,
+        identity: &CognitoIdentity,
+    ) -> Result<(), UserCognitoIdentityRegistryError>;
+
     async fn bind(
         &mut self,
         identity: &CognitoIdentity,
@@ -129,6 +138,12 @@ pub trait UserCognitoIdentityRegistry: Send {
 
 pub trait UserCognitoIdentityRegistryFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl UserCognitoIdentityRegistry + 'tx;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CognitoUserIdentityView {
+    pub user_id: UserId,
+    pub sessions_revoked_before: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -152,10 +167,10 @@ pub enum CognitoUserIdentityReadError {
 
 #[async_trait::async_trait]
 pub trait CognitoUserIdentityReader: Send + Sync {
-    async fn find_user_id(
+    async fn find_identity(
         &self,
         identity: &CognitoIdentity,
-    ) -> Result<Option<UserId>, CognitoUserIdentityReadError>;
+    ) -> Result<Option<CognitoUserIdentityView>, CognitoUserIdentityReadError>;
 }
 
 #[cfg(test)]

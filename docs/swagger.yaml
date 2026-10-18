@@ -7256,7 +7256,11 @@ paths:
     post:
       summary: Revoke a user's Cognito sessions as admin
       description: |
-        Invalidates the explicit target user's Cognito sessions with Cognito global sign-out. No request body is accepted.
+        Invalidates the explicit target user's sessions locally and requests Cognito global sign-out. No request body is accepted.
+        The local cutoff is committed before the provider call and advanced again when it returns,
+        including on provider failure. Local sessions may therefore remain revoked even if the response is an error.
+        Cutoffs include a 60-second clock-skew allowance; fresh logins may be rejected for roughly
+        a minute after the latest completion/retry. Token refresh does not bypass the cutoff.
 
         Cognito JWTs and Aura Historia access tokens are accepted. The caller's persisted user role
         must be `ADMIN`; delegated Aura Historia access tokens must also have `users:write`.
@@ -10726,7 +10730,11 @@ paths:
 
         flow (RFC 7009). The request body must be `application/x-www-form-urlencoded`. Client
 
-        authentication is performed via `client_id` / `client_secret` form fields.
+        authentication is performed via `client_id` / `client_secret` form fields. The token must
+
+        have been issued to that client; another client's token or a personal access token is
+
+        rejected with `403 FORBIDDEN` and is not revoked.
 
 
         After revocation the token is immediately inactive and introspection will return
@@ -10820,6 +10828,16 @@ paths:
                     title: Unauthorized
                     error: OAUTH_CLIENT_NOT_FOUND
                     detail: OAuth client not found.
+        "403":
+          description: Forbidden — the token was not issued to the authenticated OAuth client.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
         "500":
           description: Internal server error.
           content:
@@ -17498,7 +17516,21 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "Cognito JWT bearer token.
+      description: "Cognito access JWT bearer token. Signature, issuer, client, token use and expiry
+
+        are validated locally. Signed integer `auth_time` and `iat` claims are required;
+
+        sessions authenticated at or before the persisted local revocation cutoff are rejected.
+
+        This check shares the existing identity lookup and makes no live Cognito status request.
+
+        Revocation requested only in Cognito is not observed immediately; already-issued JWTs
+
+        can remain accepted until expiry. Use the administrator session-revocation endpoint
+
+        for immediate local enforcement. Database authentication failures return
+
+        `503 AUTH_TEMPORARILY_UNAVAILABLE`.
 
         This scheme is used for authenticated user routes and for partner routes that accept Cognito user tokens.
 

@@ -10,6 +10,7 @@ pub struct ResolveCognitoUserRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolveCognitoUserResult {
     pub user_id: UserId,
+    pub sessions_revoked_before: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -62,9 +63,12 @@ where
         request: ResolveCognitoUserRequest,
     ) -> Result<ResolveCognitoUserResult, ResolveCognitoUserError> {
         self.identities
-            .find_user_id(&request.identity)
+            .find_identity(&request.identity)
             .await?
-            .map(|user_id| ResolveCognitoUserResult { user_id })
+            .map(|identity| ResolveCognitoUserResult {
+                user_id: identity.user_id,
+                sessions_revoked_before: identity.sessions_revoked_before,
+            })
             .ok_or(ResolveCognitoUserError::NotFound)
     }
 }
@@ -86,12 +90,13 @@ impl From<CognitoUserIdentityReadError> for ResolveCognitoUserError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{CognitoIssuer, CognitoSubject};
+    use crate::ports::{CognitoIssuer, CognitoSubject, CognitoUserIdentityView};
 
     use application::error::box_error;
 
     enum ReaderResult {
         Found(UserId),
+        Revoked(UserId, time::OffsetDateTime),
         Missing,
         Temporary,
         Invalid,
@@ -102,12 +107,19 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CognitoUserIdentityReader for Reader {
-        async fn find_user_id(
+        async fn find_identity(
             &self,
             _: &CognitoIdentity,
-        ) -> Result<Option<UserId>, CognitoUserIdentityReadError> {
+        ) -> Result<Option<CognitoUserIdentityView>, CognitoUserIdentityReadError> {
             match self.0 {
-                ReaderResult::Found(user_id) => Ok(Some(user_id)),
+                ReaderResult::Found(user_id) => Ok(Some(CognitoUserIdentityView {
+                    user_id,
+                    sessions_revoked_before: None,
+                })),
+                ReaderResult::Revoked(user_id, cutoff) => Ok(Some(CognitoUserIdentityView {
+                    user_id,
+                    sessions_revoked_before: Some(cutoff),
+                })),
                 ReaderResult::Missing => Ok(None),
                 ReaderResult::Temporary => {
                     Err(CognitoUserIdentityReadError::TemporarilyUnavailable {
@@ -145,6 +157,18 @@ mod tests {
             .await;
 
         assert!(matches!(result, Ok(result) if result.user_id == user_id));
+    }
+
+    #[tokio::test]
+    async fn should_return_the_persisted_session_cutoff_with_the_identity() {
+        let user_id = UserId::new();
+        let cutoff = time::OffsetDateTime::now_utc();
+        let result = ResolveCognitoUserHandler::new(Reader(ReaderResult::Revoked(user_id, cutoff)))
+            .execute(request())
+            .await
+            .unwrap();
+        assert_eq!(user_id, result.user_id);
+        assert_eq!(Some(cutoff), result.sessions_revoked_before);
     }
 
     #[tokio::test]

@@ -1371,6 +1371,8 @@ Rules for public endpoints:
 - An invalid, expired, malformed, or revoked token MUST be rejected as an authentication failure.
 - Invalid supplied credentials MUST NOT be silently downgraded to anonymous access.
 
+An authentication contract MAY explicitly choose offline JWT validation with application-recorded revocation state. That model MUST reject locally revoked sessions on each request and provide an authorized application revocation command. Provider-only revocations may remain invisible until expiry; the contract MUST declare that intentional limitation. See the [HTTP authentication boundary](http-api-front-door.md#route-and-authentication-boundary).
+
 The same principle applies to service credentials and system jobs.
 
 Public controllers accepting optional authentication MUST distinguish absent credentials (anonymous) from supplied invalid credentials (authentication error); cover both paths in transport tests.

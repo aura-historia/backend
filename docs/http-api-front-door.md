@@ -22,6 +22,29 @@ optional-auth routes reject invalid supplied credentials. OAuth and signed-provi
 handlers retain their dedicated credential/proof checks. A Cognito-only edge policy
 would reject valid application credentials before those handlers can evaluate them.
 
+Cognito JWT authentication validates signatures, issuer, client, token use and expiry
+locally, then checks the session cutoff returned by the existing identity lookup.
+Signed integer `auth_time` and `iat` claims are required. `auth_time` must be nonnegative
+and no later than `iat`; `iat` cannot lead the API clock by more than 60 seconds.
+A session authenticated at or before its stored cutoff is rejected. Token refresh
+preserves `auth_time`, so it cannot restore a revoked session. Cutoffs are never cached.
+Ordinary requests make no live Cognito status call; signing keys retain their existing
+bounded refresh behavior. No additional Cognito scope is required.
+
+Administrator session revocation commits a local cutoff before Cognito global sign-out,
+then advances it again after the provider call returns, including when the provider
+returns an error. Both writes use the database clock plus a 60-second skew allowance
+and never move backward. Local revocation can therefore take effect even when the
+endpoint returns an error. Fresh logins may be rejected for roughly a minute after
+the last completion/retry; issuer, API and database clocks must remain synchronized
+within that allowance. No database transaction spans provider I/O.
+
+This enforces revocations requested through this API. Changes made only in Cognito
+(including provider-only global sign-out or refresh-token revocation) are not observed
+immediately by this API; already-issued JWTs can remain accepted until expiry. Use the
+administrator endpoint when immediate local session revocation is required. Database
+failures fail closed; opaque Aura tokens keep their existing persisted checks.
+
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight

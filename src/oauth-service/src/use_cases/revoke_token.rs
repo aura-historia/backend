@@ -4,7 +4,9 @@ use crate::use_cases::support::authenticate_client;
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
-use user_core::access_token::{HashedRawAccessToken, RawAccessToken, RawOAuthClientSecret};
+use user_core::access_token::{
+    AccessTokenOrigin, HashedRawAccessToken, RawAccessToken, RawOAuthClientSecret,
+};
 use user_service::ports::{AccessTokenRepository, AccessTokenRepositoryFactory};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +65,12 @@ where
             .find_by_hashed_token(&hashed_token)
             .await?;
         if let Some(token) = token {
+            if !matches!(
+                token.value.origin(),
+                AccessTokenOrigin::OAuth { client_id } if *client_id == request.client_id
+            ) {
+                return Err(OAuthServiceError::Forbidden);
+            }
             self.access_tokens
                 .in_transaction(&mut tx)
                 .delete_by_id(token.value.user_id(), token.value.id())
