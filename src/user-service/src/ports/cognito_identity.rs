@@ -1,6 +1,6 @@
 use application::error::BoxError;
-use user_core::user_id::UserId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 pub const COGNITO_SESSION_CLOCK_SKEW_SECONDS: i64 = 60;
 

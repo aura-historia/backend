@@ -1,11 +1,12 @@
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use sqlx::{PgConnection, PgPool};
-use user_core::user_id::UserId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use user_service::ports::{
-    COGNITO_SESSION_CLOCK_SKEW_SECONDS, CognitoIdentity, CognitoIssuer, CognitoSubject, CognitoUserIdentityReadError,
-    CognitoUserIdentityReader, CognitoUserIdentityView, UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
+    COGNITO_SESSION_CLOCK_SKEW_SECONDS, CognitoIdentity, CognitoIssuer, CognitoSubject,
+    CognitoUserIdentityReadError, CognitoUserIdentityReader, CognitoUserIdentityView,
+    UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
     UserCognitoIdentityRegistryFactory,
 };
 
@@ -118,7 +119,9 @@ impl UserCognitoIdentityRegistry for SqlxUserCognitoIdentityRegistry<'_> {
         .map_err(registry_temporary)?;
         if result.rows_affected() != 1 {
             return Err(UserCognitoIdentityRegistryError::Internal {
-                source: application::error::static_error("Cognito identity disappeared during session revocation"),
+                source: application::error::static_error(
+                    "Cognito identity disappeared during session revocation",
+                ),
             });
         }
         Ok(())
@@ -461,7 +464,8 @@ mod tests {
         ));
     }
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-    async fn should_persist_revocation_in_the_existing_identity_read_and_roll_back_uncommitted_fences() {
+    async fn should_persist_revocation_in_the_existing_identity_read_and_roll_back_uncommitted_fences()
+     {
         let pool = get_postgres_client().await;
         let user_id = UserId::new();
         let identity = identity("https://issuer.example/pool", "revocation-subject");
@@ -469,25 +473,57 @@ mod tests {
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let factory = SqlxUserCognitoIdentityRegistryFactory::new();
         let mut tx = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut tx).bind(&identity, user_id).await.unwrap();
+        factory
+            .in_transaction(&mut tx)
+            .bind(&identity, user_id)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
         let reader = SqlxCognitoUserIdentityReader::new(pool.clone());
-        assert_eq!(None, reader.find_identity(&identity).await.unwrap().unwrap().sessions_revoked_before);
+        assert_eq!(
+            None,
+            reader
+                .find_identity(&identity)
+                .await
+                .unwrap()
+                .unwrap()
+                .sessions_revoked_before
+        );
 
         let mut tx = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut tx).revoke_sessions(&identity).await.unwrap();
+        factory
+            .in_transaction(&mut tx)
+            .revoke_sessions(&identity)
+            .await
+            .unwrap();
         drop(tx);
-        assert_eq!(None, reader.find_identity(&identity).await.unwrap().unwrap().sessions_revoked_before);
+        assert_eq!(
+            None,
+            reader
+                .find_identity(&identity)
+                .await
+                .unwrap()
+                .unwrap()
+                .sessions_revoked_before
+        );
 
         let before: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         let mut tx = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut tx).revoke_sessions(&identity).await.unwrap();
+        factory
+            .in_transaction(&mut tx)
+            .revoke_sessions(&identity)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
         let persisted = reader.find_identity(&identity).await.unwrap().unwrap();
         assert_eq!(user_id, persisted.user_id);
-        assert!(persisted.sessions_revoked_before.unwrap()
-            >= before + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS));
+        assert!(
+            persisted.sessions_revoked_before.unwrap()
+                >= before + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS)
+        );
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -499,29 +535,70 @@ mod tests {
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let factory = SqlxUserCognitoIdentityRegistryFactory::new();
         let mut tx = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut tx).bind(&identity, user_id).await.unwrap();
+        factory
+            .in_transaction(&mut tx)
+            .bind(&identity, user_id)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         // The older operation finishes after a newer one. Transaction start time is not a cutoff.
         let mut older = unit_of_work.begin().await.unwrap();
         let mut newer = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut newer).revoke_sessions(&identity).await.unwrap();
+        factory
+            .in_transaction(&mut newer)
+            .revoke_sessions(&identity)
+            .await
+            .unwrap();
         newer.commit().await.unwrap();
         let before_late_completion: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&pool).await.unwrap();
-        factory.in_transaction(&mut older).revoke_sessions(&identity).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        factory
+            .in_transaction(&mut older)
+            .revoke_sessions(&identity)
+            .await
+            .unwrap();
         older.commit().await.unwrap();
         let reader = SqlxCognitoUserIdentityReader::new(pool.clone());
-        let cutoff = reader.find_identity(&identity).await.unwrap().unwrap().sessions_revoked_before.unwrap();
-        assert!(cutoff >= before_late_completion + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS));
+        let cutoff = reader
+            .find_identity(&identity)
+            .await
+            .unwrap()
+            .unwrap()
+            .sessions_revoked_before
+            .unwrap();
+        assert!(
+            cutoff
+                >= before_late_completion
+                    + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS)
+        );
 
         let future = cutoff + time::Duration::days(1);
-        sqlx::query("UPDATE user_cognito_identities SET sessions_revoked_before = $1 WHERE user_id = $2")
-            .bind(future).bind(user_id.as_uuid()).execute(&pool).await.unwrap();
+        sqlx::query(
+            "UPDATE user_cognito_identities SET sessions_revoked_before = $1 WHERE user_id = $2",
+        )
+        .bind(future)
+        .bind(user_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
         let mut tx = unit_of_work.begin().await.unwrap();
-        factory.in_transaction(&mut tx).revoke_sessions(&identity).await.unwrap();
+        factory
+            .in_transaction(&mut tx)
+            .revoke_sessions(&identity)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
-        assert_eq!(Some(future), reader.find_identity(&identity).await.unwrap().unwrap().sessions_revoked_before);
+        assert_eq!(
+            Some(future),
+            reader
+                .find_identity(&identity)
+                .await
+                .unwrap()
+                .unwrap()
+                .sessions_revoked_before
+        );
     }
-
 }

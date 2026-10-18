@@ -284,7 +284,8 @@ fn authentication_time(claims: &Value) -> Result<time::OffsetDateTime, AuthError
     let issued_at = integer_claim("iat")?;
     if authenticated_at < 0
         || authenticated_at > issued_at
-        || issued_at > time::OffsetDateTime::now_utc().unix_timestamp() + COGNITO_SESSION_CLOCK_SKEW_SECONDS
+        || issued_at
+            > time::OffsetDateTime::now_utc().unix_timestamp() + COGNITO_SESSION_CLOCK_SKEW_SECONDS
     {
         return Err(AuthError::InvalidCredentials);
     }
@@ -531,12 +532,13 @@ mod tests {
     async fn should_reject_old_and_refreshed_sessions_but_accept_a_new_login()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
-        let cutoff = OffsetDateTime::from_unix_timestamp(
-            OffsetDateTime::now_utc().unix_timestamp() - 10,
-        )?;
+        let cutoff =
+            OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp() - 10)?;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let authenticator = authenticator_with_resolution(
-            Ok(JsonWebKeySet { keys: vec![jwk(&key)] }),
+            Ok(JsonWebKeySet {
+                keys: vec![jwk(&key)],
+            }),
             calls.clone(),
             ResolveOutcome::RevokedUser(UserId::new(), cutoff),
             Arc::new(Mutex::new(Vec::new())),
@@ -567,7 +569,9 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let user_id = UserId::new();
         let authenticator = authenticator_with_resolution(
-            Ok(JsonWebKeySet { keys: vec![jwk(&key)] }),
+            Ok(JsonWebKeySet {
+                keys: vec![jwk(&key)],
+            }),
             calls.clone(),
             ResolveOutcome::Found(user_id),
             Arc::new(Mutex::new(Vec::new())),
@@ -577,8 +581,8 @@ mod tests {
             authenticator.authenticate(&token, &metadata()).await,
             Ok(TransportPrincipal::User { .. })
         ));
-        let cutoff = OffsetDateTime::now_utc()
-            + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS);
+        let cutoff =
+            OffsetDateTime::now_utc() + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS);
         *lock(&authenticator.resolve_user.outcome) = ResolveOutcome::RevokedUser(user_id, cutoff);
         assert!(matches!(
             authenticator.authenticate(&token, &metadata()).await,

@@ -467,7 +467,9 @@ mod tests {
             state.revoked_identities
         );
         assert_eq!(
-            vec!["begin", "fence", "commit", "revoke", "begin", "fence", "commit"],
+            vec![
+                "begin", "fence", "commit", "revoke", "begin", "fence", "commit"
+            ],
             state.operations
         );
     }
@@ -580,10 +582,15 @@ mod tests {
         let result = handler(&fakes, Some(UserRole::Admin), true, None)
             .execute(
                 &context(Principal::User(UserId::new())),
-                RevokeUserSessionsCommand { user_id: UserId::new() },
+                RevokeUserSessionsCommand {
+                    user_id: UserId::new(),
+                },
             )
             .await;
-        assert!(matches!(result, Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })));
+        assert!(matches!(
+            result,
+            Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })
+        ));
         let state = lock(&fakes.0);
         assert_eq!(0, state.commits);
         assert!(state.revoked_identities.is_empty());
@@ -596,13 +603,17 @@ mod tests {
         let result = handler(&fakes, Some(UserRole::Admin), true, None)
             .execute(
                 &context(Principal::User(UserId::new())),
-                RevokeUserSessionsCommand { user_id: UserId::new() },
+                RevokeUserSessionsCommand {
+                    user_id: UserId::new(),
+                },
             )
             .await;
-        assert!(matches!(result, Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })));
+        assert!(matches!(
+            result,
+            Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })
+        ));
         let state = lock(&fakes.0);
         assert_eq!(1, state.commits);
         assert_eq!(1, state.revoked_identities.len());
     }
-
 }
