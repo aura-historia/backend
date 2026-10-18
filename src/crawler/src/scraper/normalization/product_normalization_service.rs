@@ -203,12 +203,7 @@ fn normalize_price_or_skip_missing_currency(
 }
 
 fn map_price_error(error: PriceNormalizationError, field: PriceField) -> NormalizationError {
-    match error {
-        PriceNormalizationError::UnknownCurrency => {
-            NormalizationError::PriceUnknownCurrency { field }
-        }
-        PriceNormalizationError::ParseFailure => NormalizationError::PriceParseError { field },
-    }
+    product_listing_normalization::diagnostics::price_normalization_error(error, field)
 }
 
 fn map_image_error(error: ImageUrlNormalizationError) -> NormalizationError {

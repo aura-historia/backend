@@ -11,6 +11,16 @@ use shipping_core::{
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
+/// Every abstention is conservative; reason-specific coverage lives beside the parser.
+macro_rules! assert_unsupported {
+    ($check:expr $(, $($message:tt)+)?) => {
+        assert!(
+            matches!($check, ShippingQuickCheck::Unsupported(_))
+            $(, $($message)+)?
+        )
+    };
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Fixture {
@@ -77,8 +87,7 @@ fn item_prohibitions_and_collection_only_are_supported_in_every_language() {
                 fixture.language
             );
         }
-        assert_eq!(
-            ShippingQuickCheck::Unsupported,
+        assert_unsupported!(
             quick_check_shipping(&[&fixture.label]),
             "bare label needs item scope: {}",
             fixture.language
@@ -167,14 +176,12 @@ fn unknown_delivery_arrivals_conditions_and_boilerplate_abstain_in_every_languag
             &fixture.boilerplate,
             &fixture.exception,
         ] {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping(&[text]),
                 "{}: {text}",
                 fixture.language
             );
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping_with_context(&[&fixture.offered], &[text]),
                 "contradictory description in {}: {text}",
                 fixture.language
@@ -188,8 +195,7 @@ fn unknown_delivery_arrivals_conditions_and_boilerplate_abstain_in_every_languag
                 fixture.exception
             ),
         ] {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping(&[&text]),
                 "{}: {text}",
                 fixture.language
@@ -223,36 +229,31 @@ fn contradictions_remain_atomic_including_mixed_languages_and_scripts() {
             (&fixture.requested, &fixture.calculated),
             (&fixture.dispatch, &fixture.single),
         ] {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping(&[left, right]),
                 "{}: {left} / {right}",
                 fixture.language
             );
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping(&[right, left]),
                 "{}: {right} / {left}",
                 fixture.language
             );
         }
         for other in &fixtures {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping_with_context(&[&fixture.prohibited], &[&other.offered]),
                 "{} prohibition / {} offer",
                 fixture.language,
                 other.language
             );
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping_with_context(&[&fixture.offered], &[&other.exception]),
                 "{} offer / {} condition",
                 fixture.language,
                 other.language
             );
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping_with_context(&[&fixture.offered, &other.arrival], &[]),
                 "{} offer / {} arrival",
                 fixture.language,
@@ -269,8 +270,7 @@ fn descriptions_preserve_parenthesized_and_prefaced_conditions() {
             format!("({})", fixture.exception),
             format!("Note: {}", fixture.exception),
         ] {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping_with_context(&[&fixture.offered], &[&context]),
                 "{}: {context}",
                 fixture.language
@@ -331,8 +331,7 @@ fn every_documented_exact_phrase_supports_case_and_layout_variations() {
             }
         }
         for label in rules.collection_only.lines() {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
+            assert_unsupported!(
                 quick_check_shipping(&[label]),
                 "{:?}: {label}",
                 rules.language
@@ -354,12 +353,7 @@ fn unicode_questions_range_errors_and_missing_dispatch_verbs_fail_closed() {
     for fixture in fixtures() {
         for question in ["?", "？", "؟"] {
             let question = format!("{}{}", fixture.prohibited, question);
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
-                quick_check_shipping(&[&question]),
-                "{}",
-                fixture.language
-            );
+            assert_unsupported!(quick_check_shipping(&[&question]), "{}", fixture.language);
         }
     }
     for text in [
@@ -420,10 +414,9 @@ fn unicode_questions_range_errors_and_missing_dispatch_verbs_fail_closed() {
 
 #[test]
 fn unicode_layout_and_byte_bounds_do_not_change_scope_or_numeric_values() {
-    assert_eq!(
-        ShippingQuickCheck::Unsupported,
-        quick_check_shipping(&["Shipping\u{307} is not available for this item"])
-    );
+    assert_unsupported!(quick_check_shipping(&[
+        "Shipping\u{307} is not available for this item"
+    ]));
     let ordinary = "يتم إرسال هذا المنتج خلال 10-15 أيام عمل";
     let decorated = "\u{200f}يتم إرسال هذا المنتج خلال ١٠–۱۵ أيام عمل\u{200e}";
     assert_eq!(resolved(ordinary), resolved(decorated));
@@ -434,12 +427,8 @@ fn unicode_layout_and_byte_bounds_do_not_change_scope_or_numeric_values() {
     ));
     assert!(resolved(&boundary).prohibited);
     boundary.push(' ');
-    assert_eq!(
-        ShippingQuickCheck::Unsupported,
-        quick_check_shipping(&[&boundary])
-    );
-    assert_eq!(
-        ShippingQuickCheck::Unsupported,
-        quick_check_shipping(&[&"商".repeat(MAX_SHIPPING_TEXT_BYTES / 3 + 1)])
-    );
+    assert_unsupported!(quick_check_shipping(&[&boundary]));
+    assert_unsupported!(quick_check_shipping(&[
+        &"商".repeat(MAX_SHIPPING_TEXT_BYTES / 3 + 1)
+    ]));
 }

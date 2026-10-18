@@ -231,6 +231,66 @@ impl ProductListingNormalizationInput {
     }
 }
 
+/// Portable JSON document of one complete normalization input, used for replay export/import.
+/// Decoding routes every part through the validating constructors above.
+impl ProductListingNormalizationInput {
+    pub fn to_document(&self) -> Value {
+        serde_json::json!({
+            "operation": self.operation.as_str(),
+            "payloadFormat": self.payload_format.as_str(),
+            "payloadSchemaVersion": self.payload_schema_version,
+            "rawValuesSchemaVersion": self.raw_values_schema_version,
+            "sourcePayload": self.source_payload.value(),
+            "rawValues": self.raw_values.value(),
+            "normalizationContext": self.normalization_context.value(),
+        })
+    }
+
+    pub fn from_document(document: &Value) -> Result<Self, NormalizationInputDocumentError> {
+        let field = |name: &'static str| {
+            document
+                .get(name)
+                .ok_or(NormalizationInputDocumentError::MissingField { field: name })
+        };
+        let code = |name: &'static str| {
+            field(name)?
+                .as_str()
+                .ok_or(NormalizationInputDocumentError::InvalidField { field: name })
+        };
+        let version = |name: &'static str| {
+            field(name)?
+                .as_u64()
+                .and_then(|value| u16::try_from(value).ok())
+                .ok_or(NormalizationInputDocumentError::InvalidField { field: name })
+        };
+        let operation = RawProductListingOperation::from_code(code("operation")?)
+            .ok_or(NormalizationInputDocumentError::InvalidField { field: "operation" })?;
+        let payload_format = RawProductListingPayloadFormat::from_code(code("payloadFormat")?)
+            .ok_or(NormalizationInputDocumentError::InvalidField {
+                field: "payloadFormat",
+            })?;
+        Ok(Self::new(
+            operation,
+            payload_format,
+            version("payloadSchemaVersion")?,
+            version("rawValuesSchemaVersion")?,
+            SourcePayload::new(field("sourcePayload")?.clone())?,
+            RawProductListingValues::new(field("rawValues")?.clone())?,
+            NormalizationContext::new(field("normalizationContext")?.clone())?,
+        )?)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NormalizationInputDocumentError {
+    #[error("normalization input document field is missing")]
+    MissingField { field: &'static str },
+    #[error("normalization input document field is invalid")]
+    InvalidField { field: &'static str },
+    #[error("normalization input document violates the input contract")]
+    Input(#[from] NormalizationInputError),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NormalizationInputHash([u8; NORMALIZATION_INPUT_HASH_BYTES]);
 
@@ -392,6 +452,29 @@ fn write_canonical_json(value: &Value, output: &mut String) -> Result<(), Normal
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn should_round_trip_portable_documents_through_validating_constructors() {
+        let original = input(
+            json!({"id": 1}),
+            json!({"sourceListingId": "a"}),
+            json!({"baseUrl": "https://example.test/"}),
+        )
+        .unwrap();
+        let decoded =
+            ProductListingNormalizationInput::from_document(&original.to_document()).unwrap();
+        assert_eq!(original, decoded);
+        assert_eq!(original.hash().unwrap(), decoded.hash().unwrap());
+
+        let mut invalid = original.to_document();
+        invalid["rawValues"] = json!([]);
+        assert!(matches!(
+            ProductListingNormalizationInput::from_document(&invalid),
+            Err(NormalizationInputDocumentError::Input(
+                NormalizationInputError::JsonNotObject { .. }
+            ))
+        ));
+    }
 
     fn input(
         source_payload: Value,

@@ -15,16 +15,16 @@ use url::Url;
 /// Builds the complete current raw input retained by the operational raw-revision stream.
 ///
 /// Source payload keeps the untouched extraction. Generic raw values use the
-/// crawler-validated image projection and omit price fields that deterministic
-/// preparation could not resolve; the worker remains the sole canonical
-/// normalization authority.
+/// crawler-validated image projection and keep every supplied price value: a price
+/// whose currency preparation could not resolve is unresolved, not absent, so the
+/// worker (the sole canonical normalization authority) leaves the canonical field
+/// unchanged and reports why. Only a missing extraction clears a price.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
     candidate_url: &Url,
     source_listing_id: &str,
     fallback_currency: Option<Currency>,
-    resolved_price_fields: [bool; 3],
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
     let source_payload = serde_json::to_value(raw)
         .map_err(NormalizationInputError::JsonSerialization)
@@ -44,9 +44,9 @@ pub(crate) fn crawler_raw_input(
         "title": ProductListingRawValuesPatch::Set(raw.title.clone()),
         "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
         "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
-        "price": price_patch(raw.price.clone(), resolved_price_fields[0]),
-        "priceEstimateMin": price_patch(raw.price_estimate_min.clone(), resolved_price_fields[1]),
-        "priceEstimateMax": price_patch(raw.price_estimate_max.clone(), resolved_price_fields[2]),
+        "price": patch(raw.price.clone()),
+        "priceEstimateMin": patch(raw.price_estimate_min.clone()),
+        "priceEstimateMax": patch(raw.price_estimate_max.clone()),
         "availability": ProductListingRawValuesPatch::Set(raw.state.clone()),
         "url": ProductListingRawValuesPatch::Set(candidate_url.to_string()),
         "images": ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
@@ -100,14 +100,6 @@ pub(crate) fn crawler_provenance(
     }))
 }
 
-fn price_patch(value: Option<String>, resolved: bool) -> ProductListingRawValuesPatch<String> {
-    if resolved {
-        patch(value)
-    } else {
-        ProductListingRawValuesPatch::Clear
-    }
-}
-
 fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
     match value {
         Some(value) => ProductListingRawValuesPatch::Set(value),
@@ -146,7 +138,6 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
-            [true, false, false],
         )?;
 
         assert_eq!(
@@ -166,28 +157,25 @@ mod tests {
     }
 
     #[test]
-    fn should_clear_unresolved_price_from_generic_raw_values() -> Result<(), NormalizationInputError>
+    fn should_keep_unresolved_price_for_worker_preservation() -> Result<(), NormalizationInputError>
     {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
 
-        let input = crawler_raw_input(
-            &extracted,
-            &extracted.images,
-            &url,
-            "stable-id",
-            None,
-            [false, false, false],
-        )?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
             input.source_payload().value().get("price")
         );
         assert_eq!(
-            Some(&serde_json::json!({"action": "CLEAR"})),
+            Some(&serde_json::json!({"action": "SET", "value": "100 EUR"})),
             input.raw_values().value().get("price")
+        );
+        assert_eq!(
+            Some(&serde_json::json!({"action": "CLEAR"})),
+            input.raw_values().value().get("priceEstimateMin")
         );
         Ok(())
     }
@@ -206,14 +194,8 @@ mod tests {
                 &Url::parse(raw_source_record_key).unwrap(),
             )
             .unwrap();
-        let input = crawler_raw_input(
-            &extracted,
-            &extracted.images,
-            &url,
-            expected.as_ref(),
-            None,
-            [false, false, false],
-        )?;
+        let input =
+            crawler_raw_input(&extracted, &extracted.images, &url, expected.as_ref(), None)?;
         assert_eq!(
             input.raw_values().value().get("sourceListingId"),
             Some(&serde_json::json!(expected.to_string()))
@@ -245,7 +227,6 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
-            [true, false, false],
         )?;
 
         assert_eq!(
@@ -286,7 +267,6 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
-            [true, false, false],
         )?
         .hash()?;
         let mut changed = raw();
@@ -299,7 +279,6 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
-            [true, false, false],
         )?
         .hash()?;
         assert_ne!(first, second);

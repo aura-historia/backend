@@ -5,8 +5,9 @@ use platform_lambda_bootstrap::LambdaInvocationBudget;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxNormalizationDiagnosticCaseWriterFactory, SqlxPendingProductListingRawStreamReader,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRawNormalizationWriterFactory,
+    SqlxProductListingRepositoryFactory,
 };
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
@@ -44,6 +45,7 @@ pub fn compose_normalization_use_case(
             SqlxProductListingEventAppenderFactory::new(),
             SqlxPendingProductListingRawStreamReader::new(pool),
         )
+        .with_diagnostic_cases(SqlxNormalizationDiagnosticCaseWriterFactory::new())
         .with_crawler_shipping(Arc::new(shipping)),
     )
 }

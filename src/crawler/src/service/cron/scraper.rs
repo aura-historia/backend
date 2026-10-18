@@ -634,7 +634,7 @@ async fn handle_successful_scrape(
         ) => CrawlerDisposition::DormantSold,
         product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(_)
         | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
-        | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
+        | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported(_) => {
             CrawlerDisposition::Active
         }
     };

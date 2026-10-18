@@ -22,10 +22,18 @@ const OUT_OF_STOCK_REGEX_PATTERNS: &[&str] = &[
 ];
 
 // Both results are immutable after their synchronized first construction.
-static AVAILABLE_REGEX_SET: LazyLock<Result<RegexSet, RegexError>> =
-    LazyLock::new(|| compile_regex_set(AVAILABLE_REGEX_PATTERNS));
-static OUT_OF_STOCK_REGEX_SET: LazyLock<Result<RegexSet, RegexError>> =
-    LazyLock::new(|| compile_regex_set(OUT_OF_STOCK_REGEX_PATTERNS));
+static AVAILABLE_REGEX_SET: LazyLock<Result<QuantityRegexSet, RegexError>> =
+    LazyLock::new(|| initialize_regex_set(AVAILABLE_REGEX_PATTERNS));
+static OUT_OF_STOCK_REGEX_SET: LazyLock<Result<QuantityRegexSet, RegexError>> =
+    LazyLock::new(|| initialize_regex_set(OUT_OF_STOCK_REGEX_PATTERNS));
+
+/// Quantity evidence resolves only when it is the whole label. Matches anywhere else in the
+/// label (negation, contradiction, future or conditional context) are diagnosed, never applied.
+#[derive(Debug)]
+struct QuantityRegexSet {
+    anywhere: RegexSet,
+    whole_label: RegexSet,
+}
 
 // Test-only inspection avoids timing or allocator thresholds on the warm path.
 #[cfg(test)]
@@ -35,14 +43,25 @@ static REGEX_SET_INITIALIZATIONS: AtomicUsize = AtomicUsize::new(0);
 pub enum ListingAvailabilityQuickCheck {
     Resolved(ListingAvailability),
     NoAssertion,
-    Unsupported,
+    Unsupported(AvailabilityUnsupportedReason),
+}
+
+/// Why a nonblank label produced no availability decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AvailabilityUnsupportedReason {
+    /// The label is not a recognized status label.
+    UnrecognizedLabel,
+    /// The label carries both zero and positive quantity evidence.
+    ConflictingQuantity,
+    /// Quantity evidence is embedded in surrounding words such as negation or future context.
+    QualifiedQuantity,
 }
 
 impl ListingAvailabilityQuickCheck {
     pub const fn availability(self) -> Option<ListingAvailability> {
         match self {
             Self::Resolved(value) => Some(value),
-            Self::NoAssertion | Self::Unsupported => None,
+            Self::NoAssertion | Self::Unsupported(_) => None,
         }
     }
 }
@@ -83,8 +102,8 @@ pub fn quick_check_availability(
 
 fn quick_check_availability_with_regex_sets(
     raw: &str,
-    available_regex_set: Result<&RegexSet, &RegexError>,
-    out_of_stock_regex_set: Result<&RegexSet, &RegexError>,
+    available_regex_set: Result<&QuantityRegexSet, &RegexError>,
+    out_of_stock_regex_set: Result<&QuantityRegexSet, &RegexError>,
 ) -> Result<ListingAvailabilityQuickCheck, AvailabilityNormalizationError> {
     let available_regex_set = available_regex_set
         .map_err(|_| AvailabilityNormalizationError::RegexSetCompilationFailed)?;
@@ -109,7 +128,9 @@ fn quick_check_availability_with_regex_sets(
         return Ok(result);
     }
 
-    Ok(ListingAvailabilityQuickCheck::Unsupported)
+    Ok(ListingAvailabilityQuickCheck::Unsupported(
+        AvailabilityUnsupportedReason::UnrecognizedLabel,
+    ))
 }
 
 /// Scraped labels commonly contain non-breaking whitespace and decorative separators.
@@ -156,7 +177,9 @@ fn schema_org_availability(value: &str) -> Option<ListingAvailabilityQuickCheck>
         "OutOfStock" => ListingAvailabilityQuickCheck::Resolved(ListingAvailability::OutOfStock),
         "SoldOut" => ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut),
         "OnlineOnly" | "InStoreOnly" | "Discontinued" => ListingAvailabilityQuickCheck::NoAssertion,
-        _ if value.contains("schema.org/") => ListingAvailabilityQuickCheck::Unsupported,
+        _ if value.contains("schema.org/") => ListingAvailabilityQuickCheck::Unsupported(
+            AvailabilityUnsupportedReason::UnrecognizedLabel,
+        ),
         _ => return None,
     };
     Some(result)
@@ -800,27 +823,46 @@ const NO_ASSERTION: &[&str] = &[
 
 fn regex_availability(
     value: &str,
-    available_regex_set: &RegexSet,
-    out_of_stock_regex_set: &RegexSet,
+    available_regex_set: &QuantityRegexSet,
+    out_of_stock_regex_set: &QuantityRegexSet,
 ) -> Option<ListingAvailabilityQuickCheck> {
     match (
-        available_regex_set.is_match(value),
-        out_of_stock_regex_set.is_match(value),
+        available_regex_set.anywhere.is_match(value),
+        out_of_stock_regex_set.anywhere.is_match(value),
     ) {
-        (true, false) => Some(ListingAvailabilityQuickCheck::Resolved(
-            ListingAvailability::Available,
-        )),
-        (false, true) => Some(ListingAvailabilityQuickCheck::Resolved(
-            ListingAvailability::OutOfStock,
-        )),
         // A label with both zero and positive quantity evidence is corrupt or ambiguous.
-        (true, true) => Some(ListingAvailabilityQuickCheck::Unsupported),
+        (true, true) => Some(ListingAvailabilityQuickCheck::Unsupported(
+            AvailabilityUnsupportedReason::ConflictingQuantity,
+        )),
+        (true, false) if available_regex_set.whole_label.is_match(value) => Some(
+            ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available),
+        ),
+        (false, true) if out_of_stock_regex_set.whole_label.is_match(value) => Some(
+            ListingAvailabilityQuickCheck::Resolved(ListingAvailability::OutOfStock),
+        ),
+        // `not 2 available` or `sold out; 2 available next month` must not resolve.
+        (true, false) | (false, true) => Some(ListingAvailabilityQuickCheck::Unsupported(
+            AvailabilityUnsupportedReason::QualifiedQuantity,
+        )),
         (false, false) => None,
     }
 }
 
-fn compile_regex_set(patterns: &[&str]) -> Result<RegexSet, RegexError> {
-    let regex_set = RegexSet::new(patterns);
+fn compile_regex_set(patterns: &[&str]) -> Result<QuantityRegexSet, RegexError> {
+    let whole_label = patterns
+        .iter()
+        .map(|pattern| format!(r"^(?:{pattern})[.!]?$"))
+        .collect::<Vec<_>>();
+    RegexSet::new(patterns).and_then(|anywhere| {
+        Ok(QuantityRegexSet {
+            anywhere,
+            whole_label: RegexSet::new(whole_label)?,
+        })
+    })
+}
+
+fn initialize_regex_set(patterns: &[&str]) -> Result<QuantityRegexSet, RegexError> {
+    let regex_set = compile_regex_set(patterns);
 
     #[cfg(test)]
     if regex_set.is_ok() {
@@ -907,14 +949,43 @@ mod tests {
     fn should_not_guess_when_quantity_evidence_conflicts() {
         assert_eq!(
             quick_check_availability("0 available; only 2 remaining"),
-            Ok(ListingAvailabilityQuickCheck::Unsupported)
+            Ok(ListingAvailabilityQuickCheck::Unsupported(
+                AvailabilityUnsupportedReason::ConflictingQuantity
+            ))
         );
+    }
+
+    #[test]
+    fn should_not_resolve_negated_future_or_contradicted_quantity_evidence() {
+        for raw in [
+            "not 2 available",
+            "sold out; 2 available next month",
+            "2 available next month",
+            "no 2 left",
+            "2 available from March",
+            "nicht 3 verfügbar",
+        ] {
+            assert_eq!(
+                quick_check_availability(raw),
+                Ok(ListingAvailabilityQuickCheck::Unsupported(
+                    AvailabilityUnsupportedReason::QualifiedQuantity
+                )),
+                "{raw}"
+            );
+        }
+        for raw in ["2 available", "Only 2 left!", "Just 1 remaining."] {
+            assert_eq!(
+                quick_check_availability(raw),
+                resolved(ListingAvailability::Available),
+                "{raw}"
+            );
+        }
     }
 
     #[test]
     fn should_fail_closed_without_a_state_decision_when_regex_constants_are_invalid()
     -> Result<(), RegexError> {
-        let available_regex_set = RegexSet::new(AVAILABLE_REGEX_PATTERNS)?;
+        let available_regex_set = compile_regex_set(AVAILABLE_REGEX_PATTERNS)?;
         let invalid_out_of_stock_regex_set = compile_regex_set(&[r"["]);
 
         for value in ["sold out", "Only 2 remaining", "0 available"] {
@@ -933,8 +1004,8 @@ mod tests {
 
     #[test]
     fn should_fail_closed_for_blank_input_when_a_regex_set_is_invalid() -> Result<(), RegexError> {
-        let available_regex_set = RegexSet::new(AVAILABLE_REGEX_PATTERNS)?;
-        let out_of_stock_regex_set = RegexSet::new(OUT_OF_STOCK_REGEX_PATTERNS)?;
+        let available_regex_set = compile_regex_set(AVAILABLE_REGEX_PATTERNS)?;
+        let out_of_stock_regex_set = compile_regex_set(OUT_OF_STOCK_REGEX_PATTERNS)?;
         let invalid_regex_set = compile_regex_set(&[r"["]);
 
         for value in ["", " \t\r\n"] {
@@ -1014,7 +1085,9 @@ mod tests {
         for raw in ["limited availability soon", "This antique was sold in 1970"] {
             assert_eq!(
                 quick_check_availability(raw),
-                Ok(ListingAvailabilityQuickCheck::Unsupported),
+                Ok(ListingAvailabilityQuickCheck::Unsupported(
+                    AvailabilityUnsupportedReason::UnrecognizedLabel
+                )),
                 "{raw}"
             );
         }
