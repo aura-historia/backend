@@ -1,7 +1,7 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
 use crate::network::policy::{
-    NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown, exponential_cooldown_up_to,
+    MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
 use crate::spider::candidate_service::{SPIDER_RECRAWL_INTERVAL, SpiderCandidate};
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
@@ -45,7 +45,7 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
 /// truncation and is capped at that interval, so a domain too large for one
 /// crawl settles into the normal schedule instead of looping.
 fn truncated_crawl_cooldown(truncation_count: i32) -> Duration {
-    exponential_cooldown_up_to(
+    exponential_cooldown(
         TRUNCATED_CRAWL_RETRY_COOLDOWN,
         u32::try_from(truncation_count).unwrap_or(0),
         SPIDER_RECRAWL_INTERVAL,
@@ -94,6 +94,7 @@ fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
     exponential_cooldown(
         durable_retry_cooldown_for(NetworkErrorKind::Unknown),
         failure_streak,
+        MAX_EXPONENTIAL_COOLDOWN,
     )
 }
 
