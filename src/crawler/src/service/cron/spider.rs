@@ -279,6 +279,8 @@ fn spawn_spider_candidate(
                             failure_count,
                             total_crawled = *total_links,
                             min_required_links = 2,
+                            user_agent = diagnostics.user_agent,
+                            root_preflight_status = ?diagnostics.root_preflight_status,
                             http_status = ?diagnostics.http_status,
                             final_url = ?diagnostics.final_url,
                             redirect_url = ?diagnostics.redirect_url,

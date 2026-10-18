@@ -141,6 +141,7 @@ pub async fn public_http_client(
 ) -> Result<reqwest::Client, PublicTargetError> {
     let target = resolve_public_http_target(url, timeout).await?;
     let mut builder = reqwest::Client::builder()
+        .user_agent(crate::network::CRAWLER_USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .connect_timeout(timeout)

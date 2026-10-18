@@ -15,6 +15,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
+use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
@@ -22,7 +23,6 @@ use crate::network::policy::{
 };
 use crate::spider::utils::url::CrawledUrl;
 
-const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
 const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
@@ -181,11 +181,17 @@ fn crawl_completion(
 
 /// Structured explanation of a crawl outcome. Counters are bounded by the
 /// crawl budget; no URL collections are retained.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CrawlDiagnostics {
     /// How Spider stopped; only meaningful when `failure_kind` is unset.
     pub completion: CrawlCompletion,
     pub failure_kind: Option<CrawlFailureKind>,
+    /// User agent every request of this crawl sent, so an access denial
+    /// names the identity the site refused.
+    pub user_agent: &'static str,
+    /// Status the established crawl root answered in preflight, before Spider
+    /// ran. Spider never fetches the root when robots.txt refuses it.
+    pub root_preflight_status: Option<u16>,
     /// Status of the root page after Spider's own retries.
     pub http_status: Option<u16>,
     pub final_url: Option<String>,
@@ -209,6 +215,33 @@ pub struct CrawlDiagnostics {
     pub robots_denied: bool,
     /// Pages dropped because the local filter fell behind Spider's broadcast.
     pub lagged: u64,
+}
+
+impl Default for CrawlDiagnostics {
+    fn default() -> Self {
+        Self {
+            completion: CrawlCompletion::default(),
+            failure_kind: None,
+            user_agent: CRAWLER_USER_AGENT,
+            root_preflight_status: None,
+            http_status: None,
+            final_url: None,
+            redirect_url: None,
+            diagnostic_reason: None,
+            initial_html_length: None,
+            initial_should_retry: false,
+            initial_anti_bot: None,
+            pages_received: 0,
+            accepted: 0,
+            rejected_host: 0,
+            rejected_blacklist: 0,
+            rejected_duplicate: 0,
+            robots_blocked: 0,
+            first_robots_blocked_url: None,
+            robots_denied: false,
+            lagged: 0,
+        }
+    }
 }
 
 impl CrawlDiagnostics {
@@ -359,7 +392,7 @@ impl SpiderTransport for PublicSpiderTransport {
 /// reject anonymous clients answer 403.
 fn spider_client_builder(timeout: Duration) -> spider::reqwest::ClientBuilder {
     spider::reqwest::Client::builder()
-        .user_agent(SPIDER_USER_AGENT)
+        .user_agent(CRAWLER_USER_AGENT)
         .default_headers(spider_request_headers())
         .redirect(spider::reqwest::redirect::Policy::none())
         .timeout(timeout)
@@ -581,9 +614,11 @@ async fn fetch_crawl_root(
     }
 }
 
-/// The established crawl root and the client pinned to it.
+/// The established crawl root, the status it answered and the client pinned
+/// to it.
 struct PreflightedRoot {
     url: Url,
+    status: u16,
     client: spider::reqwest::Client,
 }
 
@@ -624,6 +659,7 @@ async fn follow_crawl_root(
         if !response.status().is_redirection() {
             return Ok(PreflightedRoot {
                 url: current_root,
+                status: response.status().as_u16(),
                 client,
             });
         }
@@ -715,6 +751,7 @@ impl SpiderImpl {
         let request_timeout = Duration::from_secs(self.config.request_timeout_secs);
         let PreflightedRoot {
             url: root_url,
+            status: root_preflight_status,
             client,
         } = preflight_crawl_root(
             self.transport.as_ref(),
@@ -749,7 +786,7 @@ impl SpiderImpl {
             .with_whitelist_url(Some(vec![host_whitelist.into()]))
             .with_respect_robots_txt(true)
             .with_headers(Some(spider_request_headers()))
-            .with_user_agent(Some(SPIDER_USER_AGENT))
+            .with_user_agent(Some(CRAWLER_USER_AGENT))
             .with_request_timeout(Some(request_timeout))
             .with_crawl_timeout(Some(self.config.max_crawl_duration))
             .with_limit(self.config.max_pages_per_crawl)
@@ -798,7 +835,10 @@ impl SpiderImpl {
         tokio::spawn(async move {
             let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
                 .expect("bloom filter init failed");
-            let mut diagnostics = CrawlDiagnostics::default();
+            let mut diagnostics = CrawlDiagnostics {
+                root_preflight_status: Some(root_preflight_status),
+                ..CrawlDiagnostics::default()
+            };
             let mut first_page_seen = false;
             let configured_root = Url::parse(&crawl_root_url).ok();
             let mut root_redirect_rejected = false;
@@ -970,8 +1010,18 @@ fn anti_bot_signal(status_code: u16, anti_bot_tech: AntiBotTech) -> Option<Diagn
     }
 }
 
+const CRAWL_ROOT_ACCESS_DENIED: &str = "crawl_root_access_denied";
+
+const fn is_access_denied_status(status_code: u16) -> bool {
+    matches!(status_code, 401 | 403)
+}
+
 fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
     match status_code {
+        status_code if is_access_denied_status(status_code) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::AccessDenied,
+            CRAWL_ROOT_ACCESS_DENIED,
+        )),
         526 => Some(DiagnosticSignal::new(
             CrawlFailureKind::TlsError,
             "library_permanent_address_or_tls_error",
@@ -1031,9 +1081,22 @@ fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
         return;
     }
     if diagnostics.pages_received == 0 && diagnostics.robots_denied {
+        // A site that refuses the root as well refuses the crawler, not just
+        // its robots.txt request.
+        let reason = if diagnostics
+            .root_preflight_status
+            .is_some_and(is_access_denied_status)
+        {
+            diagnostics.http_status = diagnostics
+                .http_status
+                .or(diagnostics.root_preflight_status);
+            CRAWL_ROOT_ACCESS_DENIED
+        } else {
+            "robots_txt_request_denied"
+        };
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::AccessDenied,
-            "robots_txt_request_denied",
+            reason,
         ));
     } else if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
         diagnostics.apply_signal(DiagnosticSignal::new(
@@ -1397,7 +1460,7 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent, _)| user_agent == SPIDER_USER_AGENT),
+                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
             "request without the spider user agent: {request_log:?}"
         );
         // Spider's reqwest would otherwise advertise zstd, which fix(#1174)
@@ -1822,6 +1885,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_report_site_refusing_the_crawler_as_root_access_denied() {
+        let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+            SiteResponse::Html("403 Forbidden", String::new())
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let request_log = site.finish().await;
+
+        assert!(discovered.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::AccessDenied),
+            "{diagnostics:?}"
+        );
+        assert_eq!(
+            diagnostics.diagnostic_reason.as_deref(),
+            Some(CRAWL_ROOT_ACCESS_DENIED)
+        );
+        assert!(diagnostics.robots_denied);
+        assert_eq!(diagnostics.root_preflight_status, Some(403));
+        assert_eq!(diagnostics.http_status, Some(403));
+        assert_eq!(diagnostics.user_agent, CRAWLER_USER_AGENT);
+        assert!(
+            request_log
+                .iter()
+                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
+            "{request_log:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn should_not_lose_pages_while_the_consumer_is_slow() {
         const LINKS: usize = 700;
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| {
@@ -2156,6 +2252,53 @@ mod tests {
             diagnostics.diagnostic_reason.as_deref(),
             Some("robots_txt_request_denied")
         );
+    }
+
+    #[test]
+    fn should_report_refused_robots_and_root_as_root_access_denied() {
+        for root_status in [401, 403] {
+            let mut diagnostics = CrawlDiagnostics {
+                root_preflight_status: Some(root_status),
+                robots_blocked: 1,
+                ..CrawlDiagnostics::default()
+            };
+            apply_library_outcome(
+                &mut diagnostics,
+                LibraryOutcome {
+                    robots_denied: true,
+                    ..library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None)
+                },
+            );
+            apply_local_filter_outcome(&mut diagnostics);
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::AccessDenied)
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some(CRAWL_ROOT_ACCESS_DENIED)
+            );
+            assert_eq!(diagnostics.http_status, Some(root_status));
+            assert_eq!(diagnostics.user_agent, CRAWLER_USER_AGENT);
+        }
+    }
+
+    #[test]
+    fn should_report_refused_root_page_as_access_denied() {
+        for status in [401, 403] {
+            let diagnostics = page_diagnostics("https://example.com", status);
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::AccessDenied)
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some(CRAWL_ROOT_ACCESS_DENIED)
+            );
+            assert_eq!(diagnostics.http_status, Some(status));
+        }
     }
 
     #[test]
