@@ -21,7 +21,7 @@ Every crawler request (spider pages and robots.txt, scraper HTML fetches, image 
 
 - The crawler identifies itself honestly instead of posing as a browser. Spider matches robots.txt groups against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
-- A 401 or 403 from the crawl root is reported as `AccessDenied` (`crawl_root_access_denied`) with the root status and the user agent in the crawl diagnostics, including when robots.txt was refused first. A refused robots.txt on an otherwise reachable root stays `robots_txt_request_denied`.
+- A 401 or 403 from the crawl root is reported as `AccessDenied` (`crawl_root_access_denied`) with the root status and the user agent in the crawl diagnostics, including when robots.txt was refused first. Spider's own reading of the refusal (a JavaScript challenge, a recognised vendor block) keeps precedence. A refused robots.txt on an otherwise reachable root stays `robots_txt_request_denied`.
 
 ## Resource rails
 

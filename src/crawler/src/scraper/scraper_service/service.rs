@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
@@ -257,13 +259,7 @@ impl ReqwestHtmlFetcher {
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return reqwest::Client::builder()
-                .user_agent(crate::network::CRAWLER_USER_AGENT)
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(self.attempt_timeout)
-                .connect_timeout(self.attempt_timeout)
-                .no_proxy()
-                .http1_only()
+            return crawler_client_builder(self.attempt_timeout, true)
                 .build()
                 .map_err(reqwest_fetch_error);
         }

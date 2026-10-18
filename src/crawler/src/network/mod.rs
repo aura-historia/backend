@@ -8,5 +8,10 @@ pub mod policy;
 /// can address `AuraHistoriaBot` directly. The bare token form is deliberate:
 /// some shop firewalls refuse the `Mozilla/5.0 (compatible; ...)` form from
 /// unverified addresses, and a pinned browser version goes stale and gets
-/// blocked as outdated.
-pub const CRAWLER_USER_AGENT: &str = "AuraHistoriaBot/1.0 (+https://aura-historia.com)";
+/// blocked as outdated. The version is the crate's, so a shop's log entry
+/// maps to a build.
+pub const CRAWLER_USER_AGENT: &str = concat!(
+    "AuraHistoriaBot/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://aura-historia.com)"
+);

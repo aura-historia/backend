@@ -1,5 +1,6 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
+use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
@@ -279,7 +280,7 @@ fn spawn_spider_candidate(
                             failure_count,
                             total_crawled = *total_links,
                             min_required_links = 2,
-                            user_agent = diagnostics.user_agent,
+                            user_agent = CRAWLER_USER_AGENT,
                             root_preflight_status = ?diagnostics.root_preflight_status,
                             http_status = ?diagnostics.http_status,
                             final_url = ?diagnostics.final_url,

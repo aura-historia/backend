@@ -181,14 +181,11 @@ fn crawl_completion(
 
 /// Structured explanation of a crawl outcome. Counters are bounded by the
 /// crawl budget; no URL collections are retained.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CrawlDiagnostics {
     /// How Spider stopped; only meaningful when `failure_kind` is unset.
     pub completion: CrawlCompletion,
     pub failure_kind: Option<CrawlFailureKind>,
-    /// User agent every request of this crawl sent, so an access denial
-    /// names the identity the site refused.
-    pub user_agent: &'static str,
     /// Status the established crawl root answered in preflight, before Spider
     /// ran. Spider never fetches the root when robots.txt refuses it.
     pub root_preflight_status: Option<u16>,
@@ -215,33 +212,6 @@ pub struct CrawlDiagnostics {
     pub robots_denied: bool,
     /// Pages dropped because the local filter fell behind Spider's broadcast.
     pub lagged: u64,
-}
-
-impl Default for CrawlDiagnostics {
-    fn default() -> Self {
-        Self {
-            completion: CrawlCompletion::default(),
-            failure_kind: None,
-            user_agent: CRAWLER_USER_AGENT,
-            root_preflight_status: None,
-            http_status: None,
-            final_url: None,
-            redirect_url: None,
-            diagnostic_reason: None,
-            initial_html_length: None,
-            initial_should_retry: false,
-            initial_anti_bot: None,
-            pages_received: 0,
-            accepted: 0,
-            rejected_host: 0,
-            rejected_blacklist: 0,
-            rejected_duplicate: 0,
-            robots_blocked: 0,
-            first_robots_blocked_url: None,
-            robots_denied: false,
-            lagged: 0,
-        }
-    }
 }
 
 impl CrawlDiagnostics {
@@ -1010,18 +980,8 @@ fn anti_bot_signal(status_code: u16, anti_bot_tech: AntiBotTech) -> Option<Diagn
     }
 }
 
-const CRAWL_ROOT_ACCESS_DENIED: &str = "crawl_root_access_denied";
-
-const fn is_access_denied_status(status_code: u16) -> bool {
-    matches!(status_code, 401 | 403)
-}
-
 fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
     match status_code {
-        status_code if is_access_denied_status(status_code) => Some(DiagnosticSignal::new(
-            CrawlFailureKind::AccessDenied,
-            CRAWL_ROOT_ACCESS_DENIED,
-        )),
         526 => Some(DiagnosticSignal::new(
             CrawlFailureKind::TlsError,
             "library_permanent_address_or_tls_error",
@@ -1072,31 +1032,35 @@ fn apply_website_status(
     }
 }
 
-/// Distinguishes "the site refused the robots.txt request", "robots.txt
-/// blocked the crawl root" and "Spider delivered pages but local filtering
-/// accepted none" from a genuinely empty library response. Library signals
-/// keep precedence.
+const CRAWL_ROOT_ACCESS_DENIED: &str = "crawl_root_access_denied";
+
+const fn is_access_denied_status(status_code: u16) -> bool {
+    matches!(status_code, 401 | 403)
+}
+
+/// Distinguishes "the site refused the crawler", "the site refused the
+/// robots.txt request", "robots.txt blocked the crawl root" and "Spider
+/// delivered pages but local filtering accepted none" from a genuinely empty
+/// library response. Library signals keep precedence, so a 403 Spider
+/// recognised as a JavaScript challenge or a vendor block stays that.
 fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
     if diagnostics.failure_kind.is_some() {
         return;
     }
-    if diagnostics.pages_received == 0 && diagnostics.robots_denied {
-        // A site that refuses the root as well refuses the crawler, not just
-        // its robots.txt request.
-        let reason = if diagnostics
-            .root_preflight_status
-            .is_some_and(is_access_denied_status)
-        {
-            diagnostics.http_status = diagnostics
-                .http_status
-                .or(diagnostics.root_preflight_status);
-            CRAWL_ROOT_ACCESS_DENIED
-        } else {
-            "robots_txt_request_denied"
-        };
+    // The root Spider delivered, or the preflight answer when Spider never
+    // fetched it (robots.txt refused or Spider delivered nothing).
+    let root_status = diagnostics
+        .http_status
+        .or(diagnostics.root_preflight_status);
+    if root_status.is_some_and(is_access_denied_status) {
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::AccessDenied,
-            reason,
+            CRAWL_ROOT_ACCESS_DENIED,
+        ));
+    } else if diagnostics.pages_received == 0 && diagnostics.robots_denied {
+        diagnostics.apply_signal(DiagnosticSignal::new(
+            CrawlFailureKind::AccessDenied,
+            "robots_txt_request_denied",
         ));
     } else if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
         diagnostics.apply_signal(DiagnosticSignal::new(
@@ -1907,8 +1871,8 @@ mod tests {
         );
         assert!(diagnostics.robots_denied);
         assert_eq!(diagnostics.root_preflight_status, Some(403));
-        assert_eq!(diagnostics.http_status, Some(403));
-        assert_eq!(diagnostics.user_agent, CRAWLER_USER_AGENT);
+        // Spider never fetched the root: robots.txt was refused first.
+        assert_eq!(diagnostics.http_status, None);
         assert!(
             request_log
                 .iter()
@@ -2279,15 +2243,25 @@ mod tests {
                 diagnostics.diagnostic_reason.as_deref(),
                 Some(CRAWL_ROOT_ACCESS_DENIED)
             );
-            assert_eq!(diagnostics.http_status, Some(root_status));
-            assert_eq!(diagnostics.user_agent, CRAWLER_USER_AGENT);
+            assert_eq!(diagnostics.root_preflight_status, Some(root_status));
+            assert_eq!(diagnostics.http_status, None);
         }
     }
 
     #[test]
     fn should_report_refused_root_page_as_access_denied() {
         for status in [401, 403] {
-            let diagnostics = page_diagnostics("https://example.com", status);
+            let mut diagnostics = CrawlDiagnostics {
+                root_preflight_status: Some(status),
+                pages_received: 1,
+                accepted: 1,
+                ..page_diagnostics("https://example.com", status)
+            };
+            apply_library_outcome(
+                &mut diagnostics,
+                library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None),
+            );
+            apply_local_filter_outcome(&mut diagnostics);
 
             assert_eq!(
                 diagnostics.failure_kind,
@@ -2299,6 +2273,63 @@ mod tests {
             );
             assert_eq!(diagnostics.http_status, Some(status));
         }
+    }
+
+    /// Spider's own reading of a 403 root explains more than the status
+    /// alone; the generic access-denied signal must not hide it.
+    #[test]
+    fn should_keep_library_classification_of_a_refused_root() {
+        for (status, meta, expected_kind, expected_reason) in [
+            (
+                CrawlStatus::Blocked,
+                WebsiteMetaInfo::RequiresJavascript,
+                CrawlFailureKind::JavascriptRequired,
+                "library_requires_javascript",
+            ),
+            (
+                CrawlStatus::Blocked,
+                WebsiteMetaInfo::Apache403,
+                CrawlFailureKind::AccessDenied,
+                "library_blocked_status",
+            ),
+        ] {
+            let mut diagnostics = CrawlDiagnostics {
+                root_preflight_status: Some(403),
+                pages_received: 1,
+                accepted: 1,
+                ..page_diagnostics("https://example.com", 403)
+            };
+            apply_library_outcome(&mut diagnostics, library_outcome(status, meta));
+            apply_local_filter_outcome(&mut diagnostics);
+
+            assert_eq!(diagnostics.failure_kind, Some(expected_kind));
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some(expected_reason)
+            );
+        }
+    }
+
+    #[test]
+    fn should_report_refused_root_without_delivered_pages_as_access_denied() {
+        let mut diagnostics = CrawlDiagnostics {
+            root_preflight_status: Some(403),
+            ..CrawlDiagnostics::default()
+        };
+        apply_library_outcome(
+            &mut diagnostics,
+            library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None),
+        );
+        apply_local_filter_outcome(&mut diagnostics);
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::AccessDenied)
+        );
+        assert_eq!(
+            diagnostics.diagnostic_reason.as_deref(),
+            Some(CRAWL_ROOT_ACCESS_DENIED)
+        );
     }
 
     #[test]
