@@ -1,0 +1,25 @@
+[package]
+name = "product-listing-normalization-replay"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "normalization-replay"
+path = "src/main.rs"
+
+[dependencies]
+listing-source-core = { workspace = true }
+money = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-normalization = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-service = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

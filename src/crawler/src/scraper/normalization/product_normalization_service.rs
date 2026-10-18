@@ -2,15 +2,11 @@ pub use super::error::NormalizationError;
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use money::Currency;
-use product_listing_normalization::diagnostics::{
-    availability_normalization_error, price_normalization_error,
-};
 use product_listing_normalization::{
-    ImageUrlNormalizationError, ListingAvailabilityQuickCheck, NormalizationField,
-    NormalizationIssue, NormalizationIssueDetails, NormalizationIssueReason, NormalizationReport,
-    PriceField, PriceNormalizationError, normalize_description, normalize_image_urls,
-    normalize_price, normalize_product_listing_price,
-    normalize_source_listing_id_with_url_sha_fallback, normalize_title, quick_check_availability,
+    AvailabilityNormalizationError, ImageUrlNormalizationError, PriceField,
+    PriceNormalizationError, normalize_description, normalize_image_urls, normalize_price,
+    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
+    normalize_title, quick_check_availability,
 };
 use tracing::debug;
 use url::Url;
@@ -74,134 +70,55 @@ pub struct PreparedProduct {
     pub url: Url,
 }
 
-/// Candidate-local preparation decision plus every observed issue. Replay calls this function.
-#[derive(Debug)]
-pub struct CrawlerPreparationEvaluation {
-    pub outcome: Result<PreparedProduct, NormalizationError>,
-    pub report: NormalizationReport,
-}
-
 pub fn prepare_product(
     raw: RawExtractedProduct,
     context: ProductNormalizationContext,
 ) -> Result<PreparedProduct, NormalizationError> {
-    evaluate_preparation(raw, context).outcome
-}
-
-/// Evaluates every independent field. The decision keeps the first failure in field order;
-/// the report retains every hard failure and soft miss.
-pub fn evaluate_preparation(
-    raw: RawExtractedProduct,
-    context: ProductNormalizationContext,
-) -> CrawlerPreparationEvaluation {
     let ProductNormalizationContext {
         effective_url: url,
         source_record_key,
         fallback_currency,
     } = context;
-    let mut report = NormalizationReport::new();
-    let mut first_error = None;
-    let mut fail = |(error, issue): (NormalizationError, NormalizationIssue),
-                    report: &mut NormalizationReport| {
-        report.push(issue);
-        first_error.get_or_insert(error);
-    };
-
-    let availability = match quick_check_availability(raw.state.as_str()) {
-        Ok(availability) => {
-            if let ListingAvailabilityQuickCheck::Unsupported(reason) = availability {
-                report.push(NormalizationIssue::availability_unsupported(reason));
-            }
-            Some(availability)
-        }
-        Err(error) => {
-            let error = availability_normalization_error(error);
-            fail(reject(error), &mut report);
-            None
-        }
-    };
-    let source_listing_id = match Url::parse(&source_record_key) {
-        Ok(raw_source_record_url) => match normalize_source_listing_id_with_url_sha_fallback(
-            &raw.source_listing_id,
-            &raw_source_record_url,
-        ) {
-            Ok(source_listing_id) => Some(source_listing_id),
-            Err(error) => {
-                fail(reject(error), &mut report);
-                None
-            }
-        },
-        Err(error) => {
-            fail(
-                (
-                    NormalizationError::SourceListingIdInvalid(
-                        product_listing_core::source_listing_id::InvalidSourceListingId::Blank,
-                    ),
-                    NormalizationIssue::envelope(
-                        NormalizationField::SourceRecordKey,
-                        NormalizationIssueReason::SourceRecordKeyInvalid,
-                        NormalizationIssueDetails::url_parse(&error),
-                    ),
-                ),
-                &mut report,
-            );
-            None
-        }
-    };
-    let title = normalize_title(raw.title.as_str()).and_then(|title| {
-        let title_language = product_listing_normalization::detect_language(title.as_ref());
-        let description_language =
-            product_listing_normalization::text::detect_description_language(&raw.description);
-        product_listing_normalization::text::localize_normalized_title(
-            title,
-            title_language,
-            description_language,
+    let availability =
+        quick_check_availability(raw.state.as_str()).map_err(map_availability_error)?;
+    let raw_source_record_url = Url::parse(&source_record_key).map_err(|_| {
+        NormalizationError::SourceListingIdInvalid(
+            product_listing_core::source_listing_id::InvalidSourceListingId::Blank,
         )
-        .map(|localized| (localized, title_language))
-    });
-    let (title, title_language) = match title {
-        Ok((title, title_language)) => (Some(title), title_language),
-        Err(error) => {
-            fail(reject(error), &mut report);
-            (None, None)
-        }
-    };
-    let description = match normalize_description(raw.description, title_language) {
-        Ok(description) => Some(description),
-        Err(error) => {
-            fail(reject(error), &mut report);
-            None
-        }
-    };
+    })?;
+    let source_listing_id = normalize_source_listing_id_with_url_sha_fallback(
+        &raw.source_listing_id,
+        &raw_source_record_url,
+    )?;
+    let title = normalize_title(raw.title.as_str())?;
+    let title_language = product_listing_normalization::detect_language(title.as_ref());
+    let description_language =
+        product_listing_normalization::text::detect_description_language(&raw.description);
+    let title = product_listing_normalization::text::localize_normalized_title(
+        title,
+        title_language,
+        description_language,
+    )?;
+    let description = normalize_description(raw.description, title_language)?;
 
-    let price = price_field(
-        normalize_product_listing_price(raw.price.as_deref(), fallback_currency),
+    let price = normalize_product_listing_price_or_skip_missing_currency(
+        raw.price.as_deref(),
+        fallback_currency,
         PriceField::Price,
-        &mut report,
-        &mut fail,
-    );
-    let price_estimate_min = price_field(
-        normalize_price(raw.price_estimate_min.as_deref(), fallback_currency),
+    )?;
+    let price_estimate_min = normalize_price_or_skip_missing_currency(
+        raw.price_estimate_min.as_deref(),
+        fallback_currency,
         PriceField::EstimateMin,
-        &mut report,
-        &mut fail,
-    );
-    let price_estimate_max = price_field(
-        normalize_price(raw.price_estimate_max.as_deref(), fallback_currency),
+    )?;
+    let price_estimate_max = normalize_price_or_skip_missing_currency(
+        raw.price_estimate_max.as_deref(),
+        fallback_currency,
         PriceField::EstimateMax,
-        &mut report,
-        &mut fail,
-    );
-    let images = match normalize_image_urls(raw.images, &url).map_err(map_image_error) {
-        Ok(images) => Some(images),
-        Err(error) => {
-            fail(reject(error), &mut report);
-            None
-        }
-    };
+    )?;
+    let images = normalize_image_urls(raw.images, &url).map_err(map_image_error)?;
 
-    let outcome = match (
-        first_error,
+    Ok(PreparedProduct {
         availability,
         source_listing_id,
         title,
@@ -210,62 +127,10 @@ pub fn evaluate_preparation(
         price_estimate_min,
         price_estimate_max,
         images,
-    ) {
-        (
-            None,
-            Some(availability),
-            Some(source_listing_id),
-            Some(title),
-            Some(description),
-            Some(price),
-            Some(price_estimate_min),
-            Some(price_estimate_max),
-            Some(images),
-        ) => Ok(PreparedProduct {
-            availability,
-            source_listing_id,
-            title,
-            description,
-            price,
-            price_estimate_min,
-            price_estimate_max,
-            images,
-            raw_attributes: raw.raw_attributes,
-            raw_state: raw.state,
-            url,
-        }),
-        (Some(error), ..) => Err(error),
-        _ => unreachable!("every missing field result records its error"),
-    };
-    CrawlerPreparationEvaluation { outcome, report }
-}
-
-/// A supplied price without determinable currency is unresolved, not absent. Preparation does
-/// not use it; raw capture keeps the supplied value so the worker preserves the canonical field.
-fn price_field<T>(
-    result: Result<Option<T>, PriceNormalizationError>,
-    field: PriceField,
-    report: &mut NormalizationReport,
-    fail: &mut impl FnMut((NormalizationError, NormalizationIssue), &mut NormalizationReport),
-) -> Option<Option<T>> {
-    match result {
-        Ok(price) => Some(price),
-        Err(PriceNormalizationError::UnknownCurrency) => {
-            debug!(price_field = ?field, "Price currency could not be determined");
-            report.push(NormalizationIssue::price_unknown_currency(field));
-            Some(None)
-        }
-        Err(error) => {
-            let error = price_normalization_error(error, field);
-            fail(reject(error), report);
-            None
-        }
-    }
-}
-
-fn reject(error: NormalizationError) -> (NormalizationError, NormalizationIssue) {
-    let issue = NormalizationIssue::from_normalization_error(&error);
-    (error, issue)
+        raw_attributes: raw.raw_attributes,
+        raw_state: raw.state,
+        url,
+    })
 }
 
 pub struct ProductListingNormalizationServiceImpl;
@@ -304,6 +169,43 @@ fn failure(error: NormalizationError) -> NormalizationFailure {
     }
 }
 
+fn normalize_product_listing_price_or_skip_missing_currency(
+    raw: Option<&str>,
+    fallback_currency: Option<Currency>,
+    field: PriceField,
+) -> Result<
+    Option<product_listing_core::product_listing_price::ProductListingPrice>,
+    NormalizationError,
+> {
+    match normalize_product_listing_price(raw, fallback_currency) {
+        Ok(price) => Ok(price),
+        Err(PriceNormalizationError::UnknownCurrency) => {
+            debug!(price_field = ?field, "Skipping price extraction because no currency was detected");
+            Ok(None)
+        }
+        Err(error) => Err(map_price_error(error, field)),
+    }
+}
+
+fn normalize_price_or_skip_missing_currency(
+    raw: Option<&str>,
+    fallback_currency: Option<Currency>,
+    field: PriceField,
+) -> Result<Option<money::Price>, NormalizationError> {
+    match normalize_price(raw, fallback_currency) {
+        Ok(price) => Ok(price),
+        Err(PriceNormalizationError::UnknownCurrency) => {
+            debug!(price_field = ?field, "Skipping price extraction because no currency was detected");
+            Ok(None)
+        }
+        Err(error) => Err(map_price_error(error, field)),
+    }
+}
+
+fn map_price_error(error: PriceNormalizationError, field: PriceField) -> NormalizationError {
+    product_listing_normalization::diagnostics::price_normalization_error(error, field)
+}
+
 fn map_image_error(error: ImageUrlNormalizationError) -> NormalizationError {
     match error {
         ImageUrlNormalizationError::InvalidUrl(source) => {
@@ -312,10 +214,24 @@ fn map_image_error(error: ImageUrlNormalizationError) -> NormalizationError {
     }
 }
 
+fn map_availability_error(error: AvailabilityNormalizationError) -> NormalizationError {
+    match error {
+        AvailabilityNormalizationError::InputTooLong { len, max } => {
+            NormalizationError::AvailabilityTextTooLong { len, max }
+        }
+        AvailabilityNormalizationError::EmbeddedNul => {
+            NormalizationError::AvailabilityTextEmbeddedNul
+        }
+        AvailabilityNormalizationError::RegexSetCompilationFailed => {
+            NormalizationError::AvailabilityRegexSetCompilationFailed
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_listing_normalization::AvailabilityNormalizationError;
+    use product_listing_normalization::ListingAvailabilityQuickCheck;
 
     fn raw() -> RawExtractedProduct {
         RawExtractedProduct {
@@ -333,9 +249,8 @@ mod tests {
 
     #[test]
     fn should_map_invalid_availability_regex_sets_to_a_system_failure() {
-        let error = availability_normalization_error(
-            AvailabilityNormalizationError::RegexSetCompilationFailed,
-        );
+        let error =
+            map_availability_error(AvailabilityNormalizationError::RegexSetCompilationFailed);
 
         assert_eq!(
             error.failure_reason(),

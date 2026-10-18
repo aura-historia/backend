@@ -13,12 +13,12 @@
 //! Exit status: 0 when the run covered its whole snapshot (even if cases remain unresolved),
 //! 2 when the run is incomplete, 64 for invalid usage.
 
-use crawler::normalization_replay::{
+use product_listing_normalization_replay::{
     DEFAULT_REPLAY_PAGE_SIZE, RunCompletion, export_corpus, replay_corpus, replay_jsonl,
     seed_from_raw_revisions, write_record,
 };
 use product_listing_postgres::SqlxNormalizationDiagnosticCaseStore;
-use product_listing_service::ports::{
+use product_service::ports::{
     NormalizationDiagnosticCaseFilter, NormalizationDiagnosticCaseId,
     NormalizationDiagnosticEntryPoint,
 };
@@ -230,7 +230,7 @@ mod tests {
         let parsed = args(&[
             "export",
             "--entry-point",
-            "CRAWLER_PREPARATION_V1",
+            "RAW_VALUES_NORMALIZATION_V1",
             "--reason",
             "PRICE_NEGATIVE",
             "--output",
@@ -239,7 +239,7 @@ mod tests {
         .unwrap();
         assert_eq!(Command::Export, parsed.command);
         assert_eq!(
-            Some(NormalizationDiagnosticEntryPoint::CrawlerPreparationV1),
+            Some(NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1),
             parsed.filter.entry_point
         );
         assert!(args(&["export"]).is_err());

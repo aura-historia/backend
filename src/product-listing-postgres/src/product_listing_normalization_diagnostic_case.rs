@@ -6,16 +6,15 @@ use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingValues, SourcePayload,
 };
-use product_listing_service::ports::{
+use product_service::ports::{
     MAX_NORMALIZATION_DIAGNOSTIC_BUILD_BYTES, NormalizationDiagnosticCase,
     NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePageRequest,
     NormalizationDiagnosticCasePortError, NormalizationDiagnosticCaseReader,
     NormalizationDiagnosticCaseRecorder, NormalizationDiagnosticCaseWriter,
     NormalizationDiagnosticCaseWriterFactory, NormalizationDiagnosticEntryPoint,
-    NormalizationDiagnosticEvidence, RetainedProductListingRawRevision,
-    RetainedProductListingRawRevisionRead, RetainedProductListingRawRevisionReader,
-    StoredNormalizationDiagnosticCase, StoredNormalizationDiagnosticEvidence,
-    UnreadableProductListingRawRevision,
+    RetainedProductListingRawRevision, RetainedProductListingRawRevisionRead,
+    RetainedProductListingRawRevisionReader, StoredNormalizationDiagnosticCase,
+    StoredNormalizationDiagnosticEvidence, UnreadableProductListingRawRevision,
 };
 use sqlx::{PgConnection, PgPool};
 
@@ -83,10 +82,6 @@ async fn record_case(
     case: NormalizationDiagnosticCase,
 ) -> Result<NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError> {
     let case_id = case.case_id();
-    let (raw_revision_id, snapshot) = match &case.evidence {
-        NormalizationDiagnosticEvidence::RawRevision(id) => (Some(*id.as_uuid()), None),
-        NormalizationDiagnosticEvidence::Snapshot(snapshot) => (None, Some(snapshot)),
-    };
     let issues = serde_json::to_value(&case.issues).map_err(persistence)?;
     let build = bounded_build(&case.provenance.build);
     let diagnostics_version = i16::try_from(case.provenance.diagnostics_version)
@@ -98,10 +93,10 @@ async fn record_case(
         r#"
         INSERT INTO product_listing_normalization_diagnostic_cases (
             case_id, entry_point, input_sha256, listing_source_id,
-            product_listing_raw_revision_id, input_snapshot, outcome, issues,
+            product_listing_raw_revision_id, outcome, issues,
             diagnostics_version, evaluator_version, build
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (entry_point, input_sha256) DO UPDATE SET
             outcome = EXCLUDED.outcome,
             issues = EXCLUDED.issues,
@@ -117,8 +112,7 @@ async fn record_case(
     .bind(case.entry_point.as_str())
     .bind(case.input_sha256.as_slice())
     .bind(case.listing_source_id.as_uuid())
-    .bind(raw_revision_id)
-    .bind(snapshot)
+    .bind(case.product_listing_raw_revision_id.as_uuid())
     .bind(case.outcome.as_str())
     .bind(issues)
     .bind(diagnostics_version)
@@ -149,8 +143,7 @@ struct CaseRow {
     entry_point: String,
     input_sha256: Vec<u8>,
     listing_source_id: uuid::Uuid,
-    product_listing_raw_revision_id: Option<uuid::Uuid>,
-    input_snapshot: Option<serde_json::Value>,
+    product_listing_raw_revision_id: uuid::Uuid,
     outcome: String,
     issues: serde_json::Value,
     diagnostics_version: i16,
@@ -201,7 +194,7 @@ impl NormalizationDiagnosticCaseReader for SqlxNormalizationDiagnosticCaseStore 
             r#"
             SELECT
                 c.case_id, c.generation, c.entry_point, c.input_sha256, c.listing_source_id,
-                c.product_listing_raw_revision_id, c.input_snapshot, c.outcome, c.issues,
+                c.product_listing_raw_revision_id, c.outcome, c.issues,
                 c.diagnostics_version, c.evaluator_version, c.build, c.occurrences,
                 r.operation, r.payload_format, r.payload_schema_version,
                 r.raw_values_schema_version, r.source_payload, r.raw_values,
@@ -239,36 +232,31 @@ impl NormalizationDiagnosticCaseReader for SqlxNormalizationDiagnosticCaseStore 
 
 fn stored_case(row: CaseRow) -> StoredNormalizationDiagnosticCase {
     let entry_point = NormalizationDiagnosticEntryPoint::from_code(&row.entry_point);
-    let evidence = match (row.product_listing_raw_revision_id, row.input_snapshot) {
-        (Some(revision_id), None) => {
-            match (
-                try_from_uuid(revision_id, "ProductListing raw revision ID"),
-                stored_input(
-                    row.operation,
-                    row.payload_format,
-                    row.payload_schema_version,
-                    row.raw_values_schema_version,
-                    row.source_payload,
-                    row.raw_values,
-                    row.normalization_context,
-                ),
-            ) {
-                (Ok(product_listing_raw_revision_id), Ok(input)) => {
-                    StoredNormalizationDiagnosticEvidence::RawRevision {
-                        product_listing_raw_revision_id,
-                        input: Box::new(input),
-                    }
-                }
-                (Err(_), _) => StoredNormalizationDiagnosticEvidence::Unavailable {
-                    reason: "RAW_REVISION_ID_INVALID",
-                },
-                (_, Err(reason)) => StoredNormalizationDiagnosticEvidence::Unavailable { reason },
+    let evidence = match (
+        try_from_uuid(
+            row.product_listing_raw_revision_id,
+            "ProductListing raw revision ID",
+        ),
+        stored_input(
+            row.operation,
+            row.payload_format,
+            row.payload_schema_version,
+            row.raw_values_schema_version,
+            row.source_payload,
+            row.raw_values,
+            row.normalization_context,
+        ),
+    ) {
+        (Ok(product_listing_raw_revision_id), Ok(input)) => {
+            StoredNormalizationDiagnosticEvidence::RawRevision {
+                product_listing_raw_revision_id,
+                input: Box::new(input),
             }
         }
-        (None, Some(snapshot)) => StoredNormalizationDiagnosticEvidence::Snapshot(snapshot),
-        _ => StoredNormalizationDiagnosticEvidence::Unavailable {
-            reason: "EVIDENCE_SHAPE_INVALID",
+        (Err(_), _) => StoredNormalizationDiagnosticEvidence::Unavailable {
+            reason: "RAW_REVISION_ID_INVALID",
         },
+        (_, Err(reason)) => StoredNormalizationDiagnosticEvidence::Unavailable { reason },
     };
     StoredNormalizationDiagnosticCase {
         case_id: NormalizationDiagnosticCaseId::from_uuid(row.case_id),

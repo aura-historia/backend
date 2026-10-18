@@ -69,14 +69,16 @@ impl ScraperServiceImpl {
             };
         let validated_image_urls = validated_raw.images.clone();
 
-        let context = ProductNormalizationContext {
-            effective_url: ctx.url.clone(),
-            source_record_key: ctx.source_record_key.to_owned(),
-            fallback_currency: ctx.fallback_currency,
-        };
         let normalization = self
             .normalization_service
-            .normalize(validated_raw.clone(), context.clone())
+            .normalize(
+                validated_raw,
+                ProductNormalizationContext {
+                    effective_url: ctx.url.clone(),
+                    source_record_key: ctx.source_record_key.to_owned(),
+                    fallback_currency: ctx.fallback_currency,
+                },
+            )
             .await;
         match normalization {
             Ok(NormalizationSuccess {
@@ -128,13 +130,6 @@ impl ScraperServiceImpl {
             }) => {
                 self.consume_llm_budget_n_or_err(ctx.listing_source_id, ctx.url, llm_calls_used)
                     .await?;
-                self.record_discarded_candidate(
-                    ctx.listing_source_id,
-                    &validated_raw,
-                    &context,
-                    &norm_err,
-                )
-                .await?;
                 if norm_err.failure_scope() == NormalizationFailureScope::CandidateData {
                     return Err(ScraperError::FreshSchemaNormalizationFailed {
                         url: ctx.url.clone(),

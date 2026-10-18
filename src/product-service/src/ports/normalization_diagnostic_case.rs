@@ -1,7 +1,8 @@
-//! Retained corpus of normalization inputs that produced unresolved or failed outcomes.
+//! Retained corpus of raw revisions whose worker normalization produced unresolved or failed
+//! outcomes.
 //!
 //! Cases are diagnostic evidence for heuristic improvement and replay. They never drive canonical
-//! writes, head advancement or redelivery.
+//! writes, head advancement or redelivery. Crawler-side extraction checks are not recorded here.
 
 use application::error::BoxError;
 use async_trait::async_trait;
@@ -20,15 +21,12 @@ pub const MAX_NORMALIZATION_DIAGNOSTIC_BUILD_BYTES: usize = 64;
 pub enum NormalizationDiagnosticEntryPoint {
     /// Worker evaluation of one immutable raw revision.
     RawValuesNormalizationV1,
-    /// Crawler candidate preparation before raw capture.
-    CrawlerPreparationV1,
 }
 
 impl NormalizationDiagnosticEntryPoint {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::RawValuesNormalizationV1 => "RAW_VALUES_NORMALIZATION_V1",
-            Self::CrawlerPreparationV1 => "CRAWLER_PREPARATION_V1",
         }
     }
 
@@ -45,8 +43,6 @@ pub enum NormalizationDiagnosticOutcome {
     NoChange,
     Rejected,
     SystemFailure,
-    /// A crawler candidate was discarded before raw capture.
-    Discarded,
     EvaluatedResolved,
     EvaluatedInvalid,
 }
@@ -58,7 +54,6 @@ impl NormalizationDiagnosticOutcome {
             Self::NoChange => "NO_CHANGE",
             Self::Rejected => "REJECTED",
             Self::SystemFailure => "SYSTEM_FAILURE",
-            Self::Discarded => "DISCARDED",
             Self::EvaluatedResolved => "EVALUATED_RESOLVED",
             Self::EvaluatedInvalid => "EVALUATED_INVALID",
         }
@@ -104,15 +99,6 @@ impl std::fmt::Display for NormalizationDiagnosticCaseId {
     }
 }
 
-/// Exact replay evidence for one case.
-#[derive(Debug, Clone, PartialEq)]
-pub enum NormalizationDiagnosticEvidence {
-    /// The immutable raw revision holding the full normalization input.
-    RawRevision(ProductListingRawRevisionId),
-    /// A complete JSON snapshot of evidence that is not otherwise retained.
-    Snapshot(serde_json::Value),
-}
-
 /// Diagnostic provenance. `build` is the deploying Git SHA, or `unknown`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizationDiagnosticProvenance {
@@ -128,7 +114,8 @@ pub struct NormalizationDiagnosticCase {
     pub entry_point: NormalizationDiagnosticEntryPoint,
     pub input_sha256: [u8; NORMALIZATION_DIAGNOSTIC_INPUT_SHA256_BYTES],
     pub listing_source_id: ListingSourceId,
-    pub evidence: NormalizationDiagnosticEvidence,
+    /// The immutable raw revision holding the complete normalization input.
+    pub product_listing_raw_revision_id: ProductListingRawRevisionId,
     pub outcome: NormalizationDiagnosticOutcome,
     pub issues: Vec<NormalizationIssue>,
     pub provenance: NormalizationDiagnosticProvenance,
@@ -170,7 +157,7 @@ pub trait NormalizationDiagnosticCaseWriterFactory<Tx>: Send + Sync {
     ) -> impl NormalizationDiagnosticCaseWriter + 'tx;
 }
 
-/// Records one case in its own short transaction, for evidence that no completion owns.
+/// Records one case in its own short transaction, for historical seeding.
 #[async_trait]
 pub trait NormalizationDiagnosticCaseRecorder: Send + Sync {
     async fn record(
@@ -207,7 +194,6 @@ pub enum StoredNormalizationDiagnosticEvidence {
         product_listing_raw_revision_id: ProductListingRawRevisionId,
         input: Box<ProductListingNormalizationInput>,
     },
-    Snapshot(serde_json::Value),
     Unavailable {
         reason: &'static str,
     },
@@ -298,8 +284,8 @@ mod tests {
         assert_ne!(
             raw,
             NormalizationDiagnosticCaseId::derive(
-                NormalizationDiagnosticEntryPoint::CrawlerPreparationV1,
-                &hash,
+                NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
+                &[8; NORMALIZATION_DIAGNOSTIC_INPUT_SHA256_BYTES],
             )
         );
     }

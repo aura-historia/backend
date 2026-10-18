@@ -275,7 +275,6 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::NormalizationError(_)
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)
-        | ScraperError::NormalizationDiagnosticCaseRecordFailed(_)
         | ScraperError::LlmBudgetExceeded { .. } => DomainFetchHealth::Responsive,
         ScraperError::NoHost { .. }
         | ScraperError::MissingDomainContext { .. }

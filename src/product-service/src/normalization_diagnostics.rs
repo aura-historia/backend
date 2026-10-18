@@ -1,6 +1,6 @@
 //! Structured `product_listing_normalization_unsolved` CloudWatch events.
 //!
-//! The owning entry-point boundary emits one event per issue after deciding how the caller
+//! The raw-revision normalization worker emits one event per issue after committing how it
 //! handled the evaluation. Events reference the replay case and raw evidence; they never contain
 //! input text, provider payloads or credentials.
 
@@ -24,7 +24,7 @@ pub const BUILD_GIT_SHA: &str = match option_env!("DEPLOY_COMMIT_SHA") {
     },
 };
 
-/// References shared by every event for one evaluated input.
+/// References shared by every event for one evaluated raw revision.
 #[derive(Debug, Clone)]
 pub struct NormalizationUnsolvedEventContext<'a> {
     pub case_id: NormalizationDiagnosticCaseId,
@@ -32,12 +32,10 @@ pub struct NormalizationUnsolvedEventContext<'a> {
     pub entry_point: NormalizationDiagnosticEntryPoint,
     pub outcome: NormalizationDiagnosticOutcome,
     pub evaluator_version: u16,
-    pub listing_source_id: Option<String>,
-    pub product_listing_raw_stream_id: Option<String>,
-    pub product_listing_raw_revision_id: Option<String>,
-    pub revision: Option<u64>,
-    /// Crawler run or request correlation when available.
-    pub request_id: Option<String>,
+    pub listing_source_id: String,
+    pub product_listing_raw_stream_id: String,
+    pub product_listing_raw_revision_id: String,
+    pub revision: u64,
     /// Whether diagnostic case evidence was durably recorded for replay.
     pub evidence_recorded: bool,
 }
@@ -66,13 +64,10 @@ pub fn log_normalization_unsolved(
                     handling = issue.handling.as_str(),
                     details = %details,
                     outcome = context.outcome.as_str(),
-                    listing_source_id = context.listing_source_id.as_deref(),
-                    product_listing_raw_stream_id =
-                        context.product_listing_raw_stream_id.as_deref(),
-                    product_listing_raw_revision_id =
-                        context.product_listing_raw_revision_id.as_deref(),
+                    listing_source_id = %context.listing_source_id,
+                    product_listing_raw_stream_id = %context.product_listing_raw_stream_id,
+                    product_listing_raw_revision_id = %context.product_listing_raw_revision_id,
                     revision = context.revision,
-                    request_id = context.request_id.as_deref(),
                     evidence_recorded = context.evidence_recorded,
                     diagnostics_version = NORMALIZATION_DIAGNOSTICS_VERSION,
                     evaluator_version = context.evaluator_version,

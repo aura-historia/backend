@@ -19,7 +19,6 @@ pub mod product_listing_event_appender;
 pub mod product_listing_history_reader;
 pub mod product_listing_ingestion_publisher;
 pub mod product_listing_lifecycle_guard;
-pub mod product_listing_normalization_diagnostic_case;
 
 pub mod product_listing_price_filter_plan;
 pub mod product_listing_raw_capture_writer;
@@ -112,18 +111,6 @@ pub use product_listing_ingestion_publisher::{
 pub use product_listing_lifecycle_guard::{
     ProductListingLifecycleGuard, ProductListingLifecycleGuardError,
     ProductListingLifecycleGuardFactory,
-};
-pub use product_listing_normalization_diagnostic_case::{
-    MAX_NORMALIZATION_DIAGNOSTIC_BUILD_BYTES, NORMALIZATION_DIAGNOSTIC_INPUT_SHA256_BYTES,
-    NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter, NormalizationDiagnosticCaseId,
-    NormalizationDiagnosticCasePageRequest, NormalizationDiagnosticCasePortError,
-    NormalizationDiagnosticCaseReader, NormalizationDiagnosticCaseRecorder,
-    NormalizationDiagnosticCaseWriter, NormalizationDiagnosticCaseWriterFactory,
-    NormalizationDiagnosticEntryPoint, NormalizationDiagnosticEvidence,
-    NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
-    RetainedProductListingRawRevision, RetainedProductListingRawRevisionRead,
-    RetainedProductListingRawRevisionReader, StoredNormalizationDiagnosticCase,
-    StoredNormalizationDiagnosticEvidence, UnreadableProductListingRawRevision,
 };
 
 pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};

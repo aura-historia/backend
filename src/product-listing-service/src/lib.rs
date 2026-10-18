@@ -1,6 +1,5 @@
 pub mod canonical_product_listing_write;
 pub mod geographic_search;
-pub mod normalization_diagnostics;
 pub mod ports;
 pub mod product_listing_auction_patch;
 mod product_listing_title_slug_creation;

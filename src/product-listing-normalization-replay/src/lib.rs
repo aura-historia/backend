@@ -1,12 +1,10 @@
-//! `normalization-replay`: reruns the retained normalization corpus against the current checkout.
+//! `normalization-replay`: reruns the retained raw-revision normalization corpus against the
+//! current checkout.
 //!
-//! Replay calls the production pure evaluators on complete saved inputs and writes
+//! Replay calls the production raw-values evaluator on complete saved inputs and writes
 //! machine-readable results. It never writes canonical state, advances raw heads, redelivers
 //! queue messages or records replay outcomes as new cases. See `docs/normalization-replay.md`.
 
-use crate::scraper::normalization::preparation_snapshot::CrawlerPreparationSnapshot;
-use crate::scraper::normalization::product_normalization_service::PreparedProduct;
-use crate::scraper::scraper_service::pipeline::preparation_diagnostics::CRAWLER_PREPARATION_EVALUATOR_VERSION;
 use product_listing_normalization::shipping::ShippingQuickCheck;
 use product_listing_normalization::{
     ListingAvailabilityQuickCheck, NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationIssue,
@@ -15,15 +13,14 @@ use product_listing_normalization::{
     ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
     ProductListingRawValuesPatch, ProductListingRawValuesResolved,
 };
-use product_listing_service::normalization_diagnostics::BUILD_GIT_SHA;
-use product_listing_service::ports::{
+use product_service::normalization_diagnostics::BUILD_GIT_SHA;
+use product_service::ports::{
     NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter,
     NormalizationDiagnosticCasePageRequest, NormalizationDiagnosticCaseReader,
     NormalizationDiagnosticCaseRecorder, NormalizationDiagnosticEntryPoint,
-    NormalizationDiagnosticEvidence, NormalizationDiagnosticOutcome,
-    NormalizationDiagnosticProvenance, RetainedProductListingRawRevisionRead,
-    RetainedProductListingRawRevisionReader, StoredNormalizationDiagnosticCase,
-    StoredNormalizationDiagnosticEvidence,
+    NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
+    RetainedProductListingRawRevisionRead, RetainedProductListingRawRevisionReader,
+    StoredNormalizationDiagnosticCase, StoredNormalizationDiagnosticEvidence,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -50,8 +47,6 @@ pub enum ReplayEvidence {
         product_listing_raw_revision_id: String,
         input: Value,
     },
-    /// Crawler preparation snapshot.
-    Snapshot(Value),
     Unavailable {
         reason: String,
     },
@@ -67,9 +62,6 @@ impl ReplayCase {
                 product_listing_raw_revision_id: product_listing_raw_revision_id.to_string(),
                 input: input.to_document(),
             },
-            StoredNormalizationDiagnosticEvidence::Snapshot(snapshot) => {
-                ReplayEvidence::Snapshot(snapshot)
-            }
             StoredNormalizationDiagnosticEvidence::Unavailable { reason } => {
                 ReplayEvidence::Unavailable {
                     reason: reason.to_owned(),
@@ -97,7 +89,6 @@ impl ReplayCase {
                 "productListingRawRevisionId": product_listing_raw_revision_id,
                 "input": input,
             }),
-            ReplayEvidence::Snapshot(snapshot) => json!({"kind": "SNAPSHOT", "snapshot": snapshot}),
             ReplayEvidence::Unavailable { reason } => {
                 json!({"kind": "UNAVAILABLE", "reason": reason})
             }
@@ -133,9 +124,6 @@ impl ReplayCase {
                     .to_owned(),
                 input: evidence.get("input").cloned().unwrap_or(Value::Null),
             },
-            Some("SNAPSHOT") => {
-                ReplayEvidence::Snapshot(evidence.get("snapshot").cloned().unwrap_or(Value::Null))
-            }
             Some("UNAVAILABLE") => ReplayEvidence::Unavailable {
                 reason: evidence
                     .get("reason")
@@ -193,7 +181,7 @@ pub struct ReplayResult {
     pub error: Option<String>,
 }
 
-/// Calls the current production evaluator for the case's entry point on its complete input.
+/// Calls the current production raw-values evaluator on the case's complete input.
 pub fn replay_case(case: &ReplayCase) -> ReplayResult {
     let entry_point = NormalizationDiagnosticEntryPoint::from_code(&case.entry_point);
     let evaluated = match (&case.evidence, entry_point) {
@@ -206,23 +194,6 @@ pub fn replay_case(case: &ReplayCase) -> ReplayResult {
         ) => ProductListingNormalizationInput::from_document(input)
             .map(|input| evaluate_raw_values(&input))
             .map_err(|error| (ReplayStatus::Incompatible, error.to_string())),
-        (
-            ReplayEvidence::Snapshot(snapshot),
-            Some(NormalizationDiagnosticEntryPoint::CrawlerPreparationV1),
-        ) => CrawlerPreparationSnapshot::from_json(snapshot.clone())
-            .and_then(|snapshot| snapshot.evaluate())
-            .map(|evaluation| {
-                let issues = evaluation.report.into_issues();
-                match evaluation.outcome {
-                    Ok(prepared) => ("PREPARED", prepared_fields(&prepared), issues),
-                    Err(error) => (
-                        "DISCARDED",
-                        json!({"error": error.failure_reason()}),
-                        issues,
-                    ),
-                }
-            })
-            .map_err(|error| (ReplayStatus::Incompatible, error.to_string())),
         _ => Err((
             ReplayStatus::Incompatible,
             "evidence does not match the entry point".to_owned(),
@@ -231,7 +202,7 @@ pub fn replay_case(case: &ReplayCase) -> ReplayResult {
     let recorded = recorded_issue_keys(&case.recorded_issues);
     match evaluated {
         Ok((decision, fields, issues)) => {
-            let rejected = matches!(decision, "INVALID" | "DISCARDED");
+            let rejected = decision == "INVALID";
             let status = if issues
                 .iter()
                 .any(|issue| issue.scope == NormalizationIssueScope::System)
@@ -398,25 +369,6 @@ fn resolved_fields(resolved: &ProductListingRawValuesResolved) -> Value {
     })
 }
 
-fn prepared_fields(prepared: &PreparedProduct) -> Value {
-    json!({
-        "sourceListingId": prepared.source_listing_id.to_string(),
-        "title": {
-            "language": prepared.title.localization.as_str(),
-            "value": prepared.title.payload.as_ref(),
-        },
-        "description": prepared.description.as_ref().map(|description| json!({
-            "language": description.localization.as_str(),
-        })),
-        "price": prepared.price.as_ref().map(listing_price),
-        "priceEstimateMin": prepared.price_estimate_min.as_ref().map(price),
-        "priceEstimateMax": prepared.price_estimate_max.as_ref().map(price),
-        "availability": availability(&prepared.availability),
-        "url": prepared.url.as_str(),
-        "images": prepared.images.len(),
-    })
-}
-
 /// Counts by case status and by recorded `(field, reason)` and its current status.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReplaySummary {
@@ -449,7 +401,6 @@ impl ReplaySummary {
             "recordedIssues": self.recorded_issues,
             "diagnosticsVersion": NORMALIZATION_DIAGNOSTICS_VERSION,
             "rawValuesEvaluatorVersion": PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION,
-            "crawlerPreparationEvaluatorVersion": CRAWLER_PREPARATION_EVALUATOR_VERSION,
             "gitSha": BUILD_GIT_SHA,
         })
     }
@@ -682,9 +633,7 @@ pub async fn seed_from_raw_revisions(
                 entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
                 input_sha256: *input_sha256.as_bytes(),
                 listing_source_id: revision.listing_source_id,
-                evidence: NormalizationDiagnosticEvidence::RawRevision(
-                    revision.product_listing_raw_revision_id,
-                ),
+                product_listing_raw_revision_id: revision.product_listing_raw_revision_id,
                 outcome,
                 issues: evaluation.report.into_issues(),
                 provenance: NormalizationDiagnosticProvenance {
@@ -745,14 +694,13 @@ mod tests {
     use async_trait::async_trait;
     use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_raw_id::ProductListingRawRevisionId;
-    use product_listing_service::ports::{
+    use product_service::ports::{
         NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError,
         RetainedProductListingRawRevision,
     };
     use std::sync::Mutex;
 
-    const REVIEWED_CASES: &str =
-        include_str!("../tests/fixtures/normalization_replay/reviewed_cases.jsonl");
+    const REVIEWED_CASES: &str = include_str!("../tests/fixtures/reviewed_cases.jsonl");
 
     fn issue_keys(issues: &[NormalizationIssue]) -> Vec<String> {
         issues
@@ -848,7 +796,7 @@ mod tests {
         };
         assert_eq!(ReplayStatus::UnavailableEvidence, replay_case(&case).status);
 
-        case.entry_point = "CRAWLER_PREPARATION_V1".to_owned();
+        case.entry_point = "UNKNOWN_ENTRY_POINT_V9".to_owned();
         case.evidence = ReplayEvidence::RawRevision {
             product_listing_raw_revision_id: String::new(),
             input: json!({}),

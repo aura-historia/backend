@@ -281,13 +281,6 @@ impl ProductListingNormalizationInput {
     }
 }
 
-/// Key-order-stable SHA-256 of any JSON evidence document, such as a crawler preparation input.
-pub fn canonical_json_sha256(
-    value: &Value,
-) -> Result<[u8; NORMALIZATION_INPUT_HASH_BYTES], NormalizationInputError> {
-    Ok(Sha256::digest(canonical_json(value)?.as_bytes()).into())
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationInputDocumentError {
     #[error("normalization input document field is missing")]

@@ -986,13 +986,13 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
     use product_listing_postgres::{
         SqlxNormalizationDiagnosticCaseStore, SqlxNormalizationDiagnosticCaseWriterFactory,
     };
-    use product_listing_service::ports::{
+    use product_service::ports::{
         NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter,
         NormalizationDiagnosticCasePageRequest, NormalizationDiagnosticCaseReader,
         NormalizationDiagnosticCaseRecorder, NormalizationDiagnosticEntryPoint,
-        NormalizationDiagnosticEvidence, NormalizationDiagnosticOutcome,
-        NormalizationDiagnosticProvenance, RetainedProductListingRawRevisionRead,
-        RetainedProductListingRawRevisionReader, StoredNormalizationDiagnosticEvidence,
+        NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
+        RetainedProductListingRawRevisionRead, RetainedProductListingRawRevisionReader,
+        StoredNormalizationDiagnosticEvidence,
     };
 
     let pool = get_postgres_client().await;
@@ -1068,12 +1068,27 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
             if *id == product_listing_raw_revision_id && **stored == input
     ));
 
+    assert_eq!(
+        1,
+        NormalizationDiagnosticCaseReader::page(
+            &store,
+            page(NormalizationDiagnosticCaseFilter {
+                field: Some("PRICE".to_owned()),
+                reason: Some("PRICE_NEGATIVE".to_owned()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("filtered case page: {error}"))
+        .len()
+    );
+
     // Retries deduplicate on input identity; implementation provenance is updated.
     let retry = NormalizationDiagnosticCase {
         entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
         input_sha256: *input.hash().unwrap().as_bytes(),
         listing_source_id,
-        evidence: NormalizationDiagnosticEvidence::RawRevision(product_listing_raw_revision_id),
+        product_listing_raw_revision_id,
         outcome: NormalizationDiagnosticOutcome::EvaluatedInvalid,
         issues: Vec::new(),
         provenance: NormalizationDiagnosticProvenance {
@@ -1088,23 +1103,6 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
             .await
             .unwrap_or_else(|error| panic!("record retry: {error}"))
     );
-    let crawler_case = NormalizationDiagnosticCase {
-        entry_point: NormalizationDiagnosticEntryPoint::CrawlerPreparationV1,
-        input_sha256: [3; 32],
-        listing_source_id,
-        evidence: NormalizationDiagnosticEvidence::Snapshot(json!({"extractedProduct": {}})),
-        outcome: NormalizationDiagnosticOutcome::Discarded,
-        issues: Vec::new(),
-        provenance: NormalizationDiagnosticProvenance {
-            diagnostics_version: 1,
-            evaluator_version: 1,
-            build: "unknown".to_owned(),
-        },
-    };
-    NormalizationDiagnosticCaseRecorder::record(&store, crawler_case)
-        .await
-        .unwrap_or_else(|error| panic!("record crawler case: {error}"));
-
     let bound = NormalizationDiagnosticCaseReader::snapshot_bound(&store)
         .await
         .unwrap()
@@ -1118,23 +1116,37 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
     let all = NormalizationDiagnosticCaseReader::page(&store, page(Default::default()))
         .await
         .unwrap();
-    assert_eq!(2, all.len());
-    assert_eq!(2, all[0].occurrences);
-    assert_eq!("retry-build", all[0].build);
-    assert_eq!(8, all[0].evaluator_version);
-    let crawler_only = NormalizationDiagnosticCaseReader::page(
-        &store,
-        page(NormalizationDiagnosticCaseFilter {
-            entry_point: Some(NormalizationDiagnosticEntryPoint::CrawlerPreparationV1),
-            ..Default::default()
-        }),
-    )
-    .await
-    .unwrap();
-    assert!(matches!(
-        crawler_only.as_slice(),
-        [stored] if matches!(stored.evidence, StoredNormalizationDiagnosticEvidence::Snapshot(_))
-    ));
+    let [retried] = all.as_slice() else {
+        panic!("retries must not duplicate the case: {all:?}");
+    };
+    assert_eq!(2, retried.occurrences);
+    assert_eq!("retry-build", retried.build);
+    assert_eq!(8, retried.evaluator_version);
+    assert!(
+        NormalizationDiagnosticCaseReader::page(
+            &store,
+            page(NormalizationDiagnosticCaseFilter {
+                reason: Some("PRICE_UNKNOWN_CURRENCY".to_owned()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    // The retry recorded no issues, so a reason filter now matches nothing.
+    assert!(
+        NormalizationDiagnosticCaseReader::page(
+            &store,
+            page(NormalizationDiagnosticCaseFilter {
+                reason: Some("PRICE_NEGATIVE".to_owned()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .is_empty()
+    );
 
     let retained = RetainedProductListingRawRevisionReader::page(
         &store,
@@ -1167,7 +1179,7 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(1, remaining);
+    assert_eq!(0, remaining);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

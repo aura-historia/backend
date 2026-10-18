@@ -1,4 +1,11 @@
+use crate::normalization_diagnostics::{
+    BUILD_GIT_SHA, NormalizationUnsolvedEventContext, log_normalization_unsolved,
+};
 use crate::ports::{
+    NormalizationDiagnosticCase, NormalizationDiagnosticCaseId,
+    NormalizationDiagnosticCasePortError, NormalizationDiagnosticCaseWriter,
+    NormalizationDiagnosticCaseWriterFactory, NormalizationDiagnosticEntryPoint,
+    NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
     PendingProductListingRawStreamCursor, PendingProductListingRawStreamPageRequest,
     PendingProductListingRawStreamReader, ProductListingRawNormalizationCompletion,
     ProductListingRawNormalizationHead, ProductListingRawNormalizationOutcome,
@@ -26,16 +33,9 @@ use product_listing_service::canonical_product_listing_write::{
 use product_listing_service::crawler_shipping::{
     ApplyCrawlerShippingUseCase, CrawlerShippingObservation,
 };
-use product_listing_service::normalization_diagnostics::{
-    BUILD_GIT_SHA, NormalizationUnsolvedEventContext, log_normalization_unsolved,
-};
 use product_listing_service::ports::{
-    NormalizationDiagnosticCase, NormalizationDiagnosticCaseId,
-    NormalizationDiagnosticCasePortError, NormalizationDiagnosticCaseWriter,
-    NormalizationDiagnosticCaseWriterFactory, NormalizationDiagnosticEntryPoint,
-    NormalizationDiagnosticEvidence, NormalizationDiagnosticOutcome,
-    NormalizationDiagnosticProvenance, ProductListingEventAppenderFactory,
-    ProductListingRawRevisionId, ProductListingRawStreamId, ProductListingRepositoryFactory,
+    ProductListingEventAppenderFactory, ProductListingRawRevisionId, ProductListingRawStreamId,
+    ProductListingRepositoryFactory,
 };
 use std::time::Instant;
 use time::OffsetDateTime;
@@ -710,13 +710,10 @@ impl RevisionDiagnostic {
                 entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
                 outcome: self.outcome,
                 evaluator_version: NORMALIZER_VERSION,
-                listing_source_id: Some(self.listing_source_id.to_string()),
-                product_listing_raw_stream_id: Some(self.product_listing_raw_stream_id.to_string()),
-                product_listing_raw_revision_id: Some(
-                    self.product_listing_raw_revision_id.to_string(),
-                ),
-                revision: Some(self.revision),
-                request_id: None,
+                listing_source_id: self.listing_source_id.to_string(),
+                product_listing_raw_stream_id: self.product_listing_raw_stream_id.to_string(),
+                product_listing_raw_revision_id: self.product_listing_raw_revision_id.to_string(),
+                revision: self.revision,
                 evidence_recorded: self.evidence_recorded,
             },
             issues,
@@ -734,9 +731,7 @@ fn raw_revision_case(
         entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
         input_sha256: input_sha256(&candidate.input)?,
         listing_source_id,
-        evidence: NormalizationDiagnosticEvidence::RawRevision(
-            candidate.product_listing_raw_revision_id,
-        ),
+        product_listing_raw_revision_id: candidate.product_listing_raw_revision_id,
         outcome,
         issues: issues.to_vec(),
         provenance: NormalizationDiagnosticProvenance {
@@ -1684,10 +1679,7 @@ mod tests {
         );
         assert_eq!(rejected_hash, case.input_sha256);
         assert_eq!(listing_source_id, case.listing_source_id);
-        assert_eq!(
-            NormalizationDiagnosticEvidence::RawRevision(rejected_id),
-            case.evidence
-        );
+        assert_eq!(rejected_id, case.product_listing_raw_revision_id);
         assert_eq!(NormalizationDiagnosticOutcome::Rejected, case.outcome);
         assert_eq!(
             vec![NormalizationIssueReason::PriceNegative],

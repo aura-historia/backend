@@ -107,34 +107,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
     assert_eq!(image_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
-#[derive(Default)]
-struct RecordedDiagnosticCases(
-    std::sync::Mutex<Vec<product_listing_service::ports::NormalizationDiagnosticCase>>,
-);
-
-#[async_trait::async_trait]
-impl product_listing_service::ports::NormalizationDiagnosticCaseRecorder
-    for RecordedDiagnosticCases
-{
-    async fn record(
-        &self,
-        case: product_listing_service::ports::NormalizationDiagnosticCase,
-    ) -> Result<
-        product_listing_service::ports::NormalizationDiagnosticCaseId,
-        product_listing_service::ports::NormalizationDiagnosticCasePortError,
-    > {
-        let case_id = case.case_id();
-        self.0
-            .lock()
-            .expect("recorded cases lock should not be poisoned")
-            .push(case);
-        Ok(case_id)
-    }
-}
-
 async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
-    let expected_reason =
-        product_listing_normalization::NormalizationIssue::from_normalization_error(&error).reason;
     let id = listing_source_id();
     let url = product_url();
 
@@ -203,8 +176,6 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
-    let recorded = Arc::new(RecordedDiagnosticCases::default());
-    let service = service.with_normalization_diagnostics(recorded.clone());
 
     let result = service.scrape(primary_only_request(&id, &url)).await.result;
     let scraped = result.unwrap().unwrap();
@@ -212,40 +183,6 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         scraped.availability,
         ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
     );
-
-    // The discarded candidate's exact preparation input entered the replay corpus.
-    let cases = recorded
-        .0
-        .lock()
-        .expect("recorded cases lock should not be poisoned");
-    let [case] = cases.as_slice() else {
-        panic!("exactly the discarded candidate is recorded");
-    };
-    assert_eq!(
-        product_listing_service::ports::NormalizationDiagnosticEntryPoint::CrawlerPreparationV1,
-        case.entry_point
-    );
-    assert_eq!(
-        product_listing_service::ports::NormalizationDiagnosticOutcome::Discarded,
-        case.outcome
-    );
-    assert!(
-        case.issues
-            .iter()
-            .any(|issue| issue.reason == expected_reason)
-    );
-    let product_listing_service::ports::NormalizationDiagnosticEvidence::Snapshot(snapshot) =
-        &case.evidence
-    else {
-        panic!("crawler cases retain a snapshot");
-    };
-    let snapshot =
-        crate::scraper::normalization::preparation_snapshot::CrawlerPreparationSnapshot::from_json(
-            snapshot.clone(),
-        )
-        .expect("recorded snapshot must decode");
-    assert_eq!(url.to_string(), snapshot.effective_url);
-    assert_eq!(case.input_sha256, snapshot.input_sha256().unwrap());
 }
 
 #[tokio::test]

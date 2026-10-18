@@ -17,7 +17,6 @@ use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
 };
 use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
-use product_listing_service::ports::NormalizationDiagnosticCaseRecorder;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -472,8 +471,6 @@ pub struct ScraperServiceImpl {
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
     pub(crate) review_required: bool,
     pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
-    /// Replay corpus for candidates discarded during deterministic preparation.
-    pub(crate) normalization_diagnostics: Option<Arc<dyn NormalizationDiagnosticCaseRecorder>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -555,17 +552,7 @@ impl ScraperServiceImpl {
             review_repository: None,
             review_required: false,
             schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
-            normalization_diagnostics: None,
         }
-    }
-
-    /// Records discarded preparation candidates before their evidence is dropped.
-    pub fn with_normalization_diagnostics(
-        mut self,
-        recorder: Arc<dyn NormalizationDiagnosticCaseRecorder>,
-    ) -> Self {
-        self.normalization_diagnostics = Some(recorder);
-        self
     }
 
     pub fn with_review_gate(

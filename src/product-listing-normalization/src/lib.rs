@@ -36,7 +36,6 @@ pub use normalization_input::{
     NormalizationInputError, NormalizationInputHash, ProductListingNormalizationInput,
     RawProductListingOperation, RawProductListingPayloadFormat, RawProductListingProvenance,
     RawProductListingValues, SchemaVersionField, SourcePayload, SourcePayloadHash,
-    canonical_json_sha256,
 };
 pub use price::{PriceNormalizationError, normalize_price, normalize_product_listing_price};
 pub use raw_values_normalizer::{

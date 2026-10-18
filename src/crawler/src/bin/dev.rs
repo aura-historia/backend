@@ -204,7 +204,6 @@ async fn main() {
                 raw_capture: Box::new(FileProductListingRawCaptureService::new(
                     "scraped_raw_observations.json",
                 )),
-                normalization_diagnostics: None,
             },
             runtime_config,
             models,
