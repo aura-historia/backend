@@ -247,6 +247,7 @@ enum ProductListingRoutingEventKind {
     TranslatedTitles,
     GeographyUpdated,
     ShippingUpdated,
+    ContentAssessed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,6 +347,14 @@ fn product_event_routing_facts(
             }
             ProductListingRoutingEventKind::ShippingUpdated
         }
+        ("ENRICHMENT_CONTENT_ASSESSED", "ENRICHMENT") => {
+            if payload != &serde_json::json!({}) {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "content assessment enrichment payload",
+                ));
+            }
+            ProductListingRoutingEventKind::ContentAssessed
+        }
         ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => {
             validate_embedded_payload(payload)?;
             ProductListingRoutingEventKind::Embedded
@@ -431,7 +440,8 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
         ProductListingRoutingEventKind::Embedded
         | ProductListingRoutingEventKind::TranslatedTitles
         | ProductListingRoutingEventKind::GeographyUpdated
-        | ProductListingRoutingEventKind::ShippingUpdated => {}
+        | ProductListingRoutingEventKind::ShippingUpdated
+        | ProductListingRoutingEventKind::ContentAssessed => {}
     }
 
     Ok(jobs)
@@ -1476,6 +1486,12 @@ mod tests {
             ),
             (
                 "ENRICHMENT_GEOGRAPHY_UPDATED",
+                "ENRICHMENT",
+                json!({}),
+                vec![WorkerQueue::ProductListingOpenSearch],
+            ),
+            (
+                "ENRICHMENT_CONTENT_ASSESSED",
                 "ENRICHMENT",
                 json!({}),
                 vec![WorkerQueue::ProductListingOpenSearch],

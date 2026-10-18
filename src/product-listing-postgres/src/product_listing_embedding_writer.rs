@@ -85,7 +85,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
         let update = sqlx::query(
-            "UPDATE product_listings SET embedding = $1, current_event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND embedding_source_event_id = $4",
+            "UPDATE product_listings SET embedding = $1, current_event_id = $2, projection_version = projection_version + 1, updated = aura_advance_updated(updated) WHERE product_listing_id = $3 AND embedding_source_event_id = $4",
         )
         .bind(&write.embedding)
         .bind(write.enrichment_event_id.as_uuid())

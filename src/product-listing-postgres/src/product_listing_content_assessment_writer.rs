@@ -84,13 +84,17 @@ impl ProductListingContentAssessmentWriter for SqlxProductListingContentAssessme
         let stored_assessment_matches = stored_assessment_matches(self.connection, write).await?;
 
         let Some(decision) = write.decision else {
-            sqlx::query(
-                "DELETE FROM product_listing_content_assessments WHERE product_listing_id = $1",
+            let cleared = sqlx::query_scalar::<_, uuid::Uuid>(
+                "DELETE FROM product_listing_content_assessments WHERE product_listing_id = $1 RETURNING source_event_id",
             )
             .bind(write.product_listing_id.as_uuid())
-            .execute(&mut *self.connection)
+            .fetch_optional(&mut *self.connection)
             .await
             .map_err(ProductListingContentAssessmentWriteSqlxError)?;
+            // Removing an assessment of an older content revision changes no effective state.
+            if cleared == Some(write.source_event_id.into_uuid()) {
+                advance_listing(self.connection, write).await?;
+            }
             return Ok(ProductListingContentAssessmentWriteOutcome::Cleared);
         };
 
@@ -108,7 +112,7 @@ impl ProductListingContentAssessmentWriter for SqlxProductListingContentAssessme
                 source_event_id = EXCLUDED.source_event_id,
                 decision = EXCLUDED.decision,
                 category = EXCLUDED.category,
-                updated = now()
+                updated = aura_advance_updated(product_listing_content_assessments.updated)
             "#,
         )
         .bind(write.product_listing_id.as_uuid())
@@ -118,9 +122,47 @@ impl ProductListingContentAssessmentWriter for SqlxProductListingContentAssessme
         .execute(&mut *self.connection)
         .await
         .map_err(ProductListingContentAssessmentWriteSqlxError)?;
+        advance_listing(self.connection, write).await?;
 
         Ok(ProductListingContentAssessmentWriteOutcome::Applied)
     }
+}
+
+/// Assessment is listing-owned enrichment state: an effective change advances listing freshness
+/// and re-projects the listing, without a canonical revision or a source-marker change.
+async fn advance_listing(
+    connection: &mut PgConnection,
+    write: &ProductListingContentAssessmentWrite,
+) -> Result<(), ProductListingContentAssessmentWriteError> {
+    let event_id = EventId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO product_listing_events (
+            event_id, product_listing_id, event_type, event_group, event_type_schema_version,
+            payload, event_time
+        ) VALUES ($1, $2, 'ENRICHMENT_CONTENT_ASSESSED', 'ENRICHMENT', 1, '{}', now())
+        "#,
+    )
+    .bind(event_id.as_uuid())
+    .bind(write.product_listing_id.as_uuid())
+    .execute(&mut *connection)
+    .await
+    .map_err(ProductListingContentAssessmentWriteSqlxError)?;
+    let update = sqlx::query(
+        "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = aura_advance_updated(updated) WHERE product_listing_id = $2 AND content_source_event_id = $3",
+    )
+    .bind(event_id.as_uuid())
+    .bind(write.product_listing_id.as_uuid())
+    .bind(write.source_event_id.as_uuid())
+    .execute(&mut *connection)
+    .await
+    .map_err(ProductListingContentAssessmentWriteSqlxError)?;
+    if update.rows_affected() != 1 {
+        return Err(ProductListingContentAssessmentWriteError::WriteFailed {
+            source: static_error("locked product content source revision changed unexpectedly"),
+        });
+    }
+    Ok(())
 }
 
 async fn stored_assessment_matches(

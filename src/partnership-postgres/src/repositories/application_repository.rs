@@ -116,7 +116,7 @@ impl PartnershipApplicationRepository for Repository<'_> {
         let proposal = proposal_json(app.proposal()).map_err(invalid)?;
         let approval_result = app.approval_result();
         sqlx::query_as::<_, ApplicationRow>(AssertSqlSafe(format!(
-            "UPDATE partnership_applications SET business_state=$1,proposal=$2,approved_partnership_id=$3,approved_listing_source_id=$4,version=version+1,updated=now() WHERE partnership_application_id=$5 AND version=$6 RETURNING {APPLICATION_COLUMNS}"
+            "UPDATE partnership_applications SET business_state=$1,proposal=$2,approved_partnership_id=$3,approved_listing_source_id=$4,version=version+1,updated=aura_advance_updated(updated) WHERE partnership_application_id=$5 AND version=$6 RETURNING {APPLICATION_COLUMNS}"
         )))
         .bind(app.state().as_str())
         .bind(proposal)

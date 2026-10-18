@@ -523,6 +523,7 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
     );
     assert_eq!(1, observation.1);
     let events_before = count(&pool, "product_listing_events").await.unwrap();
+    let updated_before = listing_updated(&pool, source).await;
     assert!(
         failure_ids(
             handler(
@@ -538,6 +539,7 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
         events_before,
         count(&pool, "product_listing_events").await.unwrap()
     );
+    assert_eq!(updated_before, listing_updated(&pool, source).await);
 
     // A new acquisition, even in another language, can observe equal typed shipping.
     let same_shipping = capture(
@@ -562,10 +564,28 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
         )
         .is_empty()
     );
-    assert_eq!(
-        events_before + 1,
-        count(&pool, "product_listing_events").await.unwrap()
+    // The price change is a canonical revision; the newly accepted shipping evidence is
+    // listing-owned enrichment state with its own projection trigger.
+    let new_events: Vec<String> = sqlx::query_scalar(
+        "SELECT event_type FROM product_listing_events ORDER BY event_id OFFSET $1",
+    )
+    .bind(events_before)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(2, new_events.len());
+    assert!(
+        new_events
+            .iter()
+            .any(|kind| kind == "PRODUCT_LISTING_CHANGED")
     );
+    assert!(
+        new_events
+            .iter()
+            .any(|kind| kind == "ENRICHMENT_SHIPPING_UPDATED")
+    );
+    let updated_after_acquisition = listing_updated(&pool, source).await;
+    assert!(updated_after_acquisition > updated_before);
     let observed_again: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
         .fetch_one(&pool).await.unwrap();
     assert!(observed_again.0 > observation.0);
@@ -591,6 +611,14 @@ async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_depende
     let preserved: (time::OffsetDateTime, i64) = sqlx::query_as("SELECT verified_at,observation_revision FROM listing_delivery_import_state WHERE component='SHIPPING'")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(observed_again, preserved);
+}
+
+async fn listing_updated(pool: &sqlx::PgPool, source: ListingSourceId) -> time::OffsetDateTime {
+    sqlx::query_scalar("SELECT updated FROM product_listings WHERE listing_source_id=$1")
+        .bind(source.into_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

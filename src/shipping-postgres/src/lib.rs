@@ -449,7 +449,7 @@ impl ShippingRepository for Repository<'_> {
         let c = p.profile.content();
         let changed = sqlx::query(
             r#"
-            UPDATE shipping_profiles SET management_revision=$4,terms_revision=$5,lifecycle=$6,name=$7,attributed_party_id=$8,terms=$9,updated=now() WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND
+            UPDATE shipping_profiles SET management_revision=$4,terms_revision=$5,lifecycle=$6,name=$7,attributed_party_id=$8,terms=$9,updated=aura_advance_updated(updated) WHERE shipping_profile_id=$1 AND listing_source_id=$2 AND
             management_revision=$3
         "#,
         )

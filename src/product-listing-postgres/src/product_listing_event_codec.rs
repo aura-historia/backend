@@ -189,6 +189,7 @@ pub(crate) enum ProductListingPersistedEvent {
     TranslatedTitles,
     GeographyUpdated,
     ShippingUpdated,
+    ContentAssessed,
 }
 
 pub(crate) fn decode_persisted(
@@ -205,7 +206,8 @@ pub(crate) fn decode_persisted(
                 "ENRICHMENT_EMBEDDED"
                 | "ENRICHMENT_TRANSLATED_TITLES"
                 | "ENRICHMENT_GEOGRAPHY_UPDATED"
-                | "ENRICHMENT_SHIPPING_UPDATED" => {
+                | "ENRICHMENT_SHIPPING_UPDATED"
+                | "ENRICHMENT_CONTENT_ASSESSED" => {
                     return Err(ProductListingEventCodecError::IncompatibleEventGroup {
                         event_type: event_type.to_owned(),
                         event_group: event_group.to_owned(),
@@ -248,6 +250,14 @@ pub(crate) fn decode_persisted(
                     }
                     Ok(ProductListingPersistedEvent::ShippingUpdated)
                 }
+                "ENRICHMENT_CONTENT_ASSESSED" => {
+                    if payload != &serde_json::json!({}) {
+                        return Err(ProductListingEventCodecError::UnsupportedEventType {
+                            event_type: event_type.to_owned(),
+                        });
+                    }
+                    Ok(ProductListingPersistedEvent::ContentAssessed)
+                }
                 "ENRICHMENT_EMBEDDED" => {
                     decode_embedded_enrichment(payload)?;
                     Ok(ProductListingPersistedEvent::Embedded)
@@ -276,6 +286,7 @@ pub(crate) fn decode_persisted(
                     | "ENRICHMENT_TRANSLATED_TITLES"
                     | "ENRICHMENT_GEOGRAPHY_UPDATED"
                     | "ENRICHMENT_SHIPPING_UPDATED"
+                    | "ENRICHMENT_CONTENT_ASSESSED"
             ) {
                 Err(ProductListingEventCodecError::IncompatibleEventGroup {
                     event_type: event_type.to_owned(),
@@ -2064,6 +2075,23 @@ mod tests {
                 }),
             ),
             Ok(ProductListingPersistedEvent::TranslatedTitles)
+        ));
+        assert!(matches!(
+            decode_persisted("ENRICHMENT_CONTENT_ASSESSED", "ENRICHMENT", 1, &json!({})),
+            Ok(ProductListingPersistedEvent::ContentAssessed)
+        ));
+        assert!(
+            decode_persisted(
+                "ENRICHMENT_CONTENT_ASSESSED",
+                "ENRICHMENT",
+                1,
+                &json!({"sourceEventId": "01900000-0000-7000-8000-000000000001"}),
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            decode_persisted("ENRICHMENT_CONTENT_ASSESSED", "DOMAIN", 1, &json!({})),
+            Err(ProductListingEventCodecError::IncompatibleEventGroup { .. })
         ));
     }
 

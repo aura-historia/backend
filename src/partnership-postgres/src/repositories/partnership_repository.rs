@@ -147,7 +147,7 @@ impl PartnershipRepository for Repository<'_> {
         let inserted = sqlx::query_as::<_, Row>(
             "INSERT INTO partnerships(partnership_id,party_id,business_state) VALUES($1,$2,$3) \
              ON CONFLICT (party_id) DO UPDATE \
-             SET business_state=$3,version=partnerships.version+1,updated=now() \
+             SET business_state=$3,version=partnerships.version+1,updated=aura_advance_updated(partnerships.updated) \
              WHERE partnerships.business_state=$4 \
              RETURNING partnership_id,party_id,business_state,version",
         )
@@ -200,7 +200,7 @@ impl PartnershipRepository for Repository<'_> {
         let row = sqlx::query_as::<_, Row>(
             "WITH dissolved AS ( \
                 UPDATE partnerships \
-                SET business_state = $1, version = version + 1, updated = now() \
+                SET business_state = $1, version = version + 1, updated = aura_advance_updated(updated) \
                 WHERE partnership_id = $2 \
                   AND version = $3 \
                   AND business_state = $4 \
@@ -261,6 +261,7 @@ impl PartnershipMembershipRepository for Repository<'_> {
             source: box_error(source),
         })?;
         Ok(if result.rows_affected() > 0 {
+            touch_partnership(self.connection, partnership_id).await?;
             PartnershipMembershipAddOutcome::Added
         } else {
             PartnershipMembershipAddOutcome::AlreadyMember
@@ -287,11 +288,37 @@ impl PartnershipMembershipRepository for Repository<'_> {
                     source: box_error(source),
                 })?;
         Ok(if result.rows_affected() > 0 {
+            touch_partnership(self.connection, partnership_id).await?;
             PartnershipMembershipRemoveOutcome::Removed
         } else {
             PartnershipMembershipRemoveOutcome::AlreadyAbsent
         })
     }
+}
+
+/// Memberships and listing-source grants are part of the partnership's exposed state, so an
+/// actual relationship change advances the partnership's freshness; no-ops leave it unchanged.
+pub(crate) async fn touch_partnership(
+    connection: &mut PgConnection,
+    partnership_id: PartnershipId,
+) -> Result<(), PartnershipGrantError> {
+    let result = sqlx::query(
+        "UPDATE partnerships SET updated = aura_advance_updated(updated) WHERE partnership_id = $1",
+    )
+    .bind(partnership_id.into_uuid())
+    .execute(&mut *connection)
+    .await
+    .map_err(|source| PartnershipGrantError::Internal {
+        source: box_error(source),
+    })?;
+    if result.rows_affected() != 1 {
+        return Err(PartnershipGrantError::Internal {
+            source: application::error::static_error(
+                "partnership disappeared during relationship change",
+            ),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

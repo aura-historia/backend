@@ -108,9 +108,13 @@ async fn overlapping_lambda_invocations_write_only_one_authoritative_assessment(
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_content_assessments WHERE product_listing_id = $1")
             .bind(product.as_uuid()).fetch_one(&pool).await?;
         assert_eq!(1, count);
-        let source_count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1")
+        let source_count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_group = 'DOMAIN'")
             .bind(product.as_uuid()).fetch_one(&pool).await?;
         assert_eq!(1, source_count);
+        // Only the authoritative write changes assessment state and triggers projection.
+        let assessed_count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_CONTENT_ASSESSED'")
+            .bind(product.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, assessed_count);
         Ok(())
     }.await;
     assert!(

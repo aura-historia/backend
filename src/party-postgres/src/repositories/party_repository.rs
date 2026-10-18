@@ -199,7 +199,7 @@ impl PartyRepository for SqlxPartyRepository<'_> {
                 phone = $2,
                 email = $3,
                 version = version + 1,
-                updated = now()
+                updated = aura_advance_updated(updated)
             WHERE party_id = $4 AND version = $5
             RETURNING "#,
         );

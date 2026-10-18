@@ -228,7 +228,7 @@ impl UserRepository for SqlxUserRepository<'_> {
                 stripe_customer_id = $11,
                 marketing_email_consent = $12,
                 version = version + 1,
-                updated = now()
+                updated = aura_advance_updated(updated)
             WHERE user_id = $1 AND version = $13
               AND marketing_email_consent = $12
             RETURNING {}

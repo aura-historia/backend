@@ -1090,11 +1090,20 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
             .fetch_one(&p)
             .await
             .unwrap();
+    let profile_freshness = || {
+        sqlx::query_scalar::<_, time::OffsetDateTime>(
+            "SELECT updated FROM shipping_profiles WHERE shipping_profile_id=$1",
+        )
+        .bind(first.id.into_uuid())
+        .fetch_one(&p)
+    };
+    let freshness_before = profile_freshness().await.unwrap();
     // An ordinary equal write advances only request/order fences.
     let mut noop = replacement(&updated, 9500);
     noop.import = Some(import_write(3, "noop-v3"));
     noop.import.as_mut().unwrap().observation = None;
     assert_eq!(updated, m.replace.execute(&trusted(), noop).await.unwrap());
+    assert_eq!(freshness_before, profile_freshness().await.unwrap());
     assert_eq!(
         old_observation,
         sqlx::query_as::<_, (time::OffsetDateTime,)>(
@@ -1131,6 +1140,17 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
     .await
     .unwrap();
     assert_eq!(acquired.unix_timestamp(), stored.unix_timestamp());
+    // New accepted evidence is profile state: it advances freshness; the replay below does not.
+    let freshness_observed = profile_freshness().await.unwrap();
+    assert!(freshness_observed > freshness_before);
+    assert_eq!(
+        updated,
+        m.replace
+            .execute(&trusted(), observed.clone())
+            .await
+            .unwrap()
+    );
+    assert_eq!(freshness_observed, profile_freshness().await.unwrap());
     assert_eq!(
         management_events,
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM shipping_changes WHERE subject_id=$1")

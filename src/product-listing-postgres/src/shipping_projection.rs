@@ -246,7 +246,7 @@ impl ShippingProjectionStore for Store<'_> {
             if differs {
                 let event = domain_primitives::event_id::EventId::new();
                 sqlx::query("INSERT INTO product_listing_events(event_id,product_listing_id,event_type,event_group,event_type_schema_version,payload,event_time) VALUES($1,$2,'ENRICHMENT_SHIPPING_UPDATED','ENRICHMENT',1,'{}',now())").bind(event.into_uuid()).bind(w.listing_id.into_uuid()).execute(&mut *self.connection).await.map_err(storage)?;
-                version=sqlx::query_scalar("UPDATE product_listings SET current_event_id=$2,projection_version=projection_version+1 WHERE product_listing_id=$1 RETURNING projection_version").bind(w.listing_id.into_uuid()).bind(event.into_uuid()).fetch_one(&mut *self.connection).await.map_err(storage)?;
+                version=sqlx::query_scalar("UPDATE product_listings SET current_event_id=$2,projection_version=projection_version+1,updated=aura_advance_updated(updated) WHERE product_listing_id=$1 RETURNING projection_version").bind(w.listing_id.into_uuid()).bind(event.into_uuid()).fetch_one(&mut *self.connection).await.map_err(storage)?;
                 changed += 1;
             } else if let Some((_, old_version)) = old {
                 version = old_version;

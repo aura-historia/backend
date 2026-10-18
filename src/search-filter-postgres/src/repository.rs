@@ -164,7 +164,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::UpdateSearchSerialization)?;
         let id = filter.id().into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,matching_evidence_policy=$11,version=version+1,updated=now() WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
+            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,matching_evidence_policy=$11,version=version+1,updated=aura_advance_updated(updated) WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
         );
         query.push(FILTER_COLUMNS);
         let row = query

@@ -42,7 +42,7 @@ impl AuctionRepository for SqlxAuctionRepository<'_> {
                 source: map_error(error),
             }
         })?;
-        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, catalogue_url=$3, format=$4, bidding_opens_at=$5, live_starts_at=$6, lots_begin_closing_at=$7, scheduled_end_at=$8, reported_status=$9, reported_lot_count=$10, version=version+1, updated=now() WHERE auction_id=$11 AND version=$12 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
+        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, catalogue_url=$3, format=$4, bidding_opens_at=$5, live_starts_at=$6, lots_begin_closing_at=$7, scheduled_end_at=$8, reported_status=$9, reported_lot_count=$10, version=version+1, updated=aura_advance_updated(updated) WHERE auction_id=$11 AND version=$12 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
             .bind(auction.name().map(|value| value.payload.as_ref())).bind(auction.name().map(|value| value.localization.as_str()))
             .bind(auction.catalogue_url().map(url::Url::as_str)).bind(auction.format().map(|value| value.as_str()))
             .bind(auction.schedule().bidding_opens()).bind(auction.schedule().live_starts()).bind(auction.schedule().lots_begin_closing()).bind(auction.schedule().scheduled_end())

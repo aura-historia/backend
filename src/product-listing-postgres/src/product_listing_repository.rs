@@ -341,7 +341,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 delivery_configuration = $28,
                 version = version + 1,
                 projection_version = projection_version + 1,
-                updated = now()
+                updated = aura_advance_updated(updated)
             WHERE product_listing_id = $26 AND version = $27
             RETURNING version
             "#,

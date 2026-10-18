@@ -195,6 +195,12 @@ PostgreSQL is authoritative; OpenSearch is rebuildable. Raw evidence is separate
 
 Canonical enum codes and persisted invariants are decoded exactly, without defaults or case-normalizing corruption. Storage JSON identity exceptions live in [object IDs](object-ids.md#storage-only-json); schema and concurrency guardrails belong to [storage](storage.md).
 
+### Freshness
+
+Listing `updated` follows the [storage freshness rule](storage.md#integrity-and-concurrency) for the listing's own state: canonical facts and persisted enrichment (embedding, title translations, effective geography, effective shipping summary, the content assessment of the current content revision and newly accepted listing delivery evidence). Each advance commits with that state and, for enrichment, with its enrichment event and projection fence, so the complete OpenSearch document carries the timestamp with the corresponding state. Enrichment never advances the canonical `version`, public history or content/embedding source markers, and never manufactures price-change or watchlist events. Independent shipping profiles, sources and locations keep their own freshness; a dependency change advances only listings whose effective owned state changes. FX captures and response-time conversion do not touch listings.
+
+Every advance of listing `created`/`updated` is written at millisecond precision, matching the indexed `date` mapping, so consecutive values stay distinguishable in PostgreSQL, responses and OpenSearch; values written before this policy keep their stored precision until their next advance. Scheduled saved-search matching relies on this invariant: every filter type uses the same `updated` interval, and an older listing becomes eligible again only after an actual persisted change.
+
 ## Public history
 
 History exposes only committed `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` domain entries, ordered by occurrence time then event ID. One changed entry represents one committed revision with a deterministically ordered `changes` list.

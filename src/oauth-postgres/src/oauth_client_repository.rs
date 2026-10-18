@@ -85,7 +85,7 @@ impl OAuthClientRepository for SqlxOAuthClientRepository<'_> {
         let client_id = client.client_id().into_uuid();
         let expected_version = version_to_i64(expected_version)?;
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE oauth_clients SET name = $1, redirect_uris = $2, tos_uri = $3, policy_uri = $4, client_uri = $5, logo_uri = $6, scopes = $7, version = version + 1, updated = now() WHERE client_id = $8 AND version = $9 RETURNING ",
+            "UPDATE oauth_clients SET name = $1, redirect_uris = $2, tos_uri = $3, policy_uri = $4, client_uri = $5, logo_uri = $6, scopes = $7, version = version + 1, updated = aura_advance_updated(updated) WHERE client_id = $8 AND version = $9 RETURNING ",
         );
         query.push(OAUTH_CLIENT_COLUMNS);
         let row = query
