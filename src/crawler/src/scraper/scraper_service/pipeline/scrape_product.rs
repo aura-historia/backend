@@ -398,11 +398,6 @@ impl ScraperServiceImpl {
             &effective_url,
             selection.prepared.source_listing_id.as_ref(),
             selection.fallback_currency,
-            [
-                selection.prepared.price.is_some(),
-                selection.prepared.price_estimate_min.is_some(),
-                selection.prepared.price_estimate_max.is_some(),
-            ],
         )
         .map_err(ScraperError::RawNormalizationInput)?;
         let raw_input_sha256 = raw_input

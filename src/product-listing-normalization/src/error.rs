@@ -29,6 +29,12 @@ pub enum NormalizationError {
     PriceUnknownCurrency { field: PriceField },
     #[error("price amount could not be parsed")]
     PriceParseError { field: PriceField },
+    #[error("price amount is negative")]
+    PriceNegative { field: PriceField },
+    #[error("price amount has unsupported nonzero precision")]
+    PriceExcessPrecision { field: PriceField },
+    #[error("machine-decimal price requires a fallback currency")]
+    PriceMachineDecimalFallbackCurrencyRequired { field: PriceField },
     #[error("image URL is invalid")]
     InvalidImageUrl(#[source] url::ParseError),
     #[error("no valid images remained after validating candidates")]
@@ -68,6 +74,27 @@ impl NormalizationError {
             Self::PriceParseError {
                 field: PriceField::EstimateMax,
             } => "price_estimate_max_parse_error",
+            Self::PriceNegative {
+                field: PriceField::Price,
+            } => "price_negative",
+            Self::PriceNegative {
+                field: PriceField::EstimateMin,
+            } => "price_estimate_min_negative",
+            Self::PriceNegative {
+                field: PriceField::EstimateMax,
+            } => "price_estimate_max_negative",
+            Self::PriceExcessPrecision {
+                field: PriceField::Price,
+            } => "price_excess_precision",
+            Self::PriceExcessPrecision {
+                field: PriceField::EstimateMin,
+            } => "price_estimate_min_excess_precision",
+            Self::PriceExcessPrecision {
+                field: PriceField::EstimateMax,
+            } => "price_estimate_max_excess_precision",
+            Self::PriceMachineDecimalFallbackCurrencyRequired { .. } => {
+                "machine_decimal_fallback_currency_required"
+            }
             Self::InvalidImageUrl(_) => "invalid_image_url",
             Self::NoValidImages { .. } => "no_valid_images",
 

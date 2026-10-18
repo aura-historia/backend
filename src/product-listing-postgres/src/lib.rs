@@ -11,6 +11,7 @@ pub mod product_listing_content_assessment_source_reader;
 pub mod product_listing_content_assessment_writer;
 pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
+pub mod product_listing_normalization_diagnostic_case;
 pub mod product_listing_raw_capture_writer;
 pub mod product_listing_raw_normalization;
 pub mod product_listing_repository;
@@ -28,6 +29,9 @@ pub use product_listing_content_assessment_writer::SqlxProductListingContentAsse
 pub use product_listing_embedding_source_reader::SqlxProductListingEmbeddingSourceReader;
 pub use product_listing_embedding_writer::SqlxProductListingEmbeddingWriterFactory;
 pub use product_listing_event_appender::SqlxProductListingEventAppenderFactory;
+pub use product_listing_normalization_diagnostic_case::{
+    SqlxNormalizationDiagnosticCaseStore, SqlxNormalizationDiagnosticCaseWriterFactory,
+};
 pub use product_listing_raw_capture_writer::SqlxProductListingRawCaptureWriterFactory;
 pub use product_listing_raw_normalization::{
     SqlxPendingProductListingRawStreamReader, SqlxProductListingRawNormalizationWriterFactory,

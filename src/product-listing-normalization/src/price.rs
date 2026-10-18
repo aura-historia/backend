@@ -15,6 +15,10 @@ pub enum PriceNormalizationError {
     UnknownCurrency,
     /// A currency was detected but the numeric amount could not be parsed.
     ParseFailure,
+    /// The selected amount carries a minus sign. Prices are never negative.
+    NegativeAmount,
+    /// The selected amount has nonzero digits beyond the currency's minor unit.
+    ExcessPrecision,
 }
 
 pub type PriceError = PriceNormalizationError;
@@ -97,7 +101,10 @@ pub fn parse_price(
         )
     };
 
-    let amount = parse_price_number(&number, &currency)?;
+    if has_negative_sign(raw, &number) {
+        return Err(PriceError::NegativeAmount);
+    }
+    let amount = parse_price_number(&number.value, &currency)?;
 
     Ok((amount, currency))
 }
@@ -130,7 +137,7 @@ fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmoun
         return Err(PriceError::ParseFailure);
     }
 
-    let fraction_normalised = normalise_fraction(&fraction_clean, exponent);
+    let fraction_normalised = normalise_fraction(&fraction_clean, exponent)?;
 
     let amount_str = format!("{}{}", integer_clean, fraction_normalised);
     let amount: u64 = amount_str.parse().map_err(|_| PriceError::ParseFailure)?;
@@ -303,14 +310,40 @@ fn minor_unit_exponent(currency: &Currency) -> u32 {
     currency.minor_unit_exponent().0 as u32
 }
 
-/// Pads with trailing zeros or truncates to exactly `exponent` digits.
-fn normalise_fraction(frac: &str, exponent: u32) -> String {
+/// Pads with trailing zeros to exactly `exponent` digits. Excess digits are accepted only when
+/// they are zero padding; nonzero excess precision is never truncated.
+fn normalise_fraction(frac: &str, exponent: u32) -> Result<String, PriceError> {
     let exp = exponent as usize;
     if frac.len() >= exp {
-        frac[..exp].to_owned()
+        if frac[exp..].bytes().any(|digit| digit != b'0') {
+            return Err(PriceError::ExcessPrecision);
+        }
+        Ok(frac[..exp].to_owned())
     } else {
-        format!("{:0<width$}", frac, width = exp)
+        Ok(format!("{:0<width$}", frac, width = exp))
     }
+}
+
+/// A minus sign attached to the selected amount, or to the currency marker directly before it,
+/// makes the price negative. Range separators (`100-200`) and word hyphens are not signs.
+fn has_negative_sign(raw: &str, candidate: &PriceNumberCandidate) -> bool {
+    let attached_sign = |end: usize| {
+        let mut before = raw[..end].chars().rev();
+        matches!(before.next(), Some('-' | '\u{2212}'))
+            && before.next().is_none_or(|ch| !ch.is_alphanumeric())
+    };
+    if attached_sign(candidate.start) {
+        return true;
+    }
+    currency_markers(raw).into_iter().any(|marker| {
+        marker.end <= candidate.start
+            && has_benign_currency_amount_gap(
+                raw,
+                (marker.start, marker.end),
+                (candidate.start, candidate.end),
+            )
+            && attached_sign(marker.start)
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -340,26 +373,38 @@ struct PriceCurrencyPair {
 #[cfg(test)]
 fn extract_price_number_candidate(raw: &str, currency: &Currency) -> Result<String, PriceError> {
     extract_price_number_candidate_from_candidates(raw, currency, price_like_number_candidates(raw))
+        .map(|candidate| candidate.value)
 }
 
 fn extract_price_number_candidate_from_candidates(
     raw: &str,
     currency: &Currency,
     candidates: Vec<PriceNumberCandidate>,
-) -> Result<String, PriceError> {
-    let mut parsed = Vec::new();
+) -> Result<PriceNumberCandidate, PriceError> {
+    if let [single] = candidates.as_slice() {
+        parse_price_number(&single.value, currency)?;
+        return Ok(single.clone());
+    }
 
+    let mut parsed = Vec::new();
     for candidate in candidates {
-        parsed.push(ParsedPriceNumberCandidate {
-            amount: parse_price_number(&candidate.value, currency)?,
-            quality: price_number_candidate_quality(&candidate.value),
-            candidate,
-        });
+        let quality = price_number_candidate_quality(&candidate.value);
+        match parse_price_number(&candidate.value, currency) {
+            Ok(amount) => parsed.push(ParsedPriceNumberCandidate {
+                amount,
+                quality,
+                candidate,
+            }),
+            // Scraped fragments often concatenate a malformed repeat with the clean price
+            // (`€11.32795 €11.327,95`). A malformed repeat never decides the amount.
+            Err(_) if quality == PriceNumberCandidateQuality::Malformed => {}
+            Err(error) => return Err(error),
+        }
     }
 
     match parsed.as_slice() {
         [] => Err(PriceError::ParseFailure),
-        [single] => Ok(single.candidate.value.clone()),
+        [single] => Ok(single.candidate.clone()),
         _ => select_price_number_candidate(raw, parsed),
     }
 }
@@ -410,12 +455,12 @@ fn price_currency_pairs(raw: &str) -> Vec<PriceCurrencyPair> {
 fn select_price_number_candidate(
     raw: &str,
     candidates: Vec<ParsedPriceNumberCandidate>,
-) -> Result<String, PriceError> {
+) -> Result<PriceNumberCandidate, PriceError> {
     if candidates
         .iter()
         .all(|candidate| candidate.amount == candidates[0].amount)
     {
-        return Ok(best_price_number_candidate(raw, &candidates)?.value.clone());
+        return Ok(best_price_number_candidate(raw, &candidates)?.clone());
     }
 
     let clean_candidates: Vec<_> = candidates
@@ -427,14 +472,14 @@ fn select_price_number_candidate(
         .any(|candidate| candidate.quality == PriceNumberCandidateQuality::Malformed);
 
     if clean_candidates.len() == 1 && has_malformed_candidate {
-        return Ok(clean_candidates[0].candidate.value.clone());
+        return Ok(clean_candidates[0].candidate.clone());
     }
 
     if clean_candidates.len() > 1 {
         return Err(PriceError::ParseFailure);
     }
 
-    Ok(best_price_number_candidate(raw, &candidates)?.value.clone())
+    Ok(best_price_number_candidate(raw, &candidates)?.clone())
 }
 
 fn best_price_number_candidate<'a>(
@@ -1045,17 +1090,71 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[rstest]
-    #[case("56", 2, "56")]
-    #[case("5", 2, "50")]
-    #[case("", 2, "00")]
-    #[case("123", 2, "12")]
-    #[case("0", 2, "00")]
-    fn should_normalise_fraction_to_correct_width(
+    #[case("56", 2, Ok("56"))]
+    #[case("5", 2, Ok("50"))]
+    #[case("", 2, Ok("00"))]
+    #[case("120", 2, Ok("12"))]
+    #[case("0", 2, Ok("00"))]
+    #[case("123", 2, Err(PriceError::ExcessPrecision))]
+    #[case("5", 0, Err(PriceError::ExcessPrecision))]
+    fn should_normalise_fraction_without_truncating_nonzero_precision(
         #[case] frac: &str,
         #[case] exponent: u32,
-        #[case] expected: &str,
+        #[case] expected: Result<&str, PriceError>,
     ) {
-        assert_eq!(normalise_fraction(frac, exponent), expected);
+        assert_eq!(
+            normalise_fraction(frac, exponent),
+            expected.map(str::to_owned)
+        );
+    }
+
+    #[rstest]
+    #[case("-100 EUR")]
+    #[case("EUR -100")]
+    #[case("-€100")]
+    #[case("€-100")]
+    #[case("\u{2212}100 EUR")]
+    #[case("Price: -100,00 €")]
+    fn should_reject_negative_display_prices(#[case] raw: &str) {
+        // A sign between an explicit marker and the amount also breaks the marker pairing.
+        assert!(matches!(
+            parse_price(raw, None),
+            Err(PriceError::NegativeAmount | PriceError::ParseFailure)
+        ));
+        assert_eq!(
+            Err(PriceError::NegativeAmount),
+            normalize_price(Some(raw), Some(Currency::Eur))
+        );
+    }
+
+    #[rstest]
+    #[case("100-200 EUR")]
+    #[case("Art.-Nr. 02092 Preis 680,00 €")]
+    #[case("Vase - €100")]
+    fn should_not_treat_ranges_or_word_hyphens_as_signs(#[case] raw: &str) {
+        assert!(!matches!(
+            parse_price(raw, None),
+            Err(PriceError::NegativeAmount)
+        ));
+    }
+
+    #[rstest]
+    #[case("EUR 1.2345")]
+    #[case("1,2345 €")]
+    #[case("$9.9999")]
+    fn should_reject_unsupported_nonzero_excess_precision(#[case] raw: &str) {
+        assert_eq!(Err(PriceError::ExcessPrecision), parse_price(raw, None));
+    }
+
+    #[rstest]
+    #[case("EUR 1.2300", 123)]
+    #[case("\u{00a3}3,90000\u{00a3}3,900.00", 390000)]
+    #[case("Regular price \u{20ac}11.32795 \u{20ac}11.327,95", 1132795)]
+    fn should_keep_zero_padding_and_scraped_fragment_repairs(
+        #[case] raw: &str,
+        #[case] amount: u64,
+    ) {
+        assert_eq!(*parse_price(raw, None).unwrap().0, amount);
     }
 
     // -----------------------------------------------------------------------
@@ -1201,7 +1300,6 @@ mod tests {
             ("SEK", Currency::Sek, 12345),
             ("DKK", Currency::Dkk, 12345),
             ("NOK", Currency::Nok, 12345),
-            ("KRW", Currency::Krw, 123),
             ("INR", Currency::Inr, 12345),
             ("TWD", Currency::Twd, 12345),
             ("HUF", Currency::Huf, 12345),
@@ -1217,6 +1315,16 @@ mod tests {
             );
             assert_eq!(None, detect_currency(&format!("prefix{code}suffix")));
         }
+        // KRW has no minor unit; nonzero fractional digits are rejected, never truncated.
+        assert_eq!(Some(Currency::Krw), detect_currency("KRW 123.45"));
+        assert_eq!(
+            Err(PriceError::ExcessPrecision),
+            parse_price("KRW 123.45", None)
+        );
+        assert_eq!(
+            Ok((MonetaryAmount::from(123_u64), Currency::Krw)),
+            parse_price("KRW 123", None)
+        );
         for (symbol, currency) in [
             ("₩", Currency::Krw),
             ("₹", Currency::Inr),

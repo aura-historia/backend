@@ -5,6 +5,7 @@
 
 pub mod availability;
 pub mod date_time;
+pub mod diagnostics;
 pub mod error;
 pub mod image_url;
 pub mod language;
@@ -16,27 +17,34 @@ pub mod source_listing_id;
 pub mod text;
 
 pub use availability::{
-    AvailabilityNormalizationError, ListingAvailabilityQuickCheck, quick_check_availability,
+    AvailabilityNormalizationError, AvailabilityUnsupportedReason, ListingAvailabilityQuickCheck,
+    quick_check_availability,
 };
 pub use date_time::{DateTimeNormalizationError, normalize_date_time};
+pub use diagnostics::{
+    NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationField, NormalizationIssue,
+    NormalizationIssueDetails, NormalizationIssueHandling, NormalizationIssueReason,
+    NormalizationIssueScope, NormalizationReport, NormalizationStage,
+};
 pub use error::{NormalizationError, PriceField};
 pub use image_url::{ImageUrlNormalizationError, normalize_image_urls};
 pub use language::detect_language;
 pub use normalization_input::{
     JsonField, MAX_JSON_NESTING_DEPTH, MAX_NORMALIZATION_CONTEXT_JSON_BYTES,
     MAX_PROVENANCE_JSON_BYTES, MAX_RAW_VALUES_JSON_BYTES, MAX_SOURCE_PAYLOAD_JSON_BYTES,
-    NORMALIZATION_INPUT_HASH_BYTES, NormalizationContext, NormalizationInputError,
-    NormalizationInputHash, ProductListingNormalizationInput, RawProductListingOperation,
-    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
-    SchemaVersionField, SourcePayload, SourcePayloadHash,
+    NORMALIZATION_INPUT_HASH_BYTES, NormalizationContext, NormalizationInputDocumentError,
+    NormalizationInputError, NormalizationInputHash, ProductListingNormalizationInput,
+    RawProductListingOperation, RawProductListingPayloadFormat, RawProductListingProvenance,
+    RawProductListingValues, SchemaVersionField, SourcePayload, SourcePayloadHash,
+    canonical_json_sha256,
 };
 pub use price::{PriceNormalizationError, normalize_price, normalize_product_listing_price};
 pub use raw_values_normalizer::{
     PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION, ProductListingNormalizationContextV1,
-    ProductListingRawValues, ProductListingRawValuesNormalizationError,
-    ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
-    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat,
-    ProductListingRawValuesResolved,
+    ProductListingRawValues, ProductListingRawValuesEvaluation,
+    ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
+    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
+    ProductListingRawValuesPriceFormat, ProductListingRawValuesResolved,
 };
 pub use source_listing_id::{
     SourceListingIdNormalizationError, normalize_source_listing_id_with_url_sha_fallback,

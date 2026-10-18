@@ -27,7 +27,36 @@ pub struct ItemShippingAssertions {
 pub enum ShippingQuickCheck {
     Resolved(ItemShippingAssertions),
     NoAssertion,
-    Unsupported,
+    Unsupported(ShippingUnsupportedReason),
+}
+
+/// Why item shipping evidence produced no assertion. Conservative rules are unchanged: every
+/// reason abstains. `RulesUnavailable` is a normalizer system failure, not a candidate-data gap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShippingUnsupportedReason {
+    TooManyFragments {
+        observed: usize,
+        limit: usize,
+    },
+    TextTooLarge {
+        observed: usize,
+        limit: usize,
+    },
+    /// Questions and embedded NULs are never statements.
+    UnsupportedCharacter,
+    ConflictingPrice,
+    ConflictingHandling,
+    InvalidHandlingRange {
+        minimum: u32,
+        maximum: u32,
+    },
+    /// A dedicated shipping field contains a clause outside the explicit statement set.
+    UnrecognizedFieldClause,
+    /// Description prose mentions delivery without a recognized statement.
+    UnrecognizedDeliveryClause,
+    ConditionalClause,
+    ContradictoryAssertions,
+    RulesUnavailable,
 }
 
 static DISPATCH: LazyLock<Result<Vec<Regex>, regex::Error>> = LazyLock::new(|| {
@@ -58,7 +87,10 @@ pub fn quick_check_shipping_with_context(
     if shipping_fields.len() > MAX_SHIPPING_TEXT_FRAGMENTS
         || description.len() > MAX_SHIPPING_TEXT_FRAGMENTS - shipping_fields.len()
     {
-        return ShippingQuickCheck::Unsupported;
+        return ShippingQuickCheck::Unsupported(ShippingUnsupportedReason::TooManyFragments {
+            observed: shipping_fields.len().saturating_add(description.len()),
+            limit: MAX_SHIPPING_TEXT_FRAGMENTS,
+        });
     }
     let fragments = shipping_fields
         .iter()
@@ -69,14 +101,25 @@ pub fn quick_check_shipping_with_context(
 }
 
 fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQuickCheck {
-    if fragments.len() > MAX_SHIPPING_TEXT_FRAGMENTS
-        || fragments.iter().map(|s| s.len()).sum::<usize>() > MAX_SHIPPING_TEXT_BYTES
-        || fragments.iter().any(|s| s.contains(['\0', '?', '？', '؟']))
-    {
-        return ShippingQuickCheck::Unsupported;
+    use ShippingUnsupportedReason as Reason;
+    if fragments.len() > MAX_SHIPPING_TEXT_FRAGMENTS {
+        return ShippingQuickCheck::Unsupported(Reason::TooManyFragments {
+            observed: fragments.len(),
+            limit: MAX_SHIPPING_TEXT_FRAGMENTS,
+        });
+    }
+    let text_bytes = fragments.iter().map(|s| s.len()).sum::<usize>();
+    if text_bytes > MAX_SHIPPING_TEXT_BYTES {
+        return ShippingQuickCheck::Unsupported(Reason::TextTooLarge {
+            observed: text_bytes,
+            limit: MAX_SHIPPING_TEXT_BYTES,
+        });
+    }
+    if fragments.iter().any(|s| s.contains(['\0', '?', '？', '؟'])) {
+        return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
     }
     let Ok(dispatch) = DISPATCH.as_ref() else {
-        return ShippingQuickCheck::Unsupported;
+        return ShippingQuickCheck::Unsupported(Reason::RulesUnavailable);
     };
     let mut assertions = ItemShippingAssertions::default();
     let mut collection_label = false;
@@ -97,7 +140,7 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
                 }
                 Some(Statement::Price(price)) => {
                     if assertions.price.is_some_and(|previous| previous != price) {
-                        return ShippingQuickCheck::Unsupported;
+                        return ShippingQuickCheck::Unsupported(Reason::ConflictingPrice);
                     }
                     assertions.worldwide = true;
                     assertions.price = Some(price);
@@ -107,17 +150,26 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
                         .handling
                         .is_some_and(|previous| previous != range)
                     {
-                        return ShippingQuickCheck::Unsupported;
+                        return ShippingQuickCheck::Unsupported(Reason::ConflictingHandling);
                     }
                     assertions.handling = Some(range);
                 }
-                Some(Statement::Invalid) => return ShippingQuickCheck::Unsupported,
+                Some(Statement::Invalid { minimum, maximum }) => {
+                    return ShippingQuickCheck::Unsupported(Reason::InvalidHandlingRange {
+                        minimum,
+                        maximum,
+                    });
+                }
                 None => {
-                    if index < shipping_field_count
-                        || delivery_related(&clause)
-                        || conditional(&clause)
-                    {
-                        return ShippingQuickCheck::Unsupported;
+                    // Conditions are checked first: they explain the abstention most precisely.
+                    if conditional(&clause) {
+                        return ShippingQuickCheck::Unsupported(Reason::ConditionalClause);
+                    }
+                    if index < shipping_field_count {
+                        return ShippingQuickCheck::Unsupported(Reason::UnrecognizedFieldClause);
+                    }
+                    if delivery_related(&clause) {
+                        return ShippingQuickCheck::Unsupported(Reason::UnrecognizedDeliveryClause);
                     }
                     continue;
                 }
@@ -126,7 +178,7 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
         }
     }
     if contradictory(&assertions, collection_label) {
-        ShippingQuickCheck::Unsupported
+        ShippingQuickCheck::Unsupported(Reason::ContradictoryAssertions)
     } else if found {
         ShippingQuickCheck::Resolved(assertions)
     } else {
@@ -168,7 +220,7 @@ enum Statement {
     Worldwide,
     Price(ShippingPrice),
     Handling(TimeRange),
-    Invalid,
+    Invalid { minimum: u32, maximum: u32 },
 }
 
 fn statement(clause: &str, dispatch: &[Regex]) -> Option<Statement> {
@@ -205,7 +257,7 @@ fn statement(clause: &str, dispatch: &[Regex]) -> Option<Statement> {
                     None,
                 ) {
                     Ok(range) => Statement::Handling(range),
-                    Err(_) => Statement::Invalid,
+                    Err(_) => Statement::Invalid { minimum, maximum },
                 },
             );
         }
@@ -342,27 +394,70 @@ mod tests {
             "Dispatch in 2 days. Dispatch in 10 business days",
             "Shipping costs for this item worldwide on request. Shipping costs for this item worldwide are calculated at checkout.",
         ] {
-            assert_eq!(
-                ShippingQuickCheck::Unsupported,
-                quick_check_shipping(&[text]),
+            assert!(
+                matches!(
+                    quick_check_shipping(&[text]),
+                    ShippingQuickCheck::Unsupported(_)
+                ),
                 "{text}"
             );
         }
+        use ShippingUnsupportedReason as Reason;
+        for (fragments, reason) in [
+            (
+                &["This item is pickup only", "Shipping EUR 80"][..],
+                Reason::UnrecognizedDeliveryClause,
+            ),
+            (
+                &["If shipping is not available for this item, contact us"][..],
+                Reason::ConditionalClause,
+            ),
+            (
+                &["Dispatch in 15–10 business days"][..],
+                Reason::InvalidHandlingRange {
+                    minimum: 15,
+                    maximum: 10,
+                },
+            ),
+            (
+                &["Dispatch in 2 business days. Dispatch in 10 business days"][..],
+                Reason::ConflictingHandling,
+            ),
+            (
+                &[
+                    "Shipping costs for this item worldwide on request. Shipping costs for this item worldwide are calculated at checkout.",
+                ][..],
+                Reason::ConflictingPrice,
+            ),
+            (
+                &[
+                    "Shipping is not available for this item. Shipping for this item is available worldwide.",
+                ][..],
+                Reason::ContradictoryAssertions,
+            ),
+            (&["Collection only"][..], Reason::ContradictoryAssertions),
+            (&["\0"][..], Reason::UnsupportedCharacter),
+            (&["Ships today?"][..], Reason::UnsupportedCharacter),
+        ] {
+            assert_eq!(
+                ShippingQuickCheck::Unsupported(reason),
+                quick_check_shipping(fragments),
+                "{fragments:?}"
+            );
+        }
         assert_eq!(
-            ShippingQuickCheck::Unsupported,
-            quick_check_shipping(&["This item is pickup only", "Shipping EUR 80"])
-        );
-        assert_eq!(
-            ShippingQuickCheck::Unsupported,
+            ShippingQuickCheck::Unsupported(Reason::TextTooLarge {
+                observed: MAX_SHIPPING_TEXT_BYTES + 1,
+                limit: MAX_SHIPPING_TEXT_BYTES,
+            }),
             quick_check_shipping(&[&"x".repeat(MAX_SHIPPING_TEXT_BYTES + 1)])
         );
         assert_eq!(
-            ShippingQuickCheck::Unsupported,
+            ShippingQuickCheck::Unsupported(Reason::TooManyFragments {
+                observed: MAX_SHIPPING_TEXT_FRAGMENTS + 1,
+                limit: MAX_SHIPPING_TEXT_FRAGMENTS,
+            }),
             quick_check_shipping(&[""; MAX_SHIPPING_TEXT_FRAGMENTS + 1])
-        );
-        assert_eq!(
-            ShippingQuickCheck::Unsupported,
-            quick_check_shipping(&["\0"])
         );
     }
 
@@ -380,7 +475,7 @@ mod tests {
             );
         }
         assert_eq!(
-            ShippingQuickCheck::Unsupported,
+            ShippingQuickCheck::Unsupported(ShippingUnsupportedReason::UnrecognizedFieldClause),
             quick_check_shipping_with_context(
                 &[
                     "Shipping for this item is available worldwide",

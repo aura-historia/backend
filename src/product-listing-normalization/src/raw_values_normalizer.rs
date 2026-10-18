@@ -1,12 +1,17 @@
+use crate::diagnostics::{
+    NormalizationField, NormalizationIssue, NormalizationIssueDetails, NormalizationIssueHandling,
+    NormalizationIssueReason, NormalizationReport, availability_normalization_error,
+    price_normalization_error,
+};
 use crate::error::NormalizationFailureScope;
 use crate::price::normalize_machine_decimal_price;
 use crate::text::{detect_description_language, localize_normalized_title};
 use crate::{
-    AvailabilityNormalizationError, ImageUrlNormalizationError, ListingAvailabilityQuickCheck,
-    NormalizationError, PriceField, PriceNormalizationError, ProductListingNormalizationInput,
-    RawProductListingOperation, detect_language, normalize_description, normalize_image_urls,
-    normalize_price, normalize_product_listing_price,
-    normalize_source_listing_id_with_url_sha_fallback, normalize_title, quick_check_availability,
+    ImageUrlNormalizationError, ListingAvailabilityQuickCheck, NormalizationError, PriceField,
+    PriceNormalizationError, ProductListingNormalizationInput, RawProductListingOperation,
+    detect_language, normalize_description, normalize_image_urls, normalize_price,
+    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
+    normalize_title, quick_check_availability,
 };
 use localization::{Language, Localized};
 use money::{Currency, Price};
@@ -173,6 +178,74 @@ impl ProductListingRawValuesNormalizationError {
             _ => NormalizationFailureScope::CandidateData,
         }
     }
+
+    /// Typed diagnostic for this error. `field` names the evaluated field for errors whose
+    /// variant does not identify one (for example a machine-decimal estimate bound).
+    pub fn issue(&self, field: NormalizationField) -> NormalizationIssue {
+        use NormalizationIssueReason as Reason;
+        let none = NormalizationIssueDetails::None;
+        match self {
+            Self::UnsupportedRawValuesSchemaVersion { version } => NormalizationIssue::envelope(
+                NormalizationField::RawValuesSchemaVersion,
+                Reason::RawValuesSchemaUnsupported,
+                NormalizationIssueDetails::SchemaVersion {
+                    observed: *version,
+                    supported: PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+                },
+            ),
+            Self::InvalidRawValues(source) => NormalizationIssue::envelope(
+                NormalizationField::RawValues,
+                Reason::RawValuesInvalid,
+                NormalizationIssueDetails::json_contract(source),
+            ),
+            Self::InvalidNormalizationContextV1(source) => NormalizationIssue::envelope(
+                NormalizationField::NormalizationContext,
+                Reason::NormalizationContextInvalid,
+                NormalizationIssueDetails::json_contract(source),
+            ),
+            Self::InvalidBaseUrl(source) => NormalizationIssue::envelope(
+                NormalizationField::BaseUrl,
+                Reason::BaseUrlInvalid,
+                NormalizationIssueDetails::url_parse(source),
+            ),
+            Self::UnsupportedFallbackCurrency => NormalizationIssue::envelope(
+                NormalizationField::FallbackCurrency,
+                Reason::FallbackCurrencyUnsupported,
+                none,
+            ),
+            Self::UnsupportedFallbackLanguage => NormalizationIssue::envelope(
+                NormalizationField::FallbackLanguage,
+                Reason::FallbackLanguageUnsupported,
+                none,
+            ),
+            Self::InvalidUrl(source) => NormalizationIssue::field(
+                NormalizationField::Url,
+                Reason::UrlInvalid,
+                NormalizationIssueHandling::RejectedInput,
+                NormalizationIssueDetails::url_parse(source),
+            ),
+            Self::MachineDecimalFallbackCurrencyRequired => NormalizationIssue::field(
+                field,
+                Reason::MachineDecimalFallbackCurrencyRequired,
+                NormalizationIssueHandling::RejectedInput,
+                none,
+            ),
+            Self::Text(error)
+            | Self::Price(error)
+            | Self::ImageUrl(error)
+            | Self::Availability(error) => NormalizationIssue::from_normalization_error(error),
+        }
+    }
+}
+
+/// One complete raw-values evaluation: the unchanged decision plus every observed issue.
+///
+/// Issues include soft misses inside resolved outcomes and independent field failures that the
+/// decision does not name. An envelope failure that prevents field evaluation is reported once.
+#[derive(Debug)]
+pub struct ProductListingRawValuesEvaluation {
+    pub outcome: ProductListingRawValuesNormalizationOutcome,
+    pub report: NormalizationReport,
 }
 
 /// Pure raw-values normalizer for the current schema.
@@ -191,32 +264,57 @@ impl ProductListingRawValuesNormalizer {
         &self,
         input: &ProductListingNormalizationInput,
     ) -> ProductListingRawValuesNormalizationOutcome {
+        self.evaluate(input).outcome
+    }
+
+    /// Production decision plus diagnostics. Replay and the worker both call this function.
+    pub fn evaluate(
+        &self,
+        input: &ProductListingNormalizationInput,
+    ) -> ProductListingRawValuesEvaluation {
+        let mut report = NormalizationReport::new();
         if input.operation() == RawProductListingOperation::Delete {
-            return ProductListingRawValuesNormalizationOutcome::Delete;
+            return ProductListingRawValuesEvaluation {
+                outcome: ProductListingRawValuesNormalizationOutcome::Delete,
+                report,
+            };
         }
 
-        match self.normalize_upsert(input) {
+        let outcome = match self.normalize_upsert(input, &mut report) {
             Ok(resolved) => {
                 ProductListingRawValuesNormalizationOutcome::Resolved(Box::new(resolved))
             }
             Err(error) => ProductListingRawValuesNormalizationOutcome::Invalid(error),
-        }
+        };
+        ProductListingRawValuesEvaluation { outcome, report }
     }
 
     fn normalize_upsert(
         &self,
         input: &ProductListingNormalizationInput,
+        report: &mut NormalizationReport,
     ) -> Result<ProductListingRawValuesResolved, ProductListingRawValuesNormalizationError> {
+        let envelope = |error: ProductListingRawValuesNormalizationError,
+                        report: &mut NormalizationReport| {
+            report.push(error.issue(NormalizationField::RawValues));
+            error
+        };
         if input.raw_values_schema_version() != PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION {
-            return Err(
+            return Err(envelope(
                 ProductListingRawValuesNormalizationError::UnsupportedRawValuesSchemaVersion {
                     version: input.raw_values_schema_version(),
                 },
-            );
+                report,
+            ));
         }
         let raw: ProductListingRawValues =
-            serde_json::from_value(input.raw_values().value().clone())
-                .map_err(ProductListingRawValuesNormalizationError::InvalidRawValues)?;
+            serde_json::from_value(input.raw_values().value().clone()).map_err(|error| {
+                envelope(
+                    ProductListingRawValuesNormalizationError::InvalidRawValues(error),
+                    report,
+                )
+            })?;
+        // Shipping depends only on raw values, so its diagnostics survive later failures.
         let shipping = if input.payload_format()
             == crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
         {
@@ -224,12 +322,24 @@ impl ProductListingRawValuesNormalizer {
         } else {
             crate::shipping::ShippingQuickCheck::NoAssertion
         };
+        if let crate::shipping::ShippingQuickCheck::Unsupported(reason) = &shipping {
+            report.push(NormalizationIssue::shipping_unsupported(reason));
+        }
         let context: ProductListingNormalizationContextV1 = serde_json::from_value(
             input.normalization_context().value().clone(),
         )
-        .map_err(ProductListingRawValuesNormalizationError::InvalidNormalizationContextV1)?;
-        let base_url = Url::parse(context.base_url.as_str())
-            .map_err(ProductListingRawValuesNormalizationError::InvalidBaseUrl)?;
+        .map_err(|error| {
+            envelope(
+                ProductListingRawValuesNormalizationError::InvalidNormalizationContextV1(error),
+                report,
+            )
+        })?;
+        let base_url = Url::parse(context.base_url.as_str()).map_err(|error| {
+            envelope(
+                ProductListingRawValuesNormalizationError::InvalidBaseUrl(error),
+                report,
+            )
+        })?;
         let fallback_currency = context
             .fallback_currency
             .as_deref()
@@ -237,7 +347,8 @@ impl ProductListingRawValuesNormalizer {
                 Currency::from_code(code)
                     .ok_or(ProductListingRawValuesNormalizationError::UnsupportedFallbackCurrency)
             })
-            .transpose()?;
+            .transpose()
+            .map_err(|error| envelope(error, report))?;
         let price_format = raw.price_format;
         let fallback_language = context
             .fallback_language
@@ -246,7 +357,8 @@ impl ProductListingRawValuesNormalizer {
                 Language::from_code(code)
                     .ok_or(ProductListingRawValuesNormalizationError::UnsupportedFallbackLanguage)
             })
-            .transpose()?;
+            .transpose()
+            .map_err(|error| envelope(error, report))?;
 
         let description_language = match &raw.description {
             ProductListingRawValuesPatch::Set(fragments) => {
@@ -256,39 +368,64 @@ impl ProductListingRawValuesNormalizer {
                 fallback_language
             }
         };
-        let source_listing_id = normalize_source_listing_id_with_url_sha_fallback(
-            raw.source_listing_id.as_str(),
-            &base_url,
-        )
-        .map_err(ProductListingRawValuesNormalizationError::Text)?;
-        let title = normalize_title_patch(raw.title, description_language)?;
-        let description = normalize_description_patch(
-            raw.description,
-            title_language(&title).or(fallback_language),
-        )?;
-        let price = normalize_product_listing_price_patch(
-            raw.price,
-            fallback_currency,
-            price_format,
-            PriceField::Price,
-        )?;
-        let price_estimate_min = normalize_price_patch(
-            raw.price_estimate_min,
-            fallback_currency,
-            price_format,
-            PriceField::EstimateMin,
-        )?;
-        let price_estimate_max = normalize_price_patch(
-            raw.price_estimate_max,
-            fallback_currency,
-            price_format,
-            PriceField::EstimateMax,
-        )?;
-        let availability = normalize_availability_patch(raw.availability)?;
-        let url = normalize_url_patch(raw.url, &base_url)?;
-        let images = normalize_images_patch(raw.images, &base_url)?;
-        Ok(ProductListingRawValuesResolved {
-            shipping,
+
+        // Every field is evaluated independently. The decision keeps the first failure in
+        // field order, while the report retains every independent field issue.
+        let mut fields = FieldResults::new(report);
+        let source_listing_id = fields.take(NormalizationField::SourceListingId, |_| {
+            normalize_source_listing_id_with_url_sha_fallback(
+                raw.source_listing_id.as_str(),
+                &base_url,
+            )
+            .map_err(ProductListingRawValuesNormalizationError::Text)
+        });
+        let title = fields.take(NormalizationField::Title, |_| {
+            normalize_title_patch(raw.title, description_language)
+        });
+        let title_language = title.as_ref().and_then(title_language);
+        let description = fields.take(NormalizationField::Description, |_| {
+            normalize_description_patch(raw.description, title_language.or(fallback_language))
+        });
+        let price = fields.take(NormalizationField::Price, |report| {
+            normalize_product_listing_price_patch(
+                raw.price,
+                fallback_currency,
+                price_format,
+                PriceField::Price,
+                report,
+            )
+        });
+        let price_estimate_min = fields.take(NormalizationField::PriceEstimateMin, |report| {
+            normalize_price_patch(
+                raw.price_estimate_min,
+                fallback_currency,
+                price_format,
+                PriceField::EstimateMin,
+                report,
+            )
+        });
+        let price_estimate_max = fields.take(NormalizationField::PriceEstimateMax, |report| {
+            normalize_price_patch(
+                raw.price_estimate_max,
+                fallback_currency,
+                price_format,
+                PriceField::EstimateMax,
+                report,
+            )
+        });
+        let availability = fields.take(NormalizationField::Availability, |report| {
+            normalize_availability_patch(raw.availability, report)
+        });
+        let url = fields.take(NormalizationField::Url, |_| {
+            normalize_url_patch(raw.url, &base_url)
+        });
+        let images = fields.take(NormalizationField::Images, |_| {
+            normalize_images_patch(raw.images, &base_url)
+        });
+        if let Some(error) = fields.first_error {
+            return Err(error);
+        }
+        match (
             source_listing_id,
             title,
             description,
@@ -298,8 +435,64 @@ impl ProductListingRawValuesNormalizer {
             availability,
             url,
             images,
-            attributes: raw.attributes,
-        })
+        ) {
+            (
+                Some(source_listing_id),
+                Some(title),
+                Some(description),
+                Some(price),
+                Some(price_estimate_min),
+                Some(price_estimate_max),
+                Some(availability),
+                Some(url),
+                Some(images),
+            ) => Ok(ProductListingRawValuesResolved {
+                shipping,
+                source_listing_id,
+                title,
+                description,
+                price,
+                price_estimate_min,
+                price_estimate_max,
+                availability,
+                url,
+                images,
+                attributes: raw.attributes,
+            }),
+            _ => unreachable!("every missing field result records its error"),
+        }
+    }
+}
+
+/// Collects independent field results without short-circuiting.
+struct FieldResults<'a> {
+    report: &'a mut NormalizationReport,
+    first_error: Option<ProductListingRawValuesNormalizationError>,
+}
+
+impl<'a> FieldResults<'a> {
+    const fn new(report: &'a mut NormalizationReport) -> Self {
+        Self {
+            report,
+            first_error: None,
+        }
+    }
+
+    fn take<T>(
+        &mut self,
+        field: NormalizationField,
+        evaluate: impl FnOnce(
+            &mut NormalizationReport,
+        ) -> Result<T, ProductListingRawValuesNormalizationError>,
+    ) -> Option<T> {
+        match evaluate(self.report) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.report.push(error.issue(field));
+                self.first_error.get_or_insert(error);
+                None
+            }
+        }
     }
 }
 
@@ -369,11 +562,14 @@ fn normalize_description_patch(
     }
 }
 
+/// A supplied display price without determinable currency is unresolved, not absent: the
+/// canonical field stays unchanged and the report names the reason.
 fn normalize_product_listing_price_patch(
     patch: ProductListingRawValuesPatch<String>,
     fallback_currency: Option<Currency>,
     price_format: ProductListingRawValuesPriceFormat,
     field: PriceField,
+    report: &mut NormalizationReport,
 ) -> Result<
     ProductListingRawValuesPatch<ProductListingPrice>,
     ProductListingRawValuesNormalizationError,
@@ -384,12 +580,15 @@ fn normalize_product_listing_price_patch(
         }
         ProductListingRawValuesPatch::Set(raw) => match price_format {
             ProductListingRawValuesPriceFormat::DisplayText => {
-                normalize_product_listing_price(Some(raw.as_str()), fallback_currency)
-                    .map(|price| match price {
-                        Some(price) => ProductListingRawValuesPatch::Set(price),
-                        None => ProductListingRawValuesPatch::Clear,
-                    })
-                    .map_err(|error| map_price_error(error, field))
+                match normalize_product_listing_price(Some(raw.as_str()), fallback_currency) {
+                    Ok(Some(price)) => Ok(ProductListingRawValuesPatch::Set(price)),
+                    Ok(None) => Ok(ProductListingRawValuesPatch::Clear),
+                    Err(PriceNormalizationError::UnknownCurrency) => {
+                        report.push(NormalizationIssue::price_unknown_currency(field));
+                        Ok(ProductListingRawValuesPatch::Unchanged)
+                    }
+                    Err(error) => Err(map_price_error(error, field)),
+                }
             }
             ProductListingRawValuesPriceFormat::MachineDecimal => {
                 let currency = fallback_currency.ok_or(
@@ -411,6 +610,7 @@ fn normalize_price_patch(
     fallback_currency: Option<Currency>,
     price_format: ProductListingRawValuesPriceFormat,
     field: PriceField,
+    report: &mut NormalizationReport,
 ) -> Result<ProductListingRawValuesPatch<Price>, ProductListingRawValuesNormalizationError> {
     match patch {
         ProductListingRawValuesPatch::Set(raw) if raw.trim().is_empty() => {
@@ -418,12 +618,15 @@ fn normalize_price_patch(
         }
         ProductListingRawValuesPatch::Set(raw) => match price_format {
             ProductListingRawValuesPriceFormat::DisplayText => {
-                normalize_price(Some(raw.as_str()), fallback_currency)
-                    .map(|price| match price {
-                        Some(price) => ProductListingRawValuesPatch::Set(price),
-                        None => ProductListingRawValuesPatch::Clear,
-                    })
-                    .map_err(|error| map_price_error(error, field))
+                match normalize_price(Some(raw.as_str()), fallback_currency) {
+                    Ok(Some(price)) => Ok(ProductListingRawValuesPatch::Set(price)),
+                    Ok(None) => Ok(ProductListingRawValuesPatch::Clear),
+                    Err(PriceNormalizationError::UnknownCurrency) => {
+                        report.push(NormalizationIssue::price_unknown_currency(field));
+                        Ok(ProductListingRawValuesPatch::Unchanged)
+                    }
+                    Err(error) => Err(map_price_error(error, field)),
+                }
             }
             ProductListingRawValuesPriceFormat::MachineDecimal => {
                 let currency = fallback_currency.ok_or(
@@ -441,14 +644,23 @@ fn normalize_price_patch(
 
 fn normalize_availability_patch(
     patch: ProductListingRawValuesPatch<String>,
+    report: &mut NormalizationReport,
 ) -> Result<
     ProductListingRawValuesPatch<ListingAvailabilityQuickCheck>,
     ProductListingRawValuesNormalizationError,
 > {
     match patch {
-        ProductListingRawValuesPatch::Set(raw) => quick_check_availability(raw.as_str())
-            .map(ProductListingRawValuesPatch::Set)
-            .map_err(map_availability_error),
+        ProductListingRawValuesPatch::Set(raw) => {
+            let check = quick_check_availability(raw.as_str()).map_err(|error| {
+                ProductListingRawValuesNormalizationError::Availability(
+                    availability_normalization_error(error),
+                )
+            })?;
+            if let ListingAvailabilityQuickCheck::Unsupported(reason) = check {
+                report.push(NormalizationIssue::availability_unsupported(reason));
+            }
+            Ok(ProductListingRawValuesPatch::Set(check))
+        }
         ProductListingRawValuesPatch::Clear => Ok(ProductListingRawValuesPatch::Clear),
         ProductListingRawValuesPatch::Unchanged => Ok(ProductListingRawValuesPatch::Unchanged),
     }
@@ -488,13 +700,7 @@ fn map_price_error(
     error: PriceNormalizationError,
     field: PriceField,
 ) -> ProductListingRawValuesNormalizationError {
-    let error = match error {
-        PriceNormalizationError::UnknownCurrency => {
-            NormalizationError::PriceUnknownCurrency { field }
-        }
-        PriceNormalizationError::ParseFailure => NormalizationError::PriceParseError { field },
-    };
-    ProductListingRawValuesNormalizationError::Price(error)
+    ProductListingRawValuesNormalizationError::Price(price_normalization_error(error, field))
 }
 
 fn map_image_error(error: ImageUrlNormalizationError) -> ProductListingRawValuesNormalizationError {
@@ -506,29 +712,12 @@ fn map_image_error(error: ImageUrlNormalizationError) -> ProductListingRawValues
     ProductListingRawValuesNormalizationError::ImageUrl(error)
 }
 
-fn map_availability_error(
-    error: AvailabilityNormalizationError,
-) -> ProductListingRawValuesNormalizationError {
-    let error = match error {
-        AvailabilityNormalizationError::InputTooLong { len, max } => {
-            NormalizationError::AvailabilityTextTooLong { len, max }
-        }
-        AvailabilityNormalizationError::EmbeddedNul => {
-            NormalizationError::AvailabilityTextEmbeddedNul
-        }
-        AvailabilityNormalizationError::RegexSetCompilationFailed => {
-            NormalizationError::AvailabilityRegexSetCompilationFailed
-        }
-    };
-    ProductListingRawValuesNormalizationError::Availability(error)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        NormalizationContext, RawProductListingPayloadFormat, RawProductListingValues,
-        SourcePayload,
+        NormalizationContext, NormalizationStage, RawProductListingPayloadFormat,
+        RawProductListingValues, SourcePayload,
     };
     use serde_json::json;
 
@@ -618,23 +807,29 @@ mod tests {
         contradictory["description"]["value"] =
             json!(["Shipping for this item is available worldwide"]);
         assert_eq!(
-            crate::shipping::ShippingQuickCheck::Unsupported,
+            crate::shipping::ShippingQuickCheck::Unsupported(
+                crate::shipping::ShippingUnsupportedReason::ContradictoryAssertions
+            ),
             resolved_shipping(contradictory)
         );
         let mut unscoped_price = values.clone();
         unscoped_price["attributes"]["rawShipment"] =
             json!({"action":"SET", "value":["Shipping EUR 80"]});
         assert_eq!(
-            crate::shipping::ShippingQuickCheck::Unsupported,
+            crate::shipping::ShippingQuickCheck::Unsupported(
+                crate::shipping::ShippingUnsupportedReason::UnrecognizedFieldClause
+            ),
             resolved_shipping(unscoped_price)
         );
         let mut oversized = values.clone();
         oversized["attributes"]["rawShipment"]["value"] =
             json!(["x".repeat(crate::shipping::MAX_SHIPPING_TEXT_BYTES + 1)]);
-        assert_eq!(
-            crate::shipping::ShippingQuickCheck::Unsupported,
-            resolved_shipping(oversized)
-        );
+        assert!(matches!(
+            resolved_shipping(oversized),
+            crate::shipping::ShippingQuickCheck::Unsupported(
+                crate::shipping::ShippingUnsupportedReason::TextTooLarge { .. }
+            )
+        ));
         let mut cleared = values.clone();
         cleared["attributes"]["rawShipment"] = json!({"action":"CLEAR"});
         assert_eq!(
@@ -663,5 +858,167 @@ mod tests {
             };
             assert_eq!(crate::shipping::ShippingQuickCheck::NoAssertion, v.shipping);
         }
+    }
+
+    fn base_values() -> serde_json::Value {
+        json!({
+            "sourceListingId": "listing-123", "title": {"action": "SET", "value": "Antique oak chair"},
+            "description": {"action": "SET", "value": ["A restored English oak chair."]},
+            "priceFormat": "DISPLAY_TEXT",
+            "price": {"action": "SET", "value": "EUR 100"},
+            "priceEstimateMin": {"action": "UNCHANGED"}, "priceEstimateMax": {"action": "UNCHANGED"},
+            "availability": {"action": "SET", "value": "in stock"},
+            "url": {"action": "SET", "value": "listing-123"},
+            "images": {"action": "SET", "value": []}
+        })
+    }
+
+    fn reasons(
+        evaluation: &ProductListingRawValuesEvaluation,
+    ) -> Vec<(NormalizationField, NormalizationIssueReason)> {
+        evaluation
+            .report
+            .issues()
+            .iter()
+            .map(|issue| (issue.field, issue.reason))
+            .collect()
+    }
+
+    fn input_without_fallback_currency(
+        raw_values: serde_json::Value,
+    ) -> ProductListingNormalizationInput {
+        ProductListingNormalizationInput::new(
+            RawProductListingOperation::Upsert,
+            RawProductListingPayloadFormat::CrawlerExtractedProduct,
+            1,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            SourcePayload::new(json!({})).unwrap(),
+            RawProductListingValues::new(raw_values).unwrap(),
+            NormalizationContext::new(json!({"baseUrl": "https://example.test/"})).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn should_preserve_supplied_prices_without_currency_and_report_them() {
+        let mut values = base_values();
+        values["price"] = json!({"action": "SET", "value": "5500"});
+        values["priceEstimateMin"] = json!({"action": "SET", "value": "100"});
+        let evaluation = ProductListingRawValuesNormalizer::new()
+            .evaluate(&input_without_fallback_currency(values));
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) = &evaluation.outcome
+        else {
+            panic!("missing currency must not reject the observation");
+        };
+        assert_eq!(ProductListingRawValuesPatch::Unchanged, resolved.price);
+        assert_eq!(
+            ProductListingRawValuesPatch::Unchanged,
+            resolved.price_estimate_min
+        );
+        assert_eq!(
+            vec![
+                (
+                    NormalizationField::Price,
+                    NormalizationIssueReason::PriceUnknownCurrency
+                ),
+                (
+                    NormalizationField::PriceEstimateMin,
+                    NormalizationIssueReason::PriceUnknownCurrency
+                ),
+            ],
+            reasons(&evaluation)
+        );
+        assert!(
+            evaluation
+                .report
+                .issues()
+                .iter()
+                .all(|issue| issue.handling == NormalizationIssueHandling::PreservedField)
+        );
+    }
+
+    #[test]
+    fn should_report_soft_misses_inside_resolved_outcomes() {
+        let mut values = base_values();
+        values["availability"] = json!({"action": "SET", "value": "not 2 available"});
+        values["attributes"] =
+            json!({"rawShipment": {"action": "SET", "value": ["Shipping EUR 80"]}});
+        let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&input(values));
+        assert!(matches!(
+            evaluation.outcome,
+            ProductListingRawValuesNormalizationOutcome::Resolved(_)
+        ));
+        assert_eq!(
+            vec![
+                (
+                    NormalizationField::Shipping,
+                    NormalizationIssueReason::ShippingUnrecognizedFieldClause
+                ),
+                (
+                    NormalizationField::Availability,
+                    NormalizationIssueReason::AvailabilityQualifiedQuantity
+                ),
+            ],
+            reasons(&evaluation)
+        );
+    }
+
+    #[test]
+    fn should_collect_every_independent_field_issue_and_keep_the_first_decision() {
+        let mut values = base_values();
+        values["title"] = json!({"action": "SET", "value": "   "});
+        values["price"] = json!({"action": "SET", "value": "-100 EUR"});
+        values["priceEstimateMax"] = json!({"action": "SET", "value": "EUR 1.2345"});
+        values["availability"] =
+            json!({"action": "SET", "value": "sold out; 2 available next month"});
+        values["attributes"] =
+            json!({"rawShipment": {"action": "SET", "value": ["This item is collection only"]}});
+        let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&input(values));
+        assert!(matches!(
+            evaluation.outcome,
+            ProductListingRawValuesNormalizationOutcome::Invalid(
+                ProductListingRawValuesNormalizationError::Text(NormalizationError::TitleEmpty)
+            )
+        ));
+        assert_eq!(
+            vec![
+                (
+                    NormalizationField::Title,
+                    NormalizationIssueReason::TitleEmpty
+                ),
+                (
+                    NormalizationField::Price,
+                    NormalizationIssueReason::PriceNegative
+                ),
+                (
+                    NormalizationField::PriceEstimateMax,
+                    NormalizationIssueReason::PriceExcessPrecision
+                ),
+                (
+                    NormalizationField::Availability,
+                    NormalizationIssueReason::AvailabilityQualifiedQuantity
+                ),
+            ],
+            reasons(&evaluation)
+        );
+    }
+
+    #[test]
+    fn should_report_envelope_failures_once_with_safe_details() {
+        let mut values = base_values();
+        values["unexpected"] = json!("private text");
+        let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&input(values));
+        let [issue] = evaluation.report.issues() else {
+            panic!("one envelope issue expected");
+        };
+        assert_eq!(NormalizationStage::Envelope, issue.stage);
+        assert_eq!(NormalizationIssueReason::RawValuesInvalid, issue.reason);
+        assert!(!serde_json::to_string(issue).unwrap().contains("private"));
+    }
+
+    #[test]
+    fn should_keep_valid_resolved_inputs_free_of_issues() {
+        let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&input(base_values()));
+        assert!(evaluation.report.is_empty());
     }
 }

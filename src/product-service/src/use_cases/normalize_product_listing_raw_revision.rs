@@ -742,7 +742,7 @@ fn availability_patch(
         }
         ProductListingRawValuesPatch::Set(ListingAvailabilityQuickCheck::NoAssertion)
         | ProductListingRawValuesPatch::Clear => PatchField::Clear,
-        ProductListingRawValuesPatch::Set(ListingAvailabilityQuickCheck::Unsupported)
+        ProductListingRawValuesPatch::Set(ListingAvailabilityQuickCheck::Unsupported(_))
         | ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
     }
 }

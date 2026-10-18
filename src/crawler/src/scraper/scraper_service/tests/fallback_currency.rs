@@ -92,15 +92,16 @@ async fn should_capture_numeric_price_with_operational_fallback_currency() {
 }
 
 #[tokio::test]
-async fn should_capture_numeric_price_evidence_without_generic_price_when_fallback_is_absent() {
+async fn should_capture_unresolved_numeric_price_for_worker_preservation_when_fallback_is_absent() {
     let product = scrape_numeric_price(None).await;
 
     assert_eq!(
         Some(&serde_json::json!("5500")),
         product.raw_input.source_payload().value().get("price")
     );
+    // Unresolved is not absent: the worker keeps the canonical price unchanged and reports it.
     assert_eq!(
-        Some(&serde_json::json!({"action": "CLEAR"})),
+        Some(&serde_json::json!({"action": "SET", "value": "5500"})),
         product.raw_input.raw_values().value().get("price")
     );
     assert_eq!(
