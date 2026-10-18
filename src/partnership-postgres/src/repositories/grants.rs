@@ -44,6 +44,8 @@ impl ListingSourceGrantRepository for Repository<'_> {
             source: box_error(source),
         })?;
         Ok(if result.rows_affected() > 0 {
+            super::partnership_repository::touch_partnership(self.connection, partnership_id)
+                .await?;
             ListingSourceGrantOutcome::Granted
         } else {
             ListingSourceGrantOutcome::AlreadyGranted
@@ -66,6 +68,8 @@ impl ListingSourceGrantRepository for Repository<'_> {
             source: box_error(source),
         })?;
         Ok(if result.rows_affected() > 0 {
+            super::partnership_repository::touch_partnership(self.connection, partnership_id)
+                .await?;
             ListingSourceGrantRemoveOutcome::Removed
         } else {
             ListingSourceGrantRemoveOutcome::AlreadyAbsent

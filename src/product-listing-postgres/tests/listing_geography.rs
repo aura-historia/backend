@@ -130,13 +130,16 @@ async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_fac
         let (value,version):(serde_json::Value,i64)=sqlx::query_as("SELECT geography,geography_version FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
         assert_eq!("DE",value["business"]["country"]);assert!(value["inventory"].is_null());
         assert!(!value.to_string().contains("Private supplied"));assert!(!value.to_string().contains("evidence"));
-        let after:(i64,time::OffsetDateTime)=sqlx::query_as("SELECT version,updated FROM product_listings WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(before,after);
+        let after:(i64,time::OffsetDateTime)=sqlx::query_as("SELECT version,updated FROM product_listings WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
+        // The effective geography change advances freshness, never the canonical revision.
+        assert_eq!(before.0,after.0);assert!(after.1>before.1);
         // PostgreSQL reads use derived geography independently of OpenSearch delivery.
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[id]).await?;assert!(views[&id].business.is_some());
 
         // Repeated dependency signals update markers without downstream enrichment.
         sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)").bind(source.to_string()).execute(&pool).await?;drain(&pool,1).await?;
         let unchanged:i64=sqlx::query_scalar("SELECT geography_version FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(version,unchanged);
+        let refreshed:(i64,time::OffsetDateTime)=sqlx::query_as("SELECT version,updated FROM product_listings WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(after,refreshed);
         // Reads accept the old projection until retirement fanout catches up.
         sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&pool).await?;
         sqlx::query("INSERT INTO party_location_changes(party_location_id,party_id,revision,input_revision,lifecycle,actor) SELECT party_location_id,party_id,revision,input_revision,lifecycle,'SERVICE:test' FROM party_locations WHERE party_location_id=$1").bind(location).execute(&pool).await?;
@@ -145,6 +148,8 @@ async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_fac
         drain(&pool,1).await?;
         let retired:serde_json::Value=sqlx::query_scalar("SELECT geography FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
         assert!(retired["business"].is_null());assert!(retired["inventory"].is_null());
+        let retired_freshness:(i64,time::OffsetDateTime)=sqlx::query_as("SELECT version,updated FROM product_listings WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
+        assert_eq!(after.0,retired_freshness.0);assert!(retired_freshness.1>refreshed.1);
 
         Ok(())
     }.await;

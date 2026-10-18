@@ -415,7 +415,7 @@ impl PartyLocationRepository for LocationRepository<'_> {
         }
         let c = ContentData::from(stored.location.content());
         let mut q = QueryBuilder::<Postgres>::new(
-            "UPDATE party_locations SET label=$1,roles=$2,geography=$3,position=$4,lifecycle=$5,input_revision=$6,evidence=$7,updated_actor=$8,revision=revision+1,updated=now() WHERE party_location_id=$9 AND party_id=$10 AND revision=$11 RETURNING ",
+            "UPDATE party_locations SET label=$1,roles=$2,geography=$3,position=$4,lifecycle=$5,input_revision=$6,evidence=$7,updated_actor=$8,revision=revision+1,updated=aura_advance_updated(updated) WHERE party_location_id=$9 AND party_id=$10 AND revision=$11 RETURNING ",
         );
         q.push(COLUMNS);
         let result: StoredPartyLocation = q

@@ -115,7 +115,7 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED` | None beyond product projector; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED`, `ENRICHMENT_CONTENT_ASSESSED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
@@ -170,7 +170,7 @@ commit/effect do not. SQS transport IDs are not business idempotency keys.
 | Consumer | Authority and completion rule |
 | --- | --- |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
-| Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. |
+| Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
@@ -184,8 +184,8 @@ resurrect deleted state. Tombstones must outlive physical-delete version memory.
 [Rebuild and deletion recovery](../durable-worker-runbook.md#projection-fences-and-rebuild)
 require authoritative facts and fenced writers, not an index reset.
 
-FX capture alone does not enqueue matching, projection or notification; scheduled matching
-can discover explicitly opted-in shipping FX threshold crossings on its next evaluation.
+FX capture alone does not enqueue matching, projection or notification, touch listing
+freshness or widen the scheduled matching interval.
 
 ## Provider and scheduled flows
 
@@ -228,14 +228,18 @@ use ordinary search without embedding or model work. Structured predicates, incl
 geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
 
-Shipping filters revisit indexed membership each evaluation without the automatic lower
-listing-updated replay bound: profile/default changes can affect older listings without a
-canonical price/availability change. Explicit FX-aware shipping maximums also reevaluate
-older listings against the run's persisted window-end snapshot, so an FX-only threshold
-crossing can create a new match. FX capture itself emits no listing/shipping event and
-requires no profile rewrite, projection fan-out or reindex. Explicit saved date bounds
-and the evaluation cutoff remain in force. This uses the current scheduled matcher and shipping enrichment projection, with no event-percolator
-queue. Private destination snapshots follow the [shipping contract](../shipping.md#shipping-search-and-saved-destinations).
+Every filter, including shipping, geography and FX-converted shipping predicates, uses one
+listing-`updated` interval: the lower bound is the later of filter creation and
+`matched_through` minus the replay overlap, intersected with any authored `updated` range;
+the upper bound is the window end capped by any authored maximum. An empty intersection skips
+the filter. Because every persisted listing-state change, enrichment included, advances
+[listing freshness](../product-listing.md#freshness), profile/default, geography and other
+effective changes make older listings eligible again without a predicate-specific historical
+scan. FX capture alone never does: an older listing outside the interval stays excluded even
+if its converted shipping price now satisfies a threshold, while candidates inside the
+interval use the run's pinned FX snapshot. Discovery remains bounded by scan/candidate limits
+and projection lag. Private destination snapshots follow the
+[shipping contract](../shipping.md#shipping-search-and-saved-destinations).
 
 Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
 and skips existing matches, withdrawn listings and missing/stale sources before selecting
@@ -404,8 +408,9 @@ markers, uncertain commits, FIFO partial failure, notification finalization and 
 fences/rebuilds. Use isolated real dependencies where needed; live probes require approval.
 
 Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly an empty
-object payload only when compact derived values change. It routes to product projection,
-with no watchlist/price noise or enrichment loop. Work continuations and crash recovery
+object payload only when compact derived values change, advancing listing freshness in the
+same transaction. It routes to product projection, with no watchlist/price noise or
+enrichment loop. Work continuations and crash recovery
 are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).
 
 ### Shipping observation validity
@@ -423,10 +428,12 @@ the same durable work basis. Neither original assertion content nor producer own
 keys enter the CDC job.
 
 Effective shipping appends schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `{}` only
-when the public compact summary changes. It advances the existing listing projection
-fence/current-event pointer and routes only to the complete ProductListing projector.
-Canonical revision, updated time, content/embedding source pointers and public history
-remain unchanged. Dependency-only refreshes update reverse references silently.
+when the public compact summary changes, or when an import accepts a new acquisition of
+unchanged listing delivery terms (new listing-owned evidence without a canonical revision).
+It advances listing freshness and the existing projection fence/current-event pointer and
+routes only to the complete ProductListing projector. Canonical revision,
+content/embedding source pointers and public history remain unchanged. Dependency-only
+refreshes and redelivered acquisitions update nothing visible.
 The event codec rejects unknown versions or payload fields. Deploy compatible event/job
 readers, strict camelCase mappings and the isolated queue/consumer with the migration;
 older readers cannot consume the new event or scope. Rebuild and lag semantics belong

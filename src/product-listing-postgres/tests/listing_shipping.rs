@@ -208,8 +208,11 @@ async fn gallery_public_change_advances_only_painting_projection_and_cabinet_dep
     assert_eq!(fixture("cabinet"), summary(&pool, ids[1]).await);
     let after:Vec<(Uuid,i64,OffsetDateTime,i64,Uuid)>=sqlx::query_as("SELECT product_listing_id,version,updated,projection_version,current_event_id FROM product_listings WHERE product_listing_id=ANY($1) ORDER BY product_listing_id").bind(ids.iter().map(|i|i.into_uuid()).collect::<Vec<_>>()).fetch_all(&pool).await.unwrap();
     for (old, new) in before.iter().zip(&after) {
-        assert_eq!((old.0, old.1, old.2), (new.0, new.1, new.2));
+        // Enrichment never manufactures a canonical revision.
+        assert_eq!((old.0, old.1), (new.0, new.1));
         if new.0 == ids[0].into_uuid() {
+            // Only the listing whose effective summary changed advances freshness and its fence.
+            assert!(old.2 < new.2);
             assert_eq!(old.3 + 1, new.3);
             assert_ne!(old.4, new.4);
         } else {
@@ -889,7 +892,13 @@ async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_wit
         expected,
         vec![summary(&pool, ids[0]).await, summary(&pool, ids[1]).await]
     );
-    assert_eq!(before,sqlx::query_as::<_,(Uuid,i64,OffsetDateTime)>("SELECT product_listing_id,version,updated FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap());
+    // Reinstating lost summaries persists effective state again, so freshness may advance; the
+    // canonical revision never does.
+    let rebuilt = sqlx::query_as::<_,(Uuid,i64,OffsetDateTime)>("SELECT product_listing_id,version,updated FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap();
+    for (old, new) in before.iter().zip(&rebuilt) {
+        assert_eq!((old.0, old.1), (new.0, new.1));
+        assert!(old.2 <= new.2);
+    }
     let references: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM listing_shipping_dependencies WHERE product_listing_id=ANY($1)",
     )

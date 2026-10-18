@@ -30,11 +30,15 @@ pub trait ProductListingDeliveryReferences: Send {
     ) -> Result<bool, ProductListingDeliveryError> {
         Err(ProductListingDeliveryError::Unavailable)
     }
+    /// Records the accepted import. Newly accepted listing evidence is listing-owned state: when
+    /// no canonical revision was written in this transaction, the adapter advances listing
+    /// freshness together with an enrichment event and projection fence.
     async fn complete_import(
         &mut self,
         _context: &OperationContext,
         _command: &crate::use_cases::ChangeProductListingDeliveryCommand,
         _id: product_listing_core::product_listing_id::ProductListingId,
+        _canonical_written: bool,
     ) -> Result<(), ProductListingDeliveryError> {
         Err(ProductListingDeliveryError::Unavailable)
     }

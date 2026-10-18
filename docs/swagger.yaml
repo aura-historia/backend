@@ -19701,6 +19701,7 @@ components:
         updated:
           type: string
           format: date-time
+          description: Millisecond-precision time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing; FX changes and response-time composition do not advance it.
         geography:
           description: Advertised inventory geography on geographic search summaries; selected by the backend from eligible source evidence.
           allOf: [{$ref: '#/components/schemas/ListingGeographyData'}]
@@ -19857,6 +19858,7 @@ components:
         updated:
           type: string
           format: date-time
+          description: Millisecond-precision time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing; FX changes and response-time composition do not advance it.
     ProductListingLotData:
       type: object
       additionalProperties: false
@@ -22844,6 +22846,7 @@ components:
         updated:
           type: string
           format: date-time
+          description: When the notification state (such as `seen`) last changed; repeating an identical state leaves it unchanged.
     NotificationPayloadData:
       description: Reason-specific immutable snapshot. Its shape is selected by the parent `NotificationData.kind`.
       oneOf:
@@ -23698,7 +23701,7 @@ components:
         updated:
           type: string
           format: date-time
-          description: When the Partnership was last updated.
+          description: When the Partnership, its memberships or its listing-source grants last changed.
     AdminPartnershipSummaryData:
       type: object
       description: "Safe administrator Partnership summary. Member/grant identities, Party contact data, persistence versions, and credentials are excluded."
@@ -23732,7 +23735,7 @@ components:
         updated:
           type: string
           format: date-time
-          description: When the Partnership was last updated.
+          description: When the Partnership, its memberships or its listing-source grants last changed.
     PartnershipPartySummaryData:
       type: object
       description: Party summary embedded in an administrator Partnership result.

@@ -1201,36 +1201,31 @@ fn periodic_search(
     window_end: OffsetDateTime,
     replay_overlap: Duration,
 ) -> Option<ProductListingSearch> {
-    // Shipping dependencies can change without changing canonical listing.updated. Revisit
-    // old listings while retaining authored date constraints and the evaluation cutoff.
-    let replay_start = filter.search.shipping.is_none().then(|| {
-        filter
-            .matched_through
-            .checked_sub(replay_overlap)
-            .unwrap_or(filter.created)
-            .max(filter.created)
-    });
-    let authored_min = filter
+    // Every persisted listing-state change, enrichment included, advances listing.updated, so
+    // one interval applies to every filter type; FX changes alone never reopen old listings.
+    let replay_start = filter
+        .matched_through
+        .checked_sub(replay_overlap)
+        .unwrap_or(filter.created)
+        .max(filter.created);
+    let min = filter
         .search
         .updated_query
         .as_ref()
-        .and_then(|range| range.min);
-    let min = match (authored_min, replay_start) {
-        (Some(authored), Some(replay)) => Some(authored.max(replay)),
-        (authored, replay) => authored.or(replay),
-    };
+        .and_then(|range| range.min)
+        .map_or(replay_start, |authored| authored.max(replay_start));
     let max = filter
         .search
         .updated_query
         .as_ref()
         .and_then(|range| range.max)
         .map_or(window_end, |value| value.min(window_end));
-    if min.is_some_and(|min| min > max) {
+    if min > max {
         return None;
     }
     let mut search = filter.search.clone();
     search.updated_query = Some(RangeQuery {
-        min,
+        min: Some(min),
         max: Some(max),
     });
     Some(search)
@@ -1893,54 +1888,90 @@ mod tests {
     }
 
     #[test]
-    fn shipping_periodic_matching_revisits_old_listings_without_moving_authored_date_bounds() {
-        let mut candidate = filter();
-        candidate.search.shipping = Some(
-            product_listing_core::shipping_search::ShippingSearch::new(
-                geo::reference::ReferenceRelease::CURRENT,
-                Some(geo::CountryCode::DEU),
-                None,
-                None,
-                false,
-            )
-            .unwrap(),
-        );
-        candidate.matched_through = candidate.created + Duration::days(31);
-        let next = candidate.matched_through + Duration::days(1);
-        let mut expected = candidate.search.clone();
-        expected.updated_query = Some(RangeQuery {
-            min: None,
-            max: Some(next),
-        });
-        assert_eq!(
-            expected,
-            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
-        );
-        candidate.search.updated_query = Some(RangeQuery {
-            min: Some(candidate.created),
-            max: Some(candidate.created + Duration::hours(1)),
-        });
-        assert_eq!(
-            candidate.search,
-            periodic_search(&candidate, next, Duration::minutes(5)).unwrap()
-        );
-        candidate.search.updated_query = Some(RangeQuery {
-            min: Some(next + Duration::hours(1)),
-            max: None,
-        });
-        assert!(periodic_search(&candidate, next, Duration::minutes(5)).is_none());
-        candidate.search.updated_query = Some(RangeQuery {
-            min: Some(candidate.created),
-            max: Some(next + Duration::hours(1)),
-        });
-        let search = periodic_search(&candidate, next, Duration::minutes(5)).unwrap();
-        assert_eq!(
-            Some(RangeQuery {
+    fn every_filter_variant_uses_the_same_replay_window_and_authored_date_bounds() {
+        let shipping = product_listing_core::shipping_search::ShippingSearch::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            Some(geo::CountryCode::DEU),
+            None,
+            Some(money::Price::new(
+                money::MonetaryAmount::from(1_000_u64),
+                Currency::Usd,
+            )),
+            false,
+        )
+        .unwrap();
+        let geography = geo::core::discovery::GeographicQuery::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            HashSet::from([geo::CountryCode::DEU]),
+            HashSet::new(),
+            None,
+            None,
+            geo::core::discovery::ProximityMode::Strict,
+            None,
+        )
+        .unwrap();
+        let variants = [
+            (None, None),
+            (Some(shipping.clone()), None),
+            (None, Some(geography.clone())),
+            (Some(shipping), Some(geography)),
+        ];
+        for (shipping, geography) in variants {
+            let mut candidate = filter();
+            candidate.search.shipping = shipping;
+            candidate.search.geography = geography;
+            candidate.matched_through = candidate.created + Duration::days(31);
+            let next = candidate.matched_through + Duration::days(1);
+            let replay_start = candidate.matched_through - Duration::minutes(5);
+
+            assert_eq!(
+                Some(RangeQuery {
+                    min: Some(replay_start),
+                    max: Some(next),
+                }),
+                periodic_search(&candidate, next, Duration::minutes(5))
+                    .unwrap()
+                    .updated_query
+            );
+            // Old listings outside the replay window stay excluded even when authored bounds
+            // would admit them; FX or shipping predicates never widen the interval.
+            candidate.search.updated_query = Some(RangeQuery {
                 min: Some(candidate.created),
-                max: Some(next)
-            }),
-            search.updated_query
-        );
+                max: Some(candidate.created + Duration::hours(1)),
+            });
+            assert!(periodic_search(&candidate, next, Duration::minutes(5)).is_none());
+            candidate.search.updated_query = Some(RangeQuery {
+                min: Some(next + Duration::hours(1)),
+                max: None,
+            });
+            assert!(periodic_search(&candidate, next, Duration::minutes(5)).is_none());
+            candidate.search.updated_query = Some(RangeQuery {
+                min: Some(candidate.created),
+                max: Some(next + Duration::hours(1)),
+            });
+            assert_eq!(
+                Some(RangeQuery {
+                    min: Some(replay_start),
+                    max: Some(next)
+                }),
+                periodic_search(&candidate, next, Duration::minutes(5))
+                    .unwrap()
+                    .updated_query
+            );
+            candidate.search.updated_query = Some(RangeQuery {
+                min: Some(replay_start + Duration::hours(1)),
+                max: Some(next - Duration::hours(1)),
+            });
+            assert_eq!(
+                Some(RangeQuery {
+                    min: Some(replay_start + Duration::hours(1)),
+                    max: Some(next - Duration::hours(1))
+                }),
+                periodic_search(&candidate, next, Duration::minutes(5))
+                    .unwrap()
+                    .updated_query
+            );
+        }
     }
 
     #[tokio::test]

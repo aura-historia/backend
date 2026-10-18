@@ -304,6 +304,24 @@ mod tests {
     }
 
     #[test]
+    fn should_carry_persisted_millisecond_freshness_into_the_document()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = source()?;
+        product.updated = OffsetDateTime::UNIX_EPOCH
+            + time::Duration::days(20_000)
+            + time::Duration::milliseconds(7);
+
+        let document = serde_json::to_value(product_listing_document(&product, None)?)?;
+
+        // Consecutive advances differ by at least one millisecond, which `date` preserves.
+        assert_eq!(
+            Some(&serde_json::json!("2024-10-04T00:00:00.007Z")),
+            document.get("updated"),
+        );
+        Ok(())
+    }
+
+    #[test]
     fn should_project_only_exact_lot_times() -> Result<(), Box<dyn std::error::Error>> {
         let mut product = source()?;
         let bidding_opens_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);

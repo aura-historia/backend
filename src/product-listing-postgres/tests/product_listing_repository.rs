@@ -442,6 +442,101 @@ async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_advance_updated_strictly_monotonically_at_millisecond_precision() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
+    let listing_source_id = seed_listing_source(&pool, "product-listing-postgres-freshness").await;
+    let product = sample_product("postgres-product-freshness", listing_source_id);
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
+    let updated = || {
+        sqlx::query_scalar::<_, OffsetDateTime>(
+            "SELECT updated FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(product.id().into_uuid())
+        .fetch_one(&pool)
+    };
+    let millisecond = |value: OffsetDateTime| value.nanosecond().is_multiple_of(1_000_000);
+    let inserted = updated().await.unwrap();
+    assert!(millisecond(inserted));
+
+    // An older canonical transaction (transaction-start `now()` fixed early) stays eligible after
+    // an enrichment write commits, and the enrichment stored a value ahead of the clock.
+    let mut older = begin(&unit_of_work).await;
+    let Versioned {
+        value: mut changed,
+        version,
+    } = product_listings
+        .in_transaction(&mut older)
+        .find_by_id(product.id())
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query(
+        "UPDATE product_listings SET updated = date_trunc('milliseconds', now()) + interval '1 hour' WHERE product_listing_id = $1",
+    )
+    .bind(product.id().into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let enriched = sqlx::query_scalar::<_, OffsetDateTime>(
+        "UPDATE product_listings SET projection_version = projection_version + 1, updated = aura_advance_updated(updated) WHERE product_listing_id = $1 RETURNING updated",
+    )
+    .bind(product.id().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(millisecond(enriched));
+
+    assert!(
+        changed
+            .set_price(Price::new(MonetaryAmount::from(1_337_u64), Currency::Eur))
+            .is_ok()
+    );
+    let payload = changed.take_pending_event_payload().unwrap();
+    let event =
+        stamp_product_listing_event(changed.id(), OffsetDateTime::now_utc(), payload.clone());
+    product_listings
+        .in_transaction(&mut older)
+        .update(
+            &changed,
+            version,
+            event.event_id,
+            ProductListingWriteEffects::from(&payload),
+        )
+        .await
+        .unwrap();
+    events
+        .in_transaction(&mut older)
+        .append(&event)
+        .await
+        .unwrap();
+    commit(older).await;
+    let canonical = updated().await.unwrap();
+    // The clock is behind the stored value: the next value is exactly one millisecond later.
+    assert_eq!(enriched + time::Duration::milliseconds(1), canonical);
+
+    // Consecutive writes at the same transaction time stay strictly increasing.
+    let mut tx = pool.begin().await.unwrap();
+    let mut previous = canonical;
+    for _ in 0..3 {
+        let next = sqlx::query_scalar::<_, OffsetDateTime>(
+            "UPDATE product_listings SET updated = aura_advance_updated(updated) WHERE product_listing_id = $1 RETURNING updated",
+        )
+        .bind(product.id().into_uuid())
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert!(next > previous && millisecond(next));
+        previous = next;
+    }
+    // A rollback restores state and freshness together.
+    tx.rollback().await.unwrap();
+    assert_eq!(canonical, updated().await.unwrap());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_round_trip_immutable_sale_observation_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

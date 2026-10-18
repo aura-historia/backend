@@ -35,7 +35,7 @@ SET state = ranked.target_state,
         ELSE NULL
     END,
     version = entry.version + 1,
-    updated = now()
+    updated = aura_advance_updated(entry.updated)
 FROM ranked
 WHERE entry.user_id = $1
   AND entry.product_listing_id = ranked.product_listing_id
@@ -88,7 +88,7 @@ SET state = reconciled.target_state,
         ELSE 'TEXT_ONLY'
     END,
     version = filter.version + 1,
-    updated = now()
+    updated = aura_advance_updated(filter.updated)
 FROM reconciled
 WHERE filter.user_id = $1
   AND filter.user_search_filter_id = reconciled.user_search_filter_id

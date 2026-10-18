@@ -116,7 +116,8 @@ async fn should_persist_one_assessment_when_duplicate_completions_overlap() {
         let state: (i64, i64, i64) = sqlx::query_as(
             "SELECT version, projection_version, (SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1) FROM product_listings WHERE product_listing_id = $1"
         ).bind(product_id.into_uuid()).fetch_one(&pool).await?;
-        assert_eq!((1, 1, 1), state);
+        // The one effective change advances freshness through a single enrichment event.
+        assert_eq!((1, 2, 2), state);
         Ok(())
     }.await;
     assert!(
@@ -182,6 +183,71 @@ async fn should_preserve_new_assessment_when_old_apply_and_clear_arrive_concurre
         }
         .await;
     assert!(result.is_ok(), "reversed assessment completion: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_advance_listing_freshness_only_for_effective_assessment_changes() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_id, source) = insert_product_with_created_event(&pool).await?;
+        let state = || {
+            sqlx::query_as::<_, (time::OffsetDateTime, i64, i64, uuid::Uuid)>(
+                "SELECT updated, version, projection_version, current_event_id FROM product_listings WHERE product_listing_id = $1",
+            )
+            .bind(product_id.into_uuid())
+            .fetch_one(&pool)
+        };
+        let clear = || async {
+            let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+            let outcome = SqlxProductListingContentAssessmentWriterFactory::new()
+                .in_transaction(&mut tx)
+                .apply(&ProductListingContentAssessmentWrite {
+                    product_listing_id: product_id,
+                    source_event_id: source,
+                    decision: None,
+                })
+                .await?;
+            tx.commit().await?;
+            Ok::<_, Box<dyn std::error::Error>>(outcome)
+        };
+        let initial = state().await?;
+
+        // A genuine empty clear changes nothing.
+        assert_eq!(ProductListingContentAssessmentWriteOutcome::Cleared, clear().await?);
+        assert_eq!(initial, state().await?);
+
+        assert_eq!(
+            ProductListingContentAssessmentWriteOutcome::Applied,
+            apply_assessment(&pool, product_id, source).await?
+        );
+        let applied = state().await?;
+        assert!(applied.0 > initial.0);
+        assert_eq!((initial.1, initial.2 + 1), (applied.1, applied.2));
+        let event_type: String = sqlx::query_scalar(
+            "SELECT event_type FROM product_listing_events WHERE event_id = $1",
+        )
+        .bind(applied.3)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!("ENRICHMENT_CONTENT_ASSESSED", event_type);
+
+        // Duplicate deliveries preserve freshness and the projection fence.
+        assert_eq!(
+            ProductListingContentAssessmentWriteOutcome::Duplicate,
+            apply_assessment(&pool, product_id, source).await?
+        );
+        assert_eq!(applied, state().await?);
+
+        assert_eq!(ProductListingContentAssessmentWriteOutcome::Cleared, clear().await?);
+        let cleared = state().await?;
+        assert!(cleared.0 > applied.0);
+        assert_eq!((applied.1, applied.2 + 1), (cleared.1, cleared.2));
+        assert_eq!(ProductListingContentAssessmentWriteOutcome::Cleared, clear().await?);
+        assert_eq!(cleared, state().await?);
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "assessment freshness: {result:?}");
 }
 
 async fn apply_assessment(

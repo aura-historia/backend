@@ -2,7 +2,6 @@ use crate::mapping::WatchlistRepositoryRow;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use product_listing_core::product_listing_id::ProductListingId;
-use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use watchlist_core::WatchlistProductListing;
 use watchlist_service::ports::{
@@ -53,18 +52,16 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         &mut self,
         entry: &WatchlistProductListing,
     ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
-        let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "INSERT INTO product_listing_watchlist \
              (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since, created, updated) \
-             VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5) \
+             VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN now() ELSE NULL END, CASE WHEN $3 THEN now() ELSE NULL END, now(), now()) \
              RETURNING user_id, product_listing_id, notifications, state, version",
         )
             .bind(entry.user_id().into_uuid())
             .bind(entry.product_listing_id().into_uuid())
             .bind(entry.notifications())
             .bind(entry.state().as_str())
-            .bind(now)
             .fetch_one(self.tx.connection())
             .await
             .map_err(map_insert_error)?;
@@ -78,31 +75,29 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         expected_version: WatchlistStorageVersion,
     ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
         let expected_version = version_to_i64(expected_version)?;
-        let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "UPDATE product_listing_watchlist SET \
                  notifications = $3, \
                  state = $4, \
                  active_since = CASE \
-                     WHEN state <> 'ACTIVE' AND $4 = 'ACTIVE' THEN $5 \
+                     WHEN state <> 'ACTIVE' AND $4 = 'ACTIVE' THEN now() \
                      WHEN $4 <> 'ACTIVE' THEN NULL \
                      ELSE active_since \
                  END, \
                  notifications_enabled_since = CASE \
-                     WHEN notifications = false AND $3 = true THEN $5 \
+                     WHEN notifications = false AND $3 = true THEN now() \
                      WHEN $3 = false THEN NULL \
                      ELSE notifications_enabled_since \
                  END, \
                  version = version + 1, \
-                 updated = $5 \
-             WHERE user_id = $1 AND product_listing_id = $2 AND version = $6 \
+                 updated = aura_advance_updated(updated) \
+             WHERE user_id = $1 AND product_listing_id = $2 AND version = $5 \
              RETURNING user_id, product_listing_id, notifications, state, version",
         )
         .bind(entry.user_id().into_uuid())
         .bind(entry.product_listing_id().into_uuid())
         .bind(entry.notifications())
         .bind(entry.state().as_str())
-        .bind(now)
         .bind(expected_version)
         .fetch_optional(self.tx.connection())
         .await
