@@ -19701,7 +19701,7 @@ components:
         updated:
           type: string
           format: date-time
-          description: Millisecond-precision time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing; FX changes and response-time composition do not advance it.
+          description: Time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing, with each new value at millisecond precision; FX changes and response-time composition do not advance it.
         geography:
           description: Advertised inventory geography on geographic search summaries; selected by the backend from eligible source evidence.
           allOf: [{$ref: '#/components/schemas/ListingGeographyData'}]
@@ -19858,7 +19858,7 @@ components:
         updated:
           type: string
           format: date-time
-          description: Millisecond-precision time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing; FX changes and response-time composition do not advance it.
+          description: Time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing, with each new value at millisecond precision; FX changes and response-time composition do not advance it.
     ProductListingLotData:
       type: object
       additionalProperties: false

@@ -854,12 +854,12 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_without_listing_writes()
+async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_without_canonical_writes()
  {
     let pool = get_postgres_client().await;
     let (source, _, ids) = seed(&pool).await;
     drain(&pool).await;
-    let before:Vec<(Uuid,i64,OffsetDateTime)>=sqlx::query_as("SELECT product_listing_id,version,updated FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap();
+    let before:Vec<(Uuid,i64,OffsetDateTime,i64)>=sqlx::query_as("SELECT product_listing_id,version,updated,projection_version FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap();
     let expected = vec![summary(&pool, ids[0]).await, summary(&pool, ids[1]).await];
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("DELETE FROM listing_shipping_dependencies WHERE product_listing_id=ANY($1)")
@@ -892,13 +892,18 @@ async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_wit
         expected,
         vec![summary(&pool, ids[0]).await, summary(&pool, ids[1]).await]
     );
-    // Reinstating lost summaries persists effective state again, so freshness may advance; the
-    // canonical revision never does.
-    let rebuilt = sqlx::query_as::<_,(Uuid,i64,OffsetDateTime)>("SELECT product_listing_id,version,updated FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap();
+    // Reinstating a lost non-default summary persists effective state again: freshness advances
+    // exactly with its enrichment event and projection fence. The canonical revision never does.
+    let rebuilt = sqlx::query_as::<_,(Uuid,i64,OffsetDateTime,i64)>("SELECT product_listing_id,version,updated,projection_version FROM product_listings WHERE listing_source_id=$1 ORDER BY product_listing_id").bind(source.into_uuid()).fetch_all(&pool).await.unwrap();
     for (old, new) in before.iter().zip(&rebuilt) {
         assert_eq!((old.0, old.1), (new.0, new.1));
-        assert!(old.2 <= new.2);
+        if new.3 > old.3 {
+            assert!(new.2 > old.2);
+        } else {
+            assert_eq!(old.2, new.2);
+        }
     }
+    assert!(before.iter().zip(&rebuilt).any(|(old, new)| new.2 > old.2));
     let references: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM listing_shipping_dependencies WHERE product_listing_id=ANY($1)",
     )

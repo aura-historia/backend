@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-18 — Consistent entity freshness (#2032)
 
-- ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing and has millisecond precision in detail and search responses alike. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.
+- ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing, and each new value has millisecond precision. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.
 - Saved-search scheduled matching applies the same `updated` interval to every filter. Shipping filters no longer revisit older listings on every run: an older listing becomes eligible after an actual persisted change (for example a shipping profile/default or geography change), and FX-only threshold crossings no longer create matches for listings outside the interval.
 - Partnership `updated` advances when memberships or listing-source grants change. Repeating an identical notification `seen` state succeeds without changing the notification's `updated`.
 

@@ -30,9 +30,9 @@ pub trait ProductListingDeliveryReferences: Send {
     ) -> Result<bool, ProductListingDeliveryError> {
         Err(ProductListingDeliveryError::Unavailable)
     }
-    /// Records the accepted import. Newly accepted listing evidence is listing-owned state: when
-    /// no canonical revision was written in this transaction, the adapter advances listing
-    /// freshness together with an enrichment event and projection fence.
+    /// Records the accepted import. Newly accepted evidence is listing-owned state and makes the
+    /// listing fresh again; `canonical_written` reports whether this transaction already
+    /// recorded a canonical revision that covers that freshness.
     async fn complete_import(
         &mut self,
         _context: &OperationContext,
