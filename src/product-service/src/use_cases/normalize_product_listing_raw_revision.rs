@@ -12,10 +12,12 @@ use indexmap::IndexSet;
 use product_listing_normalization::error::NormalizationFailureScope;
 use product_listing_normalization::shipping::ShippingQuickCheck;
 use product_listing_normalization::{
-    ListingAvailabilityQuickCheck, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
-    ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
-    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
-    ProductListingRawValuesResolved,
+    ListingAvailabilityQuickCheck, NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationField,
+    NormalizationIssue, NormalizationIssueDetails, NormalizationIssueHandling,
+    NormalizationIssueReason, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+    ProductListingNormalizationInput, ProductListingRawValuesNormalizationError,
+    ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
+    ProductListingRawValuesPatch, ProductListingRawValuesResolved,
 };
 use product_listing_service::canonical_product_listing_write::{
     CanonicalProductListingNonAuctionUpsert, CanonicalProductListingWriteError,
@@ -24,14 +26,24 @@ use product_listing_service::canonical_product_listing_write::{
 use product_listing_service::crawler_shipping::{
     ApplyCrawlerShippingUseCase, CrawlerShippingObservation,
 };
+use product_listing_service::normalization_diagnostics::{
+    BUILD_GIT_SHA, NormalizationUnsolvedEventContext, log_normalization_unsolved,
+};
 use product_listing_service::ports::{
-    ProductListingEventAppenderFactory, ProductListingRawRevisionId, ProductListingRawStreamId,
-    ProductListingRepositoryFactory,
+    NormalizationDiagnosticCase, NormalizationDiagnosticCaseId,
+    NormalizationDiagnosticCasePortError, NormalizationDiagnosticCaseWriter,
+    NormalizationDiagnosticCaseWriterFactory, NormalizationDiagnosticEntryPoint,
+    NormalizationDiagnosticEvidence, NormalizationDiagnosticOutcome,
+    NormalizationDiagnosticProvenance, ProductListingEventAppenderFactory,
+    ProductListingRawRevisionId, ProductListingRawStreamId, ProductListingRepositoryFactory,
 };
 use std::time::Instant;
 use time::OffsetDateTime;
 
 pub const NORMALIZER_VERSION: u16 = 7;
+
+const SOURCE_LISTING_ID_MISMATCH: &str = "SOURCE_LISTING_ID_MISMATCH";
+const CANONICAL_PRODUCT_LISTING_INVALID: &str = "CANONICAL_PRODUCT_LISTING_INVALID";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NormalizeProductListingRawRevisionMode {
@@ -133,6 +145,11 @@ pub enum NormalizeProductListingRawRevisionError {
         #[source]
         source: TransactionError,
     },
+    #[error("failed to record raw product listing normalization diagnostic case")]
+    DiagnosticCaseRecordFailed {
+        #[source]
+        source: NormalizationDiagnosticCasePortError,
+    },
 }
 
 #[derive(Debug)]
@@ -172,13 +189,53 @@ pub trait NormalizeProductListingRawRevisionUseCase: Send + Sync {
     ) -> Result<NormalizeProductListingRawRevisionResult, NormalizeProductListingRawRevisionError>;
 }
 
-pub struct NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
+/// Raw-values evaluation input and diagnostics for one revision.
+struct EvaluatedRevision {
+    normalized: ProductListingRawValuesNormalizationOutcome,
+    issues: Vec<NormalizationIssue>,
+}
+
+/// Composition without durable diagnostic cases. Events are still emitted; production
+/// composition supplies a case writer so every unsolved input enters the replay corpus.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoNormalizationDiagnosticCases;
+
+struct NoNormalizationDiagnosticCaseWriter;
+
+#[async_trait::async_trait]
+impl NormalizationDiagnosticCaseWriter for NoNormalizationDiagnosticCaseWriter {
+    async fn record(
+        &mut self,
+        case: NormalizationDiagnosticCase,
+    ) -> Result<NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError> {
+        Ok(case.case_id())
+    }
+}
+
+impl<Tx> NormalizationDiagnosticCaseWriterFactory<Tx> for NoNormalizationDiagnosticCases {
+    fn in_transaction<'tx>(
+        &'tx self,
+        _tx: &'tx mut Tx,
+    ) -> impl NormalizationDiagnosticCaseWriter + 'tx {
+        NoNormalizationDiagnosticCaseWriter
+    }
+}
+
+pub struct NormalizeProductListingRawRevisionHandler<
+    U,
+    W,
+    R,
+    E,
+    P,
+    D = NoNormalizationDiagnosticCases,
+> {
     crawler_shipping: Option<std::sync::Arc<dyn ApplyCrawlerShippingUseCase>>,
     unit_of_work: U,
     raw_normalizations: W,
     products: R,
     events: E,
     pending_streams: P,
+    diagnostic_cases: Option<D>,
     normalizer: ProductListingRawValuesNormalizer,
 }
 
@@ -198,7 +255,27 @@ impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
             products,
             events,
             pending_streams,
+            diagnostic_cases: None,
             normalizer: ProductListingRawValuesNormalizer::new(),
+        }
+    }
+}
+
+impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D> {
+    /// Records unsolved inputs in the replay corpus inside the completion transaction.
+    pub fn with_diagnostic_cases<D2>(
+        self,
+        diagnostic_cases: D2,
+    ) -> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D2> {
+        NormalizeProductListingRawRevisionHandler {
+            crawler_shipping: self.crawler_shipping,
+            unit_of_work: self.unit_of_work,
+            raw_normalizations: self.raw_normalizations,
+            products: self.products,
+            events: self.events,
+            pending_streams: self.pending_streams,
+            diagnostic_cases: Some(diagnostic_cases),
+            normalizer: self.normalizer,
         }
     }
 
@@ -211,13 +288,14 @@ impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
     }
 }
 
-impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
+impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D>
 where
     U: UnitOfWork,
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
+    D: NormalizationDiagnosticCaseWriterFactory<U::Tx>,
 {
     async fn drain_stream(
         &self,
@@ -240,12 +318,27 @@ where
             if let Err(error) = validate_stored_schema(&candidate.input) {
                 return StreamDrainResult::failed(results, error);
             }
-            let normalized = match require_terminal_normalization_outcome(
-                self.normalizer.normalize(&candidate.input),
-            ) {
-                Ok(normalized) => normalized,
-                Err(error) => return StreamDrainResult::failed(results, error),
+            let evaluation = self.normalizer.evaluate(&candidate.input);
+            let evaluated = EvaluatedRevision {
+                normalized: evaluation.outcome,
+                issues: evaluation.report.into_issues(),
             };
+            let normalized = match require_terminal_normalization_outcome(evaluated.normalized) {
+                Ok(normalized) => normalized,
+                Err(error) => {
+                    // No completion owns a system failure: record it on its own so the
+                    // diagnosis survives, then fail the stream for operational retry.
+                    let error = match self
+                        .record_system_failure(&candidate, &evaluated.issues)
+                        .await
+                    {
+                        Ok(()) => error,
+                        Err(record_error) => record_error,
+                    };
+                    return StreamDrainResult::failed(results, error);
+                }
+            };
+            let issues = evaluated.issues;
             let mut tx = match self.unit_of_work.begin().await {
                 Ok(tx) => tx,
                 Err(source) => {
@@ -272,6 +365,7 @@ where
             {
                 continue;
             }
+            let head_listing_source_id = work.head.listing_source_id;
             let mut shipping_observation = None;
             let completion = match self
                 .complete_work_in_transaction(
@@ -291,6 +385,20 @@ where
                 revision: completion.revision,
                 outcome: completion.outcome,
             };
+            let issues = with_completion_issues(issues, completion.error_code);
+            let diagnostic = match self
+                .record_terminal_case(
+                    &mut tx,
+                    &candidate,
+                    &head_listing_source_id,
+                    &result,
+                    &issues,
+                )
+                .await
+            {
+                Ok(diagnostic) => diagnostic,
+                Err(error) => return StreamDrainResult::failed(results, error),
+            };
             if let Err(error) = self
                 .raw_normalizations
                 .in_transaction(&mut tx)
@@ -305,17 +413,30 @@ where
                     NormalizeProductListingRawRevisionError::CommitTransactionFailed { source },
                 );
             }
+            // Events describe committed handling; an uncommitted attempt is retried and logged
+            // by the evaluation that commits.
+            if let Some(diagnostic) = diagnostic {
+                diagnostic.log(&issues);
+            }
             // Shipping is optional and commits independently after the catalog and raw progress.
             // Its command keeps the version from that transaction, even after a lost response.
             if let (Some(shipping), Some(observation)) =
                 (&self.crawler_shipping, shipping_observation)
             {
                 let raw_revision_id = observation.raw_revision_id;
-                let outcome = match shipping.execute(observation).await {
-                    Ok(outcome) => outcome,
-                    Err(error) => error.diagnostic_code(),
-                };
-                tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
+                // Application failures after commit are operational, not heuristic misses.
+                match shipping.execute(observation).await {
+                    Ok(outcome) => {
+                        tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            %raw_revision_id,
+                            error_code = error.diagnostic_code(),
+                            "crawler shipping application failed after normalization commit"
+                        );
+                    }
+                }
             }
             results.push(result);
         }
@@ -367,7 +488,7 @@ where
                             ProductListingRawNormalizationOutcome::Rejected,
                             None,
                             None,
-                            Some("CANONICAL_PRODUCT_LISTING_INVALID"),
+                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
                         ));
                     }
                     Err(source) => {
@@ -401,7 +522,7 @@ where
                         ProductListingRawNormalizationOutcome::Rejected,
                         None,
                         None,
-                        Some("SOURCE_LISTING_ID_MISMATCH"),
+                        Some(SOURCE_LISTING_ID_MISMATCH),
                     ));
                 }
                 let command = canonical_upsert(head.listing_source_id, resolved.as_ref());
@@ -422,7 +543,7 @@ where
                             ProductListingRawNormalizationOutcome::Rejected,
                             None,
                             None,
-                            Some("CANONICAL_PRODUCT_LISTING_INVALID"),
+                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
                         ));
                     }
                     Err(source) => {
@@ -466,13 +587,213 @@ where
     }
 }
 
-impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
+impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D>
+where
+    U: UnitOfWork,
+    W: ProductListingRawNormalizationWriterFactory<U::Tx>,
+    D: NormalizationDiagnosticCaseWriterFactory<U::Tx>,
+{
+    async fn record_terminal_case(
+        &self,
+        tx: &mut U::Tx,
+        candidate: &crate::ports::ProductListingRawRevision,
+        listing_source_id: &listing_source_core::ListingSourceId,
+        result: &NormalizedRawRevisionResult,
+        issues: &[NormalizationIssue],
+    ) -> Result<Option<RevisionDiagnostic>, NormalizeProductListingRawRevisionError> {
+        if issues.is_empty() {
+            return Ok(None);
+        }
+        let outcome = match result.outcome {
+            ProductListingRawNormalizationOutcome::Applied => {
+                NormalizationDiagnosticOutcome::Applied
+            }
+            ProductListingRawNormalizationOutcome::NoChange => {
+                NormalizationDiagnosticOutcome::NoChange
+            }
+            ProductListingRawNormalizationOutcome::Ignored
+            | ProductListingRawNormalizationOutcome::Rejected => {
+                NormalizationDiagnosticOutcome::Rejected
+            }
+        };
+        let case = raw_revision_case(candidate, *listing_source_id, outcome, issues)?;
+        self.record(tx, case, candidate).await.map(Some)
+    }
+
+    async fn record_system_failure(
+        &self,
+        candidate: &crate::ports::ProductListingRawRevision,
+        issues: &[NormalizationIssue],
+    ) -> Result<(), NormalizeProductListingRawRevisionError> {
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            NormalizeProductListingRawRevisionError::BeginTransactionFailed { source }
+        })?;
+        // The stream head names the owning ListingSource; it is locked only for this record.
+        let listing_source_id = self
+            .raw_normalizations
+            .in_transaction(&mut tx)
+            .lock_next(candidate.product_listing_raw_stream_id)
+            .await
+            .map_err(map_port_error)?
+            .head
+            .listing_source_id;
+        let case = raw_revision_case(
+            candidate,
+            listing_source_id,
+            NormalizationDiagnosticOutcome::SystemFailure,
+            issues,
+        )?;
+        let diagnostic = self.record(&mut tx, case, candidate).await?;
+        tx.commit().await.map_err(|source| {
+            NormalizeProductListingRawRevisionError::CommitTransactionFailed { source }
+        })?;
+        diagnostic.log(issues);
+        Ok(())
+    }
+
+    async fn record(
+        &self,
+        tx: &mut U::Tx,
+        case: NormalizationDiagnosticCase,
+        candidate: &crate::ports::ProductListingRawRevision,
+    ) -> Result<RevisionDiagnostic, NormalizeProductListingRawRevisionError> {
+        let input_sha256 = case.input_sha256;
+        let outcome = case.outcome;
+        let listing_source_id = case.listing_source_id;
+        let (case_id, evidence_recorded) = match &self.diagnostic_cases {
+            Some(cases) => (
+                cases
+                    .in_transaction(tx)
+                    .record(case)
+                    .await
+                    .map_err(|source| {
+                        NormalizeProductListingRawRevisionError::DiagnosticCaseRecordFailed {
+                            source,
+                        }
+                    })?,
+                true,
+            ),
+            None => (case.case_id(), false),
+        };
+        Ok(RevisionDiagnostic {
+            case_id,
+            input_sha256,
+            outcome,
+            listing_source_id,
+            product_listing_raw_stream_id: candidate.product_listing_raw_stream_id,
+            product_listing_raw_revision_id: candidate.product_listing_raw_revision_id,
+            revision: candidate.revision,
+            evidence_recorded,
+        })
+    }
+}
+
+/// Committed diagnostic references for one revision's events.
+struct RevisionDiagnostic {
+    case_id: NormalizationDiagnosticCaseId,
+    input_sha256: [u8; 32],
+    outcome: NormalizationDiagnosticOutcome,
+    listing_source_id: listing_source_core::ListingSourceId,
+    product_listing_raw_stream_id: ProductListingRawStreamId,
+    product_listing_raw_revision_id: ProductListingRawRevisionId,
+    revision: u64,
+    evidence_recorded: bool,
+}
+
+impl RevisionDiagnostic {
+    fn log(&self, issues: &[NormalizationIssue]) {
+        log_normalization_unsolved(
+            &NormalizationUnsolvedEventContext {
+                case_id: self.case_id,
+                input_sha256: &self.input_sha256,
+                entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
+                outcome: self.outcome,
+                evaluator_version: NORMALIZER_VERSION,
+                listing_source_id: Some(self.listing_source_id.to_string()),
+                product_listing_raw_stream_id: Some(self.product_listing_raw_stream_id.to_string()),
+                product_listing_raw_revision_id: Some(
+                    self.product_listing_raw_revision_id.to_string(),
+                ),
+                revision: Some(self.revision),
+                request_id: None,
+                evidence_recorded: self.evidence_recorded,
+            },
+            issues,
+        );
+    }
+}
+
+fn raw_revision_case(
+    candidate: &crate::ports::ProductListingRawRevision,
+    listing_source_id: listing_source_core::ListingSourceId,
+    outcome: NormalizationDiagnosticOutcome,
+    issues: &[NormalizationIssue],
+) -> Result<NormalizationDiagnosticCase, NormalizeProductListingRawRevisionError> {
+    Ok(NormalizationDiagnosticCase {
+        entry_point: NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
+        input_sha256: input_sha256(&candidate.input)?,
+        listing_source_id,
+        evidence: NormalizationDiagnosticEvidence::RawRevision(
+            candidate.product_listing_raw_revision_id,
+        ),
+        outcome,
+        issues: issues.to_vec(),
+        provenance: NormalizationDiagnosticProvenance {
+            diagnostics_version: NORMALIZATION_DIAGNOSTICS_VERSION,
+            evaluator_version: NORMALIZER_VERSION,
+            build: BUILD_GIT_SHA.to_owned(),
+        },
+    })
+}
+
+fn input_sha256(
+    input: &ProductListingNormalizationInput,
+) -> Result<[u8; 32], NormalizeProductListingRawRevisionError> {
+    input.hash().map(|hash| *hash.as_bytes()).map_err(|error| {
+        NormalizeProductListingRawRevisionError::DiagnosticCaseRecordFailed {
+            source: NormalizationDiagnosticCasePortError::InvalidPersistedState {
+                source: application::error::box_error(error),
+            },
+        }
+    })
+}
+
+/// Completion rejections outside the pure evaluator are deterministic validation failures at this
+/// entry point and use the same diagnostics.
+fn with_completion_issues(
+    mut issues: Vec<NormalizationIssue>,
+    error_code: Option<&'static str>,
+) -> Vec<NormalizationIssue> {
+    let issue = |field, reason| {
+        NormalizationIssue::field(
+            field,
+            reason,
+            NormalizationIssueHandling::RejectedInput,
+            NormalizationIssueDetails::None,
+        )
+    };
+    match error_code {
+        Some(SOURCE_LISTING_ID_MISMATCH) => issues.push(issue(
+            NormalizationField::SourceListingId,
+            NormalizationIssueReason::SourceListingIdBindingMismatch,
+        )),
+        Some(CANONICAL_PRODUCT_LISTING_INVALID) => issues.push(issue(
+            NormalizationField::RawValues,
+            NormalizationIssueReason::CanonicalListingInvalid,
+        )),
+        _ => {}
+    }
+    issues
+}
+
+impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D>
 where
     U: UnitOfWork,
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
+    D: NormalizationDiagnosticCaseWriterFactory<U::Tx>,
 {
     async fn execute_inner(
         &self,
@@ -597,14 +918,15 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, W, R, E, P> NormalizeProductListingRawRevisionUseCase
-    for NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
+impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionUseCase
+    for NormalizeProductListingRawRevisionHandler<U, W, R, E, P, D>
 where
     U: UnitOfWork + Send + Sync,
     W: ProductListingRawNormalizationWriterFactory<U::Tx> + Send + Sync,
     R: ProductListingRepositoryFactory<U::Tx> + Send + Sync,
     E: ProductListingEventAppenderFactory<U::Tx> + Send + Sync,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader + Send + Sync,
+    D: NormalizationDiagnosticCaseWriterFactory<U::Tx> + Send + Sync,
 {
     #[tracing::instrument(name = "normalize_product_listing_raw_revision", skip_all)]
     async fn execute(
@@ -697,6 +1019,9 @@ fn normalization_failure_code(error: &NormalizeProductListingRawRevisionError) -
         }
         NormalizeProductListingRawRevisionError::CommitTransactionFailed { .. } => {
             "COMMIT_TRANSACTION_FAILED"
+        }
+        NormalizeProductListingRawRevisionError::DiagnosticCaseRecordFailed { .. } => {
+            "DIAGNOSTIC_CASE_RECORD_FAILED"
         }
     }
 }
@@ -909,6 +1234,33 @@ mod tests {
         existing_product: Option<VersionedProductListing>,
         updated_products: Vec<ProductListing>,
         update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        diagnostic_cases: Vec<NormalizationDiagnosticCase>,
+    }
+
+    #[derive(Clone)]
+    struct DiagnosticCasesFake(SharedState);
+
+    struct DiagnosticCaseWriterFake(SharedState);
+
+    impl NormalizationDiagnosticCaseWriterFactory<TestTransaction> for DiagnosticCasesFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl NormalizationDiagnosticCaseWriter + 'tx {
+            DiagnosticCaseWriterFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl NormalizationDiagnosticCaseWriter for DiagnosticCaseWriterFake {
+        async fn record(
+            &mut self,
+            case: NormalizationDiagnosticCase,
+        ) -> Result<NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError> {
+            let case_id = case.case_id();
+            lock(&self.0).diagnostic_cases.push(case);
+            Ok(case_id)
+        }
     }
 
     #[derive(Clone)]
@@ -1291,6 +1643,60 @@ mod tests {
         ) -> Result<(), ProductListingEventAppendError> {
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn should_record_unsolved_revisions_with_their_completion()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let listing_source_id = ListingSourceId::new();
+        let rejected = revision(stream_id, 1, upsert_input("-100 EUR")?);
+        let rejected_id = rejected.product_listing_raw_revision_id;
+        let rejected_hash = *rejected.input.hash()?.as_bytes();
+        let state = Arc::new(Mutex::new(TestState::default()));
+        lock(&state).streams.push(TestStream {
+            head: raw_head(stream_id, listing_source_id, None, None),
+            revisions: VecDeque::from([rejected, revision(stream_id, 2, delete_input()?)]),
+        });
+
+        let result = handler(&state)
+            .with_diagnostic_cases(DiagnosticCasesFake(Arc::clone(&state)))
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                    product_listing_raw_stream_id: stream_id,
+                    product_listing_raw_revision_id: rejected_id,
+                    revision: 1,
+                },
+                max_revisions_per_stream: 5,
+                pending_stream_limit: 1,
+            })
+            .await?;
+
+        assert_eq!(2, result.revisions.len());
+        let state = lock(&state);
+        let [case] = state.diagnostic_cases.as_slice() else {
+            panic!("only the unsolved revision is recorded");
+        };
+        assert_eq!(
+            NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1,
+            case.entry_point
+        );
+        assert_eq!(rejected_hash, case.input_sha256);
+        assert_eq!(listing_source_id, case.listing_source_id);
+        assert_eq!(
+            NormalizationDiagnosticEvidence::RawRevision(rejected_id),
+            case.evidence
+        );
+        assert_eq!(NormalizationDiagnosticOutcome::Rejected, case.outcome);
+        assert_eq!(
+            vec![NormalizationIssueReason::PriceNegative],
+            case.issues
+                .iter()
+                .map(|issue| issue.reason)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(2, state.commits);
+        Ok(())
     }
 
     #[tokio::test]

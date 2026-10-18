@@ -88,6 +88,11 @@ pub enum ScraperError {
     #[error("crawler effective schema fingerprint could not be built")]
     SchemaFingerprint(#[source] serde_json::Error),
 
+    #[error("crawler normalization diagnostic case could not be recorded")]
+    NormalizationDiagnosticCaseRecordFailed(
+        #[source] product_listing_service::ports::NormalizationDiagnosticCasePortError,
+    ),
+
     #[error(
         "LLM call budget exceeded for ListingSource '{listing_source_id}' while scraping '{url}' (limit={max_calls})"
     )]

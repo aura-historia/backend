@@ -37,6 +37,7 @@ use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiConfigError, CrawlerVertexAiModels};
 use large_language_model::{LargeLanguageModel, VertexAiGemini};
+use product_listing_service::ports::NormalizationDiagnosticCaseRecorder;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::info;
@@ -49,6 +50,8 @@ pub struct CrawlerRuntimeProfile {
     pub listing_source_source: Box<dyn ListingSourceRegistrationSource>,
     /// Sink for changed raw ProductListing observations.
     pub raw_capture: Box<dyn ProductListingRawCaptureService>,
+    /// Replay corpus for candidates discarded during deterministic preparation.
+    pub normalization_diagnostics: Option<Arc<dyn NormalizationDiagnosticCaseRecorder>>,
 }
 
 /// Environment settings shared by every crawler entry point.
@@ -149,6 +152,7 @@ where
         review_config,
         listing_source_source,
         raw_capture,
+        normalization_diagnostics,
     } = profile;
     let CrawlerRuntimeConfig {
         review_required,
@@ -203,6 +207,10 @@ where
         .with_removed_page_schema_repository(removed_page_schema_repo)
         .with_review_gate(review_repo.clone(), review_required),
     );
+    let scraper_svc = match normalization_diagnostics {
+        Some(recorder) => Box::new((*scraper_svc).with_normalization_diagnostics(recorder)),
+        None => scraper_svc,
+    };
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
     let url_pattern_repo = Box::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
@@ -552,6 +560,7 @@ mod tests {
             review_config,
             listing_source_source: Box::new(EmptyListingSources),
             raw_capture: Box::new(MockProductListingRawCaptureService::new()),
+            normalization_diagnostics: None,
         }
     }
 

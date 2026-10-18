@@ -24,6 +24,15 @@ pub enum NormalizationStage {
     Field,
 }
 
+impl NormalizationStage {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Envelope => "ENVELOPE",
+            Self::Field => "FIELD",
+        }
+    }
+}
+
 /// Evaluated input path. `path()` names the location inside the evaluated input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -158,6 +167,10 @@ pub enum NormalizationIssueReason {
     ShippingConditionalClause,
     ShippingContradictoryAssertions,
     ShippingRulesUnavailable,
+    /// The resolved source listing ID differs from the identity bound to the raw stream.
+    SourceListingIdBindingMismatch,
+    /// Normalized values violate canonical ProductListing validation.
+    CanonicalListingInvalid,
 }
 
 impl NormalizationIssueReason {

@@ -63,7 +63,8 @@ use listing_source_postgres::SqlxListingSourceReaders;
 use listing_source_service::ports::WebCrawlSourceReader;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingRawCaptureWriterFactory,
+    SqlxNormalizationDiagnosticCaseStore, SqlxPartnerProductListingAuthorizerFactory,
+    SqlxProductListingRawCaptureWriterFactory,
 };
 use product_listing_service::use_cases::CaptureProductListingRawObservationHandler;
 use sqlx::postgres::PgPoolOptions;
@@ -366,6 +367,9 @@ async fn main() {
                 review_config,
                 listing_source_source,
                 raw_capture,
+                normalization_diagnostics: Some(Arc::new(
+                    SqlxNormalizationDiagnosticCaseStore::new(business_pool.clone()),
+                )),
             },
             runtime_config,
             models,

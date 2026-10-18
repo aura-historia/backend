@@ -1077,6 +1077,9 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
         ScraperError::SchemaFingerprint(_) => "SchemaFingerprint",
+        ScraperError::NormalizationDiagnosticCaseRecordFailed(_) => {
+            "NormalizationDiagnosticCaseRecordFailed"
+        }
         ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
     }
 }

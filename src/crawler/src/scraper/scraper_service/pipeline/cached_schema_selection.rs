@@ -140,14 +140,12 @@ impl ScraperServiceImpl {
                     Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                     Err(err) => return Err(ScraperError::NormalizationError(err)),
                 };
-            match prepare_product(
-                validated_raw.clone(),
-                ProductNormalizationContext {
-                    effective_url: url.clone(),
-                    source_record_key: source_record_key.to_owned(),
-                    fallback_currency,
-                },
-            ) {
+            let context = ProductNormalizationContext {
+                effective_url: url.clone(),
+                source_record_key: source_record_key.to_owned(),
+                fallback_currency,
+            };
+            match prepare_product(validated_raw.clone(), context.clone()) {
                 Ok(prepared) => {
                     let score = score_prepared_product(&validated_raw, &prepared);
                     prepared_candidates.push(PreparedSchemaCandidate {
@@ -165,8 +163,24 @@ impl ScraperServiceImpl {
                         candidate_rejection_reason = err.failure_reason(),
                         "Cached candidate rejected during deterministic preparation"
                     );
+                    self.record_discarded_candidate(
+                        listing_source_id,
+                        &validated_raw,
+                        &context,
+                        &err,
+                    )
+                    .await?;
                 }
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
+                Err(err) => {
+                    self.record_discarded_candidate(
+                        listing_source_id,
+                        &validated_raw,
+                        &context,
+                        &err,
+                    )
+                    .await?;
+                    return Err(ScraperError::NormalizationError(err));
+                }
             }
         }
         rank_prepared_candidates(&mut prepared_candidates);
@@ -264,16 +278,14 @@ impl ScraperServiceImpl {
             fallback_currency,
         } = context;
         let validated_image_urls = validated_raw.images.clone();
+        let context = ProductNormalizationContext {
+            effective_url: url.clone(),
+            source_record_key: source_record_key.to_owned(),
+            fallback_currency,
+        };
         let normalization = self
             .normalization_service
-            .normalize(
-                validated_raw,
-                ProductNormalizationContext {
-                    effective_url: url.clone(),
-                    source_record_key: source_record_key.to_owned(),
-                    fallback_currency,
-                },
-            )
+            .normalize(validated_raw.clone(), context.clone())
             .await;
         match normalization {
             Ok(NormalizationSuccess {
@@ -297,6 +309,13 @@ impl ScraperServiceImpl {
             }) => {
                 self.consume_llm_budget_n_or_err(listing_source_id, url, llm_calls_used)
                     .await?;
+                self.record_discarded_candidate(
+                    listing_source_id,
+                    &validated_raw,
+                    &context,
+                    &error,
+                )
+                .await?;
                 Err(ScraperError::NormalizationError(error))
             }
         }
