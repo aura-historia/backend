@@ -300,10 +300,11 @@ impl Default for CrawlerConfig {
             delay_millis: 500,
             request_timeout_secs: 15,
             concurrency_limit: 8,
-            bloom_capacity: 100_000,
+            // Twice the page budget keeps false "duplicate" drops near `bloom_fp_rate`.
+            bloom_capacity: 1_000_000,
             bloom_fp_rate: 0.001,
             channel_size: 1000,
-            max_pages_per_crawl: 10_000,
+            max_pages_per_crawl: 500_000,
             max_crawl_duration: Duration::from_secs(10 * 60),
             max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES,
             retry_count: DEFAULT_RETRY_COUNT,
@@ -1936,7 +1937,8 @@ mod tests {
         let config = CrawlerConfig::default();
 
         assert_eq!(config.concurrency_limit, 8);
-        assert_eq!(config.max_pages_per_crawl, 10_000);
+        assert_eq!(config.max_pages_per_crawl, 500_000);
+        assert!(config.bloom_capacity >= 2 * config.max_pages_per_crawl as usize);
         assert_eq!(config.max_response_body_bytes, 8 * 1024 * 1024);
         assert_eq!(config.max_crawl_duration, Duration::from_secs(10 * 60));
         assert_eq!(config.retry_count, 2);
