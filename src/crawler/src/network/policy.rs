@@ -134,22 +134,33 @@ pub async fn resolve_public_http_target(
     Ok(PublicTarget { host, addresses })
 }
 
+/// Client settings every crawler request shares: the crawler identity, no
+/// automatic redirects and bounded timeouts. [`public_http_client`] adds the
+/// pinned public addresses; tests build local clients from the same base.
+pub fn crawler_client_builder(timeout: Duration, http1_only: bool) -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder()
+        .user_agent(crate::network::CRAWLER_USER_AGENT)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .connect_timeout(timeout)
+        .no_proxy();
+    if http1_only {
+        builder.http1_only()
+    } else {
+        builder
+    }
+}
+
 pub async fn public_http_client(
     url: &Url,
     timeout: Duration,
     http1_only: bool,
 ) -> Result<reqwest::Client, PublicTargetError> {
     let target = resolve_public_http_target(url, timeout).await?;
-    let mut builder = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(timeout)
-        .connect_timeout(timeout)
-        .no_proxy();
-    if http1_only {
-        builder = builder.http1_only();
-    }
-    builder = builder.resolve_to_addrs(&target.host, &target.addresses);
-    builder.build().map_err(|_| PublicTargetError::InvalidUrl)
+    crawler_client_builder(timeout, http1_only)
+        .resolve_to_addrs(&target.host, &target.addresses)
+        .build()
+        .map_err(|_| PublicTargetError::InvalidUrl)
 }
 
 pub fn redirect_target(
@@ -428,6 +439,43 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Every crawler request identifies the crawler; the scraper, image
+    /// probes and review inspection all build their clients from this base.
+    #[tokio::test]
+    async fn crawler_client_builder_should_send_the_crawler_user_agent() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let read = socket.read(&mut request).await.unwrap();
+            let _ = socket
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await;
+            String::from_utf8_lossy(&request[..read]).into_owned()
+        });
+
+        let client = crawler_client_builder(Duration::from_secs(5), true)
+            .build()
+            .unwrap();
+        client
+            .get(format!("http://{addr}/robots.txt"))
+            .send()
+            .await
+            .unwrap();
+
+        let request = server.await.unwrap();
+        let user_agent = request
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+            .map(|(_, value)| value.trim());
+        assert_eq!(user_agent, Some(crate::network::CRAWLER_USER_AGENT));
+    }
 
     #[test]
     fn should_mark_404_as_terminal_removed() {

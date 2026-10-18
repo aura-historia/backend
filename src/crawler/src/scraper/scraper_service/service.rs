@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
@@ -30,7 +32,6 @@ use url::Url;
 pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 4;
 pub const DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE: i64 = 20;
 
-const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 /// Maximum time for one fetch attempt, including redirects and body read.
 const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Maximum time for one complete fetch, including retry backoff and all attempts.
@@ -215,7 +216,6 @@ impl ReqwestHtmlFetcher {
             let client = self.http_client_for(&current_url).await?;
             let response = client
                 .get(current_url.clone())
-                .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
                 .headers(self.default_headers.clone())
                 .send()
                 .await
@@ -259,12 +259,7 @@ impl ReqwestHtmlFetcher {
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(self.attempt_timeout)
-                .connect_timeout(self.attempt_timeout)
-                .no_proxy()
-                .http1_only()
+            return crawler_client_builder(self.attempt_timeout, true)
                 .build()
                 .map_err(reqwest_fetch_error);
         }
