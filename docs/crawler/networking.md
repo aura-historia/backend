@@ -17,7 +17,7 @@ Crawler domain ownership is a local canonical hostname: lowercase, no trailing d
 
 ## Resource rails
 
-Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 10,000 pages and 10 minutes. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.
+Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes. [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.
 
 Scraper HTML and image requests also use bounded redirects, timeouts, and response bodies. Image-cache results never exempt the current target from destination checks.
 

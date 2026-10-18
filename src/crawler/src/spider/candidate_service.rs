@@ -1,7 +1,15 @@
 use crate::CrawlerDomainId;
+use crate::spider::discovery::website_spider::CrawlCompletion;
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
+use std::time::Duration;
+
+/// A domain is due again once its last full crawl is older than this.
+pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Persisted `last_crawl_outcome` of a run that ended in a spider error.
+const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
@@ -9,6 +17,8 @@ pub struct SpiderCandidate {
     pub listing_source_domain: String,
     pub crawl_failure_count: i32,
     pub last_crawl_error_kind: Option<String>,
+    /// Consecutive hard-timeout truncations since the last full crawl.
+    pub crawl_truncation_count: i32,
 }
 
 #[async_trait]
@@ -26,7 +36,20 @@ pub trait SpiderCandidateService: Send + Sync {
         crawl_failure_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
-    async fn reset_crawl_failure(&self, domain_id: &CrawlerDomainId) -> Result<(), sqlx::Error>;
+    /// Records a full crawl (`completion.is_full()`) and clears failure,
+    /// truncation and cooldown state.
+    async fn mark_crawl_completed(
+        &self,
+        domain_id: &CrawlerDomainId,
+        completion: CrawlCompletion,
+    ) -> Result<(), sqlx::Error>;
+    /// Records a hard-timeout truncation without touching failure state.
+    async fn mark_crawl_truncated(
+        &self,
+        domain_id: &CrawlerDomainId,
+        crawl_truncation_count: i32,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error>;
 }
 
 pub struct SpiderCandidateServiceImpl {
@@ -46,6 +69,7 @@ struct SpiderCandidateRow {
     listing_source_domain: String,
     crawl_failure_count: i32,
     last_crawl_error_kind: Option<String>,
+    crawl_truncation_count: i32,
 }
 
 #[async_trait]
@@ -66,11 +90,12 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                    sd.domain_id,
                    sd.crawl_root_host AS listing_source_domain,
                    sd.crawl_failure_count,
-                   sd.last_crawl_error_kind
+                   sd.last_crawl_error_kind,
+                   sd.crawl_truncation_count
             FROM listing_sources s
             JOIN listing_source_domains sd ON sd.listing_source_id = s.listing_source_id
             WHERE s.crawl_enabled = TRUE
-              AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
+              AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - make_interval(secs => $3))
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
               AND NOT (sd.domain_id = ANY($2))
             ORDER BY sd.last_crawled NULLS FIRST
@@ -79,6 +104,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         )
         .bind(limit)
         .bind(excluded_domain_ids)
+        .bind(SPIDER_RECRAWL_INTERVAL.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
 
@@ -92,6 +118,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                     listing_source_domain: row.listing_source_domain,
                     crawl_failure_count: row.crawl_failure_count,
                     last_crawl_error_kind: row.last_crawl_error_kind,
+                    crawl_truncation_count: row.crawl_truncation_count,
                 })
             })
             .collect()
@@ -108,28 +135,66 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             "UPDATE listing_source_domains
              SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
-                 next_crawl_at = $4
+                 next_crawl_at = $4,
+                 last_crawl_outcome = $5
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
         .bind(error_kind)
         .bind(crawl_failure_count)
         .bind(next_crawl_at)
+        .bind(FAILED_CRAWL_OUTCOME)
         .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    async fn reset_crawl_failure(&self, domain_id: &CrawlerDomainId) -> Result<(), sqlx::Error> {
+    async fn mark_crawl_completed(
+        &self,
+        domain_id: &CrawlerDomainId,
+        completion: CrawlCompletion,
+    ) -> Result<(), sqlx::Error> {
+        // Clearing failure state for a truncated crawl is exactly the #1912 bug.
+        if !completion.is_full() {
+            return Err(sqlx::Error::InvalidArgument(format!(
+                "{completion} is not a completed crawl outcome"
+            )));
+        }
         sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = 0,
                  last_crawl_error_kind = NULL,
-                 next_crawl_at = NULL
+                 next_crawl_at = NULL,
+                 crawl_truncation_count = 0,
+                 last_crawl_outcome = $2
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
+        .bind(completion.as_str())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_crawl_truncated(
+        &self,
+        domain_id: &CrawlerDomainId,
+        crawl_truncation_count: i32,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE listing_source_domains
+             SET crawl_truncation_count = $2,
+                 next_crawl_at = $3,
+                 last_crawl_outcome = $4
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(crawl_truncation_count)
+        .bind(next_crawl_at)
+        .bind(CrawlCompletion::HardTimeoutTruncated.as_str())
         .execute(&self.pool)
         .await?;
 

@@ -43,6 +43,8 @@ CREATE TABLE listing_source_domains (
     crawl_failure_count INT NOT NULL DEFAULT 0,
     last_crawl_error_kind TEXT,
     next_crawl_at TIMESTAMPTZ,
+    last_crawl_outcome TEXT,
+    crawl_truncation_count INT NOT NULL DEFAULT 0,
     url_pattern_state TEXT NOT NULL DEFAULT 'UNKNOWN',
     scrape_failure_streak INT NOT NULL DEFAULT 0,
     last_scrape_error_kind TEXT,
@@ -63,7 +65,11 @@ CREATE TABLE listing_source_domains (
         OR (url_pattern_state IN ('UNKNOWN', 'NO_PATTERN') AND url_pattern IS NULL)
     ),
     CONSTRAINT listing_source_domains_scrape_failure_streak_check
-        CHECK (scrape_failure_streak >= 0)
+        CHECK (scrape_failure_streak >= 0),
+    CONSTRAINT listing_source_domains_last_crawl_outcome_check
+        CHECK (last_crawl_outcome IN ('COMPLETED', 'PAGE_BUDGET_REACHED', 'HARD_TIMEOUT_TRUNCATED', 'FAILED')),
+    CONSTRAINT listing_source_domains_crawl_truncation_count_check
+        CHECK (crawl_truncation_count >= 0)
 );
 
 CREATE INDEX idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
