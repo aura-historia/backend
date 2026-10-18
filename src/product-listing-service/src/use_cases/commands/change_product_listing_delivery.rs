@@ -318,7 +318,9 @@ where
         }
         let mut listing = stored.value;
         let outcome = listing.replace_delivery(delivery).map_err(failure)?;
-        let version = if let Some(payload) = listing.take_pending_event_payload() {
+        let pending = listing.take_pending_event_payload();
+        let canonical_written = pending.is_some();
+        let version = if let Some(payload) = pending {
             let event =
                 stamp_product_listing_event(listing.id(), time::OffsetDateTime::now_utc(), payload);
             let effects = ProductListingWriteEffects::from(&event.payload);
@@ -345,7 +347,7 @@ where
         if command.import.is_some() {
             self.references
                 .in_transaction(tx)
-                .complete_import(context, command, listing.id())
+                .complete_import(context, command, listing.id(), canonical_written)
                 .await?;
         } else {
             self.references

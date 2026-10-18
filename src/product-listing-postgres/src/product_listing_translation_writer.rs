@@ -85,7 +85,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
                 DO UPDATE SET
                     title = EXCLUDED.title,
                     source_event_id = EXCLUDED.source_event_id,
-                    updated = now()
+                    updated = aura_advance_updated(product_listing_translations.updated)
                 "#,
             )
             .bind(write.product_listing_id.as_uuid())
@@ -123,7 +123,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         .map_err(ProductListingTranslationWriteSqlxError)?;
 
         let update = sqlx::query(
-            "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND content_source_event_id = $3",
+            "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = aura_advance_updated(updated) WHERE product_listing_id = $2 AND content_source_event_id = $3",
         )
         .bind(write.enrichment_event_id.as_uuid())
         .bind(write.product_listing_id.as_uuid())

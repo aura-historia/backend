@@ -107,9 +107,11 @@ async fn crawler_prohibition_preserves_shared_collection_and_producer_fences() {
         terms.terms().collection()
     );
     let event_count = events(&pool, &key).await;
+    let fresh_before = freshness(&pool, &key).await;
     // A committed lost-response retry retains the original request and expected revision.
     assert_eq!("APPLIED", shipping.execute(first.clone()).await.unwrap());
     assert_eq!(event_count, events(&pool, &key).await);
+    assert_eq!(fresh_before, freshness(&pool, &key).await);
     let stale = crawler_observation(
         &key,
         ProductListingStorageVersion::INITIAL,
@@ -128,6 +130,11 @@ async fn crawler_prohibition_preserves_shared_collection_and_producer_fences() {
         events(&pool, &key).await,
         "a new observation of equal terms is not a semantic change"
     );
+    // It is new listing-owned evidence: freshness advances with a projection-driving event.
+    let fresh_after = freshness(&pool, &key).await;
+    assert!(fresh_after.0 > fresh_before.0);
+    assert_eq!(fresh_before.1 + 1, fresh_after.1);
+    assert_eq!(fresh_before.2 + 1, fresh_after.2);
 
     // Another request cannot relabel the old acquisition as a newer observation.
     let mut delayed = first;
@@ -330,8 +337,13 @@ async fn apply(
         .await
         .unwrap()
 }
+/// Canonical (semantic) history; evidence-only enrichment events are counted separately.
 async fn events(pool: &PgPool, key: &ProductListingKey) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM product_listing_events e JOIN product_listings p USING(product_listing_id) WHERE p.listing_source_id=$1 AND p.source_listing_id=$2").bind(key.listing_source_id.into_uuid()).bind(key.source_listing_id.as_ref()).fetch_one(pool).await.unwrap()
+    sqlx::query_scalar("SELECT count(*) FROM product_listing_events e JOIN product_listings p USING(product_listing_id) WHERE p.listing_source_id=$1 AND p.source_listing_id=$2 AND e.event_group='DOMAIN'").bind(key.listing_source_id.into_uuid()).bind(key.source_listing_id.as_ref()).fetch_one(pool).await.unwrap()
+}
+/// Listing freshness and its projection evidence: (updated, projection version, enrichment events).
+async fn freshness(pool: &PgPool, key: &ProductListingKey) -> (time::OffsetDateTime, i64, i64) {
+    sqlx::query_as("SELECT p.updated,p.projection_version,(SELECT count(*) FROM product_listing_events e WHERE e.product_listing_id=p.product_listing_id AND e.event_group='ENRICHMENT') FROM product_listings p WHERE p.listing_source_id=$1 AND p.source_listing_id=$2").bind(key.listing_source_id.into_uuid()).bind(key.source_listing_id.as_ref()).fetch_one(pool).await.unwrap()
 }
 fn effective(
     view: &ProductListingDeliveryView,
@@ -1343,13 +1355,23 @@ async fn incremental_imports_preserve_manual_components_and_observations_without
             .version
     );
     let before = events(&pool, &key).await;
+    let fresh_before = freshness(&pool, &key).await;
     let mut observed = command.clone();
     observed.expected_version = applied.version;
     observed.import = Some(import_metadata(4, "membership-observed"));
-    let refreshed = changer(&pool).execute(&context(), observed).await.unwrap();
+    let refreshed = changer(&pool)
+        .execute(&context(), observed.clone())
+        .await
+        .unwrap();
     assert_eq!(ChangeOutcome::Unchanged, refreshed.outcome);
     assert_eq!(before, events(&pool, &key).await);
     assert_eq!(applied.version, refreshed.version);
+    let fresh_after = freshness(&pool, &key).await;
+    assert!(fresh_after.0 > fresh_before.0);
+    assert_eq!(fresh_before.2 + 1, fresh_after.2);
+    // Redelivery of the same acquisition preserves freshness and projection evidence.
+    changer(&pool).execute(&context(), observed).await.unwrap();
+    assert_eq!(fresh_after, freshness(&pool, &key).await);
     let d = dependencies(&pool, &ids).await;
     assert!(
         d.listings

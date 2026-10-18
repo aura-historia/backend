@@ -159,6 +159,7 @@ impl ProductListingDeliveryReferences for References<'_> {
         context: &OperationContext,
         command: &product_listing_service::use_cases::ChangeProductListingDeliveryCommand,
         id: product_listing_core::product_listing_id::ProductListingId,
+        canonical_written: bool,
     ) -> Result<(), ProductListingDeliveryError> {
         use shipping_service::imports::{
             ShippingImportAccess, ShippingImportAccessFactory, ShippingImportSubject,
@@ -167,6 +168,7 @@ impl ProductListingDeliveryReferences for References<'_> {
             .import
             .as_ref()
             .ok_or(ProductListingDeliveryError::Unavailable)?;
+        let evidence_before = listing_evidence(self.0.connection(), id).await?;
         shipping_postgres::imports::SqlxShippingImportAccessFactory
             .in_transaction(self.0)
             .complete(
@@ -177,6 +179,25 @@ impl ProductListingDeliveryReferences for References<'_> {
                 ShippingImportSubject::Listing(id),
             )
             .await?;
+        // A canonical revision in this transaction already advanced freshness and triggers
+        // projection. Otherwise a new acquisition of unchanged terms is still new listing-owned
+        // evidence; identical replays never reach here.
+        if !canonical_written && listing_evidence(self.0.connection(), id).await? != evidence_before
+        {
+            let event = domain_primitives::event_id::EventId::new();
+            sqlx::query("INSERT INTO product_listing_events(event_id,product_listing_id,event_type,event_group,event_type_schema_version,payload,event_time) VALUES($1,$2,'ENRICHMENT_SHIPPING_UPDATED','ENRICHMENT',1,'{}',now())")
+                .bind(event.into_uuid())
+                .bind(id.into_uuid())
+                .execute(self.0.connection())
+                .await
+                .map_err(fail)?;
+            sqlx::query("UPDATE product_listings SET current_event_id=$2,projection_version=projection_version+1,updated=aura_advance_updated(updated) WHERE product_listing_id=$1")
+                .bind(id.into_uuid())
+                .bind(event.into_uuid())
+                .execute(self.0.connection())
+                .await
+                .map_err(fail)?;
+        }
         Ok(())
     }
     async fn authorize(
@@ -296,4 +317,15 @@ impl ProductListingDeliveryReader for Reader<'_> {
             delivery,
         })
     }
+}
+
+async fn listing_evidence(
+    connection: &mut PgConnection,
+    id: product_listing_core::product_listing_id::ProductListingId,
+) -> Result<Vec<(String, Option<time::OffsetDateTime>)>, ProductListingDeliveryError> {
+    sqlx::query_as("SELECT component,verified_at FROM listing_delivery_import_state WHERE product_listing_id=$1 ORDER BY component")
+        .bind(id.into_uuid())
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(fail)
 }

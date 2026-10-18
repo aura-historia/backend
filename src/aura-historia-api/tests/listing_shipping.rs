@@ -1169,6 +1169,27 @@ async fn project_gallery(pool: &PgPool, index: &mut IndexedFixture) {
             .await
             .unwrap();
             index.item.event_id = domain_primitives::event_id::EventId::try_from(event).unwrap();
+            // Carry the persisted freshness with the state, exactly as the OpenSearch projector
+            // reads it for the complete document.
+            let source = {
+                use application::transaction::{Transaction, UnitOfWork};
+                use product_listing_service::ports::{
+                    ProductListingSearchFilterMatchSourceReader,
+                    ProductListingSearchFilterMatchSourceReaderFactory,
+                };
+                let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+                let source =
+                    product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory
+                        .in_transaction(&mut tx)
+                        .find_source(index.item.event_id, index.item.product_listing_id)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                tx.commit().await.unwrap();
+                source
+            };
+            assert_eq!(index.item.event_id, source.current_event_id);
+            index.item.updated = source.updated;
             return;
         };
         handler
@@ -1185,7 +1206,7 @@ async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_withou
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn fx_change_discovers_old_listing_without_shipping_or_listing_mutation() {
+async fn fx_change_alone_does_not_discover_old_listing_outside_the_updated_window() {
     periodic_shipping_change(true).await;
 }
 
@@ -1201,6 +1222,9 @@ async fn periodic_shipping_change(fx_mode: bool) {
     .await
     .unwrap();
     let old = time::OffsetDateTime::now_utc() - time::Duration::days(100);
+    let old = old
+        .replace_nanosecond(old.nanosecond() / 1_000_000 * 1_000_000)
+        .unwrap();
     index.item.updated = old;
     sqlx::query("UPDATE product_listings SET updated=$2 WHERE product_listing_id=$1")
         .bind(listing.into_uuid())
@@ -1211,6 +1235,13 @@ async fn periodic_shipping_change(fx_mode: bool) {
     let domain_events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM product_listing_events WHERE event_group='DOMAIN'",
     )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let listing_before: (i64, i64, uuid::Uuid, i64) = sqlx::query_as(
+        "SELECT version,projection_version,current_event_id,(SELECT count(*) FROM product_listing_events e WHERE e.product_listing_id=p.product_listing_id) FROM product_listings p WHERE product_listing_id=$1",
+    )
+    .bind(listing.into_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -1273,14 +1304,26 @@ async fn periodic_shipping_change(fx_mode: bool) {
     .await
     .unwrap();
     let started = time::OffsetDateTime::now_utc() + time::Duration::seconds(1);
+    // Profile changes advance listing freshness, so the ordinary interval rediscovers the old
+    // listing. FX changes alone never widen the interval, even when the converted shipping price
+    // would now satisfy the threshold.
+    let mut freshness = Vec::new();
     for (iteration, amount, expected_matches) in [(0, 9500, 0), (1, 8000, 1), (2, 8000, 0)] {
-        let fx_snapshot = if fx_mode {
-            Some(capture_shipping_fx(&pool, if iteration == 0 { 1_000_000 } else { 900_000 }).await)
+        let expected_matches = if fx_mode { 0 } else { expected_matches };
+        if fx_mode {
+            capture_shipping_fx(&pool, if iteration == 0 { 1_000_000 } else { 900_000 }).await;
         } else {
             replace_gallery(&pool, profile, amount).await;
             project_gallery(&pool, &mut index).await;
-            None
-        };
+        }
+        let updated: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT updated FROM product_listings WHERE product_listing_id=$1")
+                .bind(listing.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(updated, index.item.updated);
+        freshness.push(updated);
         let handler = RunPeriodicSearchFilterMatchingHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SingleTestRun,
@@ -1319,17 +1362,9 @@ async fn periodic_shipping_change(fx_mode: bool) {
         assert_eq!(0, report.filters_failed, "{report:?}");
         assert_eq!(expected_matches, report.matches_inserted, "{report:?}");
         assert_eq!(0, report.classification_requests);
-        if fx_mode && expected_matches == 1 {
-            let row: (uuid::Uuid, String, i64) = sqlx::query_as("SELECT shipping_fx_rate_id, shipping_target_currency, shipping_maximum_minor FROM search_filter_matches WHERE user_search_filter_id=$1")
-                .bind(filter.search_filter_id.into_uuid()).fetch_one(&pool).await.unwrap();
-            assert_eq!(fx_snapshot.unwrap().into_uuid(), row.0);
-            assert_eq!("USD", row.1);
-            assert_eq!(7500, row.2);
-            assert_eq!(8000, index.amount.load(std::sync::atomic::Ordering::SeqCst));
-        }
     }
     let persisted: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filter_matches WHERE user_search_filter_id=$1 AND product_listing_id=$2").bind(filter.search_filter_id.into_uuid()).bind(listing.into_uuid()).fetch_one(&pool).await.unwrap();
-    assert_eq!(1, persisted);
+    assert_eq!(i64::from(!fx_mode), persisted);
     let after: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM product_listing_events WHERE event_group='DOMAIN'",
     )
@@ -1337,14 +1372,19 @@ async fn periodic_shipping_change(fx_mode: bool) {
     .await
     .unwrap();
     assert_eq!(domain_events, after);
-    let updated: time::OffsetDateTime =
-        sqlx::query_scalar("SELECT updated FROM product_listings WHERE product_listing_id=$1")
-            .bind(listing.into_uuid())
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(old.unix_timestamp(), updated.unix_timestamp());
+    let listing_after: (i64, i64, uuid::Uuid, i64) = sqlx::query_as(
+        "SELECT version,projection_version,current_event_id,(SELECT count(*) FROM product_listing_events e WHERE e.product_listing_id=p.product_listing_id) FROM product_listings p WHERE product_listing_id=$1",
+    )
+    .bind(listing.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Enrichment never manufactures a canonical revision.
+    assert_eq!(listing_before.0, listing_after.0);
     if fx_mode {
+        // FX capture leaves listing state, freshness and projection evidence untouched.
+        assert_eq!(listing_before, listing_after);
+        assert!(freshness.iter().all(|updated| *updated == old));
         let profile_after: Value = sqlx::query_scalar(
             "SELECT to_jsonb(p) FROM shipping_profiles p WHERE shipping_profile_id=$1",
         )
@@ -1353,15 +1393,20 @@ async fn periodic_shipping_change(fx_mode: bool) {
         .await
         .unwrap();
         assert_eq!(profile_before, profile_after);
-        let fx_match: (uuid::Uuid, time::OffsetDateTime) = sqlx::query_as("SELECT shipping_fx_rate_id, shipping_fx_captured_at FROM search_filter_matches WHERE user_search_filter_id=$1")
-            .bind(filter.search_filter_id.into_uuid()).fetch_one(&pool).await.unwrap();
-        let captured_at: time::OffsetDateTime =
-            sqlx::query_scalar("SELECT captured_at FROM fx_rates WHERE fx_rate_id=$1")
-                .bind(fx_match.0)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(captured_at, fx_match.1);
+        let digests: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM saved_search_digest_members m JOIN search_filter_matches f USING(user_search_filter_id,product_listing_id) WHERE f.user_search_filter_id=$1",
+        )
+        .bind(filter.search_filter_id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(0, digests);
+    } else {
+        // Each effective summary change advances freshness strictly; an unchanged effective
+        // result (the repeated 8000 replacement) preserves it and the projection fence.
+        assert!(old < freshness[0] && freshness[0] < freshness[1]);
+        assert_eq!(freshness[1], freshness[2]);
+        assert_eq!(listing_before.1 + 2, listing_after.1);
     }
 }
 

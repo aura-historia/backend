@@ -236,8 +236,8 @@ internal equality guards; monotonic projection versions fence external writes.
 Committed dependency changes establish coalesced, paginated work with leased claims and
 transactional checkpoints. Newer changes reset cursors and fence old claims. Listing events
 also establish work so concurrent creation cannot escape a source traversal. Only changed
-derived values emit geography enrichment; canonical revision, updated time and public
-history remain unchanged. No per-listing geocoding or per-result Party hydration occurs.
+derived values emit geography enrichment and advance [listing freshness](product-listing.md#freshness)
+in the same transaction; canonical revision and public history remain unchanged. No per-listing geocoding or per-result Party hydration occurs.
 
 ### Eventual projection consistency
 

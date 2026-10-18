@@ -156,8 +156,10 @@ per-item amounts retain their own currency/minor units; other price knowledge st
 The bounded offer cap retains a conditional flag on truncation. Missing offers never prove
 unavailability. No sites, private evidence, buyer data or full policies enter the public index.
 
-Changed summaries advance the existing complete-listing projection fence and emit shipping
-enrichment; unchanged summaries refresh dependencies only. Complete document replacement
+Changed summaries advance [listing freshness](product-listing.md#freshness) and the existing
+complete-listing projection fence and emit shipping enrichment; unchanged summaries refresh
+dependencies only. A shared profile or default change therefore advances only listings whose
+effective summary changes. Complete document replacement
 and external version fences preserve newer price/geography state and deletion tombstones.
 Profile revisions never become global OpenSearch versions.
 
@@ -219,9 +221,10 @@ current account, `users:read` and evidence validity. Omitting the guard uses the
 country without a preference lookup. Address/preference edits never move a saved snapshot.
 `shipping: null` clears the predicate; account erasure removes private snapshots.
 
-Scheduled matching revisits shipping membership, including older listings and FX-only
-threshold crossings, subject to authored dates, evaluation cutoff and existing candidate/scan
-limits. FX matches retain immutable snapshot ID/time and target maximum separately from item
+Scheduled matching applies the same listing-`updated` interval to shipping filters as to
+every other filter; effective shipping changes make older listings eligible by advancing their
+freshness, while FX-only threshold crossings never reopen older listings. Authored dates,
+evaluation cutoff and existing candidate/scan limits apply. FX matches retain immutable snapshot ID/time and target maximum separately from item
 price valuation. Listing responses expose `userState.searchFilter.shippingMatchValuation`;
 feedback responses expose `shippingMatchValuation`. Later FX/filter edits do not rewrite it.
 Private snapshots/valuation stay outside public documents, ordinary CDC and logs.
@@ -292,7 +295,9 @@ components. Integration replacement requires deliberate removal of old scoped as
 Created or semantically replaced assertions require explicit `observation: {}` with successful
 `acquiredAt`; explicit removal does not renew observation. Acquisition must follow the latest
 authority boundary and cannot be future-dated. A new acquisition of unchanged terms can update
-observation time without semantic revisions/events. Evidence-only corrections cannot carry an
+observation time without semantic revisions or domain events; as newly accepted evidence it
+advances the owner's freshness (the profile's, or the listing's together with a shipping
+enrichment event). Default observations have no exposed freshness of their own. Evidence-only corrections cannot carry an
 observation. Retries/lifecycle commands/ordinary no-ops never renew acquisition. Ordering uses
 PostgreSQL microseconds plus increasing producer sequence per component/source lifecycle;
 new request keys cannot turn the same acquisition into a new observation.

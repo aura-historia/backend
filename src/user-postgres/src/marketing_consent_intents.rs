@@ -528,7 +528,7 @@ impl SqlxMarketingConsentIntentRepository {
         lock_recipient(&mut *conn, &key).await?;
         let version = i64::try_from(expected_version.into_inner())
             .map_err(|_| MarketingConsentPersistenceError::InvalidInput)?;
-        let revision: i64 = sqlx::query_scalar("UPDATE users SET marketing_email_consent = $2, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = now() WHERE user_id = $1 AND email = $4 AND version = $5 RETURNING marketing_email_consent_revision")
+        let revision: i64 = sqlx::query_scalar("UPDATE users SET marketing_email_consent = $2, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND email = $4 AND version = $5 RETURNING marketing_email_consent_revision")
             .bind(user_id.as_uuid()).bind(desired).bind(changed_at).bind::<&str>(verified_email.as_ref()).bind(version)
             .fetch_optional(&mut *conn).await.map_err(db)?.ok_or(MarketingConsentPersistenceError::ConcurrencyConflict)?;
         append(
@@ -1003,7 +1003,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         lock_recipient(&mut *conn, &marketing_consent_recipient_key(&user.email)).await?;
         let version = i64::try_from(user.version.into_inner())
             .map_err(|_| MarketingConsentIntentError::InvalidInput)?;
-        let updated = sqlx::query("UPDATE users SET marketing_email_consent = false, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = now() WHERE user_id = $1 AND email = $2 AND version = $4 AND marketing_email_consent = true")
+        let updated = sqlx::query("UPDATE users SET marketing_email_consent = false, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND email = $2 AND version = $4 AND marketing_email_consent = true")
             .bind(user.user_id.as_uuid()).bind::<&str>(user.email.as_ref()).bind(changed_at).bind(version)
             .execute(&mut *conn).await.map_err(db)?;
         if updated.rows_affected() == 1 {
@@ -1030,7 +1030,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         lock_recipient(&mut *conn, &marketing_consent_recipient_key(&user.email)).await?;
         let version = i64::try_from(user.version.into_inner())
             .map_err(|_| MarketingConsentIntentError::InvalidInput)?;
-        let updated = sqlx::query("UPDATE users SET marketing_email_consent = true, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = now() WHERE user_id = $1 AND email = $2 AND version = $4 AND marketing_email_consent = false")
+        let updated = sqlx::query("UPDATE users SET marketing_email_consent = true, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND email = $2 AND version = $4 AND marketing_email_consent = false")
             .bind(user.user_id.as_uuid()).bind::<&str>(user.email.as_ref()).bind(changed_at).bind(version)
             .execute(&mut *conn).await.map_err(db)?;
         if updated.rows_affected() == 1 {

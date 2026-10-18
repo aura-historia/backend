@@ -451,8 +451,9 @@ impl ShippingImportAccess for Repository<'_> {
                 sqlx::query("UPDATE shipping_profile_import_state SET owner_hash=$2,source_revision=CASE WHEN $6 THEN source_revision ELSE $3 END,sequence=$4,observation_revision=observation_revision+$5 WHERE shipping_profile_id=$1")
                     .bind(id.into_uuid()).bind(&owner).bind(scope.revision).bind(write.sequence as i64).bind(i64::from(observed)).bind(matches!(op, ShippingImportOperation::ProfileLifecycle { .. })).execute(&mut *self.0).await.map_err(sql_error)?;
                 if observed {
+                    // Newly accepted evidence is profile state even when the terms are identical.
                     sqlx::query(
-                        "UPDATE shipping_profiles SET verified_at=$2 WHERE shipping_profile_id=$1",
+                        "UPDATE shipping_profiles SET verified_at=$2,updated=aura_advance_updated(updated) WHERE shipping_profile_id=$1 AND verified_at IS DISTINCT FROM $2",
                     )
                     .bind(id.into_uuid())
                     .bind(acquired)

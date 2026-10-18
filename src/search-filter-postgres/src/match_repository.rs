@@ -109,7 +109,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = v.user_search_filter_id.into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE search_filter_matches SET user_search_filter_name=$3,feedback=$4,updated=now() WHERE user_search_filter_id=$1 AND product_listing_id=$2 RETURNING ",
+            "UPDATE search_filter_matches SET user_search_filter_name=$3,feedback=$4,updated=aura_advance_updated(updated) WHERE user_search_filter_id=$1 AND product_listing_id=$2 RETURNING ",
         );
         query.push(MATCH_COLUMNS);
         let row = query

@@ -112,7 +112,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         let access_token_id = access_token.id().into_uuid();
         let expected_version = version_to_i64(expected_version)?;
         let sql = format!(
-            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, expires_at = $7, version = version + 1, updated = now() WHERE user_id = $1 AND access_token_id = $2 AND version = $8 RETURNING {ACCESS_TOKEN_COLUMNS}"
+            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, expires_at = $7, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND access_token_id = $2 AND version = $8 RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
         let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token.user_id().into_uuid())
