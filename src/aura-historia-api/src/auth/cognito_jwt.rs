@@ -1,4 +1,3 @@
-use super::CognitoTokenStatus;
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
@@ -9,7 +8,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use user_service::ports::{CognitoIdentity, CognitoIssuer, CognitoSubject};
+use user_service::ports::{
+    COGNITO_SESSION_CLOCK_SKEW_SECONDS, CognitoIdentity, CognitoIssuer, CognitoSubject,
+};
 use user_service::use_cases::{
     ResolveCognitoUserError, ResolveCognitoUserRequest, ResolveCognitoUserUseCase,
 };
@@ -87,8 +88,7 @@ struct JwksCache {
     refreshed_at: Option<Instant>,
 }
 
-pub struct CognitoJwtAuthenticator<P, R, V> {
-    token_status: V,
+pub struct CognitoJwtAuthenticator<P, R> {
     config: CognitoJwtConfig,
     identity_issuer: CognitoIssuer,
     provider: P,
@@ -99,27 +99,15 @@ pub struct CognitoJwtAuthenticator<P, R, V> {
     refresh_lock: Mutex<()>,
 }
 
-impl<P, R, V> CognitoJwtAuthenticator<P, R, V> {
-    pub fn new(
-        config: CognitoJwtConfig,
-        provider: P,
-        resolve_user: R,
-        token_status: V,
-    ) -> Result<Self, AuthError> {
-        Self::with_cache_ttl(
-            config,
-            provider,
-            resolve_user,
-            token_status,
-            DEFAULT_JWKS_CACHE_TTL,
-        )
+impl<P, R> CognitoJwtAuthenticator<P, R> {
+    pub fn new(config: CognitoJwtConfig, provider: P, resolve_user: R) -> Result<Self, AuthError> {
+        Self::with_cache_ttl(config, provider, resolve_user, DEFAULT_JWKS_CACHE_TTL)
     }
 
     fn with_cache_ttl(
         config: CognitoJwtConfig,
         provider: P,
         resolve_user: R,
-        token_status: V,
         cache_ttl: Duration,
     ) -> Result<Self, AuthError> {
         let identity_issuer = CognitoIssuer::try_from(config.issuer.as_str())
@@ -133,7 +121,6 @@ impl<P, R, V> CognitoJwtAuthenticator<P, R, V> {
             identity_issuer,
             provider,
             resolve_user,
-            token_status,
             verifier,
             cache_ttl,
             jwks_cache: Arc::new(RwLock::new(JwksCache {
@@ -145,7 +132,7 @@ impl<P, R, V> CognitoJwtAuthenticator<P, R, V> {
     }
 }
 
-impl<P, R, V> CognitoJwtAuthenticator<P, R, V>
+impl<P, R> CognitoJwtAuthenticator<P, R>
 where
     P: JwksProvider,
 {
@@ -220,11 +207,10 @@ where
 }
 
 #[async_trait::async_trait]
-impl<P, R, V> TokenAuthenticator for CognitoJwtAuthenticator<P, R, V>
+impl<P, R> TokenAuthenticator for CognitoJwtAuthenticator<P, R>
 where
     P: JwksProvider,
     R: ResolveCognitoUserUseCase,
-    V: CognitoTokenStatus,
 {
     async fn authenticate(
         &self,
@@ -238,15 +224,9 @@ where
             .map_err(|_| AuthError::InvalidCredentials)?;
 
         verify_access_token(&claims, &self.config.app_client_ids)?;
+        let authenticated_at = authentication_time(&claims)?;
         let subject = CognitoSubject::try_from(claim_string(&claims, "sub")?)
             .map_err(|_| AuthError::InvalidCredentials)?;
-        self.token_status
-            .verify(
-                bearer_token,
-                subject.as_str(),
-                claim_string(&claims, "scope")?,
-            )
-            .await?;
         let resolved = self
             .resolve_user
             .execute(ResolveCognitoUserRequest {
@@ -257,6 +237,12 @@ where
             })
             .await
             .map_err(map_resolve_user_error)?;
+        if resolved
+            .sessions_revoked_before
+            .is_some_and(|cutoff| authenticated_at <= cutoff)
+        {
+            return Err(AuthError::InvalidCredentials);
+        }
 
         Ok(TransportPrincipal::User {
             user_id: resolved.user_id,
@@ -284,6 +270,26 @@ fn verify_access_token(claims: &Value, app_client_ids: &HashSet<String>) -> Resu
     } else {
         Err(AuthError::InvalidCredentials)
     }
+}
+
+fn authentication_time(claims: &Value) -> Result<time::OffsetDateTime, AuthError> {
+    let integer_claim = |claim: &'static str| {
+        claims
+            .get(claim)
+            .ok_or(AuthError::MissingClaim(claim))?
+            .as_i64()
+            .ok_or(AuthError::InvalidClaimType(claim))
+    };
+    let authenticated_at = integer_claim("auth_time")?;
+    let issued_at = integer_claim("iat")?;
+    if authenticated_at < 0
+        || authenticated_at > issued_at
+        || issued_at > time::OffsetDateTime::now_utc().unix_timestamp() + COGNITO_SESSION_CLOCK_SKEW_SECONDS
+    {
+        return Err(AuthError::InvalidCredentials);
+    }
+    time::OffsetDateTime::from_unix_timestamp(authenticated_at)
+        .map_err(|_| AuthError::InvalidCredentials)
 }
 
 fn claim_string<'a>(claims: &'a Value, claim: &'static str) -> Result<&'a str, AuthError> {
@@ -372,6 +378,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum ResolveOutcome {
         Found(UserId),
+        RevokedUser(UserId, OffsetDateTime),
         NotFound,
         TemporarilyUnavailable,
         InvalidPersistedState,
@@ -382,7 +389,7 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeResolveCognitoUserUseCase {
-        outcome: ResolveOutcome,
+        outcome: Arc<Mutex<ResolveOutcome>>,
         calls: ResolveCalls,
     }
 
@@ -393,8 +400,15 @@ mod tests {
             request: ResolveCognitoUserRequest,
         ) -> Result<ResolveCognitoUserResult, ResolveCognitoUserError> {
             lock(&self.calls).push(request);
-            match self.outcome {
-                ResolveOutcome::Found(user_id) => Ok(ResolveCognitoUserResult { user_id }),
+            match *lock(&self.outcome) {
+                ResolveOutcome::Found(user_id) => Ok(ResolveCognitoUserResult {
+                    user_id,
+                    sessions_revoked_before: None,
+                }),
+                ResolveOutcome::RevokedUser(user_id, cutoff) => Ok(ResolveCognitoUserResult {
+                    user_id,
+                    sessions_revoked_before: Some(cutoff),
+                }),
                 ResolveOutcome::NotFound => Err(ResolveCognitoUserError::NotFound),
                 ResolveOutcome::TemporarilyUnavailable => {
                     Err(ResolveCognitoUserError::TemporarilyUnavailable {
@@ -413,27 +427,8 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct FakeTokenStatus {
-        rejected: std::sync::atomic::AtomicBool,
-        calls: std::sync::atomic::AtomicUsize,
-    }
-
-    #[async_trait::async_trait]
-    impl CognitoTokenStatus for FakeTokenStatus {
-        async fn verify(&self, _: &str, _: &str, _: &str) -> Result<(), AuthError> {
-            use std::sync::atomic::Ordering;
-            self.calls.fetch_add(1, Ordering::Relaxed);
-            if self.rejected.load(Ordering::Relaxed) {
-                Err(AuthError::InvalidCredentials)
-            } else {
-                Ok(())
-            }
-        }
-    }
-
     type TestAuthenticator =
-        CognitoJwtAuthenticator<FakeJwksProvider, FakeResolveCognitoUserUseCase, FakeTokenStatus>;
+        CognitoJwtAuthenticator<FakeJwksProvider, FakeResolveCognitoUserUseCase>;
 
     #[derive(Clone)]
     struct TestKey {
@@ -507,10 +502,9 @@ mod tests {
             ),
             FakeJwksProvider { result, calls },
             FakeResolveCognitoUserUseCase {
-                outcome,
+                outcome: Arc::new(Mutex::new(outcome)),
                 calls: resolve_calls,
             },
-            FakeTokenStatus::default(),
         )
     }
 
@@ -526,60 +520,89 @@ mod tests {
             "iss": "https://issuer.example/pool",
             "sub": subject,
             "token_use": "access",
-            "scope": "openid email profile",
             "client_id": client_id,
             "iat": now,
+            "auth_time": now,
             "exp": now + exp_delta_seconds,
         })
     }
 
     #[tokio::test]
-    async fn should_reject_a_revoked_jwt_even_with_cached_signing_keys()
+    async fn should_reject_old_and_refreshed_sessions_but_accept_a_new_login()
     -> Result<(), Box<dyn std::error::Error>> {
-        use std::sync::atomic::Ordering;
         let key = test_key("kid-1")?;
+        let cutoff = OffsetDateTime::from_unix_timestamp(
+            OffsetDateTime::now_utc().unix_timestamp() - 10,
+        )?;
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let authenticator = authenticator(vec![jwk(&key)], calls.clone())?;
+        let authenticator = authenticator_with_resolution(
+            Ok(JsonWebKeySet { keys: vec![jwk(&key)] }),
+            calls.clone(),
+            ResolveOutcome::RevokedUser(UserId::new(), cutoff),
+            Arc::new(Mutex::new(Vec::new())),
+        )?;
+        for auth_time in [cutoff.unix_timestamp() - 1, cutoff.unix_timestamp()] {
+            // A refreshed token has a fresh iat but retains the original session's auth_time.
+            let mut claims = jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1"));
+            claims["auth_time"] = json!(auth_time);
+            let token = signed_jwt(&key, claims)?;
+            assert!(matches!(
+                authenticator.authenticate(&token, &metadata()).await,
+                Err(AuthError::InvalidCredentials)
+            ));
+        }
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
-        assert!(
-            authenticator
-                .authenticate(&token, &metadata())
-                .await
-                .is_ok()
-        );
-
-        // Cognito has globally signed out the user; the JWT signature and expiry stay valid.
-        authenticator
-            .token_status
-            .rejected
-            .store(true, Ordering::Relaxed);
         assert!(matches!(
             authenticator.authenticate(&token, &metadata()).await,
-            Err(AuthError::InvalidCredentials)
+            Ok(TransportPrincipal::User { .. })
         ));
-        assert_eq!(2, authenticator.token_status.calls.load(Ordering::Relaxed));
         assert_eq!(1, lock(&calls).len());
-        assert_eq!(1, lock(&authenticator.resolve_user.calls).len());
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_not_contact_cognito_for_locally_invalid_tokens()
+    async fn should_read_current_cutoff_even_with_cached_signing_keys()
     -> Result<(), Box<dyn std::error::Error>> {
-        use std::sync::atomic::Ordering;
         let key = test_key("kid-1")?;
-        let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
-        let token = signed_jwt(
-            &key,
-            jwt_claims(OPAQUE_SUBJECT, 3_600, json!("untrusted-client")),
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let user_id = UserId::new();
+        let authenticator = authenticator_with_resolution(
+            Ok(JsonWebKeySet { keys: vec![jwk(&key)] }),
+            calls.clone(),
+            ResolveOutcome::Found(user_id),
+            Arc::new(Mutex::new(Vec::new())),
         )?;
+        let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
+        assert!(matches!(
+            authenticator.authenticate(&token, &metadata()).await,
+            Ok(TransportPrincipal::User { .. })
+        ));
+        let cutoff = OffsetDateTime::now_utc()
+            + time::Duration::seconds(COGNITO_SESSION_CLOCK_SKEW_SECONDS);
+        *lock(&authenticator.resolve_user.outcome) = ResolveOutcome::RevokedUser(user_id, cutoff);
         assert!(matches!(
             authenticator.authenticate(&token, &metadata()).await,
             Err(AuthError::InvalidCredentials)
         ));
-        assert_eq!(0, authenticator.token_status.calls.load(Ordering::Relaxed));
-        assert!(lock(&authenticator.resolve_user.calls).is_empty());
+        assert_eq!(1, lock(&calls).len());
+        assert_eq!(2, lock(&authenticator.resolve_user.calls).len());
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_or_future_session_times() {
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        for claims in [
+            json!({"iat": now}),
+            json!({"auth_time": now}),
+            json!({"auth_time": "invalid", "iat": now}),
+            json!({"auth_time": -1, "iat": now}),
+            json!({"auth_time": now + 1, "iat": now}),
+            json!({"auth_time": now, "iat": now + COGNITO_SESSION_CLOCK_SKEW_SECONDS + 120}),
+        ] {
+            assert!(authentication_time(&claims).is_err());
+        }
+        assert!(authentication_time(&json!({"auth_time": now - 3_600, "iat": now})).is_ok());
     }
 
     #[test]
@@ -721,10 +744,9 @@ mod tests {
                 calls: calls.clone(),
             },
             FakeResolveCognitoUserUseCase {
-                outcome: ResolveOutcome::Found(UserId::new()),
+                outcome: Arc::new(Mutex::new(ResolveOutcome::Found(UserId::new()))),
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
-            FakeTokenStatus::default(),
             Duration::ZERO,
         )?;
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
@@ -759,10 +781,9 @@ mod tests {
                 release: release.clone(),
             },
             FakeResolveCognitoUserUseCase {
-                outcome: ResolveOutcome::Found(UserId::new()),
+                outcome: Arc::new(Mutex::new(ResolveOutcome::Found(UserId::new()))),
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
-            FakeTokenStatus::default(),
         )?);
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
         let first_authenticator = authenticator.clone();

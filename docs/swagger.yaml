@@ -7256,7 +7256,11 @@ paths:
     post:
       summary: Revoke a user's Cognito sessions as admin
       description: |
-        Invalidates the explicit target user's Cognito sessions with Cognito global sign-out. No request body is accepted.
+        Invalidates the explicit target user's sessions locally and requests Cognito global sign-out. No request body is accepted.
+        The local cutoff is committed before the provider call and advanced again when it returns,
+        including on provider failure. Local sessions may therefore remain revoked even if the response is an error.
+        Cutoffs include a 60-second clock-skew allowance; fresh logins may be rejected for roughly
+        a minute after the latest completion/retry. Token refresh does not bypass the cutoff.
 
         Cognito JWTs and Aura Historia access tokens are accepted. The caller's persisted user role
         must be `ADMIN`; delegated Aura Historia access tokens must also have `users:write`.
@@ -17512,13 +17516,21 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "Cognito access JWT bearer token. Tokens must include `openid` (hosted OAuth)
+      description: "Cognito access JWT bearer token. Signature, issuer, client, token use and expiry
 
-        or `aws.cognito.signin.user.admin` (native password/SRP). Revocation is checked with
+        are validated locally. Signed integer `auth_time` and `iat` claims are required;
 
-        Cognito on every authenticated request. Revoked tokens return an authentication error;
+        sessions authenticated at or before the persisted local revocation cutoff are rejected.
 
-        provider outages or throttling return `503 AUTH_TEMPORARILY_UNAVAILABLE`.
+        This check shares the existing identity lookup and makes no live Cognito status request.
+
+        Revocation requested only in Cognito is not observed immediately; already-issued JWTs
+
+        can remain accepted until expiry. Use the administrator session-revocation endpoint
+
+        for immediate local enforcement. Database authentication failures return
+
+        `503 AUTH_TEMPORARILY_UNAVAILABLE`.
 
         This scheme is used for authenticated user routes and for partner routes that accept Cognito user tokens.
 

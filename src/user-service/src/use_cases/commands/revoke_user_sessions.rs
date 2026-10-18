@@ -125,11 +125,28 @@ where
                 .find_by_user_id(command.user_id)
                 .await?
                 .ok_or(RevokeUserSessionsError::UserNotFound)?;
+            self.identities
+                .in_transaction(&mut tx)
+                .revoke_sessions(&identity)
+                .await?;
             tx.commit().await.map_err(|source| {
                 RevokeUserSessionsError::CommitTransactionFailed(Box::new(source))
             })?;
 
-            self.session_revoker.revoke_sessions(&identity).await?;
+            let provider_result = self.session_revoker.revoke_sessions(&identity).await;
+
+            // Fence sessions created while Cognito was in flight, even on an ambiguous failure.
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                RevokeUserSessionsError::BeginTransactionFailed(Box::new(source))
+            })?;
+            self.identities
+                .in_transaction(&mut tx)
+                .revoke_sessions(&identity)
+                .await?;
+            tx.commit().await.map_err(|source| {
+                RevokeUserSessionsError::CommitTransactionFailed(Box::new(source))
+            })?;
+            provider_result?;
             Ok(RevokeUserSessionsResult {
                 user_id: command.user_id,
             })
@@ -253,6 +270,8 @@ mod tests {
         commits: usize,
         revoked_identities: Vec<(String, String)>,
         operations: Vec<&'static str>,
+        fail_fence: Option<usize>,
+        fences: usize,
     }
     #[derive(Clone, Default)]
     struct Fakes(Arc<Mutex<State>>);
@@ -328,7 +347,10 @@ mod tests {
             AdminReader(self.0)
         }
     }
-    struct IdentityRegistry(bool);
+    struct IdentityRegistry {
+        exists: bool,
+        fakes: Fakes,
+    }
     #[async_trait::async_trait]
     impl UserCognitoIdentityRegistry for IdentityRegistry {
         async fn lock_and_find_user_id(
@@ -342,7 +364,22 @@ mod tests {
             &mut self,
             _: UserId,
         ) -> Result<Option<CognitoIdentity>, UserCognitoIdentityRegistryError> {
-            Ok(self.0.then(cognito_identity))
+            Ok(self.exists.then(cognito_identity))
+        }
+
+        async fn revoke_sessions(
+            &mut self,
+            _: &CognitoIdentity,
+        ) -> Result<(), UserCognitoIdentityRegistryError> {
+            let mut state = lock(&self.fakes.0);
+            state.fences += 1;
+            state.operations.push("fence");
+            if state.fail_fence == Some(state.fences) {
+                return Err(UserCognitoIdentityRegistryError::TemporarilyUnavailable {
+                    source: box_error(std::io::Error::other("fence write failed")),
+                });
+            }
+            Ok(())
         }
 
         async fn bind(
@@ -356,9 +393,12 @@ mod tests {
     impl UserCognitoIdentityRegistryFactory<FakeTx> for Identities {
         fn in_transaction<'tx>(
             &'tx self,
-            _: &'tx mut FakeTx,
+            tx: &'tx mut FakeTx,
         ) -> impl UserCognitoIdentityRegistry + 'tx {
-            IdentityRegistry(self.0)
+            IdentityRegistry {
+                exists: self.0,
+                fakes: tx.0.clone(),
+            }
         }
     }
     #[async_trait::async_trait]
@@ -416,8 +456,9 @@ mod tests {
             .await;
         assert!(matches!(result, Ok(result) if result.user_id == user_id));
         let state = lock(&fakes.0);
-        assert_eq!(1, state.begins);
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.begins);
+        assert_eq!(2, state.commits);
+        assert_eq!(2, state.fences);
         assert_eq!(
             vec![(
                 "https://issuer.example".to_owned(),
@@ -425,7 +466,10 @@ mod tests {
             )],
             state.revoked_identities
         );
-        assert_eq!(vec!["begin", "commit", "revoke"], state.operations);
+        assert_eq!(
+            vec!["begin", "fence", "commit", "revoke", "begin", "fence", "commit"],
+            state.operations
+        );
     }
 
     #[tokio::test]
@@ -526,6 +570,39 @@ mod tests {
             internal,
             Err(RevokeUserSessionsError::Internal { .. })
         ));
-        assert_eq!(2, lock(&fakes.0).commits);
+        assert_eq!(4, lock(&fakes.0).commits);
+        assert_eq!(4, lock(&fakes.0).fences);
     }
+    #[tokio::test]
+    async fn should_not_call_provider_when_initial_fence_fails() {
+        let fakes = Fakes::default();
+        lock(&fakes.0).fail_fence = Some(1);
+        let result = handler(&fakes, Some(UserRole::Admin), true, None)
+            .execute(
+                &context(Principal::User(UserId::new())),
+                RevokeUserSessionsCommand { user_id: UserId::new() },
+            )
+            .await;
+        assert!(matches!(result, Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })));
+        let state = lock(&fakes.0);
+        assert_eq!(0, state.commits);
+        assert!(state.revoked_identities.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_not_report_success_when_completion_fence_fails() {
+        let fakes = Fakes::default();
+        lock(&fakes.0).fail_fence = Some(2);
+        let result = handler(&fakes, Some(UserRole::Admin), true, None)
+            .execute(
+                &context(Principal::User(UserId::new())),
+                RevokeUserSessionsCommand { user_id: UserId::new() },
+            )
+            .await;
+        assert!(matches!(result, Err(RevokeUserSessionsError::TemporarilyUnavailable { .. })));
+        let state = lock(&fakes.0);
+        assert_eq!(1, state.commits);
+        assert_eq!(1, state.revoked_identities.len());
+    }
+
 }

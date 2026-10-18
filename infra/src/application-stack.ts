@@ -307,7 +307,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.lambdas.functions,
       this.identity.userPool.userPoolId,
       this.identity.publicClient.userPoolClientId,
-      this.identity.domain.baseUrl(),
     );
     grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
     grantCognitoFederatedLinkingAccess(this.lambdas.functions);

@@ -636,14 +636,12 @@ export function addUserPoolEnvironment(
   functions: LambdaFunctions,
   userPoolId: string,
   publicClientId: string,
-  userPoolBaseUrl: string,
 ): void {
   const functionRegion = cdk.Stack.of(functions.auraHistoriaApi).region;
   const issuer = `https://cognito-idp.${functionRegion}.amazonaws.com/${userPoolId}`;
 
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_ISSUER", issuer);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_JWKS_URL", `${issuer}/.well-known/jwks.json`);
-  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_INFO_URL", `${userPoolBaseUrl}/oauth2/userInfo`);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_APP_CLIENT_IDS", publicClientId);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
 }

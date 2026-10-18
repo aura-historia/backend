@@ -22,19 +22,28 @@ optional-auth routes reject invalid supplied credentials. OAuth and signed-provi
 handlers retain their dedicated credential/proof checks. A Cognito-only edge policy
 would reject valid application credentials before those handlers can evaluate them.
 
-Cognito JWT authentication checks provider revocation after local signature, issuer,
-client, token-use and expiry validation. Hosted OAuth tokens must include `openid`;
-native password/SRP tokens use `aws.cognito.signin.user.admin`. Tokens without either
-scope cannot be checked and are rejected. The provider subject must match the signed
-JWT subject. Successful checks are never cached; only signing keys are cached.
+Cognito JWT authentication validates signatures, issuer, client, token use and expiry
+locally, then checks the session cutoff returned by the existing identity lookup.
+Signed integer `auth_time` and `iat` claims are required. `auth_time` must be nonnegative
+and no later than `iat`; `iat` cannot lead the API clock by more than 60 seconds.
+A session authenticated at or before its stored cutoff is rejected. Token refresh
+preserves `auth_time`, so it cannot restore a revoked session. Cutoffs are never cached.
+Ordinary requests make no live Cognito status call; signing keys retain their existing
+bounded refresh behavior. No additional Cognito scope is required.
 
-CDK supplies `AURA_HISTORIA_COGNITO_USER_INFO_URL` from the same stage's user pool
-domain. Keep this trusted HTTPS endpoint aligned with the issuer/client configuration;
-redirects are disabled. Native tokens use regional Cognito `GetUser`. Every Cognito
-request now depends on provider availability and quotas; the check has a five-second
-deadline, and outages, throttling or malformed provider responses fail closed with
-`503 AUTH_TEMPORARILY_UNAVAILABLE`. Review authentication latency and provider quotas
-before release. Opaque Aura tokens continue to use their existing persisted checks.
+Administrator session revocation commits a local cutoff before Cognito global sign-out,
+then advances it again after the provider call returns, including when the provider
+returns an error. Both writes use the database clock plus a 60-second skew allowance
+and never move backward. Local revocation can therefore take effect even when the
+endpoint returns an error. Fresh logins may be rejected for roughly a minute after
+the last completion/retry; issuer, API and database clocks must remain synchronized
+within that allowance. No database transaction spans provider I/O.
+
+This enforces revocations requested through this API. Changes made only in Cognito
+(including provider-only global sign-out or refresh-token revocation) are not observed
+immediately by this API; already-issued JWTs can remain accepted until expiry. Use the
+administrator endpoint when immediate local session revocation is required. Database
+failures fail closed; opaque Aura tokens keep their existing persisted checks.
 
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
