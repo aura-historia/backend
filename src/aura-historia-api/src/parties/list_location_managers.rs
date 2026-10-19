@@ -37,10 +37,8 @@ fn parse_query(
     party_id: PartyId,
     raw: Option<&str>,
 ) -> Result<ListPartyLocationManagersRequest, ApiError> {
-    let query: ListQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw.unwrap_or_default())
-        .map_err(|error| {
+    let query: ListQuery =
+        crate::wire::from_query_str(raw.unwrap_or_default()).map_err(|error| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(error.to_string())
         })?;
     let access = query

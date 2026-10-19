@@ -258,7 +258,7 @@ pub async fn get_products(
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let data = match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+    let data = match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
         Ok(data) => data,
         Err(error) => {
             return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
@@ -600,6 +600,50 @@ mod tests {
                 application::operation_context::Principal::Anonymous
             ));
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn percent_encoded_deep_object_keys_enforce_the_same_filters_as_literal_brackets()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pairs = [
+            ("size", "100"),
+            ("geography[countries][0]", "DE"),
+            ("shipping[destination][kind]", "COUNTRY"),
+            ("shipping[destination][country]", "DE"),
+        ];
+        let literal = pairs
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let encoded = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+        assert!(encoded.contains("geography%5Bcountries%5D%5B0%5D=DE"));
+
+        let mut searches = Vec::new();
+        for query in [literal, encoded] {
+            let (app, calls) = app();
+            let response = app
+                .oneshot(
+                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(StatusCode::OK, response.status(), "{query}");
+            assert_eq!(
+                "private, no-store",
+                response.headers()[header::CACHE_CONTROL]
+            );
+            let calls = lock(&calls);
+            assert_eq!(1, calls.len());
+            let request = &calls[0].1;
+            assert!(request.search.has_geography(), "{query}");
+            assert!(request.search.shipping.is_some(), "{query}");
+            assert_eq!(Some(100), request.cursor.as_ref().map(|cursor| cursor.size));
+            searches.push(request.search.clone());
+        }
+        assert_eq!(searches[0], searches[1]);
         Ok(())
     }
 

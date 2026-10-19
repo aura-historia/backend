@@ -73,10 +73,10 @@ pub async fn withdraw_admin_product_listing(
         Err(response) => return *response,
     };
     let command = parse_id(&raw_id).and_then(|product_listing_id| {
-        let data: VersionData =
-            serde_qs::from_str(query.as_deref().unwrap_or_default()).map_err(|_| {
-                ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("expectedVersion")
-            })?;
+        let data: VersionData = crate::wire::from_query_str(query.as_deref().unwrap_or_default())
+            .map_err(|_| {
+            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("expectedVersion")
+        })?;
         let expected_version = version(data.expected_version).map_err(|_| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("expectedVersion")
         })?;

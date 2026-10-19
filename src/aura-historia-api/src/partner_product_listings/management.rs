@@ -81,11 +81,12 @@ pub async fn withdraw_partner_product_listing(
     };
     let command =
         parse_ids(&raw_source, &raw_id).and_then(|(listing_source_id, product_listing_id)| {
-            let data: VersionData = serde_qs::from_str(query.as_deref().unwrap_or_default())
-                .map_err(|_| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                        .with_query_field("expectedVersion")
-                })?;
+            let data: VersionData = crate::wire::from_query_str(
+                query.as_deref().unwrap_or_default(),
+            )
+            .map_err(|_| {
+                ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("expectedVersion")
+            })?;
             let expected_version = version(data.expected_version).map_err(|_| {
                 ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("expectedVersion")
             })?;
@@ -156,8 +157,8 @@ pub async fn list_partner_product_listings(
     };
     let request =
         parse_path_object_id(&raw_source, "listingSourceId", "ListingSource").and_then(|source| {
-            let query: SearchQuery = serde_qs::from_str(raw.as_deref().unwrap_or_default())
-                .map_err(|_| {
+            let query: SearchQuery =
+                crate::wire::from_query_str(raw.as_deref().unwrap_or_default()).map_err(|_| {
                     ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("query")
                 })?;
             Ok((source, query.into_partner_request(source)?))
