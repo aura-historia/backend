@@ -915,5 +915,68 @@
       ],
       "availability": "AVAILABLE"
     }
+  },
+  {
+    "html": "tests/fixtures/html/hickmet_poa.html",
+    "schema": {
+      "source_listing_id": {
+        "selector": "product-info[data-product-url]",
+        "type": "attribute",
+        "name": "data-product-url"
+      },
+      "title": {
+        "selector": "h1.product__title",
+        "type": "text"
+      },
+      "description": {
+        "selector": ".product-short p",
+        "type": "text"
+      },
+      "price": {
+        "selector": ".product__liquid",
+        "type": "text"
+      },
+      "state": {
+        "selector": ".product__liquid",
+        "type": "text"
+      },
+      "images": {
+        "selector": "meta[property='og:image:secure_url']",
+        "type": "attribute",
+        "name": "content",
+        "cardinality": "all"
+      }
+    },
+    "raw": {
+      "source_listing_id": "/products/demetre-chiparus-venetian-lady-9685",
+      "title": "\"Venetian Lady\" by Demetre Chiparus",
+      "description": [
+        "Evoking the romance, mystery and extraordinary splendour of Venetian carnival, this very rare captivating sculpture portrays an elegantly dressed lady preparing for a masquerade, delicately adjusting her mask whilst admiring her reflection in a hand mirror."
+      ],
+      "price": "POA – Please \n\n   contact us\n\nif you are interested in this product.",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "state": "POA – Please \n\n   contact us\n\nif you are interested in this product.",
+      "images": [
+        "https://hickmet.com/cdn/shop/files/Website.jpg?v=1792164451"
+      ]
+    },
+    "normalized": {
+      "source_listing_id": "/products/demetre-chiparus-venetian-lady-9685",
+      "title": "\"Venetian Lady\" by Demetre Chiparus",
+      "description": "Evoking the romance, mystery and extraordinary splendour of Venetian carnival, this very rare captivating sculpture portrays an elegantly dressed lady preparing for a masquerade, delicately adjusting her mask whilst admiring her reflection in a hand mirror.",
+      "price": null,
+      "price_currency": null,
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "price_on_request": true,
+    "url": "https://www.hickmet.com/products/demetre-chiparus-venetian-lady-9685",
+      "images": [
+        "https://hickmet.com/cdn/shop/files/Website.jpg?v=1792164451"
+      ],
+      "availability": null
+    }
   }
 ]

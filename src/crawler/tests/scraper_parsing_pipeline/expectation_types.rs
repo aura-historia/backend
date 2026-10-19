@@ -36,6 +36,9 @@ pub struct NormalizedExpectationJson {
     pub description: Option<String>,
     pub price: Option<u64>,
     pub price_currency: Option<String>,
+    /// `true` when the listing advertises a price on request instead of an amount.
+    #[serde(default)]
+    pub price_on_request: bool,
     pub price_estimate_min: Option<u64>,
     pub price_estimate_min_currency: Option<String>,
     pub price_estimate_max: Option<u64>,
