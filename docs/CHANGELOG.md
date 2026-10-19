@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Edge request-body limit (#2154)
+
+- JSON request bodies up to the documented 1 MiB limit now reach the API through CloudFront. Bodies above 8 KiB, such as larger shipping profiles or ingestion batches, were previously rejected with an HTML `403` before authentication or validation.
+- Requests declaring a `Content-Length` above 1 MiB are rejected at the edge with `413` and the `BAD_BODY_VALUE` error body.
+
 ## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
 - The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.
