@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Unicode saved-search names (#2161)
+
+- Saved-search `name` limits now count Unicode characters, as documented. Names of up to 255 characters, including multibyte characters, are accepted on create and update instead of returning `500 SEARCH_FILTER_INTERNAL_ERROR`. Longer names are truncated to 255 characters.
+
 ## 2026-10-18 — Consistent entity freshness (#2032)
 
 - ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing, and each new value has millisecond precision. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.

@@ -10,7 +10,9 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::shipping_search::{InvalidShippingSearch, ShippingSearch};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::user_search_filter_name::{
+    MAX_USER_SEARCH_FILTER_NAME_CHARS, UserSearchFilterName,
+};
 use user_core::user_id::UserId;
 
 use localization::Language;
@@ -335,7 +337,7 @@ pub(crate) fn state(value: &str) -> Result<SearchFilterState, SearchFilterRowMap
     SearchFilterState::from_code(value).ok_or(SearchFilterRowMappingError::InvalidState)
 }
 pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
-    if v.len() > 255 {
+    if v.chars().count() > MAX_USER_SEARCH_FILTER_NAME_CHARS {
         Err(SearchFilterRowMappingError::NameTooLong)
     } else {
         Ok(v.into())
@@ -1379,6 +1381,24 @@ mod tests {
                 Err(SearchFilterRowMappingError::InvalidState)
             ));
         }
+    }
+
+    #[test]
+    fn should_accept_persisted_multibyte_name_at_max_length() {
+        let value = "ü".repeat(255);
+
+        match name(value.clone()) {
+            Ok(name) => assert_eq!(value, name.as_ref()),
+            Err(error) => panic!("valid persisted name must map: {error}"),
+        }
+    }
+
+    #[test]
+    fn should_reject_persisted_name_above_max_length() {
+        assert!(matches!(
+            name("ü".repeat(256)),
+            Err(SearchFilterRowMappingError::NameTooLong)
+        ));
     }
 
     #[test]
