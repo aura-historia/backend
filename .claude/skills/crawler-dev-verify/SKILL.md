@@ -11,10 +11,16 @@ and show, with log lines, database counts and captures, that the new behaviour a
 no new failure kind appears. Report what reproduced and what did not; never claim a change works
 because the build is green.
 
-This is the sibling of the local `crawler-soak-test` skill. A soak round observes unchanged code
-for 60–90 minutes on new shops; a verification run exercises one change for 15–40 minutes on
-known state. Reuse the soak scripts where they exist (`soak-status.ps1`, `log-summary.ps1`,
-`review-action.ps1`, `gen-demo-shops.ps1`).
+A verification run exercises one change for 15–40 minutes on known state; it is not a soak
+round, which observes unchanged code for 60–90 minutes on new shops. The helper scripts live in
+[`scripts/`](scripts/) and are PowerShell, run from the worktree root:
+
+| Script | Use |
+|---|---|
+| `gen-demo-shops.ps1 -Csv shops.csv -StartIndex <n>` | prints the two Rust arrays for the temporary `dev.rs` shop list |
+| `soak-status.ps1` | per-domain spider and scrape state, URL counts, pending reviews, LLM budget (read-only) |
+| `log-summary.ps1 -Log <jsonl>` | records by level and message, pass durations, LLM retries, spider outcomes |
+| `review-action.ps1 -ReviewId cr_… -Action show\|matrix\|approve\|reject\|needs-repair` | review console actions with the required `Origin` header |
 
 ## Scope rule
 
