@@ -1,8 +1,8 @@
 use crate::ports::{
     CompiledProductListingSearch, ListingSourceSummaryReader,
     ProductListingContentAssessmentReadError, ProductListingContentAssessmentReader,
-    ProductListingPriceFilterPlan, ProductListingSearchReadError, ProductListingSearchReadRequest,
-    ProductListingSearchReader, ProductListingUserStateReader,
+    ProductListingPriceFilterPlan, ProductListingSearchMode, ProductListingSearchReadError,
+    ProductListingSearchReadRequest, ProductListingSearchReader, ProductListingUserStateReader,
 };
 use crate::use_cases::queries::product_listing_summary_personalization::{
     ProductListingSummaryPersonalizationError, apply_product_user_states, attach_listing_sources,
@@ -158,6 +158,13 @@ pub enum SearchProductListingsError {
     ),
     #[error("contradictory geographic query or distance ordering")]
     InvalidGeographicQuery,
+    #[error("invalid product search continuation cursor")]
+    InvalidCursor,
+    #[error("query embedding failed for a hybrid search continuation")]
+    QueryEmbeddingFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product search query failed")]
     ProductListingSearchQueryFailed,
     #[error("product search read model is invalid")]
@@ -298,6 +305,28 @@ where
         if request.search.distance_query().is_some() && request.sort.is_some() {
             return Err(SearchProductListingsError::InvalidGeographicQuery);
         }
+        let embedding_query = hybrid_embedding_query(&request);
+        let sort_field = request
+            .sort
+            .map_or(SortProductListingField::Score, |sort| sort.sort);
+        let search_after = request
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.search_after.as_ref())
+            .map(|cursor| &cursor.search_after);
+        let continuation_mode = search_after
+            .map(|cursor| self.reader.continuation_mode(cursor, sort_field))
+            .transpose()?;
+        if continuation_mode == Some(ProductListingSearchMode::Hybrid) && embedding_query.is_none()
+        {
+            return Err(SearchProductListingsError::InvalidCursor);
+        }
+        // A continuation must keep the ranking that produced it, even after embeddings recover.
+        let embedding_query = if continuation_mode == Some(ProductListingSearchMode::Lexical) {
+            None
+        } else {
+            embedding_query
+        };
         let total_started = Instant::now();
         let valuation_at = OffsetDateTime::now_utc();
         let pinned_fx_rate_id = request.cursor.as_ref().and_then(|cursor| {
@@ -313,7 +342,6 @@ where
         .await?;
         let price_filter = compile_price_filter(snapshot, &request)?;
         let fx_rate_id = price_filter.fx_rate_id;
-        let embedding_query = hybrid_embedding_query(&request);
         let read_request = ProductListingSearchReadRequest {
             compiled_search: CompiledProductListingSearch::new(request.search, price_filter)
                 .map_err(|source| SearchProductListingsError::FxRateSnapshotInvalid {
@@ -331,13 +359,20 @@ where
                 match self.embeddings.embed_search_query(&query).await {
                     Ok(embedding) => {
                         record_search_stage("query_embedding", embedding_started, "success");
+
                         measure_search_stage(
                             "opensearch_query_hybrid",
                             self.reader.search_hybrid(&read_request, embedding.values()),
                         )
                         .await?
                     }
-                    Err(_) => {
+                    Err(source) => {
+                        if continuation_mode == Some(ProductListingSearchMode::Hybrid) {
+                            record_search_stage("query_embedding", embedding_started, "failure");
+                            return Err(SearchProductListingsError::QueryEmbeddingFailed {
+                                source: box_error(source),
+                            });
+                        }
                         record_search_stage("query_embedding", embedding_started, "fallback");
                         measure_search_stage(
                             "opensearch_query_embedding_fallback",
@@ -669,6 +704,7 @@ fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::
 impl From<ProductListingSearchReadError> for SearchProductListingsError {
     fn from(error: ProductListingSearchReadError) -> Self {
         match error {
+            ProductListingSearchReadError::InvalidCursor => Self::InvalidCursor,
             ProductListingSearchReadError::ProductListingSearchQueryFailed => {
                 Self::ProductListingSearchQueryFailed
             }
@@ -768,6 +804,8 @@ mod tests {
         embedding_result: Option<Result<EmbeddingVector, EmbeddingError>>,
         embedding_queries: Vec<String>,
         used_hybrid_search: bool,
+        continuation_mode: Option<Result<ProductListingSearchMode, ProductListingSearchReadError>>,
+        continuation_checks: Vec<(Value, SortProductListingField)>,
         user_states_result: Option<
             Result<
                 HashMap<ProductListingId, ProductListingUserState>,
@@ -931,6 +969,21 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingSearchReader for FakeSearchReader {
+        fn continuation_mode(
+            &self,
+            search_after: &Value,
+            sort_field: SortProductListingField,
+        ) -> Result<ProductListingSearchMode, ProductListingSearchReadError> {
+            let mut state = lock_state(&self.state);
+            state
+                .continuation_checks
+                .push((search_after.clone(), sort_field));
+            state
+                .continuation_mode
+                .take()
+                .unwrap_or(Ok(ProductListingSearchMode::Lexical))
+        }
+
         async fn search(
             &self,
             request: &ProductListingSearchReadRequest,
@@ -1027,6 +1080,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingSearchReader for RepeatableSearchReader {
+        fn continuation_mode(
+            &self,
+            _: &Value,
+            _: SortProductListingField,
+        ) -> Result<ProductListingSearchMode, ProductListingSearchReadError> {
+            Ok(ProductListingSearchMode::Lexical)
+        }
+
         async fn search(
             &self,
             _request: &ProductListingSearchReadRequest,
@@ -2328,6 +2389,219 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_reject_invalid_cursors_before_reading_dependencies()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for mut request in [request(), request_with_text_query()?] {
+            let state = state();
+            lock_state(&state).continuation_mode =
+                Some(Err(ProductListingSearchReadError::InvalidCursor));
+            lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(None));
+            let search_after = serde_json::json!({});
+            request.cursor = Some(Cursor {
+                size: 21,
+                search_after: Some(ProductListingSearchCursor {
+                    fx_rate_id: FxRateId::new(),
+                    search_after: search_after.clone(),
+                }),
+            });
+
+            assert!(matches!(
+                handler(&state).execute(&context(), request).await,
+                Err(SearchProductListingsError::InvalidCursor)
+            ));
+            let state = lock_state(&state);
+            assert_eq!(
+                vec![(search_after, SortProductListingField::Score)],
+                state.continuation_checks
+            );
+            assert!(state.fx_rate_snapshot_by_id.is_some());
+            assert!(state.embedding_queries.is_empty());
+            assert!(state.read_requests.is_empty());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_select_the_search_path_from_the_validated_continuation_mode()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for sort in [
+            None,
+            Some(SortProductListingField::Score),
+            Some(SortProductListingField::Created),
+            Some(SortProductListingField::Updated),
+        ] {
+            for (text_query, distance_order) in [(false, false), (true, false), (true, true)] {
+                if distance_order && sort.is_some() {
+                    continue;
+                }
+                for mode in [
+                    ProductListingSearchMode::Lexical,
+                    ProductListingSearchMode::Hybrid,
+                ] {
+                    let state = state();
+                    let snapshot = snapshot()?;
+                    lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(Some(snapshot.clone())));
+                    lock_state(&state).continuation_mode = Some(Ok(mode));
+                    let mut request = if text_query {
+                        request_with_text_query()?
+                    } else {
+                        request()
+                    };
+                    request.sort = sort.map(|sort| Sort {
+                        sort,
+                        order: domain_primitives::sort::SortOrder::Desc,
+                    });
+                    if distance_order {
+                        request.search.geography =
+                            Some(geo::core::discovery::GeographicQuery::new(
+                                geo::reference::ReferenceRelease::CURRENT,
+                                Default::default(),
+                                Default::default(),
+                                Some(geo::GeoPoint::new(48.137, 11.575)?),
+                                None,
+                                Default::default(),
+                                Some(geo::core::discovery::DistanceOrder::Asc),
+                            )?);
+                    }
+                    let hybrid_allowed = hybrid_embedding_query(&request).is_some();
+                    let search_after = serde_json::json!("adapter-owned-token");
+                    request.cursor = Some(Cursor {
+                        size: 21,
+                        search_after: Some(ProductListingSearchCursor {
+                            fx_rate_id: snapshot.id(),
+                            search_after: search_after.clone(),
+                        }),
+                    });
+
+                    let result = handler(&state).execute(&context(), request).await;
+
+                    let state = lock_state(&state);
+                    assert_eq!(
+                        vec![(
+                            search_after.clone(),
+                            sort.unwrap_or(SortProductListingField::Score)
+                        )],
+                        state.continuation_checks
+                    );
+                    if mode == ProductListingSearchMode::Hybrid && !hybrid_allowed {
+                        assert!(matches!(
+                            result,
+                            Err(SearchProductListingsError::InvalidCursor)
+                        ));
+                        assert!(state.fx_rate_snapshot_by_id.is_some());
+                        assert!(state.embedding_queries.is_empty());
+                        assert!(state.read_requests.is_empty());
+                    } else {
+                        result?;
+                        assert_eq!(1, state.read_requests.len());
+                        assert_eq!(
+                            mode == ProductListingSearchMode::Hybrid,
+                            state.used_hybrid_search
+                        );
+                        assert_eq!(
+                            usize::from(mode == ProductListingSearchMode::Hybrid),
+                            state.embedding_queries.len()
+                        );
+                        assert_eq!(
+                            Some(&search_after),
+                            state.read_requests[0]
+                                .cursor
+                                .as_ref()
+                                .and_then(|c| c.search_after.as_ref())
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_lexical_continuations_lexical_after_embeddings_recover()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let snapshot = snapshot()?;
+        let mut first_page = search_result()?;
+        first_page.cursor.search_after = Some(serde_json::json!([
+            1.25,
+            first_page.items[0].product_listing_id
+        ]));
+        lock_state(&state).fx_rate_snapshot = Some(Ok(Some(snapshot.clone())));
+        lock_state(&state).search_result = Some(Ok(first_page));
+        lock_state(&state).embedding_result = Some(Err(EmbeddingError::InvalidInput {
+            reason: "test embedding outage",
+        }));
+        let first = handler(&state)
+            .execute(&context(), request_with_text_query()?)
+            .await?;
+        let mut next_request = request_with_text_query()?;
+        next_request.cursor = Some(first.cursor);
+        lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(Some(snapshot)));
+
+        handler(&state).execute(&context(), next_request).await?;
+
+        let state = lock_state(&state);
+        assert_eq!(1, state.embedding_queries.len());
+        assert_eq!(2, state.read_requests.len());
+        assert!(!state.used_hybrid_search);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_preserve_hybrid_continuations_when_embeddings_fail_and_then_recover()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let snapshot = snapshot()?;
+        let mut first_page = search_result()?;
+        first_page.cursor.search_after = Some(serde_json::json!([1.25]));
+        lock_state(&state).fx_rate_snapshot = Some(Ok(Some(snapshot.clone())));
+        lock_state(&state).hybrid_search_result = Some(Ok(first_page));
+        let first = handler(&state)
+            .execute(&context(), request_with_text_query()?)
+            .await?;
+        let mut next_request = request_with_text_query()?;
+        next_request.cursor = Some(first.cursor);
+        lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(Some(snapshot.clone())));
+        lock_state(&state).continuation_mode = Some(Ok(ProductListingSearchMode::Hybrid));
+        lock_state(&state).embedding_result = Some(Err(EmbeddingError::InvalidInput {
+            reason: "test embedding outage",
+        }));
+
+        let error = handler(&state)
+            .execute(&context(), next_request.clone())
+            .await
+            .expect_err("hybrid continuation needs embeddings");
+
+        let SearchProductListingsError::QueryEmbeddingFailed { source } = error else {
+            panic!("expected query embedding failure")
+        };
+        assert!(matches!(
+            source.downcast_ref::<EmbeddingError>(),
+            Some(EmbeddingError::InvalidInput {
+                reason: "test embedding outage"
+            })
+        ));
+        assert_eq!(1, lock_state(&state).read_requests.len());
+        lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(Some(snapshot)));
+        lock_state(&state).continuation_mode = Some(Ok(ProductListingSearchMode::Hybrid));
+
+        handler(&state).execute(&context(), next_request).await?;
+
+        let state = lock_state(&state);
+        assert_eq!(3, state.embedding_queries.len());
+        assert_eq!(2, state.read_requests.len());
+        assert!(state.used_hybrid_search);
+        assert_eq!(
+            Some(&serde_json::json!([1.25])),
+            state.read_requests[1]
+                .cursor
+                .as_ref()
+                .and_then(|c| c.search_after.as_ref())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_keep_cursor_fx_snapshot_for_the_next_page()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
@@ -2342,7 +2616,7 @@ mod tests {
             size: 21,
             search_after: Some(ProductListingSearchCursor {
                 fx_rate_id: snapshot.id(),
-                search_after: Value::Array(vec![Value::String("previous".to_owned())]),
+                search_after: serde_json::json!([1.0, "previous"]),
             }),
         });
 
@@ -2357,7 +2631,7 @@ mod tests {
         assert!(matches!(
             state.read_requests.as_slice(),
             [request] if request.cursor.as_ref().and_then(|cursor| cursor.search_after.as_ref())
-                == Some(&Value::Array(vec![Value::String("previous".to_owned())]))
+                == Some(&serde_json::json!([1.0, "previous"]))
                 && request.compiled_search.price_filter_plan.fx_rate_id == snapshot.id()
         ));
         Ok(())
@@ -2371,7 +2645,7 @@ mod tests {
             size: 21,
             search_after: Some(ProductListingSearchCursor {
                 fx_rate_id: FxRateId::new(),
-                search_after: Value::Array(Vec::new()),
+                search_after: serde_json::json!([1.0, "previous"]),
             }),
         });
 
@@ -2564,6 +2838,10 @@ mod tests {
 
     #[test]
     fn should_map_all_search_products_read_errors() {
+        assert!(matches!(
+            SearchProductListingsError::from(ProductListingSearchReadError::InvalidCursor),
+            SearchProductListingsError::InvalidCursor
+        ));
         assert!(matches!(
             SearchProductListingsError::from(
                 ProductListingSearchReadError::ProductListingSearchQueryFailed
