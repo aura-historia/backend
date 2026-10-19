@@ -26,6 +26,11 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
+pub use commands::refresh_public_catalogue_overview::{
+    PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE, PublicCatalogueOverviewRefresh,
+    RefreshPublicCatalogueOverviewError, RefreshPublicCatalogueOverviewHandler,
+    RefreshPublicCatalogueOverviewUseCase,
+};
 
 pub use commands::process_product_listing_ingestion::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
@@ -97,6 +102,10 @@ pub use queries::get_product_listing_history::{
     ProductListingDiscoveryHistory, ProductListingHistoryChange, ProductListingHistoryChanges,
     ProductListingHistoryEntry, ProductListingHistoryEntryKind, ProductListingHistoryLookup,
     ProductListingHistoryPrice, ProductListingHistoryPriceDisplay, ProductListingHistoryPricing,
+};
+pub use queries::get_public_catalogue_overview::{
+    GetPublicCatalogueOverviewError, GetPublicCatalogueOverviewHandler,
+    GetPublicCatalogueOverviewUseCase, PublicCatalogueOverview,
 };
 pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsError, GetSimilarProductListingsHandler,

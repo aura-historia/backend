@@ -63,9 +63,9 @@ use party_service::use_cases::queries::list_party_location_managers::ListPartyLo
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase,
-    GetProductListingUseCase, GetSimilarProductListingsUseCase, SearchProductListingsUseCase,
-    SubmitPartnerProductListingIngestionUseCase, UpdateProductListingUseCase,
-    UpsertProductListingUseCase, WithdrawProductListingUseCase,
+    GetProductListingUseCase, GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
+    SearchProductListingsUseCase, SubmitPartnerProductListingIngestionUseCase,
+    UpdateProductListingUseCase, UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
 use product_listing_service::use_cases::{
     commands::admin_product_listings::{
@@ -147,6 +147,7 @@ pub struct AppState {
     pub(crate) async_partner_product_listings: Option<AsyncPartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) admin_overview: Option<AdminOverviewState>,
+    pub(crate) public_overview: Option<PublicOverviewState>,
     pub(crate) parties: Option<PartiesState>,
     pub(crate) party_locations: Option<PartyLocationsState>,
     pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
@@ -198,6 +199,7 @@ impl AppState {
             async_partner_product_listings: None,
             listing_sources: None,
             admin_overview: None,
+            public_overview: None,
             parties: None,
             party_locations: None,
             source_location_defaults: None,
@@ -261,6 +263,11 @@ impl AppState {
 
     pub fn with_admin_overview(mut self, admin_overview: AdminOverviewState) -> Self {
         self.admin_overview = Some(admin_overview);
+        self
+    }
+
+    pub fn with_public_overview(mut self, public_overview: PublicOverviewState) -> Self {
+        self.public_overview = Some(public_overview);
         self
     }
 
@@ -432,6 +439,17 @@ impl AdminOverviewState {
             get_overview,
             authenticator,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct PublicOverviewState {
+    pub(crate) get_overview: Arc<dyn GetPublicCatalogueOverviewUseCase>,
+}
+
+impl PublicOverviewState {
+    pub fn new(get_overview: Arc<dyn GetPublicCatalogueOverviewUseCase>) -> Self {
+        Self { get_overview }
     }
 }
 

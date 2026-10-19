@@ -67,7 +67,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
     postgres: true,
-    timeoutSeconds: 120,
+    // The hourly run includes the due public catalogue overview refresh (480 s statement timeout).
+    timeoutSeconds: 540,
     environment: () => ({
       EXPIRY_CLEANUP_BATCH_SIZE: "100",
     }),
@@ -163,10 +164,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
     environment: (context) => ({
-      VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      VERTEX_AI_MODEL: ssmValue(`/vertex-ai/${context.config.stage}/model`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      ANTHROPIC_API_KEY: ssmValue(`/anthropic/${context.config.stage}/api-key`),
     }),
   },
   notificationDelivery: {

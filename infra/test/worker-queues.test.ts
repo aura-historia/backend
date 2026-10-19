@@ -576,7 +576,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(JSON.stringify(statements)).not.toMatch(/sqs:SendMessage|es:|ses:|s3:/);
   });
 
-  test("deploys the ProductListing translation Lambda with its dedicated queue, PostgreSQL, and Vertex LLM configuration only", () => {
+  test("deploys the ProductListing translation Lambda with its dedicated queue, PostgreSQL, and Anthropic API key only", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     const mapping = mappings.find((candidate) =>
       JSON.stringify(candidate.Properties.FunctionName).includes("ProductTranslationVersion"),
@@ -600,9 +600,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+      ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+    expect(functions[0].Properties.Environment.Variables.ANTHROPIC_API_KEY)
+      .toBe(`{{resolve:ssm:/anthropic/${stage}/api-key}}`);
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|GOOGLE|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
     const translationPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("ProductTranslationLambdaServiceRole"));

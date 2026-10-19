@@ -93,6 +93,7 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing collection | 60 s |
 | Product-listing ID/by-slug detail | 120 s |
 | Product-listing history and ready similar results | 300 s |
+| Public catalogue overview | 900 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
 responses containing advertised shipping cap this TTL at referenced geographic provider
@@ -103,9 +104,10 @@ The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors use this policy; generic `/api/*` and default
-behaviors use `CachingDisabled`. Wildcard expansion requires route/cache review and
-tests. Do not add token-derived keys, cookie partitions or an edge auth function.
+Only reviewed discovery path behaviors, including the exact `/api/v1/overview` path, use
+this policy; generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard
+expansion requires route/cache review and tests. Do not add token-derived keys, cookie
+partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.

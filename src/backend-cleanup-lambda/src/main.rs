@@ -1,4 +1,6 @@
-use backend_cleanup_lambda::{cleanup_batch_size_from_env, run_cleanup};
+use backend_cleanup_lambda::{
+    cleanup_batch_size_from_env, run_cleanup, run_public_catalogue_overview_refresh,
+};
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
@@ -24,10 +26,12 @@ use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxPublicCatalogueOverviewRefresherFactory,
 };
 use product_listing_service::geography::{
     ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
 };
+use product_listing_service::use_cases::RefreshPublicCatalogueOverviewHandler;
 use search_filter_postgres::{
     SqlxPendingSavedSearchNotificationReader, SqlxSearchFilterMatchNotificationSourceReaderFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
@@ -110,8 +114,12 @@ async fn main() -> Result<(), Error> {
                             )),
                         ),
                         MaintainSavedSearchDigestsHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxSavedSearchDigestStoreFactory,
+                        ),
+                        RefreshPublicCatalogueOverviewHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxPublicCatalogueOverviewRefresherFactory::new(),
                         ),
                     ))
                 })
@@ -130,6 +138,8 @@ async fn main() -> Result<(), Error> {
             }
             let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
             let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
+            // Last: when due, the full aggregate must not delay bounded maintenance work.
+            let overview_refresh = run_public_catalogue_overview_refresh(&cleanup.value().6).await;
             cleanup_result?;
             let failed_notifications = notification_recovery?;
             digest_recovery?;
@@ -137,6 +147,7 @@ async fn main() -> Result<(), Error> {
                 return Err(Error::from("saved-search notification recovery incomplete"));
             }
             recovery_result?;
+            overview_refresh?;
             Ok::<(), Error>(())
         }
     }))
