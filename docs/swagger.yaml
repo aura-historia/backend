@@ -3936,7 +3936,7 @@ paths:
 
         The number of allowed search filters and the set of usable search filter fields depend on the user's tier:
 
-        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`.
+        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`.
         Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
         - `PRO`: Up to 5 search filters. All filter fields are allowed.
@@ -4361,7 +4361,7 @@ paths:
 
         The set of usable search filter fields depends on the user's tier:
 
-        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`. Other fields are
+        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`. Other fields are
         forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
         - `PRO`: All filter fields are allowed.
@@ -21051,7 +21051,7 @@ components:
           minLength: 1
           maxLength: 1000
           nullable: true
-        excludeProductId:
+        excludeProductListingId:
           type: array
           items:
             type: string
@@ -22855,7 +22855,7 @@ components:
         max search filters, allowed search filter fields).
 
         - `FREE`: Default tier for all users. Allows up to 20 watchlist entries, up to 1 search filter (limited to `productQuery`,
-        `price`, `state`, `excludeProductId`, and `lifecycle` filter fields), and up to 10 product matches per filter.
+        `price`, `state`, `excludeProductListingId`, and `lifecycle` filter fields), and up to 10 product matches per filter.
 
         - `PRO`: Premium tier. Allows up to 100 watchlist entries, up to 5 search filters with access to all filter fields,
         and unlimited product matches per filter.

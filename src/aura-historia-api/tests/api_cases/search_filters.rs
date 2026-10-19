@@ -720,7 +720,7 @@ async fn should_accept_typed_object_ids_in_search_filter_body_and_response() {
     let product_listing_id = ProductListingId::new();
     let mut body = search_filter_body();
     body["search"]["listingSourceId"] = serde_json::json!([listing_source_id]);
-    body["search"]["excludeProductId"] = serde_json::json!([product_listing_id]);
+    body["search"]["excludeProductListingId"] = serde_json::json!([product_listing_id]);
 
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
@@ -742,7 +742,7 @@ async fn should_accept_typed_object_ids_in_search_filter_body_and_response() {
     );
     assert_eq!(
         serde_json::json!([product_listing_id]),
-        response_body["search"]["excludeProductId"]
+        response_body["search"]["excludeProductListingId"]
     );
 }
 
@@ -757,9 +757,15 @@ async fn should_reject_noncanonical_object_ids_in_search_filter_body() {
         ("listingSourceId", ProductListingId::new().to_string()),
         ("listingSourceId", listing_source_id.as_uuid().to_string()),
         ("listingSourceId", "ls_not-a-typeid".to_owned()),
-        ("excludeProductId", ListingSourceId::new().to_string()),
-        ("excludeProductId", product_listing_id.as_uuid().to_string()),
-        ("excludeProductId", "pl_not-a-typeid".to_owned()),
+        (
+            "excludeProductListingId",
+            ListingSourceId::new().to_string(),
+        ),
+        (
+            "excludeProductListingId",
+            product_listing_id.as_uuid().to_string(),
+        ),
+        ("excludeProductListingId", "pl_not-a-typeid".to_owned()),
     ] {
         let mut body = search_filter_body();
         body["search"][field] = serde_json::json!([invalid_id]);
