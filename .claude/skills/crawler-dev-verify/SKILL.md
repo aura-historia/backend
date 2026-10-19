@@ -12,15 +12,18 @@ no new failure kind appears. Report what reproduced and what did not; never clai
 because the build is green.
 
 A verification run exercises one change for 15–40 minutes on known state; it is not a soak
-round, which observes unchanged code for 60–90 minutes on new shops. The helper scripts live in
-[`scripts/`](scripts/) and are PowerShell, run from the worktree root:
+round, which observes unchanged code for 60–90 minutes on new shops. The skill ships no helper
+scripts on purpose: write the one-off queries and log filters for the platform you are on
+(`psql` through `docker exec`, Python for the JSON files, curl for live pages) in the scratchpad,
+never in the repo. The evidence sources are:
 
-| Script | Use |
-|---|---|
-| `gen-demo-shops.ps1 -Csv shops.csv -StartIndex <n>` | prints the two Rust arrays for the temporary `dev.rs` shop list |
-| `soak-status.ps1` | per-domain spider and scrape state, URL counts, pending reviews, LLM budget (read-only) |
-| `log-summary.ps1 -Log <jsonl>` | records by level and message, pass durations, LLM retries, spider outcomes |
-| `review-action.ps1 -ReviewId cr_… -Action show\|matrix\|approve\|reject\|needs-repair` | review console actions with the required `Origin` header |
+| Source | Where | What it answers |
+|---|---|---|
+| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d crawler_demo` | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
+| JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
+| Review console | `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin: http://127.0.0.1:7878` header | candidates, the deterministic gate on live seed pages, review decisions |
+| Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was extracted per page |
+| Live pages | curl with the crawler user agent (`AuraHistoriaBot/1.0 (+https://aura-historia.com)`) | whether a selector is right for a page variant |
 
 ## Scope rule
 
@@ -48,9 +51,10 @@ it to the user as a ticket or a separate decision.
    is created, the page is captured with the field empty.
 2. **Register the shops.** The committed `dev.rs` lists three demo shops that are not in the
    database. Replace them temporarily with the shops whose state you need, using the IDs already
-   in `listing_sources` (`...639f{index:02x}`): `gen-demo-shops.ps1` prints the arrays, and the
-   ID format line must be `{index:02x}`. Mark the edit `TEMPORARY`, never commit it, and revert
-   with `git checkout -- src/crawler/src/bin/dev.rs` at the end. Registration disables listing
+   in `listing_sources` (`...639f{index:02x}`): edit the `(index, name, slug)` tuple array, the
+   domain list zipped in `main()`, and the ID format line, which must read `{index:02x}`. Mark
+   the edit `TEMPORARY`, never commit it, and revert with
+   `git checkout -- src/crawler/src/bin/dev.rs` at the end. Registration disables listing
    sources that are not in the list, so include every source the run needs.
 3. **Prepare the state and back it up first.** Copy every row you will change to the scratchpad
    (`psql -At` with an explicit separator) and write the restore SQL before the run:
