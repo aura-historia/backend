@@ -482,6 +482,7 @@ export class BackendHttpApi extends Construct {
         Description: `Aura Historia ${props.stageName} API CloudFront Web ACL`,
         MetricName: `api-cloudfront-${props.stageName}`,
         Name: `application-${props.stageName}-api-cloudfront-web-acl`,
+        CustomResponseBodies: cloudFrontWebAclCustomResponseBodies(),
         Region: "us-east-1",
         Rules: cloudFrontFreePlanWebAclRules(),
         Scope: "CLOUDFRONT",
@@ -492,17 +493,74 @@ export class BackendHttpApi extends Construct {
   }
 }
 
+/** Edge request-body limit; must equal the Axum whole-request limit (`MAX_REQUEST_BODY_BYTES`). */
+export const API_MAX_REQUEST_BODY_BYTES = 1_048_576;
+
+/**
+ * Matches decimal `Content-Length` values strictly greater than `API_MAX_REQUEST_BODY_BYTES`:
+ * eight or more digits, `2000000`-`9999999`, then `1048577`-`1999999` by decreasing prefix.
+ * WAF cannot compare header values numerically or inspect bodies beyond its inspection window.
+ */
+export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
+  "^0*(?:[1-9][0-9]{7,}|[2-9][0-9]{6}|1[1-9][0-9]{5}|10[5-9][0-9]{4}|1049[0-9]{3}|1048[6-9][0-9]{2}|10485[89][0-9]|104857[7-9])$";
+
+const PAYLOAD_TOO_LARGE_RESPONSE_BODY_KEY = "payload-too-large";
+
+function cloudFrontWebAclCustomResponseBodies(): Record<string, unknown> {
+  return {
+    [PAYLOAD_TOO_LARGE_RESPONSE_BODY_KEY]: {
+      Content: JSON.stringify({ status: 413, title: "Payload Too Large", error: "BAD_BODY_VALUE" }),
+      ContentType: "APPLICATION_JSON",
+    },
+  };
+}
+
 function cloudFrontFreePlanWebAclRules(): unknown[] {
   return [
     cloudFrontManagedRule("AWSManagedRulesAmazonIpReputationList", 0),
+    // SizeRestrictions_BODY blocks at 8 KiB, below contract-valid JSON bodies; the
+    // request-body limit rule below enforces the application limit instead.
     cloudFrontManagedRule("AWSManagedRulesCommonRuleSet", 1, [
       {
         ActionToUse: { Count: {} },
         Name: "NoUserAgent_HEADER",
       },
+      {
+        ActionToUse: { Count: {} },
+        Name: "SizeRestrictions_BODY",
+      },
     ]),
     cloudFrontManagedRule("AWSManagedRulesKnownBadInputsRuleSet", 2),
+    cloudFrontRequestBodyLimitRule(3),
   ];
+}
+
+function cloudFrontRequestBodyLimitRule(priority: number): unknown {
+  const name = "API-RequestBodyLimit";
+  return {
+    Action: {
+      Block: {
+        CustomResponse: {
+          CustomResponseBodyKey: PAYLOAD_TOO_LARGE_RESPONSE_BODY_KEY,
+          ResponseCode: 413,
+        },
+      },
+    },
+    Name: name,
+    Priority: priority,
+    Statement: {
+      RegexMatchStatement: {
+        FieldToMatch: { SingleHeader: { Name: "content-length" } },
+        RegexString: API_OVERSIZED_CONTENT_LENGTH_PATTERN,
+        TextTransformations: [{ Priority: 0, Type: "NONE" }],
+      },
+    },
+    VisibilityConfig: {
+      CloudWatchMetricsEnabled: true,
+      MetricName: name,
+      SampledRequestsEnabled: true,
+    },
+  };
 }
 
 function cloudFrontManagedRule(name: string, priority: number, ruleActionOverrides?: unknown[]): unknown {

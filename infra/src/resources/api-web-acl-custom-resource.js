@@ -36,6 +36,7 @@ exports.handler = async function (event, context) {
 
 function normalizedProperties(props) {
     return {
+        customResponseBodies: props.CustomResponseBodies || {},
         description: props.Description || "",
         metricName: props.MetricName,
         name: props.Name,
@@ -61,7 +62,7 @@ function normalizeWebAclValue(key, value) {
     }
 
     if (typeof value === "string") {
-        if (key === "Priority" && /^-?\d+$/.test(value)) {
+        if ((key === "Priority" || key === "ResponseCode") && /^-?\d+$/.test(value)) {
             return Number(value);
         }
         if ((key === "CloudWatchMetricsEnabled" || key === "SampledRequestsEnabled") && (value === "true" || value === "false")) {
@@ -147,6 +148,7 @@ async function getWebAcl(client, props, id) {
 
 function webAclInput(props) {
     return {
+        ...(Object.keys(props.customResponseBodies).length > 0 ? { CustomResponseBodies: props.customResponseBodies } : {}),
         DefaultAction: { Allow: {} },
         Description: props.description,
         Name: props.name,

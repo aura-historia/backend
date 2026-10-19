@@ -65,8 +65,17 @@ does not opt an operation into replay; preserve the [keyless creation exceptions
   AllViewer forwards `Host`; origin TLS and custom-domain mapping must accept it.
   The default execute-api endpoint is disabled when the custom domain is configured.
 - Retain CloudFront-scoped AWS IP reputation, common-rule-set and known-bad-input
-  rules; `NoUserAgent_HEADER` is count-only. There is no additional WAF rate rule.
-  Gateway stage throttles shape requests, not database or Lambda concurrency/capacity.
+  rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
+  additional WAF rate rule. Gateway stage throttles shape requests, not database or
+  Lambda concurrency/capacity.
+- Edge and application body limits must agree. The managed 8 KiB body-size rule is
+  below contract-valid JSON bodies, so a custom WAF rule instead blocks a declared
+  `Content-Length` above the Axum whole-request limit with the API's JSON `413`
+  `BAD_BODY_VALUE`; [`api-web-acl.test.ts`](../infra/test/api-web-acl.test.ts) pins
+  the two limits together. WAF cannot inspect beyond its body-inspection window or
+  bound undeclared lengths, so Axum remains the authoritative limit, and managed body
+  rules evaluate only the inspected prefix. Typed request validation remains the
+  control for the rest of the body. Stay within the CloudFront plan's WAF rule quota.
 
 ## Selective anonymous discovery caching
 
@@ -115,7 +124,9 @@ Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), 
 3. Review the actual diff and deployed API version/`live` alias, route catalog,
    origin Host/TLS, WAF and forwarding. Probe the approved full chain before DNS:
    health/readiness, anonymous and invalid optional bearers, allowed/denied protected
-   Cognito/Aura calls, OAuth, CORS, signed bodies and cache/header isolation. Search
+   Cognito/Aura calls, OAuth, CORS, signed bodies, a valid JSON body above 16 KiB
+   reaching validation, an oversized `Content-Length` returning JSON `413`, and
+   cache/header isolation. Search
    readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
    Keep credentials and signed payloads out of logs; omitted checks are not passes.
 4. With approval and successful probes, move external DNS and affected frontend/provider
