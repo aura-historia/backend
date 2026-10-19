@@ -748,6 +748,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_excluded_product_listing_ids() -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+        let first = ProductListingId::new();
+        let second = ProductListingId::new();
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings?excludeProductListingId={first}&excludeProductListingId={second}"
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        let calls = lock(&calls);
+        let excluded = &calls[0].1.search.exclude_product_listing_id_query;
+        assert_eq!(2, excluded.len());
+        assert!(excluded.contains(&first));
+        assert!(excluded.contains(&second));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_excluded_product_listing_id()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings?excludeProductListingId={}",
+                    ListingSourceId::new()
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert!(lock(&calls).is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_price_sort() -> Result<(), Box<dyn std::error::Error>> {
         let (app, calls) = app();
 
