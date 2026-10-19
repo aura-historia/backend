@@ -18410,6 +18410,7 @@ components:
       - RON
       - MXN
       - THB
+      - ARS
     ShippingMoneyData:
       type: object
       additionalProperties: false
