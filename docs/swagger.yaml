@@ -3463,7 +3463,7 @@ paths:
         - name: excludeProductId
           in: query
           required: false
-          description: Optional product IDs to exclude from results.
+          description: Optional ProductListing IDs (strict `pl_` TypeIDs) to exclude from results and totals.
           style: form
           explode: true
           schema:

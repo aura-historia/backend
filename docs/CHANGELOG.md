@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Search `excludeProductId` query parameter (#2155)
+
+- `GET /api/v1/product-listings` now honours the documented `excludeProductId` query parameter: the supplied listings are removed from results and `total`. Previously it was ignored and only the undocumented `excludeProductListingId` worked; that name remains accepted for compatibility. Values must be strict `pl_` TypeIDs; invalid values return `400 INVALID_OBJECT_ID` with `excludeProductId` as the query field.
+
 ## 2026-10-18 — Consistent entity freshness (#2032)
 
 - ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing, and each new value has millisecond precision. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.

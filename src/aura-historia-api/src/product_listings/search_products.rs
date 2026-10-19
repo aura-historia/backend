@@ -55,7 +55,11 @@ struct ProductListingSearchData {
     product_listing_query: Vec<TextQuery<1>>,
     #[serde(default)]
     enhanced_search_description: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        rename = "excludeProductId",
+        alias = "excludeProductListingId"
+    )]
     exclude_product_listing_id: HashSet<String>,
     #[serde(default)]
     listing_source_id: HashSet<String>,
@@ -150,7 +154,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
                 })?,
             exclude_product_listing_id_query: parse_query_object_ids::<ProductListingId>(
                 data.exclude_product_listing_id,
-                "excludeProductListingId",
+                "excludeProductId",
                 "ProductListing",
             )?
             .into(),
@@ -691,6 +695,51 @@ mod tests {
             }),
             calls[0].1.search.availability_query.as_ref()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_exclude_documented_and_legacy_product_id_query()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let first = ProductListingId::new();
+        let second = ProductListingId::new();
+        for query in [
+            format!("excludeProductId={first}&excludeProductId={second}"),
+            format!("excludeProductListingId={first}&excludeProductListingId={second}"),
+        ] {
+            let (app, calls) = app();
+            let response = app
+                .oneshot(
+                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
+                )
+                .await?;
+
+            assert_eq!(StatusCode::OK, response.status());
+            let calls = lock(&calls);
+            let excluded = &calls[0].1.search.exclude_product_listing_id_query;
+            assert_eq!(2, excluded.len());
+            assert!(excluded.contains(&first));
+            assert!(excluded.contains(&second));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_excluded_product_id() -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings?excludeProductId={}",
+                    ListingSourceId::new()
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert!(lock(&calls).is_empty());
         Ok(())
     }
 
