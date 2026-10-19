@@ -163,10 +163,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
     environment: (context) => ({
-      VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      VERTEX_AI_MODEL: ssmValue(`/vertex-ai/${context.config.stage}/model`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      ANTHROPIC_API_KEY: ssmValue(`/anthropic/${context.config.stage}/api-key`),
     }),
   },
   notificationDelivery: {
