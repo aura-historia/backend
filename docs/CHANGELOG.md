@@ -8,6 +8,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - Every top-level PATCH field accepts `null` as an unchanged value, including `name`, `notifications`, `state`, `search` and `acceptShippingDestination`. Nested search criteria retain their documented clearing rules.
 - FREE saved searches reject geography and shipping criteria with `SEARCH_FILTER_RESTRICTED_FEATURE` on creation, addition or activation. Existing affected FREE filters become inactive with their criteria retained. PRO and ULTIMATE allow both predicates in full. Inactive filters can retain or clear existing restricted criteria.
 
+## 2026-10-19 — CORS-exposed trace headers (#2159)
+
+- Browser clients can now read the `X-Request-Id` and `X-Correlation-Id` response headers on uncached API routes, as documented. API Gateway previously exposed only `Idempotency-Key` through CORS. The six cache-enabled discovery behaviors still remove both trace headers at CloudFront.
+
 ## 2026-10-19 — Cognito account deletion (#2170)
 
 - Self-service and administrator account deletion now durably request Cognito profile removal in the account deletion transaction. Backend credentials remain immediately invalidated; HTTP `204` confirms business deletion while provider removal retries asynchronously.
