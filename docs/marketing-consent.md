@@ -4,6 +4,7 @@ This document owns consent semantics and integration-specific safety/recovery ru
 [OpenAPI](swagger.yaml) owns HTTP shapes and errors; [event flow](events/flow.md) owns
 CDC routing; [infrastructure](infra.md) owns deployment. Schema, state-machine mechanics,
 payloads and configuration names belong in code, migrations and tests.
+Account removal and Cognito identity recovery rules belong in [account lifecycle](account-lifecycle.md).
 
 ## Authority and scope
 

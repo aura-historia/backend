@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Cognito account deletion (#2170)
+
+- Self-service and administrator account deletion now durably request Cognito profile removal in the account deletion transaction. Backend credentials remain immediately invalidated; HTTP `204` confirms business deletion while provider removal retries asynchronously.
+- The signup address becomes available after provider removal. A new signup creates a new account; deleted identity fences reject delayed registration callbacks. Minimal identity metadata is retained for replay protection and provider retry reconciliation. See [account lifecycle](account-lifecycle.md).
+
 ## 2026-10-19 — ARS shipping currency (#2160)
 
 - The OpenAPI `ShippingCurrencyCode` enum now includes `ARS`, matching `CurrencyData`. Shipping profile and import amounts and listing shipping display prices (for example `?currency=ARS`) already accepted or returned `ARS`; clients generated from the old contract rejected those payloads and must be regenerated.

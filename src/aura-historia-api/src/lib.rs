@@ -1529,11 +1529,13 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     );
     let admin_delete_user = DeleteUserHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     );
     let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
     let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(

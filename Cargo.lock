@@ -9332,6 +9332,7 @@ dependencies = [
  "aws-sdk-cognitoidentityprovider",
  "serde_json",
  "thiserror 2.0.21",
+ "tokio",
  "user-service",
 ]
 
@@ -9381,6 +9382,30 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "user-core",
+ "user-service",
+]
+
+[[package]]
+name = "user-identity-deletion-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-cognitoidentityprovider",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "tokio",
+ "tracing",
+ "user-cognito",
+ "user-core",
+ "user-postgres",
  "user-service",
 ]
 

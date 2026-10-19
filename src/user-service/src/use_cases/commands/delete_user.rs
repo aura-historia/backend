@@ -1,3 +1,6 @@
+use crate::ports::user_identity_deletion::{
+    UserIdentityDeletionStore, UserIdentityDeletionStoreFactory,
+};
 use crate::ports::{
     MarketingConsentIntentError, MarketingConsentIntentsFactory, UserAdminMutationGuard,
     UserAdminMutationGuardFactory, UserAdminReadError, UserAdminReaderFactory,
@@ -77,39 +80,48 @@ pub trait DeleteUserUseCase: Send + Sync {
     ) -> Result<DeleteUserResult, DeleteUserError>;
 }
 
-pub struct DeleteUserHandler<U, C, A> {
+pub struct DeleteUserHandler<U, C, A, D> {
     unit_of_work: U,
     consent: C,
     admin_reader: A,
     admin_only: bool,
+    identity_deletions: D,
 }
 
-impl<U, C, A> DeleteUserHandler<U, C, A> {
-    pub fn new(unit_of_work: U, consent: C, admin_reader: A) -> Self {
+impl<U, C, A, D> DeleteUserHandler<U, C, A, D> {
+    pub fn new(unit_of_work: U, consent: C, admin_reader: A, identity_deletions: D) -> Self {
         Self {
             unit_of_work,
             consent,
             admin_reader,
             admin_only: false,
+            identity_deletions,
         }
     }
 
-    pub fn new_admin_only(unit_of_work: U, consent: C, admin_reader: A) -> Self {
+    pub fn new_admin_only(
+        unit_of_work: U,
+        consent: C,
+        admin_reader: A,
+        identity_deletions: D,
+    ) -> Self {
         Self {
             unit_of_work,
             consent,
             admin_reader,
             admin_only: true,
+            identity_deletions,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, C, A> DeleteUserUseCase for DeleteUserHandler<U, C, A>
+impl<U, C, A, D> DeleteUserUseCase for DeleteUserHandler<U, C, A, D>
 where
     U: UnitOfWork,
     C: MarketingConsentIntentsFactory<U::Tx>,
     A: UserAdminReaderFactory<U::Tx> + UserAdminMutationGuardFactory<U::Tx>,
+    D: UserIdentityDeletionStoreFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "delete_user",
@@ -161,6 +173,14 @@ where
             }
             UserAdminRemovalDecision::TargetNotAdmin | UserAdminRemovalDecision::Allowed => {}
         }
+        // Capture provider custody before deletion cascades the identity binding away.
+        self.identity_deletions
+            .in_transaction(&mut tx)
+            .request_for_user(command.user_id)
+            .await
+            .map_err(|source| DeleteUserError::TemporarilyUnavailable {
+                source: Box::new(source),
+            })?;
         // The coordinator owns the stable key and the atomic deletion/revoke decision.
         let consent = MarketingConsentCoordinator::new(&mut tx, &self.consent)
             .user_deletion_with_evidence(command.user_id, OffsetDateTime::now_utc())
@@ -300,6 +320,9 @@ impl From<MarketingConsentIntentError> for DeleteUserError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::user_identity_deletion::{
+        UserIdentityDeletionClaim, UserIdentityDeletionError,
+    };
     use crate::ports::{
         ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, MarketingConsentIntents,
         MarketingConsentIntentsFactory, UserAdminActorView, UserAdminMutationGuard,
@@ -323,6 +346,8 @@ mod tests {
         commit_error: bool,
         begins: usize,
         commits: usize,
+        identity_schedule_error: bool,
+        identity_deletions: Vec<UserId>,
     }
 
     #[derive(Clone, Default)]
@@ -332,6 +357,62 @@ mod tests {
 
     struct FakeTx {
         state: Arc<Mutex<TxState>>,
+    }
+
+    struct FakeIdentityDeletions;
+
+    struct FakeIdentityDeletionStore {
+        state: Arc<Mutex<TxState>>,
+    }
+
+    impl UserIdentityDeletionStoreFactory<FakeTx> for FakeIdentityDeletions {
+        fn in_transaction<'tx>(
+            &'tx self,
+            tx: &'tx mut FakeTx,
+        ) -> impl UserIdentityDeletionStore + 'tx {
+            FakeIdentityDeletionStore {
+                state: Arc::clone(&tx.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UserIdentityDeletionStore for FakeIdentityDeletionStore {
+        async fn request_for_user(
+            &mut self,
+            user_id: UserId,
+        ) -> Result<(), UserIdentityDeletionError> {
+            let mut state = lock(&self.state);
+            if state.identity_schedule_error {
+                return Err(UserIdentityDeletionError(application::error::static_error(
+                    "identity persistence unavailable",
+                )));
+            }
+            state.identity_deletions.push(user_id);
+            Ok(())
+        }
+        async fn claim(
+            &mut self,
+            _: UserId,
+        ) -> Result<
+            crate::ports::user_identity_deletion::UserIdentityDeletionClaimOutcome,
+            UserIdentityDeletionError,
+        > {
+            unreachable!()
+        }
+        async fn save_username(
+            &mut self,
+            _: &UserIdentityDeletionClaim,
+            _: &crate::ports::user_identity_deletion::UserIdentityUsername,
+        ) -> Result<(), UserIdentityDeletionError> {
+            unreachable!()
+        }
+        async fn complete(
+            &mut self,
+            _: &UserIdentityDeletionClaim,
+        ) -> Result<(), UserIdentityDeletionError> {
+            unreachable!()
+        }
     }
 
     #[derive(Default)]
@@ -658,13 +739,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_roll_back_before_account_deletion_when_identity_custody_fails() {
+        let id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        lock(&unit_of_work.state).identity_schedule_error = true;
+        let consent = FakeConsentFactory::default();
+        available_user(&consent, id);
+        let handler = DeleteUserHandler::new(
+            unit_of_work.clone(),
+            consent.clone(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
+        let error = handler
+            .execute(&ctx(Principal::User(id)), DeleteUserCommand { user_id: id })
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            DeleteUserError::TemporarilyUnavailable { .. }
+        ));
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(0, lock(&consent.state).delete_calls);
+        assert_eq!(0, lock(&unit_of_work.state).commits);
+    }
+
+    #[tokio::test]
     async fn should_delete_own_user_without_admin_lookup() {
         let user_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
         let users = FakeConsentFactory::default();
         available_user(&users, user_id);
-        let handler =
-            DeleteUserHandler::new(unit_of_work.clone(), users.clone(), no_admin_reader());
+        let handler = DeleteUserHandler::new(
+            unit_of_work.clone(),
+            users.clone(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
 
         let result = handler
             .execute(
@@ -680,6 +791,7 @@ mod tests {
         let state = lock(&users.state);
         assert_eq!(1, state.find_by_id_calls);
         assert_eq!(1, state.delete_calls);
+        assert_eq!(vec![user_id], lock(&unit_of_work.state).identity_deletions);
         assert_eq!(
             state.source_keys,
             [
@@ -703,10 +815,15 @@ mod tests {
             (Principal::System, system_consent.clone()),
             (Principal::User(user_id), self_consent.clone()),
         ] {
-            DeleteUserHandler::new(FakeUnitOfWork::default(), consent, no_admin_reader())
-                .execute(&ctx(principal), DeleteUserCommand { user_id })
-                .await
-                .unwrap();
+            DeleteUserHandler::new(
+                FakeUnitOfWork::default(),
+                consent,
+                no_admin_reader(),
+                FakeIdentityDeletions,
+            )
+            .execute(&ctx(principal), DeleteUserCommand { user_id })
+            .await
+            .unwrap();
         }
         assert_eq!(
             lock(&system_consent.state).source_keys,
@@ -721,8 +838,12 @@ mod tests {
         let consent = FakeConsentFactory::default();
         available_user(&consent, user_id);
         lock(&consent.state).record_error = Some(MarketingConsentIntentError::ConcurrencyConflict);
-        let handler =
-            DeleteUserHandler::new(unit_of_work.clone(), consent.clone(), no_admin_reader());
+        let handler = DeleteUserHandler::new(
+            unit_of_work.clone(),
+            consent.clone(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
         assert_error(
             handler
                 .execute(
@@ -756,8 +877,12 @@ mod tests {
             desired: true,
         };
         lock(&consent.state).intent = Some(conflicting.clone());
-        let handler =
-            DeleteUserHandler::new(unit_of_work.clone(), consent.clone(), no_admin_reader());
+        let handler = DeleteUserHandler::new(
+            unit_of_work.clone(),
+            consent.clone(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
         assert_error(
             handler
                 .execute(
@@ -792,8 +917,12 @@ mod tests {
         let users = FakeConsentFactory::default();
         available_user(&users, target_id);
         let admin_reader = admin_reader(admin_id, UserRole::Admin);
-        let handler =
-            DeleteUserHandler::new_admin_only(unit_of_work, users.clone(), admin_reader.clone());
+        let handler = DeleteUserHandler::new_admin_only(
+            unit_of_work,
+            users.clone(),
+            admin_reader.clone(),
+            FakeIdentityDeletions,
+        );
 
         let result = handler
             .execute(
@@ -818,8 +947,12 @@ mod tests {
         let users = FakeConsentFactory::default();
         available_user(&users, user_id);
         let admin_reader = admin_reader(user_id, UserRole::User);
-        let handler =
-            DeleteUserHandler::new_admin_only(unit_of_work.clone(), users.clone(), admin_reader);
+        let handler = DeleteUserHandler::new_admin_only(
+            unit_of_work.clone(),
+            users.clone(),
+            admin_reader,
+            FakeIdentityDeletions,
+        );
 
         assert_error(
             handler
@@ -842,6 +975,7 @@ mod tests {
             FakeUnitOfWork::default(),
             FakeConsentFactory::default(),
             no_admin_reader(),
+            FakeIdentityDeletions,
         );
 
         assert_error(
@@ -872,6 +1006,7 @@ mod tests {
             FakeUnitOfWork::default(),
             users,
             admin_reader(actor_id, UserRole::User),
+            FakeIdentityDeletions,
         );
         assert_error(
             handler
@@ -893,9 +1028,14 @@ mod tests {
         let admin_reader = admin_reader(user_id, UserRole::Admin);
         lock(&admin_reader.state).removal_decision = UserAdminRemovalDecision::LastAdmin;
 
-        let result = DeleteUserHandler::new(unit_of_work.clone(), users.clone(), admin_reader)
-            .execute(&ctx(Principal::System), DeleteUserCommand { user_id })
-            .await;
+        let result = DeleteUserHandler::new(
+            unit_of_work.clone(),
+            users.clone(),
+            admin_reader,
+            FakeIdentityDeletions,
+        )
+        .execute(&ctx(Principal::System), DeleteUserCommand { user_id })
+        .await;
 
         assert_error(result, |error| {
             matches!(error, DeleteUserError::LastAdminProtected)
@@ -908,8 +1048,12 @@ mod tests {
     async fn should_map_not_found_repo_begin_and_commit_errors() {
         let user_id = UserId::new();
         let users = FakeConsentFactory::default();
-        let handler =
-            DeleteUserHandler::new(FakeUnitOfWork::default(), users.clone(), no_admin_reader());
+        let handler = DeleteUserHandler::new(
+            FakeUnitOfWork::default(),
+            users.clone(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
         assert_error(
             handler
                 .execute(
@@ -936,8 +1080,12 @@ mod tests {
 
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
-        let handler =
-            DeleteUserHandler::new(begin_uow, FakeConsentFactory::default(), no_admin_reader());
+        let handler = DeleteUserHandler::new(
+            begin_uow,
+            FakeConsentFactory::default(),
+            no_admin_reader(),
+            FakeIdentityDeletions,
+        );
         assert_error(
             handler
                 .execute(
@@ -952,7 +1100,8 @@ mod tests {
         lock(&commit_uow.state).commit_error = true;
         let users = FakeConsentFactory::default();
         available_user(&users, user_id);
-        let handler = DeleteUserHandler::new(commit_uow, users, no_admin_reader());
+        let handler =
+            DeleteUserHandler::new(commit_uow, users, no_admin_reader(), FakeIdentityDeletions);
         assert_error(
             handler
                 .execute(

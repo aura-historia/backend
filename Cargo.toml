@@ -28,6 +28,7 @@ members = [
     "src/watchlist-notification-lambda",
     "src/notification-delivery-lambda",
     "src/marketing-consent-sync-lambda",
+    "src/user-identity-deletion-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
     "src/auction-core",

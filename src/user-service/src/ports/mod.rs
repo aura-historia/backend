@@ -16,6 +16,7 @@ pub mod newsletter_webhook_verifier;
 pub mod user_account_reader;
 pub mod user_admin_reader;
 pub mod user_authentication_reader;
+pub mod user_identity_deletion;
 pub mod user_repository;
 pub mod user_search_reader;
 pub mod user_session_revoker;

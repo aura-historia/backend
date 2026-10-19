@@ -6882,6 +6882,12 @@ paths:
         PostgreSQL synchronously cascades user-owned access tokens, OAuth authorization codes, watchlist entries,
         saved-search filters and matches, notifications, partnership memberships, and partnership applications.
 
+        Backend authentication is immediately invalidated. The same transaction durably records a request for Cognito identity
+        deletion; provider removal retries asynchronously. Until it completes, Cognito sign-in may still succeed
+        and the signup address may remain reserved. After removal, the email can register a new account with a
+        new identity; the deleted account cannot be recovered. Minimal identity fences prevent delayed registration
+        callbacks from recreating the deleted account and support provider reconciliation.
+
         The final active administrator cannot be deleted, including through a self-targeted admin request.
 
         "
@@ -7897,7 +7903,12 @@ paths:
       summary: Delete authenticated user
       description: "Permanently deletes the authenticated user's account.
 
-        The deletion is performed synchronously and the access token is immediately invalidated upon success.
+        Business account deletion and backend credential invalidation are synchronous. The same transaction
+        durably records a request for Cognito identity deletion; HTTP 204 confirms the commit, while provider removal retries
+        asynchronously. Until it completes, Cognito sign-in may still succeed and the signup address may remain
+        reserved. After removal, the email can register a new account with a new identity; the deleted account
+        cannot be recovered. Minimal identity fences prevent delayed registration callbacks from recreating the
+        deleted account and support provider reconciliation.
 
         Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
 

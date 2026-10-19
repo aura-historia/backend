@@ -13,6 +13,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Durable ID format and prefixes | [Object IDs](object-ids.md) |
 | Geographic assertions, reference releases, comparison and geocoding/provider retention | [Geography](geography.md) |
 | Email consent, provider eligibility and evidence | [Marketing consent](marketing-consent.md) |
+| Account deletion, provider identity lifecycle and re-registration | [Account lifecycle](account-lifecycle.md) |
 | Event sources, routes and completion semantics | [Event flow](events/flow.md) |
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
