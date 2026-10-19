@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — OAuth credential errors no longer echo input (#2207)
+
+- `POST /api/v1/oauth/token`, `/introspect` and `/revoke` no longer include the submitted value in the problem `detail` when `client_secret` or `token` is malformed, for example a mistyped value or an access token sent as `client_secret`. Status and error codes are unchanged: a malformed `client_secret` returns `401 INVALID_CREDENTIALS`, a malformed `token` returns `400 BAD_BODY_VALUE`. Both now identify the form field in `source` and use a fixed `detail`. Clients that parsed the old message to find the expected prefix should use `source.field` instead.
+
 ## 2026-10-19 — Normalized listing title typography (#2201)
 
 - ProductListing titles in listing, watchlist, search and history responses no longer contain decorative typography. Styled letters and digits such as `𝐄𝐢𝐧`, `Ⓥⓐⓢⓔ` or `ＶＡＳＥ` are returned as ordinary text, and emoji and ornamental symbols are removed without joining the neighbouring words. Accented and non-Latin letters, punctuation, identifiers and `©`, `®` and `™` are unchanged. Existing listings are presented in normalized form; their public slugs do not change.

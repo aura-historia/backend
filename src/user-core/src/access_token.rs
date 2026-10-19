@@ -173,19 +173,35 @@ pub type HashedRawOAuthClientSecret = HashedRawToken<OAuthClientSecretPrefix>;
 
 // ── Error type ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("RawToken '{0}' is invalid, because {1}")]
-pub struct InvalidRawTokenError(String, String);
+/// Rejected credential text is untrusted and may be a real secret, so this
+/// error names only the expected format and never carries the input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidRawTokenError {
+    #[error("RawToken is invalid, because it doesn't start with the required prefix '{0}'")]
+    MissingPrefix(&'static str),
+    #[error("RawToken is invalid, because it should contain a '_' after prefix '{0}'")]
+    MissingPrefixSeparator(&'static str),
+    #[error(
+        "RawToken is invalid, because it should contain a '_' separating the short and long token"
+    )]
+    MissingTokenSeparator,
+}
 
 /// Backward-compatibility alias.
 pub type InvalidRawAccessTokenError = InvalidRawTokenError;
 
 // ── RawToken<P> ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct RawToken<P: TokenPrefix> {
     value: String,
     _marker: PhantomData<P>,
+}
+
+impl<P: TokenPrefix> std::fmt::Debug for RawToken<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RawToken({}_****)", P::PREFIX)
+    }
 }
 
 impl<P: TokenPrefix> RawToken<P> {
@@ -445,29 +461,17 @@ impl<P: TokenPrefix> From<&RawToken<P>> for PrefixedApiKey {
     }
 }
 
-fn parse_token(token: &str, prefix: &str) -> Result<(String, String), InvalidRawTokenError> {
+fn parse_token(
+    token: &str,
+    prefix: &'static str,
+) -> Result<(String, String), InvalidRawTokenError> {
     let (short_token, long_token) = token
         .strip_prefix(prefix)
-        .ok_or_else(|| {
-            InvalidRawTokenError(
-                token.to_string(),
-                format!("it doesn't start with the required prefix '{prefix}'"),
-            )
-        })?
+        .ok_or(InvalidRawTokenError::MissingPrefix(prefix))?
         .strip_prefix('_')
-        .ok_or_else(|| {
-            InvalidRawTokenError(
-                token.to_string(),
-                format!("it should contain a '_' after prefix '{prefix}'"),
-            )
-        })?
+        .ok_or(InvalidRawTokenError::MissingPrefixSeparator(prefix))?
         .split_once('_')
-        .ok_or_else(|| {
-            InvalidRawTokenError(
-                token.to_string(),
-                "it should contain a '_' separating the short and long token".to_string(),
-            )
-        })?;
+        .ok_or(InvalidRawTokenError::MissingTokenSeparator)?;
 
     Ok((short_token.to_string(), long_token.to_string()))
 }
@@ -1047,41 +1051,99 @@ mod tests {
 
     // ── Error messages ────────────────────────────────────────────────────
 
-    #[test]
-    fn should_include_input_value_in_error_message_when_parsing_fails_for_access_token() {
-        let bad_key = "totally_wrong_format";
-        let err = RawAccessToken::try_from(bad_key.to_string()).unwrap_err();
-        assert!(err.to_string().contains(bad_key));
-    }
+    const SECRET_MARKER: &str = "qasyntheticsecretmarker";
 
-    #[test]
-    fn should_include_input_value_in_error_message_when_parsing_fails_for_oauth_secret() {
-        let bad_key = "totally_wrong_format";
-        let err = RawOAuthClientSecret::try_from(bad_key.to_string()).unwrap_err();
-        assert!(err.to_string().contains(bad_key));
+    fn assert_marker_free(err: &InvalidRawTokenError) {
+        assert!(!err.to_string().contains(SECRET_MARKER), "{err}");
+        assert!(!format!("{err:?}").contains(SECRET_MARKER), "{err:?}");
     }
 
     #[rstest]
-    #[case::wrong_prefix("wrongprefix_12345678901_123456789012345678901234567890123")]
-    #[case::no_separator("aurahistoria_accesstoken_12345678901123456789012345678901234567890123")]
-    #[trace]
-    fn should_include_bad_key_in_error_message_for_each_validation_branch_for_access_token(
-        #[case] bad_key: &str,
-    ) {
-        let err = RawAccessToken::try_from(bad_key.to_string()).unwrap_err();
-        assert!(err.to_string().contains(bad_key));
-    }
-
-    #[rstest]
-    #[case::wrong_prefix("wrongprefix_12345678901_123456789012345678901234567890123")]
-    #[case::no_separator(
-        "aurahistoria_oauth_client_secret_12345678901123456789012345678901234567890123"
+    #[case::wrong_prefix(
+        format!("{SECRET_MARKER}_12345678901_123456789012345678901234567890123"),
+        InvalidRawTokenError::MissingPrefix(AccessTokenPrefix::PREFIX)
+    )]
+    #[case::cross_type_secret(
+        String::from(RawOAuthClientSecret::new()),
+        InvalidRawTokenError::MissingPrefix(AccessTokenPrefix::PREFIX)
+    )]
+    #[case::no_underscore_after_prefix(
+        format!("aurahistoria_accesstoken{SECRET_MARKER}_123456789012345678901234567890123"),
+        InvalidRawTokenError::MissingPrefixSeparator(AccessTokenPrefix::PREFIX)
+    )]
+    #[case::no_token_separator(
+        format!("aurahistoria_accesstoken_{SECRET_MARKER}"),
+        InvalidRawTokenError::MissingTokenSeparator
     )]
     #[trace]
-    fn should_include_bad_key_in_error_message_for_each_validation_branch_for_oauth_secret(
-        #[case] bad_key: &str,
+    fn should_omit_input_from_error_for_each_validation_branch_for_access_token(
+        #[case] bad_key: String,
+        #[case] expected: InvalidRawTokenError,
     ) {
-        let err = RawOAuthClientSecret::try_from(bad_key.to_string()).unwrap_err();
-        assert!(err.to_string().contains(bad_key));
+        let err = RawAccessToken::try_from(bad_key.clone()).unwrap_err();
+
+        assert_eq!(expected, err);
+        assert_marker_free(&err);
+        assert!(!err.to_string().contains(&bad_key));
+        assert!(!format!("{err:?}").contains(&bad_key));
+    }
+
+    #[rstest]
+    #[case::wrong_prefix(
+        format!("{SECRET_MARKER}_12345678901_123456789012345678901234567890123"),
+        InvalidRawTokenError::MissingPrefix(OAuthClientSecretPrefix::PREFIX)
+    )]
+    #[case::cross_type_access_token(
+        String::from(RawAccessToken::new()),
+        InvalidRawTokenError::MissingPrefix(OAuthClientSecretPrefix::PREFIX)
+    )]
+    #[case::no_underscore_after_prefix(
+        format!("aurahistoria_oauth_client_secret{SECRET_MARKER}_123456789012345678901234567890123"),
+        InvalidRawTokenError::MissingPrefixSeparator(OAuthClientSecretPrefix::PREFIX)
+    )]
+    #[case::no_token_separator(
+        format!("aurahistoria_oauth_client_secret_{SECRET_MARKER}"),
+        InvalidRawTokenError::MissingTokenSeparator
+    )]
+    #[trace]
+    fn should_omit_input_from_error_for_each_validation_branch_for_oauth_secret(
+        #[case] bad_key: String,
+        #[case] expected: InvalidRawTokenError,
+    ) {
+        let err = RawOAuthClientSecret::try_from(bad_key.clone()).unwrap_err();
+
+        assert_eq!(expected, err);
+        assert_marker_free(&err);
+        assert!(!err.to_string().contains(&bad_key));
+        assert!(!format!("{err:?}").contains(&bad_key));
+    }
+
+    #[test]
+    fn should_name_required_prefix_in_error_message() {
+        let err = RawOAuthClientSecret::try_from(SECRET_MARKER.to_string()).unwrap_err();
+
+        assert_eq!(
+            "RawToken is invalid, because it doesn't start with the required prefix 'aurahistoria_oauth_client_secret'",
+            err.to_string()
+        );
+    }
+
+    #[test]
+    fn should_mask_secret_when_debug_formatting_raw_tokens() {
+        let access_token = RawAccessToken::new();
+        let client_secret = RawOAuthClientSecret::new();
+        let access_token_text = String::from(access_token.clone());
+        let client_secret_text = String::from(client_secret.clone());
+
+        assert_eq!(
+            "RawToken(aurahistoria_accesstoken_****)",
+            format!("{access_token:?}")
+        );
+        assert_eq!(
+            "RawToken(aurahistoria_oauth_client_secret_****)",
+            format!("{client_secret:?}")
+        );
+        assert!(!format!("{access_token:#?}").contains(&access_token_text));
+        assert!(!format!("{client_secret:#?}").contains(&client_secret_text));
     }
 }

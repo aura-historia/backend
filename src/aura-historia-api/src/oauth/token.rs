@@ -1,4 +1,4 @@
-use super::{no_store, parse_form, required_form, scope_string};
+use super::{no_store, parse_form, required_form, required_form_client_secret, scope_string};
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::OAuthState;
 use crate::wire::parse_body_object_id;
@@ -15,7 +15,6 @@ use oauth_service::use_cases::{
 };
 use serde::Serialize;
 use time::OffsetDateTime;
-use user_core::access_token::RawOAuthClientSecret;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct TokenResponseData {
@@ -88,14 +87,7 @@ fn request(
         "OAuthClient",
     )
     .map_err(IntoResponse::into_response)?;
-    let client_secret = RawOAuthClientSecret::try_from(
-        required_form(form, "client_secret")?.to_owned(),
-    )
-    .map_err(|error| {
-        ApiError::unauthorized(crate::error::INVALID_CREDENTIALS)
-            .with_detail(error.to_string())
-            .into_response()
-    })?;
+    let client_secret = required_form_client_secret(form)?;
     Ok(TokenByAuthorizationCodeRequest {
         grant_type,
         code,
@@ -104,4 +96,38 @@ fn request(
         client_secret,
         code_verifier: OAuthCodeVerifier::from(required_form(form, "code_verifier")?),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request;
+    use crate::oauth::test_support::{SECRET_MARKER, form, secret_free_problem};
+    use credential_core::oauth_client_id::OAuthClientId;
+    use oauth_core::authorization_code::OAuthAuthorizationCode;
+    use serde_json::json;
+    use user_core::access_token::RawAccessToken;
+
+    #[tokio::test]
+    async fn should_reject_malformed_client_secret_without_reflecting_it() {
+        for client_secret in [SECRET_MARKER.to_owned(), String::from(RawAccessToken::new())] {
+            let response = request(&form(&[
+                ("grant_type", "authorization_code".to_owned()),
+                ("code", OAuthAuthorizationCode::new().to_string()),
+                ("redirect_uri", "https://client.example/callback".to_owned()),
+                ("client_id", OAuthClientId::new().to_string()),
+                ("client_secret", client_secret.clone()),
+                ("code_verifier", "code-verifier".to_owned()),
+            ]))
+            .err()
+            .unwrap_or_else(|| panic!("malformed client secret must be rejected"));
+            let (status, body) = secret_free_problem(response, &client_secret).await;
+
+            assert_eq!(401, status);
+            assert_eq!("INVALID_CREDENTIALS", body["error"]);
+            assert_eq!(
+                json!({"field": "client_secret", "type": "BODY"}),
+                body["source"]
+            );
+        }
+    }
 }
