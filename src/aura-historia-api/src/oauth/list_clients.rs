@@ -93,9 +93,7 @@ pub async fn list_clients(
 fn parse_list_oauth_clients_query(
     raw_query: Option<&str>,
 ) -> Result<ListOAuthClientsRequest, ApiError> {
-    let query: ListOAuthClientsQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
+    let query: ListOAuthClientsQuery = crate::wire::from_query_str(raw_query.unwrap_or_default())
         .map_err(|error| bad_query("query", error))?;
     let client_id = query
         .client_id

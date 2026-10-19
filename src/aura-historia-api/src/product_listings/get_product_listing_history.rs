@@ -27,7 +27,7 @@ pub async fn get_product_listing_history_by_id(
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let query: ProductListingHistoryQuery =
-        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+        match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
                 return crate::transport::cache::private_no_store(

@@ -67,10 +67,8 @@ pub async fn search_listing_sources(
 fn parse_search_listing_sources_query(
     raw_query: Option<&str>,
 ) -> Result<SearchListingSourcesRequest, ApiError> {
-    let query: SearchListingSourcesQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
-        .map_err(|error| {
+    let query: SearchListingSourcesQuery =
+        crate::wire::from_query_str(raw_query.unwrap_or_default()).map_err(|error| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(error.to_string())
         })?;
 
