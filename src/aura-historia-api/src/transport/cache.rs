@@ -250,6 +250,32 @@ mod tests {
     }
 
     #[test]
+    fn should_emit_each_route_ttl_unchanged_alongside_the_overview_ttl() {
+        for ttl in [
+            60,
+            120,
+            300,
+            crate::public_overview::PUBLIC_OVERVIEW_SHARED_TTL_SECONDS,
+        ] {
+            let response = anonymous_shared_success(
+                Response::new(axum::body::Body::empty()),
+                &HeaderMap::new(),
+                true,
+                ttl,
+            );
+
+            assert_eq!(
+                format!("public, max-age=0, s-maxage={ttl}, stale-if-error=0"),
+                response.headers()[header::CACHE_CONTROL]
+            );
+        }
+        assert_eq!(
+            21_600,
+            crate::public_overview::PUBLIC_OVERVIEW_SHARED_TTL_SECONDS
+        );
+    }
+
+    #[test]
     fn should_make_private_cache_control_when_authorization_is_present() {
         let mut request_headers = HeaderMap::new();
         request_headers.insert(

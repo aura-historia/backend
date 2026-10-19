@@ -129,6 +129,14 @@ function resolveConcreteArn(value: unknown): string {
   }).join("");
 }
 
+function cachePolicyNamed(template: Template, name: string): [string, CloudFormationResource] {
+  const policies = Object.entries(template.findResources("AWS::CloudFront::CachePolicy")) as [string, CloudFormationResource][];
+  const matches = policies.filter(([, policy]) =>
+    (policy.Properties.CachePolicyConfig as { readonly Name?: unknown }).Name === name);
+  expect(matches).toHaveLength(1);
+  return matches[0];
+}
+
 describe("HTTP API route policy matrix", () => {
   test.each(STAGES)("preserves deployed collection route identities with camelCase keys in %s", (stage) => {
     const resources = apiTemplate(stage).findResources("AWS::ApiGatewayV2::Route");
@@ -176,7 +184,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(151);
+    expect(catalog).toHaveLength(152);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -525,7 +533,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(151);
+    expect(routes).toHaveLength(152);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
@@ -581,7 +589,7 @@ describe("HTTP API route policy matrix", () => {
   test("partitions identical discovery requests across two allowed production CORS origins", () => {
     const template = apiTemplate("prod");
     const [api] = Object.values(template.findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
-    const [cachePolicy] = Object.values(template.findResources("AWS::CloudFront::CachePolicy")) as CloudFormationResource[];
+    const [, cachePolicy] = cachePolicyNamed(template, "api-prod-selective-read-cache");
     const cors = api.Properties.CorsConfiguration as { readonly AllowOrigins: string[] };
     const cachePolicyConfig = cachePolicy.Properties.CachePolicyConfig as {
       readonly ParametersInCacheKeyAndForwardedToOrigin: {
@@ -680,7 +688,8 @@ describe("HTTP API route policy matrix", () => {
 
   test.each(["dev", "prod"] as const)("synthesizes %s selective CloudFront caching without edge auth", (stage) => {
     const template = apiTemplate(stage);
-    const [[cachePolicyId, cachePolicy]] = Object.entries(template.findResources("AWS::CloudFront::CachePolicy")) as [string, CloudFormationResource][];
+    const [cachePolicyId, cachePolicy] = cachePolicyNamed(template, `api-${stage}-selective-read-cache`);
+    const [overviewCachePolicyId] = cachePolicyNamed(template, `api-${stage}-public-overview-cache`);
     const [[responseHeadersPolicyId, responseHeadersPolicy]] = Object.entries(
       template.findResources("AWS::CloudFront::ResponseHeadersPolicy"),
     ) as [string, CloudFormationResource][];
@@ -707,11 +716,13 @@ describe("HTTP API route policy matrix", () => {
       "/api/v1/product-listings/*",
     ];
     const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
-    const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
+    const overviewBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
+    const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length + 1];
 
     expect(domains).toHaveLength(1);
     expect(mappings).toHaveLength(1);
     expect(cachePolicyId).toBeDefined();
+    expect(Object.keys(template.findResources("AWS::CloudFront::CachePolicy"))).toHaveLength(2);
     expect(responseHeadersPolicyId).toBeDefined();
     expect(distributionId).toBeDefined();
     expect(cachePolicyConfig).toEqual({
@@ -737,8 +748,14 @@ describe("HTTP API route policy matrix", () => {
     });
     expect(distributionConfig.CacheBehaviors.map((behavior) => behavior.PathPattern)).toEqual([
       ...selectivePathPatterns,
+      "/api/v1/overview",
       "/api/*",
     ]);
+    expect(overviewBehavior).toEqual(expect.objectContaining({
+      CachePolicyId: { Ref: overviewCachePolicyId },
+      PathPattern: "/api/v1/overview",
+      ResponseHeadersPolicyId: { Ref: responseHeadersPolicyId },
+    }));
     for (const [index, behavior] of selectiveBehaviors.entries()) {
       expect(behavior).toEqual(expect.objectContaining({
         AllowedMethods: ["GET", "HEAD", "OPTIONS"],
@@ -785,5 +802,66 @@ describe("HTTP API route policy matrix", () => {
     expect(Object.values(template.findResources("AWS::CloudFront::Function"))).toHaveLength(0);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
     expect(JSON.stringify(distributionConfig)).not.toMatch(/LambdaFunctionAssociations|FunctionAssociations|Lambda@Edge/);
+  });
+  test.each(["dev", "prod"] as const)("caches only the exact %s public overview for up to six hours without query-string keys", (stage) => {
+    const template = apiTemplate(stage);
+    const [selectivePolicyId, selectivePolicy] = cachePolicyNamed(template, `api-${stage}-selective-read-cache`);
+    const [overviewPolicyId, overviewPolicy] = cachePolicyNamed(template, `api-${stage}-public-overview-cache`);
+    const [[responseHeadersPolicyId]] = Object.entries(template.findResources("AWS::CloudFront::ResponseHeadersPolicy"));
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution")) as CloudFormationResource[];
+    const distributionConfig = distribution.Properties.DistributionConfig as {
+      readonly CacheBehaviors: Record<string, unknown>[];
+      readonly DefaultCacheBehavior: Record<string, unknown>;
+    };
+    const behaviors = distributionConfig.CacheBehaviors;
+    const overviewIndex = behaviors.findIndex((behavior) => behavior.PathPattern === "/api/v1/overview");
+    const usesPolicy = (policyId: string) => (behavior: Record<string, unknown>) =>
+      JSON.stringify(behavior.CachePolicyId) === JSON.stringify({ Ref: policyId });
+
+    expect(overviewPolicy.Properties.CachePolicyConfig).toEqual({
+      Comment: `${stage} API public overview cache`,
+      DefaultTTL: 0,
+      MaxTTL: 21600,
+      MinTTL: 0,
+      Name: `api-${stage}-public-overview-cache`,
+      ParametersInCacheKeyAndForwardedToOrigin: {
+        CookiesConfig: { CookieBehavior: "none" },
+        EnableAcceptEncodingBrotli: true,
+        EnableAcceptEncodingGzip: true,
+        HeadersConfig: { HeaderBehavior: "whitelist", Headers: ["Authorization", "Origin", "Host"] },
+        QueryStringsConfig: { QueryStringBehavior: "none" },
+      },
+    });
+    // Existing discovery routes keep the unchanged shared policy, so their explicit TTLs stay effective.
+    expect(selectivePolicy.Properties.CachePolicyConfig).toEqual(expect.objectContaining({ DefaultTTL: 0, MaxTTL: 900, MinTTL: 0 }));
+    expect(behaviors.filter(usesPolicy(overviewPolicyId)).map((behavior) => behavior.PathPattern)).toEqual(["/api/v1/overview"]);
+    expect(behaviors.slice(0, overviewIndex).every(usesPolicy(selectivePolicyId))).toBe(true);
+    expect(behaviors[overviewIndex]).toEqual({
+      AllowedMethods: ["GET", "HEAD", "OPTIONS"],
+      CachedMethods: ["GET", "HEAD"],
+      CachePolicyId: { Ref: overviewPolicyId },
+      Compress: true,
+      OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+      PathPattern: "/api/v1/overview",
+      ResponseHeadersPolicyId: { Ref: responseHeadersPolicyId },
+      TargetOriginId: expect.any(String),
+      ViewerProtocolPolicy: "redirect-to-https",
+    });
+    expect(behaviors.slice(overviewIndex + 1).map((behavior) => [behavior.PathPattern, behavior.CachePolicyId])).toEqual([
+      ["/api/*", "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"],
+    ]);
+    expect(distributionConfig.DefaultCacheBehavior.CachePolicyId).toBe("4135ea2d-6df8-44a3-9df3-4b5a84be39ad");
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/overview" || route.path.startsWith("/api/v1/overview/"))).toEqual([{
+      method: "GET",
+      path: "/api/v1/overview",
+      lambda: "auraHistoriaApi",
+      auth: RouteAuthPolicy.Anonymous,
+      policy: {
+        bearer: "NONE",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      },
+    }]);
   });
 });

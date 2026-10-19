@@ -98,6 +98,10 @@ pub use queries::get_product_listing_history::{
     ProductListingHistoryEntry, ProductListingHistoryEntryKind, ProductListingHistoryLookup,
     ProductListingHistoryPrice, ProductListingHistoryPriceDisplay, ProductListingHistoryPricing,
 };
+pub use queries::get_public_catalogue_overview::{
+    GetPublicCatalogueOverviewError, GetPublicCatalogueOverviewHandler,
+    GetPublicCatalogueOverviewUseCase, PublicCatalogueOverview,
+};
 pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsError, GetSimilarProductListingsHandler,
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,

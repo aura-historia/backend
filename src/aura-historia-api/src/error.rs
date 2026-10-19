@@ -56,7 +56,7 @@ use party_service::use_cases::queries::get_party::GetPartyError;
 use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureError, CreateProductListingError, GetProductListingError,
-    GetProductListingHistoryError, GetSimilarProductListingsError,
+    GetProductListingHistoryError, GetPublicCatalogueOverviewError, GetSimilarProductListingsError,
     ProductListingIngestionSubmissionError, SearchProductListingsError, UpdateProductListingError,
     UpsertProductListingError, WithdrawProductListingError,
 };
@@ -113,6 +113,9 @@ pub(crate) const ADMIN_OVERVIEW_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("ADMIN_OVERVIEW_INTERNAL_ERROR");
 pub(crate) const ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE");
+pub(crate) const OVERVIEW_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("OVERVIEW_INTERNAL_ERROR");
+pub(crate) const OVERVIEW_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("OVERVIEW_TEMPORARILY_UNAVAILABLE");
 pub(crate) const AUCTION_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("AUCTION_INTERNAL_ERROR");
 pub(crate) const AUCTION_NOT_FOUND: ApiErrorCode = ApiErrorCode("AUCTION_NOT_FOUND");
 pub(crate) const AUCTION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -468,6 +471,23 @@ impl From<GetAdminOverviewError> for ApiError {
             | GetAdminOverviewError::ReaderInternal { .. } => {
                 ApiError::internal_server_error(ADMIN_OVERVIEW_INTERNAL_ERROR)
                     .with_detail("Admin overview failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetPublicCatalogueOverviewError> for ApiError {
+    fn from(error: GetPublicCatalogueOverviewError) -> Self {
+        match error {
+            GetPublicCatalogueOverviewError::ReaderTemporarilyUnavailable { .. }
+            | GetPublicCatalogueOverviewError::BeginTransaction { .. }
+            | GetPublicCatalogueOverviewError::CommitTransaction { .. } => {
+                ApiError::service_unavailable(OVERVIEW_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Overview is temporarily unavailable.")
+            }
+            GetPublicCatalogueOverviewError::ReaderInvalidReadModel { .. } => {
+                ApiError::internal_server_error(OVERVIEW_INTERNAL_ERROR)
+                    .with_detail("Overview failed internally.")
             }
         }
     }

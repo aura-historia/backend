@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Public catalogue overview (#2196)
+
+- New anonymous `GET /api/v1/overview` returns versioned aggregate counts for the public catalogue: `sourcesIndexed`, `liveObjects`, `countries`, `languages` and `newObjectsLast7Days`, calculated together from PostgreSQL at the returned UTC `asOf` timestamp. It has no filters or personalization and returns no per-source, per-partner or per-user details. Errors are `503 OVERVIEW_TEMPORARILY_UNAVAILABLE` and `500 OVERVIEW_INTERNAL_ERROR`.
+- Anonymous `200` responses use `public, max-age=0, s-maxage=21600, stale-if-error=0`, so figures may be up to six hours old. Query strings are ignored and never create separate cached copies. Credentials are not evaluated, but any `Authorization` header makes the response `private, no-store`; request it without a bearer token. Cache lifetimes of existing endpoints are unchanged.
+
 ## 2026-10-19 — CORS-exposed trace headers (#2159)
 
 - Browser clients can now read the `X-Request-Id` and `X-Correlation-Id` response headers on uncached API routes, as documented. API Gateway previously exposed only `Idempotency-Key` through CORS. The six cache-enabled discovery behaviors still remove both trace headers at CloudFront.

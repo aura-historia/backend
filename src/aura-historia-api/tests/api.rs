@@ -39,6 +39,8 @@ mod partnership_applications;
 mod partnerships;
 #[path = "api_cases/product_listings.rs"]
 mod product_listings;
+#[path = "api_cases/public_overview.rs"]
+mod public_overview;
 #[path = "api_cases/search_filters.rs"]
 mod search_filters;
 #[path = "api_cases/users.rs"]

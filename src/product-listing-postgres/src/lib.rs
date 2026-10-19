@@ -49,6 +49,7 @@ pub use readers::{
     SqlxProductListingSearchFilterMatchSourceReaderFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
+    SqlxPublicCatalogueOverviewReaderFactory,
 };
 
 pub mod geography;
