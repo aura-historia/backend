@@ -52,7 +52,7 @@ pub(super) async fn list_search_filter_matches(
         Err(response) => return response,
     };
     let query: ListSearchFilterMatchesQuery =
-        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+        match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(value) => value,
             Err(error) => {
                 return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
@@ -173,8 +173,9 @@ mod tests {
     #[test]
     fn should_default_match_currency_to_eur_and_parse_requested_currency()
     -> Result<(), Box<dyn std::error::Error>> {
-        let default_query: ListSearchFilterMatchesQuery = serde_qs::from_str("")?;
-        let requested_query: ListSearchFilterMatchesQuery = serde_qs::from_str("currency=USD")?;
+        let default_query: ListSearchFilterMatchesQuery = crate::wire::from_query_str("")?;
+        let requested_query: ListSearchFilterMatchesQuery =
+            crate::wire::from_query_str("currency=USD")?;
 
         assert_eq!(Currency::Eur, default_query.currency);
         assert_eq!(Currency::Usd, requested_query.currency);
@@ -199,7 +200,9 @@ mod tests {
     #[test]
     fn should_reject_malformed_or_negative_match_page_size_query() {
         for raw_query in ["size=not-an-integer", "size=-1"] {
-            assert!(serde_qs::from_str::<ListSearchFilterMatchesQuery>(raw_query).is_err());
+            assert!(
+                crate::wire::from_query_str::<ListSearchFilterMatchesQuery>(raw_query).is_err()
+            );
         }
     }
 

@@ -107,10 +107,9 @@ pub(super) async fn list_admin(
 fn parse_list_admin_query(
     raw_query: Option<&str>,
 ) -> Result<ListAdminPartnershipApplicationsRequest, ApiError> {
-    let query: ListAdminPartnershipApplicationsQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
-        .map_err(|error| bad_query("query", error))?;
+    let query: ListAdminPartnershipApplicationsQuery =
+        crate::wire::from_query_str(raw_query.unwrap_or_default())
+            .map_err(|error| bad_query("query", error))?;
 
     let search = PartnershipApplicationSearch {
         state_query: parse_states(query.state)?,

@@ -3649,14 +3649,14 @@ paths:
         - name: sort
           in: query
           required: false
-          description: Field to sort results by
+          description: Field to sort results by. Without `sort`, results are ordered by relevance score descending.
           schema:
             $ref: "#/components/schemas/SortProductListingFieldData"
           example: created
         - name: order
           in: query
           required: false
-          description: Sort order (only valid when sort is specified)
+          description: Sort order. Requires `sort`; defaults to `desc` when `sort` is supplied without `order`.
           schema:
             type: string
             enum:
@@ -3738,21 +3738,31 @@ paths:
                   value:
                     status: 400
                     title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
+                    error: BAD_SORT_VALUE
                     source:
                       field: sort
                       type: QUERY
-                    detail: "Expected any of: 'score', 'price', 'updated', 'created'. Got: 'invalid'"
+                    detail: "Expected any of: 'score', 'updated', 'created'. Got: 'invalid'"
+                order_without_sort:
+                  summary: Sort order supplied without sort field
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_SORT_VALUE
+                    source:
+                      field: sort
+                      type: QUERY
+                    detail: "'sort' is required when 'order' is supplied."
                 invalid_order:
                   summary: Invalid sort order
                   value:
                     status: 400
                     title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
+                    error: BAD_ORDER_VALUE
                     source:
                       field: order
                       type: QUERY
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
+                    detail: "Expected any of: 'asc', 'desc'. Got: 'invalid'"
         "503":
           description: Product search or required personalized state is temporarily unavailable
           content:

@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn radius_object_preserves_units_in_query_and_saved_filter_views() {
-        let data: GeographicSearchData = serde_qs::from_str(
+        let data: GeographicSearchData = crate::wire::from_query_str(
             "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=25&radius[unit]=MILES",
         )
         .unwrap();
@@ -243,7 +243,7 @@ mod tests {
             }))
             .is_err()
         );
-        let data: GeographicSearchData = serde_qs::from_str(
+        let data: GeographicSearchData = crate::wire::from_query_str(
             "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=NaN&radius[unit]=MILES",
         ).unwrap();
         assert!(GeographicQuery::try_from(data).is_err());
@@ -287,12 +287,12 @@ mod tests {
                 .and_then(|d| GeographicQuery::try_from(d).ok());
             assert!(valid.is_none());
         }
-        let d: GeographicSearchData = serde_qs::from_str(
+        let d: GeographicSearchData = crate::wire::from_query_str(
             "origin[latitude]=NaN&origin[longitude]=11.5&radius[amount]=25&radius[unit]=KILOMETERS",
         )
         .unwrap();
         assert!(GeographicQuery::try_from(d).is_err());
-        let d: GeographicSearchData = serde_qs::from_str(
+        let d: GeographicSearchData = crate::wire::from_query_str(
             "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=25&radius[unit]=KILOMETERS&distanceOrder=ASC",
         )
         .unwrap();

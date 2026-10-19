@@ -39,7 +39,7 @@ pub async fn list_watchlist(
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let query: ListWatchlistQuery =
-        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+        match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
                 return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
