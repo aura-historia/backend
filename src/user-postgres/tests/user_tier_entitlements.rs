@@ -358,6 +358,216 @@ async fn should_reconcile_free_auction_id_filter_and_reactivate_for_pro() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reconcile_geography_and_shipping_across_free_and_paid_tiers() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let release = geo::reference::ReferenceRelease::CURRENT.as_str();
+
+    for search in [
+        serde_json::json!({"geography": {
+            "reference_release": release,
+            "countries": ["DE"], "subdivisions": [], "origin": null,
+            "radius": null, "mode": "STRICT", "distance_order": null
+        }}),
+        serde_json::json!({"shipping": {
+            "referenceRelease": release,
+            "interpretation": "WHOLE_COUNTRY_PER_ITEM_V1",
+            "country": "DE", "service": null, "maximumPerItem": null,
+            "collectionOffered": false
+        }}),
+        serde_json::json!({"shipping": {
+            "referenceRelease": release,
+            "interpretation": "WHOLE_COUNTRY_PER_ITEM_V1",
+            "country": null, "service": null, "maximumPerItem": null,
+            "collectionOffered": true
+        }}),
+    ] {
+        let user_id = seed_user(
+            &pool,
+            &format!("{}@example.test", uuid::Uuid::now_v7()),
+            "PRO",
+        )
+        .await;
+        let now = OffsetDateTime::now_utc();
+        let eligible = seed_search_filter(
+            &pool,
+            user_id,
+            "ordinary",
+            "ACTIVE",
+            None,
+            now - Duration::seconds(1),
+        )
+        .await;
+        let restricted =
+            seed_search_filter(&pool, user_id, "restricted", "ACTIVE", None, now).await;
+        let manual =
+            seed_search_filter(&pool, user_id, "manual", "INACTIVE_BY_USER", None, now).await;
+        sqlx::query("UPDATE search_filters SET search=$2 WHERE user_search_filter_id IN ($1, $3)")
+            .bind(restricted)
+            .bind(&search)
+            .bind(manual)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for tier in [
+            UserTier::Free,
+            UserTier::Pro,
+            UserTier::Free,
+            UserTier::Ultimate,
+        ] {
+            let mut tx = begin(&unit).await;
+            entitlements
+                .in_transaction(&mut tx)
+                .lock_user_tier(user_id)
+                .await
+                .unwrap();
+            entitlements
+                .in_transaction(&mut tx)
+                .reconcile_for_tier(user_id, tier)
+                .await
+                .unwrap();
+            commit(tx).await;
+
+            assert_eq!("ACTIVE", state_for_search_filter(&pool, eligible).await);
+            assert_eq!(
+                if tier == UserTier::Free {
+                    "INACTIVE_BY_RESTRICTED_PLAN"
+                } else {
+                    "ACTIVE"
+                },
+                state_for_search_filter(&pool, restricted).await
+            );
+            assert_eq!(
+                "INACTIVE_BY_USER",
+                state_for_search_filter(&pool, manual).await
+            );
+            let stored: serde_json::Value = sqlx::query_scalar(
+                "SELECT search FROM search_filters WHERE user_search_filter_id=$1",
+            )
+            .bind(restricted)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(search, stored, "tier changes preserve the saved predicates");
+        }
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn geography_shipping_migration_reconciles_existing_free_filters_and_fences_only_changes() {
+    const MIGRATION: &str = include_str!(
+        "../../../migrations/20261019130000_restrict_free_search_filter_geography_shipping.sql"
+    );
+    let pool = get_postgres_client().await;
+    let now = OffsetDateTime::now_utc();
+    let mut fixtures = Vec::new();
+    for tier in ["FREE", "PRO", "ULTIMATE"] {
+        let user_id = seed_user(&pool, &format!("{tier}@example.test"), tier).await;
+        for (index, state, search, target) in [
+            (
+                0,
+                "INACTIVE_BY_RESTRICTED_PLAN",
+                serde_json::json!({}),
+                "INACTIVE_BY_RESTRICTED_PLAN",
+            ),
+            (
+                1,
+                "INACTIVE_BY_RESTRICTED_PLAN",
+                serde_json::json!({"geography": null, "shipping": null}),
+                "ACTIVE",
+            ),
+            (
+                2,
+                "ACTIVE",
+                serde_json::json!({"geography": {"countries": ["DE"]}}),
+                "INACTIVE_BY_RESTRICTED_PLAN",
+            ),
+            (
+                3,
+                "ACTIVE",
+                serde_json::json!({"shipping": {"country": "DE"}}),
+                "INACTIVE_BY_RESTRICTED_PLAN",
+            ),
+            (
+                4,
+                "INACTIVE_BY_USER",
+                serde_json::json!({}),
+                "INACTIVE_BY_USER",
+            ),
+            (
+                5,
+                "INACTIVE_BY_RESTRICTED_PLAN",
+                serde_json::json!({"auction_id_query": [uuid::Uuid::now_v7()]}),
+                "INACTIVE_BY_RESTRICTED_PLAN",
+            ),
+        ] {
+            let id = seed_search_filter(
+                &pool,
+                user_id,
+                "migration",
+                state,
+                None,
+                now + Duration::seconds(index),
+            )
+            .await;
+            sqlx::query("UPDATE search_filters SET search=$2 WHERE user_search_filter_id=$1")
+                .bind(id)
+                .bind(&search)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let updated: OffsetDateTime = sqlx::query_scalar(
+                "SELECT updated FROM search_filters WHERE user_search_filter_id=$1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            fixtures.push((
+                id,
+                search,
+                state,
+                if tier == "FREE" { target } else { state },
+                updated,
+            ));
+        }
+    }
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(MIGRATION).execute(&mut *tx).await.unwrap();
+    for (id, search, before, target, updated) in &fixtures {
+        let (state, stored, version, freshness): (String, serde_json::Value, i64, OffsetDateTime) = sqlx::query_as(
+            "SELECT state,search,version,updated FROM search_filters WHERE user_search_filter_id=$1"
+        ).bind(id).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(*target, state);
+        assert_eq!(*search, stored);
+        assert_eq!(if before == target { 1 } else { 2 }, version);
+        if before == target {
+            assert_eq!(*updated, freshness);
+        } else {
+            assert!(freshness > *updated);
+        }
+    }
+    sqlx::raw_sql(MIGRATION).execute(&mut *tx).await.unwrap();
+    for (id, _, before, target, _) in fixtures {
+        let version: i64 =
+            sqlx::query_scalar("SELECT version FROM search_filters WHERE user_search_filter_id=$1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(
+            if before == target { 1 } else { 2 },
+            version,
+            "repeated reconciliation is a no-op"
+        );
+    }
+    tx.rollback().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Saved search-filter contract (#2163)
+
+- Saved search-filter response schemas no longer declare `createdBy` or `updatedBy`, matching POST, GET, PATCH and list responses. The POST schema now includes the implemented optional `notifications` flag, which defaults to `true`.
+- Every top-level PATCH field accepts `null` as an unchanged value, including `name`, `notifications`, `state`, `search` and `acceptShippingDestination`. Nested search criteria retain their documented clearing rules.
+- FREE saved searches reject geography and shipping criteria with `SEARCH_FILTER_RESTRICTED_FEATURE` on creation, addition or activation. Existing affected FREE filters become inactive with their criteria retained. PRO and ULTIMATE allow both predicates in full. Inactive filters can retain or clear existing restricted criteria.
+
 ## 2026-10-19 — Cognito account deletion (#2170)
 
 - Self-service and administrator account deletion now durably request Cognito profile removal in the account deletion transaction. Backend credentials remain immediately invalidated; HTTP `204` confirms business deletion while provider removal retries asynchronously.

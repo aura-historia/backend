@@ -3955,12 +3955,14 @@ paths:
 
         The number of allowed search filters and the set of usable search filter fields depend on the user's tier:
 
-        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`.
-        Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Up to 1 active search filter. Allowed search fields are `language`, `currency`, `productQuery`,
+        `price`, `excludeProductListingId`, `availability`, `orderability`, and `includeUnspecifiedAvailability`.
+        Other search fields, including `geography` and `shipping`, return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
-        - `PRO`: Up to 5 search filters. All filter fields are allowed.
+        - `PRO`: Up to 5 active search filters. All search fields, including `geography` and `shipping`, are allowed
+        except `enhancedSearchDescription`.
 
-        - `ULTIMATE`: Unlimited search filters. All filter fields are allowed.
+        - `ULTIMATE`: Unlimited search filters. All search fields are allowed.
 
         "
       operationId: createUserSearchFilter
@@ -4369,7 +4371,7 @@ paths:
       description:
         "Updates a specific search filter by its ID for the authenticated user.
 
-        Allows partial updates: omitted members remain unchanged, documented nullable criteria
+        Allows partial updates: omitted or null top-level members remain unchanged. Within `search`, documented nullable criteria
 
         accept `null` to clear, and `null` for required scalars or collections returns `400 BAD_BODY_VALUE`.
 
@@ -4380,10 +4382,12 @@ paths:
 
         The set of usable search filter fields depends on the user's tier:
 
-        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`. Other fields are
-        forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Allowed search fields are `language`, `currency`, `productQuery`, `price`, `excludeProductListingId`,
+        `availability`, `orderability`, and `includeUnspecifiedAvailability`. Other search fields, including `geography` and
+        `shipping`, return `SEARCH_FILTER_RESTRICTED_FEATURE` when added. Existing restricted criteria can be retained or
+        cleared on inactive filters; activating a filter validates all its criteria against the current tier.
 
-        - `PRO`: All filter fields are allowed.
+        - `PRO`: All search fields, including `geography` and `shipping`, are allowed except `enhancedSearchDescription`.
 
         - `ULTIMATE`: All filter fields are allowed.
 
@@ -19549,20 +19553,6 @@ components:
           nullable: true
       description: Initial absent state has revision 1. Clear retains an advancing revision tombstone; retirement
         retains the selected identity and ineligible status. No implicit fallback.
-    ActorData:
-      oneOf:
-        - type: string
-          enum:
-            - SYSTEM
-          description: Backend-initiated actor marker.
-        - type: string
-          description: User ID of the user who performed the change.
-      description: "Audit actor encoded as a plain string.
-
-        Values are either the literal `SYSTEM` or the User ID of the acting user.
-
-        "
-      example: SYSTEM
     AdminProductListingVersion:
       type: object
       additionalProperties: false
@@ -21160,20 +21150,30 @@ components:
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
           maxLength: 255
           example: My Tech Store Search
+        notifications:
+          type: boolean
+          default: true
+          description: Whether to send email notifications for new matches. Omit to enable notifications.
+          example: false
         search:
           $ref: "#/components/schemas/ProductListingSearchData"
     PatchUserSearchFilterData:
       type: object
       description: "Partial search filter update data.
 
-        All fields are optional and only provided fields will be updated.
+        All fields are optional and nullable. Omitted or null top-level members leave the stored value unchanged.
+        Nested search criteria use the null and omission rules in PatchProductListingSearchData.
 
         Can update the search filter name, notifications preference, activation state, and/or the search filter criteria.
 
         "
       properties:
         acceptShippingDestination:
-          $ref: '#/components/schemas/AcceptShippingDestinationData'
+          anyOf:
+            - $ref: '#/components/schemas/AcceptShippingDestinationData'
+            - type: object
+              nullable: true
+              enum: [null]
         name:
           type: string
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
@@ -21190,14 +21190,16 @@ components:
 
             When `false`, no notifications are sent for this filter.
 
-            Omit to leave unchanged.
+            Omit or supply `null` to leave unchanged.
 
             "
           example: true
         state:
-          allOf:
+          anyOf:
             - $ref: "#/components/schemas/PatchResourceStateData"
-          nullable: true
+            - type: string
+              nullable: true
+              enum: [null]
           description:
             "Optional activation state update for this saved search filter.
 
@@ -21205,14 +21207,16 @@ components:
 
             `INACTIVE_BY_USER` manually disables the filter.
 
-            Omit to leave the current state unchanged.
+            Omit or supply `null` to leave the current state unchanged.
 
             "
         search:
-          allOf:
+          anyOf:
             - $ref: "#/components/schemas/PatchProductListingSearchData"
-          nullable: true
-          description: Partial search filter criteria to update
+            - type: object
+              nullable: true
+              enum: [null]
+          description: Partial search filter criteria to update. Omit or supply null to leave all criteria unchanged.
     PatchUserSearchFilterMatchData:
       type: object
       description: "Partial update payload for a saved-search product match.
@@ -21321,8 +21325,6 @@ components:
         - notifications
         - state
         - search
-        - createdBy
-        - updatedBy
         - created
         - updated
       properties:
@@ -21355,10 +21357,6 @@ components:
           $ref: "#/components/schemas/ResourceStateData"
         search:
           $ref: "#/components/schemas/ProductListingSearchData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time

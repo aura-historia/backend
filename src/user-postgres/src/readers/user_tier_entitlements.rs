@@ -59,6 +59,8 @@ WITH candidates AS (
                 AND search ->> 'updated_query' IS NULL
                 AND search ->> 'lot_bidding_opens_query' IS NULL
                 AND search ->> 'lot_scheduled_closes_query' IS NULL
+                AND search ->> 'geography' IS NULL
+                AND search ->> 'shipping' IS NULL
             ELSE false
         END AS feature_allowed
     FROM search_filters
