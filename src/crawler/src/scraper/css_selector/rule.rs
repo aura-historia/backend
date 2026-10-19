@@ -256,7 +256,9 @@ const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"]
 /// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees.
 fn visible_text(element: &scraper::ElementRef<'_>) -> String {
     let mut text = String::new();
-    push_visible_text(element, &mut text);
+    if !NON_TEXT_ELEMENTS.contains(&element.value().name()) {
+        push_visible_text(element, &mut text);
+    }
     text
 }
 
@@ -641,6 +643,13 @@ mod tests {
         let doc = html(&format!("<div>Visible {hidden}<em>text</em></div>"));
         let r = rule("div", text_kind(), ExtractionCardinality::First);
         assert_eq!(r.apply(&doc).unwrap(), vec!["Visible text"]);
+    }
+
+    #[test]
+    fn should_return_empty_text_when_selected_element_is_a_non_text_element() {
+        let doc = html("<div><script>window.a = 1;</script><p>Visible</p></div>");
+        let r = rule("script", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
     }
 
     // ─── Text / All ────────────────────────────────────────────────────
