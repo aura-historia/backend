@@ -7,6 +7,20 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - `GET /api/v1/product-listings` rejects malformed inner `searchAfter` sort values or an incorrect sort value count with `400 BAD_QUERY_PARAMETER_VALUE`, identifying `searchAfter` as the query field, instead of returning `503`. Cursors remain opaque and must be passed back unchanged with the same search parameters.
 - Continuations retain their original keyword or semantic ranking across embedding-provider recovery or failure. A semantic continuation that cannot obtain an embedding returns `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` and can be retried with the unchanged cursor.
 
+## 2026-10-19 — Edge request-body limit (#2154)
+
+- JSON request bodies up to the documented 1 MiB limit now reach the API through CloudFront. Bodies above 8 KiB, such as larger shipping profiles or ingestion batches, were previously rejected with an HTML `403` before authentication or validation.
+- Requests declaring a `Content-Length` above 1 MiB are rejected at the edge with `413` and the `BAD_BODY_VALUE` error body.
+
+## 2026-10-19 — Synchronous Partner API authorization and conflict documentation (#2169)
+
+- The OpenAPI contract for synchronous batch `POST`, `PATCH`, `PUT` and `DELETE` on `/api/v1/listing-sources/{listingSourceId}/product-listings` no longer claims that Aura Historia administrators are allowed callers. As enforced, each entry requires a user with a Partnership grant for the path ListingSource; administrator role alone returns `403 FORBIDDEN`. Administrators use `/api/v1/admin/product-listings`. An authenticated empty array returns `200 []` without Partnership or scope checks.
+- The batch response declarations now include the first-failure statuses the API already returns: `409 CONFLICT` for `POST`, `PATCH` and `PUT`, `404 AUCTION_NOT_FOUND` / `PRODUCT_LISTING_NOT_FOUND` where applicable, and `503 AUCTION_TEMPORARILY_UNAVAILABLE`. Runtime behavior is unchanged.
+
+## 2026-10-19 — Saved search-filter `excludeProductListingId` (#2179)
+
+- Saved search filters name the excluded-listings field `search.excludeProductListingId`, matching the `GET /api/v1/product-listings` query parameter. This applies to `POST /api/v1/me/search-filters` request bodies and all search-filter responses. `search.excludeProductId` is no longer read or returned; existing filters keep their exclusions and now return them under the new name. Invalid values report `search.excludeProductListingId` as the body field. Free-tier allowed fields are unchanged apart from the new name.
+
 ## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
 - The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.

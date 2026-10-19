@@ -31,7 +31,8 @@ info:
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Origin API responses include\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
-    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `POST /api/v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /api/v1/health` is a\
+    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Request bodies are limited to 1 MiB and requests time out after 30 seconds. A declared `Content-Length` above 1 MiB is\
+    \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /api/v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /api/v1/health` is a\
     \ process liveness check. `GET /api/v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
@@ -849,7 +850,9 @@ paths:
 
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
 
-        Allowed callers are Aura Historia admins and users partnered with the target listing source.
+        The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
+        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
 
         The request body is an array of `CreateProductListingData` objects. Each entry is created
@@ -936,7 +939,9 @@ paths:
                       sourceListingId: baroque-violin-002
                       error: CONFLICT
         "400":
-          description: Bad request — request body is missing, empty, or contains invalid JSON
+          description:
+            Bad request (`BAD_BODY_VALUE`) — the body is missing, empty, invalid JSON or violates the batch contract,
+            or every entry failed and the first failure was an invalid product-listing write.
           content:
             application/problem+json:
               schema:
@@ -984,7 +989,9 @@ paths:
                     title: Unauthorized
                     error: ACCESS_TOKEN_NOT_FOUND
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this listing source
+          description:
+            Forbidden — the caller has no Partnership grant for this listing source (administrator role alone is
+            insufficient), or the access token lacks `product-listings:write`.
           content:
             application/problem+json:
               schema:
@@ -994,7 +1001,7 @@ paths:
                 title: Forbidden
                 error: FORBIDDEN
         "404":
-          description: Not found — the specified listing source does not exist
+          description: Not found — the listing source (`LISTING_SOURCE_NOT_FOUND`) or the referenced Auction (`AUCTION_NOT_FOUND`) does not exist
           content:
             application/problem+json:
               schema:
@@ -1003,8 +1010,20 @@ paths:
                 status: 404
                 title: Not Found
                 error: LISTING_SOURCE_NOT_FOUND
+        "409":
+          description: Conflict — the first failed entry's source listing key already exists for this listing source, or its Auction belongs to another listing source (`CONFLICT`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
         "503":
-          description: Service unavailable — all entries encountered a temporary product-write failure
+          description:
+            Service unavailable — the first failure was temporary (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` or
+            `AUCTION_TEMPORARILY_UNAVAILABLE`).
           content:
             application/problem+json:
               schema:
@@ -1037,7 +1056,9 @@ paths:
 
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
 
-        Allowed callers are Aura Historia admins and users partnered with the target listing source.
+        The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
+        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
 
         The request body is an array of `UpdateProductListingData` objects. Omitted fields are unchanged;
@@ -1124,7 +1145,9 @@ paths:
                       sourceListingId: baroque-violin-002
                       error: PRODUCT_LISTING_NOT_FOUND
         "400":
-          description: Bad request — request body is missing, empty, or contains invalid JSON
+          description:
+            Bad request (`BAD_BODY_VALUE`) — the body is missing, empty, invalid JSON or violates the batch contract,
+            or every entry failed and the first failure was an invalid product-listing write.
           content:
             application/problem+json:
               schema:
@@ -1172,7 +1195,9 @@ paths:
                     title: Unauthorized
                     error: ACCESS_TOKEN_NOT_FOUND
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this listing source
+          description:
+            Forbidden — the caller has no Partnership grant for this listing source (administrator role alone is
+            insufficient), or the access token lacks `product-listings:write`.
           content:
             application/problem+json:
               schema:
@@ -1182,7 +1207,7 @@ paths:
                 title: Forbidden
                 error: FORBIDDEN
         "404":
-          description: Not found — the specified listing source does not exist
+          description: Not found — the listing source (`LISTING_SOURCE_NOT_FOUND`), product listing (`PRODUCT_LISTING_NOT_FOUND`) or referenced Auction (`AUCTION_NOT_FOUND`) does not exist
           content:
             application/problem+json:
               schema:
@@ -1191,8 +1216,20 @@ paths:
                 status: 404
                 title: Not Found
                 error: LISTING_SOURCE_NOT_FOUND
+        "409":
+          description: Conflict — the first failed entry's product listing is withdrawn, or its Auction belongs to another listing source (`CONFLICT`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
         "503":
-          description: Service unavailable — all entries encountered a temporary product-write failure
+          description:
+            Service unavailable — the first failure was temporary (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` or
+            `AUCTION_TEMPORARILY_UNAVAILABLE`).
           content:
             application/problem+json:
               schema:
@@ -1217,8 +1254,10 @@ paths:
         "Creates new product-listings or updates existing ones for a listing source in a single batch call,\nusing\
         \ bearer authentication. This endpoint is intended for partnerships and accepts:\n- a Cognito bearer token for the\
         \ partner user linked to the listing source, or\n- an Aura Historia access token owned by that partner user.\n\nAura\
-        \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nAllowed callers are Aura\
-        \ Historia admins and users partnered with the target listing source.\n\nThe request body is an array of `UpsertProductListingData`\
+        \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nThe caller must be a\
+        \ user with an active Partnership grant for the path ListingSource; administrator role alone does not grant access.\n\
+        Administrators use the separate `/api/v1/admin/product-listings` operations. Partnership and scope checks run\n\
+        per entry, so an authenticated empty array returns `[]` without them.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
         \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested Auction/lot-facts patch (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction/lot-facts patch, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
         \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
@@ -1326,7 +1365,9 @@ paths:
                       sourceListingId: baroque-violin-002
                       error: BAD_BODY_VALUE
         "400":
-          description: Bad request — request body is missing, empty, or contains invalid JSON
+          description:
+            Bad request (`BAD_BODY_VALUE`) — the body is missing, empty, invalid JSON or violates the batch contract,
+            or every entry failed and the first failure was an invalid product-listing write.
           content:
             application/problem+json:
               schema:
@@ -1374,7 +1415,9 @@ paths:
                     title: Unauthorized
                     error: ACCESS_TOKEN_NOT_FOUND
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this listing source
+          description:
+            Forbidden — the caller has no Partnership grant for this listing source (administrator role alone is
+            insufficient), or the access token lacks `product-listings:write`.
           content:
             application/problem+json:
               schema:
@@ -1384,7 +1427,7 @@ paths:
                 title: Forbidden
                 error: FORBIDDEN
         "404":
-          description: Not found — the specified listing source does not exist
+          description: Not found — the listing source (`LISTING_SOURCE_NOT_FOUND`) or the referenced Auction (`AUCTION_NOT_FOUND`) does not exist
           content:
             application/problem+json:
               schema:
@@ -1393,8 +1436,20 @@ paths:
                 status: 404
                 title: Not Found
                 error: LISTING_SOURCE_NOT_FOUND
+        "409":
+          description: Conflict — the first failed entry conflicts with current state, such as an Auction that belongs to another listing source (`CONFLICT`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
         "503":
-          description: Service unavailable — all entries encountered a temporary product-write failure
+          description:
+            Service unavailable — the first failure was temporary (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` or
+            `AUCTION_TEMPORARILY_UNAVAILABLE`).
           content:
             application/problem+json:
               schema:
@@ -1422,9 +1477,11 @@ paths:
         materialized PostgreSQL state synchronously in its own transaction.
 
 
-        Allowed callers are Aura Historia admins and users partnered with the target listing source. Aura
+        The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
+        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
-        Historia access tokens must include the `product-listings:write` scope.
+        Aura Historia access tokens must include the `product-listings:write` scope.
 
 
         The request body is an array of product identifiers. The response returns HTTP 200 with
@@ -1496,20 +1553,20 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "403":
           description:
-            Forbidden — caller is neither admin nor partnered with this listing source, or the access token lacks
-            `product-listings:write`.
+            Forbidden — caller has no Partnership grant for this listing source (administrator role alone is
+            insufficient), or the access token lacks `product-listings:write`.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Not found — the specified listing source or product does not exist.
+          description: Not found — the listing source (`LISTING_SOURCE_NOT_FOUND`) or product listing (`PRODUCT_LISTING_NOT_FOUND`) does not exist.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "503":
-          description: Service unavailable — all entries encountered a temporary product-write failure.
+          description: Service unavailable — the first failure was temporary (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
           content:
             application/problem+json:
               schema:
@@ -3898,7 +3955,7 @@ paths:
 
         The number of allowed search filters and the set of usable search filter fields depend on the user's tier:
 
-        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`.
+        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`.
         Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
         - `PRO`: Up to 5 search filters. All filter fields are allowed.
@@ -4323,7 +4380,7 @@ paths:
 
         The set of usable search filter fields depends on the user's tier:
 
-        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`. Other fields are
+        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`. Other fields are
         forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
         - `PRO`: All filter fields are allowed.
@@ -21013,7 +21070,7 @@ components:
           minLength: 1
           maxLength: 1000
           nullable: true
-        excludeProductId:
+        excludeProductListingId:
           type: array
           items:
             type: string
@@ -22817,7 +22874,7 @@ components:
         max search filters, allowed search filter fields).
 
         - `FREE`: Default tier for all users. Allows up to 20 watchlist entries, up to 1 search filter (limited to `productQuery`,
-        `price`, `state`, `excludeProductId`, and `lifecycle` filter fields), and up to 10 product matches per filter.
+        `price`, `state`, `excludeProductListingId`, and `lifecycle` filter fields), and up to 10 product matches per filter.
 
         - `PRO`: Premium tier. Allows up to 100 watchlist entries, up to 5 search filters with access to all filter fields,
         and unlimited product matches per filter.
