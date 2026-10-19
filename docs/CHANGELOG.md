@@ -2,9 +2,9 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
-## 2026-10-19 — Search `excludeProductId` query parameter (#2155)
+## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
-- `GET /api/v1/product-listings` now honours the documented `excludeProductId` query parameter: the supplied listings are removed from results and `total`. Previously it was ignored and only the undocumented `excludeProductListingId` worked; that name remains accepted for compatibility. Values must be strict `pl_` TypeIDs; invalid values return `400 INVALID_OBJECT_ID` with `excludeProductId` as the query field.
+- The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.
 
 ## 2026-10-18 — Consistent entity freshness (#2032)
 

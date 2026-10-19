@@ -3460,7 +3460,7 @@ paths:
             type: string
             minLength: 1
             maxLength: 1000
-        - name: excludeProductId
+        - name: excludeProductListingId
           in: query
           required: false
           description: Optional ProductListing IDs (strict `pl_` TypeIDs) to exclude from results and totals.
