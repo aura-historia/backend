@@ -2468,6 +2468,7 @@ impl From<WatchProductListingError> for ApiError {
 impl From<UpdateWatchlistProductListingError> for ApiError {
     fn from(error: UpdateWatchlistProductListingError) -> Self {
         match error {
+            UpdateWatchlistProductListingError::Presentation(error) => ApiError::from(error),
             UpdateWatchlistProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -3342,6 +3343,37 @@ mod tests {
             ),
         ] {
             let response = ApiError::from(error).into_response();
+
+            assert_eq!(expected_status, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(expected_code.to_string(), body["error"]);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_watchlist_product_presentation_errors_to_public_problems()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (error, expected_status, expected_code) in [
+            (
+                GetProductListingError::NotFound,
+                StatusCode::NOT_FOUND,
+                PRODUCT_LISTING_NOT_FOUND,
+            ),
+            (
+                GetProductListingError::PricingFxSnapshotMissing,
+                StatusCode::SERVICE_UNAVAILABLE,
+                PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE,
+            ),
+            (
+                GetProductListingError::ProductListingDetailsReadModelInvalid,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                PRODUCT_LISTING_INTERNAL_ERROR,
+            ),
+        ] {
+            let response = ApiError::from(UpdateWatchlistProductListingError::Presentation(error))
+                .into_response();
 
             assert_eq!(expected_status, response.status());
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;

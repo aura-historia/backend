@@ -1225,6 +1225,11 @@ async fn periodic_shipping_change(fx_mode: bool) {
     use search_filter_postgres::*;
     use search_filter_service::use_cases::*;
     let ((pool, _, _, owner, profile, listing), mut index) = fixture_with_projection().await;
+    sqlx::query("UPDATE users SET tier='PRO' WHERE user_id=$1")
+        .bind(owner.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     let profile_before: Value = sqlx::query_scalar(
         "SELECT to_jsonb(p) FROM shipping_profiles p WHERE shipping_profile_id=$1",
     )
