@@ -2,6 +2,9 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Strict NONE browsing destination (#2164)
+
+- `PUT /api/v1/me/browsing-destination` rejects a `NONE` destination carrying any member besides `kind` (for example `{"kind":"NONE","country":"FR"}`) with `400 BAD_BODY_VALUE`, as the `BrowsingDestination` schema declares. Previously such a request returned `200`, incremented the version and cleared the existing preference.
 
 ## 2026-10-19 — Saved search-filter contract (#2163)
 
