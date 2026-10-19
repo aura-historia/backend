@@ -2,11 +2,19 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+
 ## 2026-10-19 — Saved search-filter contract (#2163)
 
 - Saved search-filter response schemas no longer declare `createdBy` or `updatedBy`, matching POST, GET, PATCH and list responses. The POST schema now includes the implemented optional `notifications` flag, which defaults to `true`.
 - Every top-level PATCH field accepts `null` as an unchanged value, including `name`, `notifications`, `state`, `search` and `acceptShippingDestination`. Nested search criteria retain their documented clearing rules.
 - FREE saved searches reject geography and shipping criteria with `SEARCH_FILTER_RESTRICTED_FEATURE` on creation, addition or activation. Existing affected FREE filters become inactive with their criteria retained. PRO and ULTIMATE allow both predicates in full. Inactive filters can retain or clear existing restricted criteria.
+
+## 2026-10-19 — Personalized watchlist PATCH response (#2162)
+
+- `PATCH /api/v1/me/watchlist/{productListingId}` now returns the documented personalized product details (`item` and `userState`), including for an empty `{}` no-op, instead of a bare watchlist entry. `userState.watchlist` reflects the updated activation and notification settings; hidden/withdrawn redaction is preserved. POST responses are unchanged.
+- The route now honors `language` and `currency` (defaults `en` and `EUR`) and rejects unsupported values with `400 BAD_QUERY_PARAMETER_VALUE` before updating the entry. Delegated callers still need only `watchlist:write` for the update and its response.
+- OpenAPI no longer permits `WatchlistProductPatch.state: null`, matching the existing `400 BAD_BODY_VALUE` behavior. Omit the field to leave activation unchanged.
+
 
 ## 2026-10-19 — CORS-exposed trace headers (#2159)
 

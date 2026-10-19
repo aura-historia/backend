@@ -9126,9 +9126,13 @@ paths:
         "Updates settings for a specific watchlist product (e.g., toggle notifications or manually activate/deactivate
         the watchlist entry).
 
-        Returns the full personalized product data after applying the update.
+        Returns full personalized product data (`item` and `userState`) after applying the update, including
+        for an empty `{}` no-op. `userState.watchlist.watching` reflects whether the entry is active, and
+        `userState.watchlist.notifications` reflects the stored notification setting. Hidden and withdrawn
+        listings retain their usual redaction.
 
-        Requires valid Cognito JWT authentication.
+        Requires a valid user bearer credential. Delegated credentials require `watchlist:write`; no additional
+        read scope is required for the response. Responses are not cached.
 
         "
       operationId: patchWatchlistProduct
@@ -9157,15 +9161,16 @@ paths:
         - name: currency
           in: query
           required: false
-          description: Currency for price display in the response.
+          description: Currency for price display in the response. Defaults to `EUR` when omitted.
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Patch object containing fields to update
+        description: Patch object containing fields to update. An empty object leaves the entry unchanged.
         content:
           application/json:
             schema:
@@ -9189,8 +9194,12 @@ paths:
                   state: ACTIVE
       responses:
         "200":
-          description: Watchlist product updated successfully
+          description: Watchlist product updated successfully, with current personalized product details
           headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -9200,47 +9209,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
-              example:
-                item:
-                  productListingId: pl_5xdb465tg1enarx2knf04mxbxj
-                  productListingTitleSlugId: smartphone-case-a1b2c3
-                  eventId: evt_69wh1chr82fen9vvyk6n3mh80m
-                  source:
-                    listingSourceId: ls_6rd827eqfefsva9teecmwa3ate
-                    name: Tech Store
-                    slugId: tech-store
-                  sourceListingId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
-                  title:
-                    text: Smartphone Case
-                    language: en
-                  price:
-                    offer:
-                      currency: EUR
-                      amount: 2999
-                    estimate:
-                      min:
-                        currency: EUR
-                        amount: 2700
-                      max:
-                        currency: EUR
-                        amount: 3300
-                  availability: IN_STOCK
-                  url: https://tech-store.com/smartphone-case
-                  viewUrl: https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral
-                  images:
-                    - url: https://tech-store.com/images/case-1.jpg
-                  contentPolicy:
-                    decision: ALLOWED
-                  created: "2024-01-01T10:00:00Z"
-                  updated: "2024-01-01T12:00:00Z"
-                userState:
-                  watchlist:
-                    watching: true
-                    notifications: true
-                  contentVisibility:
-                    showUnassessedOrSensitiveContent: false
-                  notification:
-                    unseenNotificationIds: []
         "400":
           description: Bad request - invalid parameters or body
           content:
@@ -9281,8 +9249,21 @@ paths:
                     title: Bad Request
                     error: BAD_BODY_VALUE
                     detail: Invalid JSON format
+                unsupported_presentation:
+                  summary: Unsupported language or currency query value
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                null_state:
+                  summary: State cannot be null
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: Body field 'state' must not be null.
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credential
           content:
             application/problem+json:
               schema:
@@ -9290,7 +9271,17 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Delegated credential lacks watchlist:write
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
         "404":
           description: Watchlist entry or ProductListing not found
           content:
@@ -9339,6 +9330,12 @@ paths:
                     status: 409
                     title: Conflict
                     error: PRODUCT_LISTING_UNAVAILABLE
+        "503":
+          description: Watchlist persistence, product details, pricing or shipping is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "500":
           description: Internal server error
           content:
@@ -22296,9 +22293,8 @@ components:
         state:
           allOf:
             - $ref: "#/components/schemas/PatchResourceStateData"
-          nullable: true
           description:
-            "Optional activation state update for this watchlist entry.
+            "Optional, non-null activation state update for this watchlist entry.
 
             `ACTIVE` reactivates the entry if the user's current tier still has watchlist quota.
 
