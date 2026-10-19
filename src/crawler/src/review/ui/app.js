@@ -589,12 +589,17 @@ function renderOptionalMissSummary(pagesWithMisses) {
     return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
 }
 
-// A field whose primary and additional selectors all matched nothing on a page
-// that still applied: the field was left empty instead of failing the page.
+// Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
+// rule (not required, no selector error, not `images`, whose empty-container case is
+// decided by the page-level apply result) whose primary and additional selectors all
+// matched nothing on a page that still applied.
 function optionalFieldMisses(page) {
     if (!page?.apply_ok) return [];
     return (page.fields || []).filter(field =>
-        field.selector_match_count === 0
+        !field.required
+        && !field.error
+        && field.field !== 'images'
+        && field.selector_match_count === 0
         && (field.additional_selector_match_counts || []).every(count => count === 0)
     );
 }

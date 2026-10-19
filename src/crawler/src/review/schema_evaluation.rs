@@ -52,7 +52,81 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
     }
 }
 
-pub(crate) fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool {
+/// Deterministic approval requires every page to be covered by some candidate and no
+/// optional rule that matched nothing on every page its candidate applied to: the
+/// generator had those exact pages in hand, so a total miss is a defective selector,
+/// not page variance, and must stay in human review.
+pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
+    schema_matrix_has_required_coverage(matrix)
+        && optional_rules_missing_on_every_page(matrix).is_empty()
+}
+
+/// An optional rule of one candidate that matched nothing (primary and additional
+/// selectors) on every page the candidate applied to.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct OptionalRuleTotalMiss {
+    pub schema_index: usize,
+    pub field: String,
+    pub selector: String,
+    pub page_count: usize,
+}
+
+pub(crate) fn optional_rules_missing_on_every_page(
+    matrix: &SchemaMatrix,
+) -> Vec<OptionalRuleTotalMiss> {
+    let mut misses = Vec::new();
+    for candidate in &matrix.candidates {
+        let applied_pages: Vec<&SchemaPageEvaluation> = candidate
+            .pages
+            .iter()
+            .filter(|page| page.apply_ok)
+            .collect();
+        let Some(first_page) = applied_pages.first() else {
+            continue;
+        };
+        for field in &first_page.fields {
+            if !selector_field_is_soft(field) {
+                continue;
+            }
+            let missed_everywhere = applied_pages.iter().all(|page| {
+                page.fields
+                    .iter()
+                    .find(|candidate_field| candidate_field.field == field.field)
+                    .is_some_and(|candidate_field| {
+                        selector_field_is_soft(candidate_field)
+                            && selector_field_matched_nothing(candidate_field)
+                    })
+            });
+            if missed_everywhere {
+                misses.push(OptionalRuleTotalMiss {
+                    schema_index: candidate.schema_index,
+                    field: field.field.clone(),
+                    selector: field.selector.clone(),
+                    page_count: applied_pages.len(),
+                });
+            }
+        }
+    }
+    misses
+}
+
+/// A rule whose miss leaves the field empty instead of failing the page. `images`
+/// is excluded because its soft case (an existing but empty container) is decided by
+/// the page-level apply result, not by match counts.
+pub(crate) fn selector_field_is_soft(field: &SelectorFieldEvaluation) -> bool {
+    !field.required && field.error.is_none() && field.field != "images"
+}
+
+/// Primary and every additional selector matched nothing.
+pub(crate) fn selector_field_matched_nothing(field: &SelectorFieldEvaluation) -> bool {
+    field.selector_match_count == Some(0)
+        && field
+            .additional_selector_match_counts
+            .iter()
+            .all(|count| *count == 0)
+}
+
+fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool {
     let Some(first_candidate) = matrix.candidates.first() else {
         return false;
     };
@@ -160,26 +234,28 @@ fn evaluate_schema_fields(
     html: &str,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
+    // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
+    // fail the page on a miss.
     if let Some(rule) = &schema.source_listing_id {
-        fields.push(evaluate_rule("source_listing_id", rule, html));
+        fields.push(evaluate_rule("source_listing_id", rule, html, false));
     }
-    fields.push(evaluate_rule("title", &schema.title, html));
+    fields.push(evaluate_rule("title", &schema.title, html, true));
     if let Some(rule) = &schema.description {
-        fields.push(evaluate_rule("description", rule, html));
+        fields.push(evaluate_rule("description", rule, html, false));
     }
     if let Some(rule) = &schema.price {
-        fields.push(evaluate_rule("price", rule, html));
+        fields.push(evaluate_rule("price", rule, html, false));
     }
     if let Some(rule) = &schema.price_estimate_min {
-        fields.push(evaluate_rule("price_estimate_min", rule, html));
+        fields.push(evaluate_rule("price_estimate_min", rule, html, false));
     }
     if let Some(rule) = &schema.price_estimate_max {
-        fields.push(evaluate_rule("price_estimate_max", rule, html));
+        fields.push(evaluate_rule("price_estimate_max", rule, html, false));
     }
-    fields.push(evaluate_rule("state", &schema.state, html));
-    fields.push(evaluate_rule("images", &schema.images, html));
+    fields.push(evaluate_rule("state", &schema.state, html, true));
+    fields.push(evaluate_rule("images", &schema.images, html, false));
     for (field, rule) in &schema.raw_attributes {
-        fields.push(evaluate_rule(field, rule, html));
+        fields.push(evaluate_rule(field, rule, html, false));
     }
     fields
 }
@@ -188,6 +264,7 @@ fn evaluate_rule(
     field: &str,
     rule: &crate::scraper::css_selector::rule::ExtractionRule,
     html: &str,
+    required: bool,
 ) -> SelectorFieldEvaluation {
     let document = Html::parse_document(html);
     let selector = rule.selector.to_string();
@@ -201,6 +278,7 @@ fn evaluate_rule(
                 selector_match_count: None,
                 additional_selector_match_counts: Vec::new(),
                 error: Some(error),
+                required,
             };
         }
     };
@@ -219,6 +297,7 @@ fn evaluate_rule(
         selector_match_count,
         additional_selector_match_counts,
         error: None,
+        required,
     }
 }
 
@@ -343,6 +422,18 @@ mod tests {
             page.extracted
                 .as_ref()
                 .is_some_and(|raw| raw.price.is_none())
+        );
+        // The rule missed on every page the candidate applied to, so the schema is
+        // covered but not deterministically approvable.
+        assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        assert_eq!(
+            optional_rules_missing_on_every_page(&matrix),
+            vec![OptionalRuleTotalMiss {
+                schema_index: 0,
+                field: "price".to_string(),
+                selector: "#price".to_string(),
+                page_count: 1,
+            }]
         );
         let price_field = page
             .fields

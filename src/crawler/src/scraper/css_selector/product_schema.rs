@@ -191,7 +191,8 @@ impl ProductCssSelectorSchema {
     /// Rules for optional fields are skipped (returning `None`) when the field itself
     /// is `None`. A present optional rule (`source_listing_id`, `description`, `price`,
     /// the price estimates and raw attributes) that matches nothing yields an empty
-    /// value (`None` for the prices) and a per-field debug diagnostic instead of a page error: one page without
+    /// value (`None` for the prices) and a per-field log diagnostic (warn for description and
+    /// price, debug or trace otherwise) instead of a page error: one page without
     /// a description must not invalidate the schema. Only `title` and `state` fail
     /// closed on a miss; `images` fails closed unless the image container exists and
     /// holds no image (see [`Self::apply_image_url_candidate_groups`]). Any other rule
@@ -204,11 +205,13 @@ impl ProductCssSelectorSchema {
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
-            Some(rule) => apply_optional_rule("source_listing_id", rule, html)
-                .map_err(ApplySchemaError::SourceListingId)?
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
+            Some(rule) => {
+                apply_optional_rule("source_listing_id", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::SourceListingId)?
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default()
+            }
         };
 
         let title = self
@@ -221,7 +224,7 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => apply_optional_rule("description", rule, html)
+            Some(rule) => apply_optional_rule("description", rule, html, OptionalMissLog::Warn)
                 .map_err(ApplySchemaError::Description)?,
         };
 
@@ -229,7 +232,7 @@ impl ProductCssSelectorSchema {
         // normalization and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => apply_optional_rule("price", rule, html)
+            Some(rule) => apply_optional_rule("price", rule, html, OptionalMissLog::Warn)
                 .map_err(ApplySchemaError::Price)?
                 .into_iter()
                 .next(),
@@ -237,18 +240,22 @@ impl ProductCssSelectorSchema {
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => apply_optional_rule("price_estimate_min", rule, html)
-                .map_err(ApplySchemaError::PriceEstimateMin)?
-                .into_iter()
-                .next(),
+            Some(rule) => {
+                apply_optional_rule("price_estimate_min", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::PriceEstimateMin)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => apply_optional_rule("price_estimate_max", rule, html)
-                .map_err(ApplySchemaError::PriceEstimateMax)?
-                .into_iter()
-                .next(),
+            Some(rule) => {
+                apply_optional_rule("price_estimate_max", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::PriceEstimateMax)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let state = self
@@ -275,14 +282,15 @@ impl ProductCssSelectorSchema {
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
-            let values: Vec<String> = apply_optional_rule(field, rule, html)
-                .map_err(|source| ApplySchemaError::RawAttribute {
-                    field: field.clone(),
-                    source,
-                })?
-                .into_iter()
-                .filter(|value| !value.trim().is_empty())
-                .collect();
+            let values: Vec<String> =
+                apply_optional_rule(field, rule, html, OptionalMissLog::Trace)
+                    .map_err(|source| ApplySchemaError::RawAttribute {
+                        field: field.clone(),
+                        source,
+                    })?
+                    .into_iter()
+                    .filter(|value| !value.trim().is_empty())
+                    .collect();
             if !values.is_empty() {
                 raw_attributes.insert(field.clone(), values);
             }
@@ -302,14 +310,17 @@ impl ProductCssSelectorSchema {
     }
 }
 
-/// Returns whether a miss of `field` fails the whole page.
+/// Log level of an optional-rule miss.
 ///
-/// `title` and `state` are the only rules that must match on every page. Every other
-/// field fails softly: a present optional rule that matches nothing leaves the field
-/// empty, and `images` is reported through the page-level apply result because its
-/// soft case (an existing but empty container) cannot be told apart by match count.
-pub(crate) fn field_fails_closed_on_miss(field: &str) -> bool {
-    matches!(field, "title" | "state")
+/// A soft miss no longer fails the page, so selector drift on a cached schema only
+/// shows up in the log: description and price misses are warnings so they stay
+/// visible at the production log level, identity and estimate misses are debug
+/// diagnostics, and raw attributes (absent on most pages by design) stay at trace.
+#[derive(Clone, Copy)]
+enum OptionalMissLog {
+    Warn,
+    Debug,
+    Trace,
 }
 
 /// Applies the rule of an optional field, turning a miss into an empty result.
@@ -320,15 +331,17 @@ fn apply_optional_rule(
     field: &str,
     rule: &ExtractionRule,
     html: &Html,
+    miss_log: OptionalMissLog,
 ) -> Result<Vec<String>, ExtractionError> {
+    const MESSAGE: &str = "Optional schema rule matched nothing; leaving the field empty";
     match rule.apply(html) {
         Ok(values) => Ok(values),
         Err(ExtractionError::NoElementMatched { selector }) => {
-            tracing::debug!(
-                field,
-                selector = %selector,
-                "Optional schema rule matched nothing; leaving the field empty"
-            );
+            match miss_log {
+                OptionalMissLog::Warn => tracing::warn!(field, selector = %selector, MESSAGE),
+                OptionalMissLog::Debug => tracing::debug!(field, selector = %selector, MESSAGE),
+                OptionalMissLog::Trace => tracing::trace!(field, selector = %selector, MESSAGE),
+            }
             Ok(Vec::new())
         }
         Err(err) => Err(err),
@@ -1144,23 +1157,6 @@ mod tests {
             matches!(err, ApplySchemaError::State(_)),
             "unexpected variant: {err}"
         );
-    }
-
-    #[test]
-    fn should_classify_only_title_and_state_as_failing_closed_on_miss() {
-        assert!(super::field_fails_closed_on_miss("title"));
-        assert!(super::field_fails_closed_on_miss("state"));
-        for field in [
-            "source_listing_id",
-            "description",
-            "price",
-            "price_estimate_min",
-            "price_estimate_max",
-            "images",
-            "rawCondition",
-        ] {
-            assert!(!super::field_fails_closed_on_miss(field), "{field}");
-        }
     }
 
     // -------------------------------------------------------------------------
