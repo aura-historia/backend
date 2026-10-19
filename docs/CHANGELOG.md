@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — ProductListing search cursor validation (#2158)
+
+- `GET /api/v1/product-listings` rejects malformed inner `searchAfter` sort values or an incorrect sort value count with `400 BAD_QUERY_PARAMETER_VALUE`, identifying `searchAfter` as the query field, instead of returning `503`. Cursors remain opaque and must be passed back unchanged with the same search parameters.
+- Continuations retain their original keyword or semantic ranking across embedding-provider recovery or failure. A semantic continuation that cannot obtain an embedding returns `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` and can be retried with the unchanged cursor.
+
 ## 2026-10-19 — Edge request-body limit (#2154)
 
 - JSON request bodies up to the documented 1 MiB limit now reach the API through CloudFront. Bodies above 8 KiB, such as larger shipping profiles or ingestion batches, were previously rejected with an HTML `403` before authentication or validation.

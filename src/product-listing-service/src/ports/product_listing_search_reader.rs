@@ -55,8 +55,17 @@ pub struct ProductListingSearchReadRequest {
     pub cursor: Option<Cursor<Value>>,
 }
 
+/// Search strategy needed to resume an adapter-owned continuation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingSearchMode {
+    Lexical,
+    Hybrid,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingSearchReadError {
+    #[error("invalid product search continuation cursor")]
+    InvalidCursor,
     #[error("product search query failed")]
     ProductListingSearchQueryFailed,
     #[error("product search read model is invalid")]
@@ -65,6 +74,17 @@ pub enum ProductListingSearchReadError {
 
 #[async_trait::async_trait]
 pub trait ProductListingSearchReader: Send + Sync {
+    /// Validates an opaque continuation locally and identifies its search mode.
+    ///
+    /// This method must be pure and perform no dependency I/O, allowing callers to reject
+    /// invalid continuations before reading other dependencies. Cursor encoding and
+    /// sort-value compatibility remain adapter-owned; callers must not inspect the payload.
+    fn continuation_mode(
+        &self,
+        search_after: &Value,
+        sort_field: SortProductListingField,
+    ) -> Result<ProductListingSearchMode, ProductListingSearchReadError>;
+
     async fn search(
         &self,
         request: &ProductListingSearchReadRequest,

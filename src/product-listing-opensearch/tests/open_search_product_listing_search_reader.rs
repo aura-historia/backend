@@ -321,6 +321,61 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [OpenSearch()])]
 #[serial]
+async fn should_resume_server_issued_score_and_date_cursors_unchanged() {
+    async fn run() -> TestResult {
+        use domain_primitives::sort::{Sort, SortOrder};
+        use product_listing_core::sort_product_listing_field::SortProductListingField;
+        use product_listing_service::ports::ProductListingSearchMode;
+
+        let documents = ["cursor-first", "cursor-second", "cursor-third"]
+            .into_iter()
+            .map(|slug| product_listing_document(ProductListingSeed::active(slug, 100)))
+            .collect::<Result<Vec<_>, _>>()?;
+        index_products(documents.into_iter().map(|listing| listing.document)).await?;
+        let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
+            get_opensearch_client().await.clone(),
+            PRODUCTS_INDEX,
+        );
+        for sort in [
+            SortProductListingField::Score,
+            SortProductListingField::Created,
+            SortProductListingField::Updated,
+        ] {
+            for order in [SortOrder::Asc, SortOrder::Desc] {
+                let mut request = ProductListingSearchReadRequest {
+                    compiled_search: CompiledProductListingSearch::new(
+                        ProductListingSearch::default(),
+                        price_filter(None)?,
+                    )?,
+                    sort: Some(Sort { sort, order }),
+                    cursor: Some(Cursor {
+                        size: 1,
+                        search_after: None,
+                    }),
+                };
+                let mut found = std::collections::HashSet::new();
+                for _ in 0..3 {
+                    let page = reader.search(&request).await?;
+                    assert_eq!(Some(3), page.total);
+                    assert_eq!(1, page.items.len());
+                    assert!(found.insert(page.items[0].product_listing_id));
+                    let cursor = page.cursor.search_after.expect("nonempty page cursor");
+                    assert_eq!(
+                        ProductListingSearchMode::Lexical,
+                        reader.continuation_mode(&cursor, sort)?
+                    );
+                    request.cursor.as_mut().unwrap().search_after = Some(cursor);
+                }
+                assert!(reader.search(&request).await?.items.is_empty());
+            }
+        }
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
 async fn should_search_active_and_sold_products_with_one_pinned_price_plan() {
     assert_ok(should_search_active_and_sold_products_with_one_pinned_price_plan_impl().await);
 }

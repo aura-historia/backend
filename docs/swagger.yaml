@@ -3728,7 +3728,15 @@ paths:
 
             `searchAfter` in the previous response as one query value. It pins the FX snapshot
 
-            for the full cursor chain.
+            for the full cursor chain. Keep the same search parameters. Malformed inner sort values
+
+            or an incorrect number of sort values return `400 BAD_QUERY_PARAMETER_VALUE` with
+
+            `source.field` set to `searchAfter`. Continuations retain their original ranking mode.
+
+            If a semantic continuation cannot obtain an embedding, it returns
+
+            `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`; retry with the unchanged cursor.
 
             "
           schema:
@@ -3790,6 +3798,16 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
+                invalid_search_after:
+                  summary: Malformed inner cursor sort values or incorrect sort value count
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: searchAfter contains invalid sort values or an incorrect number of sort values.
                 invalid_sort_field:
                   summary: Invalid sort field
                   value:
