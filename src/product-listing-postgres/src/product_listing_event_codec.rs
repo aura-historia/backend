@@ -1849,6 +1849,27 @@ mod tests {
     }
 
     #[test]
+    fn should_present_discovery_titles_stored_before_typography_normalization_canonically() {
+        for (text, expected) in [
+            ("𝐋𝐞𝐠𝐚𝐜𝐲 🌿✨title | 3360", Some("Legacy title | 3360")),
+            ("🌿✨", None),
+        ] {
+            let mut payload = canonical_discovery_value();
+            payload["title"] = json!({"text": text, "language": "en"});
+            let original = payload.clone();
+            let decoded = decode("PRODUCT_LISTING_DISCOVERED", 1, &payload).unwrap();
+            let ProductListingEventPayload::Discovered(discovered) = decoded else {
+                panic!("expected discovery");
+            };
+            assert_eq!(
+                expected,
+                discovered.title().map(|title| title.payload.as_ref())
+            );
+            assert_eq!(original, payload);
+        }
+    }
+
+    #[test]
     fn should_reject_product_listing_v1_negative_contract_matrix() {
         let mut unknown_discovery = canonical_discovery_value();
         unknown_discovery["unexpected"] = json!(true);

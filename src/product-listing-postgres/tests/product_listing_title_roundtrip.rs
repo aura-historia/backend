@@ -75,6 +75,11 @@ async fn legacy_title_reads_preserve_identifiers_versions_and_immutable_event_pa
             format!("{}..", "A".repeat(125)),
             format!("{}...", "A".repeat(125)),
         ),
+        (
+            "legacy-typography",
+            "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥 🌿✨Anrichte | 3360".to_owned(),
+            "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥 🌿✨Anrichte | 3360 ".to_owned(),
+        ),
     ] {
         let (product, event_id) = persist_product(&pool, slug, &Title::from(&history_text)).await;
         // Fault injection is restricted to this isolated PostgreSQL test fixture.

@@ -504,8 +504,8 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
         &require_string(object, "listingSourceId")?,
         source_listing_id,
     )?;
-    require_nullable_localized(object, "title", canonical_title)?;
-    require_nullable_localized(object, "description", canonical_description)?;
+    require_nullable_localized(object, "title", is_canonical_title)?;
+    require_nullable_localized(object, "description", is_canonical_description)?;
 
     let pricing = require_object_field(object, "pricing")?;
     require_exact_keys(
@@ -974,7 +974,7 @@ fn require_u64(object: &Map<String, Value>, field: &'static str) -> Result<u64, 
 fn require_nullable_localized(
     object: &Map<String, Value>,
     field: &'static str,
-    canonicalize: fn(&str) -> String,
+    is_canonical: fn(&str) -> bool,
 ) -> Result<(), CdcRouteError> {
     let value = require_value(object, field)?;
     if value.is_null() {
@@ -985,18 +985,19 @@ fn require_nullable_localized(
     let language = require_string(localized, "language")?;
     validate_language(&language, &format!("{field}.language"))?;
     let text = require_string(localized, "text")?;
-    if canonicalize(text.as_str()) != text {
+    if !is_canonical(text.as_str()) {
         return Err(noncanonical_product_listing_field(format!("{field}.text")));
     }
     Ok(())
 }
 
-fn canonical_title(value: &str) -> String {
-    Title::from(value).to_string()
+/// Events stored before typography normalization keep their original title text.
+fn is_canonical_title(value: &str) -> bool {
+    Title::has_canonical_structure(value)
 }
 
-fn canonical_description(value: &str) -> String {
-    Description::from(value).to_string()
+fn is_canonical_description(value: &str) -> bool {
+    Description::from(value).as_ref() == value
 }
 
 fn validate_listing_source_id(
@@ -1481,6 +1482,44 @@ mod tests {
                 .all(|job| job.idempotency_key == jobs[0].idempotency_key
                     && job.ordering_key == jobs[0].ordering_key)
         );
+    }
+
+    #[test]
+    fn discovered_event_accepts_titles_stored_before_typography_normalization() {
+        let discovered = |title: &str| {
+            change(
+                "product_listing_events",
+                "insert",
+                json!({
+                    "event_id": "01900000-0000-7000-8000-000000000004",
+                    "product_listing_id": "01900000-0000-7000-8000-000000000003",
+                    "event_type": "PRODUCT_LISTING_DISCOVERED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1,
+                    "payload": {
+                        "listingSourceId": "01900000-0000-7000-8000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": {"language": "de", "text": title},
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.test/product",
+                        "imageCount": 0,
+                        "auction": null
+                    }
+                }),
+            )
+        };
+        for title in ["Anrichte | 3360", "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥 🌿✨Anrichte | 3360"] {
+            assert_eq!(4, route_change(&discovered(title)).unwrap().len());
+        }
+        for title in ["anrichte", "Anrichte.", " Anrichte", "𝐄𝐢𝐧 Anrichte."] {
+            assert!(matches!(
+                route_change(&discovered(title)),
+                Err(CdcRouteError::NonCanonicalProductListingEventField { field })
+                    if field == "title.text"
+            ));
+        }
     }
 
     #[test]
