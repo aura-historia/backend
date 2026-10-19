@@ -68,6 +68,15 @@ does not opt an operation into replay; preserve the [keyless creation exceptions
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
   additional WAF rate rule. Gateway stage throttles shape requests, not database or
   Lambda concurrency/capacity.
+- Contract-valid loopback HTTPS redirect URIs, such as the Shopify CLI `--use-localhost`
+  callback `https://localhost:3458/oauth/callback`, can match the common rule set's EC2
+  metadata SSRF and IPv4 RFI body/query rules. Those four rules are counted in the group;
+  a label rule after it blocks their matches everywhere except the exact OAuth client
+  registration/update, authorize and token paths, which store or compare redirect URIs
+  and never fetch them. Their cookie/URI-path variants and every other managed rule still
+  apply on those paths. Never widen this scope to a route that fetches a user-supplied URL;
+  outbound fetchers additionally enforce the shared public-network policy. CloudWatch label
+  metrics and sampled requests show which counted rule matched.
 - Edge and application body limits must agree. The managed 8 KiB body-size rule is
   below contract-valid JSON bodies, so a custom WAF rule instead blocks a declared
   `Content-Length` above the Axum whole-request limit with the API's JSON `413`

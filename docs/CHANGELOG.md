@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
+
+- OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` and `POST /api/v1/oauth/token` now accept contract-valid loopback HTTPS redirect URIs such as `https://localhost:3458/oauth/callback`, used by Shopify CLI `--use-localhost` development. CloudFront previously rejected registering such a URI with an HTML `403` (`Request blocked.`) before authentication or validation, and the same edge rules could reject authorize and token requests carrying it. Redirect URI validation is unchanged.
+
 ## 2026-10-19 — Normalized listing title typography (#2201)
 
 - ProductListing titles in listing, watchlist, search and history responses no longer contain decorative typography. Styled letters and digits such as `𝐄𝐢𝐧`, `Ⓥⓐⓢⓔ` or `ＶＡＳＥ` are returned as ordinary text, and emoji and ornamental symbols are removed without joining the neighbouring words. Accented and non-Latin letters, punctuation, identifiers and `©`, `®` and `™` are unchanged. Existing listings are presented in normalized form; their public slugs do not change.

@@ -506,6 +506,26 @@ export const API_MAX_REQUEST_BODY_BYTES = 1_048_576;
 export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
   "^0*(?:[1-9][0-9]{7,}|[2-9][0-9]{6}|1[1-9][0-9]{5}|10[5-9][0-9]{4}|1049[0-9]{3}|1048[6-9][0-9]{2}|10485[89][0-9]|104857[7-9])$";
 
+/**
+ * Exact paths whose body or query carries OAuth redirect URIs: client registration/update,
+ * authorize and token exchange. They only store or compare those URIs and never fetch them.
+ * The URI path is matched raw, so encoded, dot-segment or trailing-slash variants stay out of scope.
+ */
+export const API_OAUTH_REDIRECT_URI_PATH_PATTERN =
+  "^/api/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token))$";
+
+/**
+ * Common-rule-set rules for URLs that target internal hosts (EC2 metadata SSRF and IPv4 RFI) in
+ * the body or query. Contract-valid loopback HTTPS callbacks such as `https://localhost:3458/...`
+ * can match them, so they are counted in the group and blocked outside OAuth redirect-URI paths.
+ */
+export const API_SCOPED_URL_TARGET_RULES = [
+  { name: "EC2MetaDataSSRF_BODY", label: "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body" },
+  { name: "EC2MetaDataSSRF_QUERYARGUMENTS", label: "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_QueryArguments" },
+  { name: "GenericRFI_BODY", label: "awswaf:managed:aws:core-rule-set:GenericRFI_Body" },
+  { name: "GenericRFI_QUERYARGUMENTS", label: "awswaf:managed:aws:core-rule-set:GenericRFI_QueryArguments" },
+] as const;
+
 const PAYLOAD_TOO_LARGE_RESPONSE_BODY_KEY = "payload-too-large";
 
 function cloudFrontWebAclCustomResponseBodies(): Record<string, unknown> {
@@ -531,10 +551,54 @@ function cloudFrontFreePlanWebAclRules(): unknown[] {
         ActionToUse: { Count: {} },
         Name: "SizeRestrictions_BODY",
       },
+      ...API_SCOPED_URL_TARGET_RULES.map(({ name }) => ({
+        ActionToUse: { Count: {} },
+        Name: name,
+      })),
     ]),
-    cloudFrontManagedRule("AWSManagedRulesKnownBadInputsRuleSet", 2),
-    cloudFrontRequestBodyLimitRule(3),
+    cloudFrontScopedUrlTargetRule(2),
+    cloudFrontManagedRule("AWSManagedRulesKnownBadInputsRuleSet", 3),
+    cloudFrontRequestBodyLimitRule(4),
   ];
+}
+
+/** Blocks requests the counted URL-target rules labeled, except on OAuth redirect-URI paths. */
+function cloudFrontScopedUrlTargetRule(priority: number): unknown {
+  const name = "API-UrlTargetOutsideOAuthRedirects";
+  return {
+    Action: { Block: {} },
+    Name: name,
+    Priority: priority,
+    Statement: {
+      AndStatement: {
+        Statements: [
+          {
+            OrStatement: {
+              Statements: API_SCOPED_URL_TARGET_RULES.map(({ label }) => ({
+                LabelMatchStatement: { Key: label, Scope: "LABEL" },
+              })),
+            },
+          },
+          {
+            NotStatement: {
+              Statement: {
+                RegexMatchStatement: {
+                  FieldToMatch: { UriPath: {} },
+                  RegexString: API_OAUTH_REDIRECT_URI_PATH_PATTERN,
+                  TextTransformations: [{ Priority: 0, Type: "NONE" }],
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+    VisibilityConfig: {
+      CloudWatchMetricsEnabled: true,
+      MetricName: name,
+      SampledRequestsEnabled: true,
+    },
+  };
 }
 
 function cloudFrontRequestBodyLimitRule(priority: number): unknown {
