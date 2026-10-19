@@ -121,25 +121,22 @@ fn evaluate_schema_page(
     let apply_result = apply_schema_to_document(schema, &html);
     let fields = evaluate_schema_fields(schema, raw_html);
 
-    match apply_result {
-        Ok(extracted) => SchemaPageEvaluation {
-            page_reference,
-            url,
-            role,
-            apply_ok: true,
-            extracted: Some(extracted),
-            error: None,
-            fields,
+    let (apply_ok, extracted, error) = match apply_result {
+        Ok(extracted) => match markup_token_rejection(&extracted) {
+            None => (true, Some(extracted), None),
+            Some(reason) => (false, Some(extracted), Some(reason)),
         },
-        Err(err) => SchemaPageEvaluation {
-            page_reference,
-            url,
-            role,
-            apply_ok: false,
-            extracted: None,
-            error: Some(err.to_string()),
-            fields,
-        },
+        Err(err) => (false, None, Some(err.to_string())),
+    };
+
+    SchemaPageEvaluation {
+        page_reference,
+        url,
+        role,
+        apply_ok,
+        extracted,
+        error,
+        fields,
     }
 }
 
@@ -153,6 +150,68 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 
 fn raw_extraction_has_required_values(raw: &RawExtractedProduct) -> bool {
     !raw.title.trim().is_empty() && !raw.state.trim().is_empty()
+}
+
+/// Rejects extracted values that still carry CSS rules or script source. A selector that
+/// targets a container holding an inline `<style>` or `<script>` block next to the visible
+/// text produces non-empty but useless `title`, `price` and `state` values; the reason is
+/// recorded on the page evaluation so the matrix shows why the candidate failed.
+fn markup_token_rejection(raw: &RawExtractedProduct) -> Option<String> {
+    let fields = [
+        ("title", raw.title.as_str()),
+        ("price", raw.price.as_deref().unwrap_or_default()),
+        ("state", raw.state.as_str()),
+    ];
+    let offending: Vec<&str> = fields
+        .into_iter()
+        .filter(|(_, value)| contains_markup_tokens(value))
+        .map(|(field, _)| field)
+        .collect();
+    if offending.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "extracted `{}` contains CSS or script tokens",
+        offending.join("`, `")
+    ))
+}
+
+fn contains_markup_tokens(value: &str) -> bool {
+    contains_css_declaration_block(value)
+        || value.contains("function(")
+        || value.contains("function (")
+        || value.contains("=>")
+        || followed_by_identifier(value, "document.")
+        || followed_by_identifier(value, "window.")
+}
+
+/// `{ ... }` holding a `property: value` declaration, so `.x{display:none}` counts while
+/// prose braces such as `{rare}` do not.
+fn contains_css_declaration_block(value: &str) -> bool {
+    let mut rest = value;
+    while let Some(open) = rest.find('{') {
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find('}') else {
+            return false;
+        };
+        if after_open[..close].contains(':') {
+            return true;
+        }
+        rest = &after_open[close + 1..];
+    }
+    false
+}
+
+/// `token` immediately followed by an identifier character, which is how script source
+/// reads (`window.location`) and prose does not (`stained glass window. Circa 1880`).
+fn followed_by_identifier(value: &str, token: &str) -> bool {
+    value.match_indices(token).any(|(index, _)| {
+        value[index + token.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+    })
 }
 
 fn evaluate_schema_fields(
@@ -373,6 +432,112 @@ mod tests {
                 .extracted
                 .as_ref()
                 .is_some_and(|raw| raw.images.is_empty())
+        );
+    }
+
+    #[test]
+    fn should_reject_candidate_when_price_and_state_contain_css_rules() {
+        let schemas = vec![ProductCssSelectorSchema {
+            price: Some(text_rule("#notice")),
+            state: text_rule("#notice"),
+            ..schema("h1")
+        }];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\">Price on application .notice { color: red; } .x { display: none; }</div><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(!schema_matrix_has_required_coverage(&matrix));
+        assert!(!page.apply_ok);
+        assert_eq!(
+            page.error.as_deref(),
+            Some("extracted `price`, `state` contains CSS or script tokens")
+        );
+        assert!(page.extracted.is_some());
+    }
+
+    #[test]
+    fn should_reject_candidate_when_title_contains_script_source() {
+        let schemas = vec![schema("h1")];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title function(){ track() }</h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(!schema_matrix_has_required_coverage(&matrix));
+        assert_eq!(
+            page.error.as_deref(),
+            Some("extracted `title` contains CSS or script tokens")
+        );
+    }
+
+    #[test]
+    fn should_accept_candidate_when_inline_style_sits_next_to_visible_text() {
+        let schemas = vec![ProductCssSelectorSchema {
+            price: Some(text_rule("#notice")),
+            state: text_rule("#notice"),
+            ..schema("h1")
+        }];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\"><style>.notice { color: red; }</style>Price on application</div><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(schema_matrix_has_required_coverage(&matrix));
+        assert_eq!(
+            page.extracted.as_ref().map(|raw| raw.state.as_str()),
+            Some("Price on application")
+        );
+    }
+
+    #[test]
+    fn should_accept_candidate_when_prose_mentions_window_or_document() {
+        let schemas = vec![schema("h1")];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Georgian sash window. Original glass {rare}</h1><span id=\"state\">Sold - see signed document.</span><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(schema_matrix_has_required_coverage(&matrix));
+        assert!(page.apply_ok);
+        assert_eq!(page.error, None);
+    }
+
+    #[test]
+    fn should_reject_candidate_when_price_contains_single_declaration_css_rule() {
+        let schemas = vec![ProductCssSelectorSchema {
+            price: Some(text_rule("#notice")),
+            ..schema("h1")
+        }];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\">POA .x{display:none}</div><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(!page.apply_ok);
+        assert_eq!(
+            page.error.as_deref(),
+            Some("extracted `price` contains CSS or script tokens")
         );
     }
 
