@@ -330,14 +330,26 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_schema_when_non_null_optional_rule_is_absent() {
+    fn should_cover_page_when_non_null_optional_rule_is_absent() {
         let schemas = vec![schema_with_price("h1")];
         let pages = vec![page_with_price(PAGE_ROLE_PRIMARY, "h1", None)];
 
         let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
 
-        assert!(!schema_matrix_has_required_coverage(&matrix));
-        assert!(!matrix.candidates[0].pages[0].apply_ok);
+        assert!(schema_matrix_has_required_coverage(&matrix));
+        assert!(page.apply_ok);
+        assert!(
+            page.extracted
+                .as_ref()
+                .is_some_and(|raw| raw.price.is_none())
+        );
+        let price_field = page
+            .fields
+            .iter()
+            .find(|field| field.field == "price")
+            .unwrap_or_else(|| panic!("price field must stay visible in the matrix"));
+        assert_eq!(price_field.selector_match_count, Some(0));
     }
 
     #[test]

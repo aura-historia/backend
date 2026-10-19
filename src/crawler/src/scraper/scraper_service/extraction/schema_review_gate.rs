@@ -6,7 +6,7 @@ use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::{
-    ListingSourceProductSchema, ProductCssSelectorSchema,
+    ListingSourceProductSchema, ProductCssSelectorSchema, field_fails_closed_on_miss,
 };
 use crate::scraper::css_selector::product_schema_service::{
     ProductListingSchemaServiceError, SchemaLlmEvaluation,
@@ -130,25 +130,37 @@ fn with_schema_matrix_summary(
     deterministic_approval_ok: bool,
 ) -> Value {
     let mut failed_fields = Vec::new();
+    let mut optional_field_misses = Vec::new();
     for candidate in &matrix.candidates {
         for page in &candidate.pages {
             for field in &page.fields {
                 if field.field == "images" && field.selector_match_count == Some(0) {
                     continue;
                 }
-                let selector_missing = field.selector_match_count == Some(0);
-                if selector_missing || field.error.is_some() {
-                    failed_fields.push(json!({
-                        "schema_index": candidate.schema_index,
-                        "page_reference": page.page_reference,
-                        "url": page.url,
-                        "role": page.role,
-                        "field": field.field,
-                        "selector": field.selector,
-                        "selector_match_count": field.selector_match_count,
-                        "present_but_missing_rule": selector_missing,
-                        "error": field.error,
-                    }));
+                let selector_missing = field.selector_match_count == Some(0)
+                    && field
+                        .additional_selector_match_counts
+                        .iter()
+                        .all(|count| *count == 0);
+                let entry = json!({
+                    "schema_index": candidate.schema_index,
+                    "page_reference": page.page_reference,
+                    "url": page.url,
+                    "role": page.role,
+                    "field": field.field,
+                    "selector": field.selector,
+                    "selector_match_count": field.selector_match_count,
+                    "present_but_missing_rule": selector_missing,
+                    "error": field.error,
+                });
+                if field.error.is_some()
+                    || (selector_missing && field_fails_closed_on_miss(&field.field))
+                {
+                    failed_fields.push(entry);
+                } else if selector_missing {
+                    // An optional rule that matched nothing left the field empty; the
+                    // page still applied, so this is reviewer information, not a failure.
+                    optional_field_misses.push(entry);
                 }
             }
         }
@@ -159,6 +171,7 @@ fn with_schema_matrix_summary(
         "schema_candidate_count": matrix.candidates.len(),
         "unused_schema_indices": unused_schema_indices(matrix),
         "present_but_missing_rule_failures": failed_fields,
+        "optional_field_misses": optional_field_misses,
     });
 
     if let Some(object) = validation_summary.as_object_mut() {
@@ -241,10 +254,10 @@ mod tests {
                     role: "PRIMARY".to_string(),
                     apply_ok: false,
                     extracted: None,
-                    error: Some("failed to extract `price`".to_string()),
+                    error: Some("failed to extract `title`".to_string()),
                     fields: vec![SelectorFieldEvaluation {
-                        field: "price".to_string(),
-                        selector: "#price".to_string(),
+                        field: "title".to_string(),
+                        selector: "h1.product".to_string(),
                         selector_match_count: Some(0),
                         additional_selector_match_counts: Vec::new(),
                         error: None,
@@ -261,11 +274,90 @@ mod tests {
         );
         assert_eq!(
             summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["field"],
-            "price"
+            "title"
         );
         assert_eq!(
             summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["present_but_missing_rule"],
             true
+        );
+        assert_eq!(
+            summary["schema_matrix_summary"]["optional_field_misses"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn should_report_optional_field_miss_separately_without_blocking_deterministic_approval() {
+        use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
+
+        let schema: ProductCssSelectorSchema = serde_json::from_value(json!({
+            "title": {"selector": "h1", "type": "text"},
+            "description": {"selector": "div.titre + p", "type": "text", "cardinality": "all"},
+            "price": {"selector": ".price", "type": "text"},
+            "state": {"selector": "#state", "type": "text"},
+            "images": {"selector": "img", "type": "image_url", "cardinality": "all"}
+        }))
+        .unwrap_or_else(|error| panic!("schema fixture should deserialize: {error}"));
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/sold-product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><h1>Title</h1><span class=\"price\">10 EUR</span><span id=\"state\">Sold</span><img src=\"a.jpg\"></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
+        let summary = with_schema_matrix_summary(
+            json!({ "schema_count": 1 }),
+            &matrix,
+            deterministic_approval_ok,
+        );
+
+        assert!(deterministic_approval_ok);
+        assert_eq!(
+            summary["schema_matrix_summary"]["present_but_missing_rule_failures"],
+            json!([])
+        );
+        let misses = &summary["schema_matrix_summary"]["optional_field_misses"];
+        assert_eq!(misses.as_array().map(Vec::len), Some(1));
+        assert_eq!(misses[0]["field"], "description");
+        assert_eq!(misses[0]["selector"], "div.titre + p");
+        assert_eq!(misses[0]["selector_match_count"], 0);
+        assert_eq!(misses[0]["present_but_missing_rule"], true);
+    }
+
+    #[test]
+    fn should_not_report_miss_when_an_additional_selector_matches() {
+        let matrix = SchemaMatrix {
+            review_id: None,
+            candidates: vec![SchemaCandidateEvaluation {
+                schema_index: 0,
+                pages: vec![SchemaPageEvaluation {
+                    page_reference: SchemaPageReference::Input { page_index: 0 },
+                    url: "https://example.com/product".to_string(),
+                    role: "PRIMARY".to_string(),
+                    apply_ok: true,
+                    extracted: None,
+                    error: None,
+                    fields: vec![SelectorFieldEvaluation {
+                        field: "description".to_string(),
+                        selector: "div.titre + p".to_string(),
+                        selector_match_count: Some(0),
+                        additional_selector_match_counts: vec![2],
+                        error: None,
+                    }],
+                }],
+            }],
+        };
+
+        let summary = with_schema_matrix_summary(json!({ "schema_count": 1 }), &matrix, true);
+
+        assert_eq!(
+            summary["schema_matrix_summary"]["present_but_missing_rule_failures"],
+            json!([])
+        );
+        assert_eq!(
+            summary["schema_matrix_summary"]["optional_field_misses"],
+            json!([])
         );
     }
 
