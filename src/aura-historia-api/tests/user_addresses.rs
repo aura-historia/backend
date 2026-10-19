@@ -331,6 +331,18 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
         .0
     );
     assert_eq!(StatusCode::BAD_REQUEST,request(&router,"PUT",destination,Some("owner"),json!({"expectedVersion":1,"destination":{"kind":"ADDRESS","addressId":id,"country":"DE"}})).await.0);
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        request(
+            &router,
+            "PUT",
+            destination,
+            Some("owner"),
+            json!({"expectedVersion":1,"destination":{"kind":"NONE","country":"FR"}})
+        )
+        .await
+        .0
+    );
     let (_, preferred) = request(
         &router,
         "PUT",

@@ -1599,6 +1599,9 @@ async fn app_state_from_config_and_pool(
         SqlxWatchlistQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory::new(),
         SqlxProductListingLifecycleGuardFactory::new(),
+        SqlxProductListingDetailsReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
     let unwatch_product =
         UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);

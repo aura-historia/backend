@@ -17,7 +17,73 @@ async fn withdraw_product(product_listing_id: ProductListingId) {
 }
 use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
-use user_core::{access_token::Scope, tier::UserTier};
+use user_core::{access_token::Scope, tier::UserTier, user_id::UserId};
+
+static SINGLE_CONNECTION_WATCHLIST_API: test_api::AuraHistoriaApi =
+    test_api::AuraHistoriaApi::new(api_support::watchlist_api_app_with_single_connection_pool);
+
+fn assert_watchlist_product(
+    body: &serde_json::Value,
+    product_listing_id: ProductListingId,
+    watching: bool,
+    notifications: bool,
+) {
+    assert_eq!(Some(2), body.as_object().map(|object| object.len()));
+    assert_eq!(
+        serde_json::json!(product_listing_id.to_string()),
+        body["item"]["productListingId"]
+    );
+    assert_eq!(
+        serde_json::json!({"watching": watching, "notifications": notifications}),
+        body["userState"]["watchlist"]
+    );
+    for field in ["contentVisibility", "notification", "searchFilter"] {
+        assert!(
+            body["userState"][field].is_object(),
+            "missing {field}: {body}"
+        );
+    }
+}
+
+async fn watchlist_entry_snapshot(
+    user_id: UserId,
+    product_listing_id: ProductListingId,
+) -> serde_json::Value {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(entry) FROM product_listing_watchlist entry WHERE user_id = $1 AND product_listing_id = $2",
+    )
+    .bind(user_id.as_uuid())
+    .bind(product_listing_id.as_uuid())
+    .fetch_one(&get_postgres_client().await)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist fixture: {error}"))
+}
+
+async fn seed_product_presentation(product_listing_id: ProductListingId) {
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "UPDATE product_listings SET title_text = 'Watchlist cabinet', title_language = 'en', description_text = 'English cabinet description', description_language = 'en', price_kind = 'MONETARY', price_amount = 10000, price_currency = 'EUR', product_images = $2 WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.as_uuid())
+    .bind(serde_json::json!([{ "url": "https://api-acceptance.example/cabinet.jpg" }]))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed watchlist product presentation: {error}"));
+    sqlx::query(
+        "INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description) SELECT product_listing_id, content_source_event_id, 'de', 'Watchlist-Schrank', 'Deutsche Schrankbeschreibung' FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed watchlist product translation: {error}"));
+    sqlx::query(
+        "INSERT INTO product_listing_content_assessments (product_listing_id, source_event_id, decision, category) SELECT product_listing_id, content_source_event_id, 'ALLOWED', NULL FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed watchlist product assessment: {error}"));
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_add_product_to_watchlist_when_authenticated() {
@@ -289,11 +355,17 @@ async fn should_update_watchlist_notifications() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(false), body["notifications"]);
+    assert_watchlist_product(&body, product_listing_id, true, false);
+    assert_eq!(serde_json::json!("ACTIVE"), body["item"]["lifecycle"]);
+    assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+    assert_eq!(
+        serde_json::json!(false),
+        watchlist_entry_snapshot(user_id, product_listing_id).await["notifications"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_reactivate_inactive_watchlist_entry_for_active_product() {
+async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
@@ -301,6 +373,153 @@ async fn should_reactivate_inactive_watchlist_entry_for_active_product() {
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    let client = reqwest::Client::new();
+
+    for (patch, state, watching, notifications) in [
+        (serde_json::json!({"state": "ACTIVE"}), "ACTIVE", true, true),
+        (
+            serde_json::json!({"state": "INACTIVE_BY_USER", "notifications": false}),
+            "INACTIVE_BY_USER",
+            false,
+            false,
+        ),
+        (
+            serde_json::json!({"state": "ACTIVE"}),
+            "ACTIVE",
+            true,
+            false,
+        ),
+    ] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to change watchlist state API: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_watchlist_product(&body, product_listing_id, watching, notifications);
+        let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
+        assert_eq!(serde_json::json!(state), entry["state"]);
+        assert_eq!(serde_json::json!(notifications), entry["notifications"]);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API])]
+async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_without_deadlock() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::UsersRead]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    seed_product_presentation(product_listing_id).await;
+    sqlx::query("INSERT INTO user_browsing_destinations (user_id, country) VALUES ($1, 'DE')")
+        .bind(user_id.as_uuid())
+        .execute(&get_postgres_client().await)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed shipping destination: {error}"));
+    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/me/watchlist/{product_listing_id}",
+            SINGLE_CONNECTION_WATCHLIST_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .timeout(std::time::Duration::from_secs(10))
+        .json(&serde_json::json!({"state": "ACTIVE", "notifications": false}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("single-connection watchlist reactivation failed: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+    assert_watchlist_product(&body, product_listing_id, true, false);
+    assert!(body["item"]["shipping"].is_object());
+    assert_eq!(
+        "DE",
+        body["userState"]["shipping"]["destination"]["country"]
+    );
+    let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
+    assert_eq!("ACTIVE", entry["state"]);
+    assert_eq!(serde_json::json!(false), entry["notifications"]);
+    assert_eq!(serde_json::json!(2), entry["version"]);
+    assert!(entry["active_since"].is_string());
+    assert!(entry["notifications_enabled_since"].is_null());
+    assert_eq!(before["created"], entry["created"]);
+    assert_ne!(before["updated"], entry["updated"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API])]
+async fn should_not_commit_watchlist_patch_when_shipping_fails_with_single_connection_pool() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::UsersRead]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    seed_product_presentation(product_listing_id).await;
+    // Details/pricing remain valid; only the real shipping decoder rejects this stored object.
+    sqlx::query("UPDATE product_listings SET delivery_configuration = '{}'::jsonb WHERE product_listing_id = $1")
+        .bind(product_listing_id.as_uuid())
+        .execute(&get_postgres_client().await)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed invalid shipping configuration: {error}"));
+    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
+    let client = reqwest::Client::new();
+
+    for patch in [
+        serde_json::json!({"state": "ACTIVE", "notifications": false}),
+        serde_json::json!({"notifications": false}),
+        serde_json::json!({}),
+    ] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}",
+                SINGLE_CONNECTION_WATCHLIST_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .timeout(std::time::Duration::from_secs(10))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed to patch watchlist with invalid shipping: {error}")
+            });
+        let (status, body) = json_response(response).await;
+
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "SHIPPING_STORAGE_ERROR",
+        );
+        assert_eq!(
+            before,
+            watchlist_entry_snapshot(user_id, product_listing_id).await,
+            "shipping failure must preserve all watchlist fields, version and timestamps for {patch}"
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_current_product_for_empty_watchlist_patch_without_changing_entry() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -308,14 +527,168 @@ async fn should_reactivate_inactive_watchlist_entry_for_active_product() {
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
-        .json(&serde_json::json!({"state": "ACTIVE"}))
+        .json(&serde_json::json!({}))
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to reactivate active product API: {error}"));
+        .unwrap_or_else(|error| panic!("failed to send empty watchlist patch API: {error}"));
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!("ACTIVE"), body["state"]);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+    assert_watchlist_product(&body, product_listing_id, false, true);
+    assert_eq!(
+        before,
+        watchlist_entry_snapshot(user_id, product_listing_id).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_present_watchlist_patch_product_in_requested_language_and_currency() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    seed_product_presentation(product_listing_id).await;
+    let client = reqwest::Client::new();
+
+    for (query, language, title, description, currency, amount) in [
+        (
+            "",
+            "en",
+            "Watchlist cabinet",
+            "English cabinet description",
+            "EUR",
+            10000,
+        ),
+        (
+            "?language=de&currency=USD",
+            "de",
+            "Watchlist-Schrank",
+            "Deutsche Schrankbeschreibung",
+            "USD",
+            12500,
+        ),
+    ] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}{query}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({"notifications": false}))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to present watchlist patch API: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_watchlist_product(&body, product_listing_id, false, false);
+        assert_eq!(
+            serde_json::json!({"text": title, "language": language}),
+            body["item"]["title"]
+        );
+        assert_eq!(
+            serde_json::json!({"text": description, "language": language}),
+            body["item"]["description"]
+        );
+        assert_eq!(
+            serde_json::json!({"text": "Watchlist cabinet", "language": "en"}),
+            body["item"]["productTitle"]
+        );
+        assert_eq!(
+            serde_json::json!({"type": "MONETARY", "currency": "EUR", "amount": 10000}),
+            body["item"]["pricing"]["source"]["price"]
+        );
+        assert_eq!(
+            serde_json::json!({"type": "MONETARY", "currency": currency, "amount": amount}),
+            body["item"]["pricing"]["display"]["price"]
+        );
+        assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+        assert!(body["item"]["shipping"].is_object());
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_watchlist_patch_presentation_without_changing_entry() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
+    let client = reqwest::Client::new();
+
+    for query in ["language=invalid", "currency=XXX"] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}?{query}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({"notifications": false, "state": "ACTIVE"}))
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed to patch invalid watchlist presentation: {error}")
+            });
+        let (status, body) = json_response(response).await;
+
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_QUERY_PARAMETER_VALUE",
+        );
+        assert_eq!(
+            before,
+            watchlist_entry_snapshot(user_id, product_listing_id).await
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_null_watchlist_patch_fields_without_changing_entry() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
+    let client = reqwest::Client::new();
+
+    for patch in [
+        serde_json::json!({"state": null, "notifications": false}),
+        serde_json::json!({"notifications": null, "state": "ACTIVE"}),
+    ] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to patch null watchlist fields: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_BODY_VALUE",
+        );
+        assert_eq!(
+            before,
+            watchlist_entry_snapshot(user_id, product_listing_id).await
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -383,7 +756,11 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
         });
     let (status, body) = json_response(notifications).await;
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(false), body["notifications"]);
+    assert_watchlist_product(&body, product_listing_id, true, false);
+    assert_eq!(serde_json::json!("WITHDRAWN"), body["item"]["lifecycle"]);
+    assert!(body["item"]["availability"].is_null());
+    assert!(body["item"]["shipping"].is_null());
+    assert!(body["userState"].get("shipping").is_none());
 
     let deactivated = client
         .patch(format!(
@@ -397,7 +774,105 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
         .unwrap_or_else(|error| panic!("failed to deactivate withdrawn product API: {error}"));
     let (status, body) = json_response(deactivated).await;
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!("INACTIVE_BY_USER"), body["state"]);
+    assert_watchlist_product(&body, product_listing_id, false, false);
+    assert_eq!(serde_json::json!("WITHDRAWN"), body["item"]["lifecycle"]);
+    assert!(body["item"]["availability"].is_null());
+    assert!(body["item"]["shipping"].is_null());
+    assert!(body["userState"].get("shipping").is_none());
+    let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
+    assert_eq!(serde_json::json!("INACTIVE_BY_USER"), entry["state"]);
+    assert_eq!(serde_json::json!(false), entry["notifications"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
+    seed_product_presentation(product_listing_id).await;
+    let pool = get_postgres_client().await;
+    let filter_id = search_filter_core::user_search_filter_id::UserSearchFilterId::new();
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'Hidden watchlist alerts', true, 'ACTIVE', '{}', 'en', 'EUR', 'TEXT_ONLY')",
+    )
+    .bind(filter_id.as_uuid())
+    .bind(user_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed hidden watchlist search filter: {error}"));
+
+    for position in 0_i64..11 {
+        let matched_product_listing_id = if position == 10 {
+            product_listing_id
+        } else {
+            seed_product().await
+        };
+        sqlx::query(
+            "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created) SELECT $1, $2, product_listing_id, current_event_id, 'Hidden watchlist alerts', (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + ($4 * interval '1 second') FROM product_listings WHERE product_listing_id = $3",
+        )
+        .bind(user_id.as_uuid())
+        .bind(filter_id.as_uuid())
+        .bind(matched_product_listing_id.as_uuid())
+        .bind(position)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed hidden watchlist search match: {error}"));
+    }
+    let client = reqwest::Client::new();
+
+    for (patch, watching) in [
+        (
+            serde_json::json!({"state": "ACTIVE", "notifications": false}),
+            true,
+        ),
+        (serde_json::json!({"state": "INACTIVE_BY_USER"}), false),
+    ] {
+        let response = client
+            .patch(format!(
+                "{}/api/v1/me/watchlist/{product_listing_id}?language=de&currency=USD",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed to patch hidden watchlist product API: {error}")
+            });
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_watchlist_product(&body, product_listing_id, watching, false);
+        assert_eq!(
+            serde_json::json!(true),
+            body["userState"]["searchFilter"]["hidden"]
+        );
+        assert!(body["item"].get("productListingTitleSlugId").is_none());
+        assert!(body["item"].get("productTitle").is_none());
+        assert!(body["item"].get("productDescription").is_none());
+        assert!(body["item"].get("description").is_none());
+        assert_eq!(
+            serde_json::json!({"text": "Versteckter Produkttitel", "language": "de"}),
+            body["item"]["title"]
+        );
+        assert_eq!(serde_json::json!("Hidden"), body["item"]["source"]["name"]);
+        for field in ["url", "viewUrl"] {
+            assert_eq!(
+                serde_json::json!("https://aura-historia.com/pricing"),
+                body["item"][field]
+            );
+        }
+        assert_eq!(serde_json::json!({}), body["item"]["pricing"]["source"]);
+        assert_eq!(serde_json::json!({}), body["item"]["pricing"]["display"]);
+        assert_eq!(serde_json::json!([]), body["item"]["images"]);
+        assert!(body["item"]["availability"].is_null());
+        assert!(body["item"]["shipping"].is_null());
+        assert!(body["userState"].get("shipping").is_none());
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -751,7 +1226,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!("ACTIVE"), body["state"]);
+    assert_watchlist_product(&body, product_listing_id, true, true);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

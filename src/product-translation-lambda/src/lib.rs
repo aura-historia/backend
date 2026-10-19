@@ -2,7 +2,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use large_language_model::{LargeLanguageModel, VertexAiGemini};
+use large_language_model::{AnthropicClaude, LargeLanguageModel};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
@@ -19,7 +19,7 @@ use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 // The translator has a bounded 30-second provider request. The remaining envelope covers source
-// reads, guarded persistence, token refresh, and returning the partial SQS failure response.
+// reads, guarded persistence, credential refresh, and returning the partial SQS failure response.
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
 const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
@@ -27,10 +27,10 @@ const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
 /// Builds the existing PostgreSQL-backed, first-committed-completion translation use case.
 ///
 /// The source read completes before inference and the guarded write transaction starts only after
-/// it, so a reusable pool connection is not retained while Vertex is awaited.
+/// it, so a reusable pool connection is not retained while Claude is awaited.
 pub fn compose_product_translation_use_case(
     pool: sqlx::PgPool,
-    translator: VertexAiGemini,
+    translator: AnthropicClaude,
 ) -> Arc<dyn TranslateProductListingEventUseCase> {
     compose_product_translation_use_case_with_model(pool, translator)
 }
