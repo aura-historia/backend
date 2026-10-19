@@ -47,6 +47,7 @@ async fn should_create_owned_search_filter() {
     );
     assert_eq!(Some("en"), content_language.as_deref());
     assert!(has_last_modified);
+    assert_saved_filter_response(&body);
     assert!(filter_id.starts_with("sf_"));
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(serde_json::json!("desk"), body["search"]["productQuery"][0]);
@@ -75,6 +76,7 @@ async fn should_list_owned_search_filters() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store"), cache_control.as_deref());
     assert_eq!(serde_json::json!(1), body["total"]);
+    assert_saved_filter_response(&body["items"][0]);
     assert_eq!(
         serde_json::json!(filter_id),
         body["items"][0]["userSearchFilterId"]
@@ -116,6 +118,7 @@ async fn should_get_owned_search_filter_with_representation_headers() {
     assert_eq!(Some("no-store"), cache_control.as_deref());
     assert_eq!(Some("en"), content_language.as_deref());
     assert!(has_last_modified);
+    assert_saved_filter_response(&body);
     assert_eq!(serde_json::json!(filter_id), body["userSearchFilterId"]);
 }
 
@@ -148,11 +151,103 @@ async fn should_update_owned_search_filter_without_replacing_unsupplied_search_f
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store"), cache_control.as_deref());
+    assert_saved_filter_response(&body);
     assert_eq!(serde_json::json!(false), body["notifications"]);
     assert_eq!(
         serde_json::json!("desk chair"),
         body["search"]["productQuery"][0]
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_preserve_saved_filter_and_freshness_for_top_level_null_patches() {
+    let user_id = seed_user("USER").await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let mut request = search_filter_body();
+    request["notifications"] = serde_json::json!(false);
+    let response = client
+        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    let (status, created) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(false, created["notifications"]);
+    let url = format!(
+        "{}/api/v1/me/search-filters/{}",
+        AURA_API.base_url(),
+        search_filter_id(&created)
+    );
+
+    for patch in [
+        serde_json::json!({}),
+        serde_json::json!({"name": null}),
+        serde_json::json!({"notifications": null}),
+        serde_json::json!({"state": null}),
+        serde_json::json!({"search": null}),
+        serde_json::json!({"acceptShippingDestination": null}),
+    ] {
+        let response = client
+            .patch(&url)
+            .bearer_auth(String::from(token.clone()))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap();
+        let (status, updated) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "{patch}: {updated}");
+        assert_eq!(created, updated, "{patch}");
+    }
+
+    for field in ["language", "currency", "productQuery"] {
+        let response = client
+            .patch(&url)
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({"search": {field: null}}))
+            .send()
+            .await
+            .unwrap();
+        let (status, body) = json_response(response).await;
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_BODY_VALUE",
+        );
+    }
+
+    let response = client
+        .get(&url)
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap();
+    let (status, stored) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(created, stored);
+}
+
+fn assert_saved_filter_response(body: &serde_json::Value) {
+    for field in [
+        "userId",
+        "userSearchFilterId",
+        "name",
+        "notifications",
+        "state",
+        "search",
+        "created",
+        "updated",
+    ] {
+        assert!(
+            !body[field].is_null(),
+            "missing saved-filter field: {field}"
+        );
+    }
+    assert!(body.get("createdBy").is_none());
+    assert!(body.get("updatedBy").is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
