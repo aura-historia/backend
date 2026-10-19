@@ -1,4 +1,4 @@
-use crate::patch_value::{PatchValue, clearable, non_nullable_option, non_nullable_patch};
+use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::shipping::listing::ShippingMatchValuationData;
 
 use application::patch_field::PatchField;
@@ -183,26 +183,29 @@ pub(super) struct UpdateSearchFilterData {
     pub(super) accept_shipping_destination:
         Option<crate::shipping_search::AcceptShippingDestinationData>,
     #[serde(default)]
-    pub(super) name: PatchValue<UserSearchFilterName>,
+    pub(super) name: Option<UserSearchFilterName>,
     #[serde(default)]
-    pub(super) notifications: PatchValue<bool>,
+    pub(super) notifications: Option<bool>,
     #[serde(default)]
-    pub(super) state: PatchValue<PatchSearchFilterStateData>,
+    pub(super) state: Option<PatchSearchFilterStateData>,
     #[serde(default)]
-    pub(super) search: PatchValue<ProductListingSearchPatchData>,
+    pub(super) search: Option<ProductListingSearchPatchData>,
 }
 
 impl UpdateSearchFilterData {
     pub(super) fn into_fields(self) -> Result<UpdateSearchFilterFields, crate::error::ApiError> {
-        let search = match non_nullable_option(self.search, "search")? {
+        let search = match self.search {
             Some(search) => search.try_into_patch()?,
             None => ProductListingSearchPatch::default(),
         };
 
         Ok((
-            non_nullable_patch(self.name, "name")?,
-            non_nullable_patch(self.notifications, "notifications")?,
-            non_nullable_patch(self.state.map(search_filter_state), "state")?,
+            self.name.map_or(PatchField::Unchanged, PatchField::Set),
+            self.notifications
+                .map_or(PatchField::Unchanged, PatchField::Set),
+            self.state
+                .map(search_filter_state)
+                .map_or(PatchField::Unchanged, PatchField::Set),
             search,
         ))
     }
@@ -733,6 +736,83 @@ mod tests {
     use super::*;
     use auction_core::AuctionId;
     use localization::Language;
+
+    #[test]
+    fn top_level_nulls_and_omissions_leave_saved_filter_fields_unchanged()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for body in [
+            serde_json::json!({}),
+            serde_json::json!({"name": null}),
+            serde_json::json!({"notifications": null}),
+            serde_json::json!({"state": null}),
+            serde_json::json!({"search": null}),
+            serde_json::json!({"acceptShippingDestination": null}),
+            serde_json::json!({
+                "name": null,
+                "notifications": null,
+                "state": null,
+                "search": null,
+                "acceptShippingDestination": null
+            }),
+        ] {
+            let data: UpdateSearchFilterData = serde_json::from_value(body)?;
+            assert!(data.accept_shipping_destination.is_none());
+            assert_eq!(
+                (
+                    PatchField::Unchanged,
+                    PatchField::Unchanged,
+                    PatchField::Unchanged,
+                    ProductListingSearchPatch::default(),
+                ),
+                data.into_fields()?
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn null_top_level_members_preserve_concrete_updates_and_nested_clears()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let data: UpdateSearchFilterData = serde_json::from_value(serde_json::json!({
+            "name": null,
+            "notifications": false,
+            "state": "INACTIVE_BY_USER",
+            "search": {"geography": null, "shipping": null}
+        }))?;
+        let (name, notifications, state, search) = data.into_fields()?;
+        assert_eq!(PatchField::Unchanged, name);
+        assert_eq!(PatchField::Set(false), notifications);
+        assert_eq!(PatchField::Set(SearchFilterState::InactiveByUser), state);
+        assert_eq!(PatchField::Clear, search.geography);
+        assert_eq!(PatchField::Clear, search.shipping);
+
+        for body in [
+            serde_json::json!({"search": {"language": null}}),
+            serde_json::json!({"search": {"currency": null}}),
+            serde_json::json!({"search": {"productQuery": null}}),
+        ] {
+            let data: UpdateSearchFilterData = serde_json::from_value(body)?;
+            assert_eq!(
+                crate::error::BAD_BODY_VALUE,
+                data.into_fields().unwrap_err().code()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn saved_filter_creation_honors_explicit_notifications_and_defaults_to_enabled()
+    -> Result<(), serde_json::Error> {
+        for (notifications, expected) in [(None, true), (Some(true), true), (Some(false), false)] {
+            let mut body = serde_json::json!({"name": "saved", "search": {}});
+            if let Some(value) = notifications {
+                body["notifications"] = serde_json::json!(value);
+            }
+            let data: CreateSearchFilterData = serde_json::from_value(body)?;
+            assert_eq!(expected, data.notifications);
+        }
+        Ok(())
+    }
 
     #[test]
     fn geographic_patches_replace_clear_or_preserve_private_snapshots()

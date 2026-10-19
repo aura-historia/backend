@@ -73,11 +73,13 @@ enum RestrictedFeature {
     UpdatedQuery,
     LotBiddingOpensQuery,
     LotScheduledClosesQuery,
+    Geography,
+    Shipping,
 }
 
 const PRO_RESTRICTED_FEATURES: [RestrictedFeature; 1] =
     [RestrictedFeature::EnhancedSearchDescription];
-const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 8] = [
+const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 10] = [
     RestrictedFeature::EnhancedSearchDescription,
     RestrictedFeature::ListingSourceIdQuery,
     RestrictedFeature::ExcludeListingSourceIdQuery,
@@ -86,6 +88,8 @@ const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 8] = [
     RestrictedFeature::UpdatedQuery,
     RestrictedFeature::LotBiddingOpensQuery,
     RestrictedFeature::LotScheduledClosesQuery,
+    RestrictedFeature::Geography,
+    RestrictedFeature::Shipping,
 ];
 
 impl RestrictedFeature {
@@ -99,6 +103,8 @@ impl RestrictedFeature {
             Self::UpdatedQuery => "updatedQuery",
             Self::LotBiddingOpensQuery => "lotBiddingOpensQuery",
             Self::LotScheduledClosesQuery => "lotScheduledClosesQuery",
+            Self::Geography => "geography",
+            Self::Shipping => "shipping",
         }
     }
 
@@ -112,6 +118,8 @@ impl RestrictedFeature {
             Self::UpdatedQuery => search.updated_query.is_some(),
             Self::LotBiddingOpensQuery => search.lot_bidding_opens_query.is_some(),
             Self::LotScheduledClosesQuery => search.lot_scheduled_closes_query.is_some(),
+            Self::Geography => search.geography.is_some(),
+            Self::Shipping => search.shipping.is_some(),
         }
     }
 }
@@ -224,5 +232,75 @@ mod tests {
                 &adds_restriction,
             )
         );
+    }
+
+    #[test]
+    fn geography_and_shipping_require_paid_tiers_for_creation_addition_and_reactivation() {
+        use geo::core::discovery::{GeographicQuery, ProximityMode};
+        use geo::reference::ReferenceRelease;
+        use product_listing_core::shipping_search::ShippingSearch;
+
+        let unrestricted = ProductListingSearch::new(Language::En, Currency::Eur);
+        let mut geography = unrestricted.clone();
+        geography.geography = Some(
+            GeographicQuery::new(
+                ReferenceRelease::CURRENT,
+                HashSet::from([geo::CountryCode::DEU]),
+                HashSet::new(),
+                Some(geo::GeoPoint::new(48.137, 11.575).unwrap()),
+                Some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers).unwrap()),
+                ProximityMode::Strict,
+                None,
+            )
+            .unwrap(),
+        );
+        let mut shipping = unrestricted.clone();
+        shipping.shipping = Some(
+            ShippingSearch::new(
+                ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                Some(money::Price::new(9000_u64.into(), Currency::Eur)),
+                true,
+            )
+            .unwrap()
+            .with_fx_conversion()
+            .unwrap(),
+        );
+        let mut collection = unrestricted.clone();
+        collection.shipping =
+            Some(ShippingSearch::new(ReferenceRelease::CURRENT, None, None, None, true).unwrap());
+
+        for (feature, search) in [
+            ("geography", geography),
+            ("shipping", shipping),
+            ("shipping", collection),
+        ] {
+            assert_eq!(
+                Err(feature),
+                validate_search_features(UserTier::Free, &search)
+            );
+            assert_eq!(
+                Err(feature),
+                validate_search_feature_changes(UserTier::Free, &unrestricted, &search)
+            );
+            assert_eq!(
+                Ok(()),
+                validate_search_feature_changes(UserTier::Free, &search, &search),
+                "inactive filters may retain existing restricted criteria"
+            );
+            assert_eq!(
+                Ok(()),
+                validate_search_feature_changes(UserTier::Free, &search, &unrestricted),
+                "restricted criteria may be cleared"
+            );
+            for tier in [UserTier::Pro, UserTier::Ultimate] {
+                assert_eq!(Ok(()), validate_search_features(tier, &search));
+                assert_eq!(
+                    Ok(()),
+                    validate_search_feature_changes(tier, &unrestricted, &search)
+                );
+            }
+        }
     }
 }
