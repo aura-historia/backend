@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Product search sort validation (#2156)
+
+- `GET /api/v1/product-listings` applies `sort` without `order` using descending order instead of silently falling back to the default relevance ordering.
+- Invalid `sort` or `order` values now return `400` (`BAD_SORT_VALUE` / `BAD_ORDER_VALUE`) even when the other parameter is absent. `order` without `sort` returns `400 BAD_SORT_VALUE`.
+
 ## 2026-10-19 — Percent-encoded deep-object query keys (#2153)
 
 - All query parameters accept nested `deepObject` keys with percent-encoded brackets (for example `geography%5Bcountries%5D%5B0%5D=DE`, as produced by standard HTTP client encoders) exactly like literal brackets. Listing search geography and shipping filters were previously ignored for such keys, returning unfiltered results, and Party-location discovery rejected them with `400 BAD_QUERY_PARAMETER_VALUE`. Encoded keys now apply the same predicates, validation, pagination cursors and cache behavior.

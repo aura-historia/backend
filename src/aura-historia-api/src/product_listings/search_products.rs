@@ -114,7 +114,9 @@ impl TryFrom<&str> for SortProductListingFieldData {
             "score" => Ok(Self::Score),
             "updated" => Ok(Self::Updated),
             "created" => Ok(Self::Created),
-            _ => Err("Expected any of: 'score', 'updated', 'created'.".to_owned()),
+            value => Err(format!(
+                "Expected any of: 'score', 'updated', 'created'. Got: '{value}'"
+            )),
         }
     }
 }
@@ -337,27 +339,34 @@ async fn handle_search(
 }
 
 fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductListingField>>, ApiError> {
-    match (
-        query_value(raw_query, "sort"),
-        query_value(raw_query, "order"),
-    ) {
-        (Some(sort), Some(order)) => {
-            let sort = SortProductListingFieldData::try_from(sort.as_str()).map_err(|detail| {
+    let sort = query_value(raw_query, "sort")
+        .map(|sort| {
+            SortProductListingFieldData::try_from(sort.as_str()).map_err(|detail| {
                 ApiError::bad_request(BAD_SORT_VALUE)
                     .with_query_field("sort")
                     .with_detail(detail)
-            })?;
-            let order = SortOrder::try_from(order.as_str()).map_err(|detail| {
+            })
+        })
+        .transpose()?;
+    let order = query_value(raw_query, "order")
+        .map(|order| {
+            SortOrder::try_from(order.as_str()).map_err(|detail| {
                 ApiError::bad_request(BAD_ORDER_VALUE)
                     .with_query_field("order")
                     .with_detail(detail)
-            })?;
-            Ok(Some(Sort {
-                sort: sort.into(),
-                order,
-            }))
-        }
-        _ => Ok(None),
+            })
+        })
+        .transpose()?;
+
+    match (sort, order) {
+        (None, None) => Ok(None),
+        (Some(sort), order) => Ok(Some(Sort {
+            sort: sort.into(),
+            order: order.unwrap_or(SortOrder::Desc),
+        })),
+        (None, Some(_)) => Err(ApiError::bad_request(BAD_SORT_VALUE)
+            .with_query_field("sort")
+            .with_detail("'sort' is required when 'order' is supplied.")),
     }
 }
 
@@ -750,6 +759,85 @@ mod tests {
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
         assert!(lock(&calls).is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_default_sort_order_to_desc_when_only_sort_is_supplied()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (query, field) in [
+            ("sort=score", SortProductListingField::Score),
+            ("sort=updated", SortProductListingField::Updated),
+            ("sort=created", SortProductListingField::Created),
+        ] {
+            let (app, calls) = app();
+
+            let response = app
+                .oneshot(
+                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
+                )
+                .await?;
+
+            assert_eq!(StatusCode::OK, response.status(), "{query}");
+            assert_eq!(
+                Some(Sort {
+                    sort: field,
+                    order: SortOrder::Desc,
+                }),
+                lock(&calls)[0].1.sort,
+                "{query}"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_apply_explicit_ascending_order() -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/product-listings?sort=created&order=asc")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            Some(Sort {
+                sort: SortProductListingField::Created,
+                order: SortOrder::Asc,
+            }),
+            lock(&calls)[0].1.sort
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_or_incomplete_sort_parameters()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (query, error, field) in [
+            ("sort=not-valid", "BAD_SORT_VALUE", "sort"),
+            ("sort=not-valid&order=asc", "BAD_SORT_VALUE", "sort"),
+            ("order=not-valid", "BAD_ORDER_VALUE", "order"),
+            ("sort=updated&order=not-valid", "BAD_ORDER_VALUE", "order"),
+            ("order=desc", "BAD_SORT_VALUE", "sort"),
+        ] {
+            let (app, calls) = app();
+
+            let response = app
+                .oneshot(
+                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
+                )
+                .await?;
+
+            assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{query}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<Value>(&body)?;
+            assert_eq!(error, body["error"], "{query}");
+            assert_eq!(field, body["source"]["field"], "{query}");
+            assert!(lock(&calls).is_empty(), "{query}");
+        }
         Ok(())
     }
 
