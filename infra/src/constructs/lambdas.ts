@@ -67,7 +67,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
     postgres: true,
-    // Above the public catalogue overview refresh statement timeout (480 s).
+    // The hourly run includes the due public catalogue overview refresh (480 s statement timeout).
     timeoutSeconds: 540,
     environment: () => ({
       EXPIRY_CLEANUP_BATCH_SIZE: "100",

@@ -40,6 +40,7 @@ async fn refresh() -> PublicCatalogueOverview {
     .execute()
     .await
     .unwrap_or_else(|error| panic!("failed to refresh public overview: {error}"))
+    .unwrap_or_else(|| panic!("the first refresh must be due"))
     .overview
 }
 
@@ -59,7 +60,7 @@ async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
 async fn should_share_the_stored_overview_regardless_of_query_strings() {
     seed_product().await;
     let calculated = refresh().await;
-    // Later catalogue changes wait for the next scheduled refresh.
+    // Later catalogue changes wait for the next due refresh.
     seed_product().await;
 
     let mut representations = Vec::new();

@@ -9,6 +9,11 @@ use application::{
     error::BoxError,
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
+use std::time::Duration;
+
+/// The hourly maintenance run recalculates once the stored calculation reaches this age,
+/// so the full aggregate runs about every six hours despite small start-time jitter.
+pub const PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE: Duration = Duration::from_secs(5 * 3600 + 45 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicCatalogueOverviewRefresh {
@@ -41,12 +46,13 @@ pub enum RefreshPublicCatalogueOverviewError {
     },
 }
 
-/// Scheduled maintenance: recalculates the stored public catalogue statistics.
+/// Scheduled maintenance: recalculates the stored public catalogue statistics once they
+/// reach [`PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE`]; `None` means the stored ones are current.
 #[async_trait::async_trait]
 pub trait RefreshPublicCatalogueOverviewUseCase: Send + Sync {
     async fn execute(
         &self,
-    ) -> Result<PublicCatalogueOverviewRefresh, RefreshPublicCatalogueOverviewError>;
+    ) -> Result<Option<PublicCatalogueOverviewRefresh>, RefreshPublicCatalogueOverviewError>;
 }
 
 pub struct RefreshPublicCatalogueOverviewHandler<U, R> {
@@ -72,12 +78,16 @@ where
     #[tracing::instrument(name = "refresh_public_catalogue_overview", skip_all)]
     async fn execute(
         &self,
-    ) -> Result<PublicCatalogueOverviewRefresh, RefreshPublicCatalogueOverviewError> {
+    ) -> Result<Option<PublicCatalogueOverviewRefresh>, RefreshPublicCatalogueOverviewError> {
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
                 RefreshPublicCatalogueOverviewError::BeginTransaction { source }
             })?;
-        let refresh = self.refresher.in_transaction(&mut tx).refresh().await?;
+        let refresh = self
+            .refresher
+            .in_transaction(&mut tx)
+            .refresh_if_older_than(PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE)
+            .await?;
 
         tx.commit()
             .await
@@ -112,6 +122,7 @@ mod tests {
         begins: usize,
         refreshes: usize,
         commits: usize,
+        max_age: Option<Duration>,
     }
 
     struct FakeUnitOfWork {
@@ -142,14 +153,21 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum Outcome {
+        Refreshed,
+        Current,
+        Fails,
+    }
+
     struct FakeRefresherFactory {
         state: Arc<Mutex<State>>,
-        fails: bool,
+        outcome: Outcome,
     }
 
     struct FakeRefresher {
         state: Arc<Mutex<State>>,
-        fails: bool,
+        outcome: Outcome,
     }
 
     impl PublicCatalogueOverviewRefresherFactory<FakeTransaction> for FakeRefresherFactory {
@@ -159,25 +177,30 @@ mod tests {
         ) -> impl PublicCatalogueOverviewRefresher + 'tx {
             FakeRefresher {
                 state: Arc::clone(&self.state),
-                fails: self.fails,
+                outcome: self.outcome,
             }
         }
     }
 
     #[async_trait::async_trait]
     impl PublicCatalogueOverviewRefresher for FakeRefresher {
-        async fn refresh(
+        async fn refresh_if_older_than(
             &mut self,
-        ) -> Result<PublicCatalogueOverviewRefresh, PublicCatalogueOverviewRefreshError> {
-            lock(&self.state).refreshes += 1;
-            if self.fails {
-                return Err(
+            max_age: Duration,
+        ) -> Result<Option<PublicCatalogueOverviewRefresh>, PublicCatalogueOverviewRefreshError>
+        {
+            let mut state = lock(&self.state);
+            state.refreshes += 1;
+            state.max_age = Some(max_age);
+            match self.outcome {
+                Outcome::Refreshed => Ok(Some(refresh())),
+                Outcome::Current => Ok(None),
+                Outcome::Fails => Err(
                     PublicCatalogueOverviewRefreshError::TemporarilyUnavailable {
                         source: static_error("statement timeout"),
                     },
-                );
+                ),
             }
-            Ok(refresh())
         }
     }
 
@@ -204,15 +227,15 @@ mod tests {
 
     async fn execute(
         state: &Arc<Mutex<State>>,
-        fails: bool,
-    ) -> Result<PublicCatalogueOverviewRefresh, RefreshPublicCatalogueOverviewError> {
+        outcome: Outcome,
+    ) -> Result<Option<PublicCatalogueOverviewRefresh>, RefreshPublicCatalogueOverviewError> {
         RefreshPublicCatalogueOverviewHandler::new(
             FakeUnitOfWork {
                 state: Arc::clone(state),
             },
             FakeRefresherFactory {
                 state: Arc::clone(state),
-                fails,
+                outcome,
             },
         )
         .execute()
@@ -220,21 +243,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_commit_refreshed_overview() {
-        let state = Arc::new(Mutex::new(State::default()));
+    async fn should_commit_due_refresh_or_current_calculation_check() {
+        for (outcome, expected) in [
+            (Outcome::Refreshed, Some(refresh())),
+            (Outcome::Current, None),
+        ] {
+            let state = Arc::new(Mutex::new(State::default()));
 
-        let result = execute(&state, false).await;
+            let result = execute(&state, outcome).await;
 
-        assert_eq!(refresh(), result.unwrap_or_else(|error| panic!("{error}")));
-        let state = lock(&state);
-        assert_eq!((1, 1, 1), (state.begins, state.refreshes, state.commits));
+            assert_eq!(expected, result.unwrap_or_else(|error| panic!("{error}")));
+            let state = lock(&state);
+            assert_eq!((1, 1, 1), (state.begins, state.refreshes, state.commits));
+            assert_eq!(Some(PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE), state.max_age);
+        }
+        assert_eq!(
+            Duration::from_secs(20_700),
+            PUBLIC_CATALOGUE_OVERVIEW_REFRESH_AGE
+        );
     }
 
     #[tokio::test]
     async fn should_preserve_refresh_failure_without_committing() {
         let state = Arc::new(Mutex::new(State::default()));
 
-        let result = execute(&state, true).await;
+        let result = execute(&state, Outcome::Fails).await;
 
         assert!(matches!(
             result,

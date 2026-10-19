@@ -1,4 +1,5 @@
 use application::error::BoxError;
+use std::time::Duration;
 
 use crate::use_cases::commands::refresh_public_catalogue_overview::PublicCatalogueOverviewRefresh;
 
@@ -18,11 +19,13 @@ pub enum PublicCatalogueOverviewRefreshError {
 
 #[async_trait::async_trait]
 pub trait PublicCatalogueOverviewRefresher: Send {
-    /// Aggregates the public catalogue at one database timestamp and stores it unless a
-    /// newer calculation is already stored.
-    async fn refresh(
+    /// Returns `None` without aggregating while the stored calculation is younger than
+    /// `max_age` by the database clock. Otherwise aggregates the public catalogue at one
+    /// database timestamp and stores it unless a newer calculation is already stored.
+    async fn refresh_if_older_than(
         &mut self,
-    ) -> Result<PublicCatalogueOverviewRefresh, PublicCatalogueOverviewRefreshError>;
+        max_age: Duration,
+    ) -> Result<Option<PublicCatalogueOverviewRefresh>, PublicCatalogueOverviewRefreshError>;
 }
 
 pub trait PublicCatalogueOverviewRefresherFactory<Tx>: Send + Sync {

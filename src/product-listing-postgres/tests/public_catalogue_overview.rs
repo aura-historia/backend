@@ -65,7 +65,7 @@ async fn stored_overview() -> Option<PublicCatalogueOverview> {
     overview
 }
 
-async fn refresh() -> PublicCatalogueOverviewRefresh {
+async fn refresh() -> Option<PublicCatalogueOverviewRefresh> {
     RefreshPublicCatalogueOverviewHandler::new(
         SqlxUnitOfWork::new(get_postgres_client().await),
         SqlxPublicCatalogueOverviewRefresherFactory::new(),
@@ -75,9 +75,11 @@ async fn refresh() -> PublicCatalogueOverviewRefresh {
     .unwrap_or_else(|error| panic!("failed to refresh public overview: {error}"))
 }
 
-/// Refreshes, then returns what public reads observe.
+/// Refreshes a due calculation, then returns what public reads observe.
 async fn read_overview() -> PublicCatalogueOverview {
-    let refresh = refresh().await;
+    let refresh = refresh()
+        .await
+        .unwrap_or_else(|| panic!("refresh must be due"));
     assert!(refresh.stored);
     assert_eq!(Some(refresh.overview), stored_overview().await);
     refresh.overview
@@ -196,21 +198,81 @@ async fn should_read_nothing_before_the_first_refresh() {
     assert_eq!(None, stored_overview().await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_replace_older_but_never_newer_stored_calculations() {
-    let first = read_overview().await;
-    let second = read_overview().await;
-    assert!(first.as_of < second.as_of);
-
-    let pool = get_postgres_client().await;
+async fn age_stored_overview(pool: &sqlx::PgPool, age: &str) {
     sqlx::query(
-        "UPDATE public_catalogue_overview SET as_of = now() + interval '1 day', live_objects = 7",
+        "UPDATE public_catalogue_overview SET as_of = clock_timestamp() - $1::text::interval",
     )
-    .execute(&pool)
+    .bind(age)
+    .execute(pool)
     .await
-    .unwrap_or_else(|error| panic!("failed to date stored overview: {error}"));
-    let stale = refresh().await;
+    .unwrap_or_else(|error| panic!("failed to age stored overview: {error}"));
+}
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_refresh_only_once_the_stored_calculation_is_due() {
+    let pool = get_postgres_client().await;
+    let first = read_overview().await;
+
+    assert_eq!(None, refresh().await);
+    assert_eq!(Some(first), stored_overview().await);
+
+    age_stored_overview(&pool, "5 hours 44 minutes").await;
+    assert_eq!(None, refresh().await);
+
+    age_stored_overview(&pool, "5 hours 46 minutes").await;
+    let aged = stored_overview()
+        .await
+        .unwrap_or_else(|| panic!("stored overview must remain"));
+    let refreshed = read_overview().await;
+    assert!(aged.as_of < refreshed.as_of);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_not_replace_a_newer_calculation_stored_concurrently() {
+    let pool = get_postgres_client().await;
+    read_overview().await;
+    age_stored_overview(&pool, "1 day").await;
+    let mut concurrent = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("failed to begin concurrent transaction: {error}"));
+    let holder: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid() FROM public_catalogue_overview FOR UPDATE")
+            .fetch_one(&mut *concurrent)
+            .await
+            .unwrap_or_else(|error| panic!("failed to lock stored overview: {error}"));
+
+    let pending = tokio::spawn(refresh());
+    let mut waiting = false;
+    for _ in 0..200 {
+        waiting = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
+        )
+        .bind(holder)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to inspect lock waits: {error}"));
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(waiting, "refresh must wait for the stored overview row");
+    sqlx::query(
+        "UPDATE public_catalogue_overview SET as_of = clock_timestamp() + interval '1 day', live_objects = 7",
+    )
+    .execute(&mut *concurrent)
+    .await
+    .unwrap_or_else(|error| panic!("failed to store newer overview: {error}"));
+    concurrent
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("failed to commit newer overview: {error}"));
+
+    let stale = pending
+        .await
+        .unwrap_or_else(|error| panic!("refresh task failed: {error}"))
+        .unwrap_or_else(|| panic!("refresh must have been due"));
     assert!(!stale.stored);
     let stored = stored_overview()
         .await

@@ -18,7 +18,7 @@ describe.each(STAGES)("%s account identity deletion", stage => {
     expect(JSON.stringify(mapping?.Properties.EventSourceArn)).toContain("user-identity-deletion");
     expect(mapping?.DependsOn).toBeDefined();
     const schedules = Object.values(compute.findResources("AWS::Scheduler::Schedule"));
-    expect(schedules).toHaveLength(4);
+    expect(schedules).toHaveLength(3);
     expect(JSON.stringify(schedules)).not.toContain("user-identity-deletion");
     const cleanup = Object.values(compute.findResources("AWS::Lambda::Function"))
       .find(resource => resource.Properties.FunctionName === `backend-cleanup-lambda-${stage}`);

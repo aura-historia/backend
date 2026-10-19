@@ -11,9 +11,10 @@ use product_listing_service::{
         queries::get_public_catalogue_overview::PublicCatalogueOverview,
     },
 };
+use std::time::Duration;
 
 /// Scans every live listing once, so it is far above the Lambda session default; it must
-/// stay below the scheduled maintenance Lambda timeout.
+/// stay below the maintenance Lambda timeout.
 pub const PUBLIC_CATALOGUE_OVERVIEW_REFRESH_STATEMENT_TIMEOUT: &str = "480s";
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -112,9 +113,22 @@ FROM calculated
 
 #[async_trait::async_trait]
 impl PublicCatalogueOverviewRefresher for SqlxPublicCatalogueOverviewRefresher<'_> {
-    async fn refresh(
+    async fn refresh_if_older_than(
         &mut self,
-    ) -> Result<PublicCatalogueOverviewRefresh, PublicCatalogueOverviewRefreshError> {
+        max_age: Duration,
+    ) -> Result<Option<PublicCatalogueOverviewRefresh>, PublicCatalogueOverviewRefreshError> {
+        // Compare with the database clock that also wrote `as_of`.
+        let current: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM public_catalogue_overview WHERE as_of > clock_timestamp() - make_interval(secs => $1))",
+        )
+        .bind(max_age.as_secs_f64())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(temporary)?;
+        if current {
+            return Ok(None);
+        }
+
         sqlx::query("SELECT set_config('statement_timeout', $1, true)")
             .bind(PUBLIC_CATALOGUE_OVERVIEW_REFRESH_STATEMENT_TIMEOUT)
             .execute(&mut *self.connection)
@@ -125,14 +139,14 @@ impl PublicCatalogueOverviewRefresher for SqlxPublicCatalogueOverviewRefresher<'
             .await
             .map_err(temporary)?;
 
-        Ok(PublicCatalogueOverviewRefresh {
+        Ok(Some(PublicCatalogueOverviewRefresh {
             overview: PublicCatalogueOverview::try_from(row.overview).map_err(|source| {
                 PublicCatalogueOverviewRefreshError::InvalidReadModel {
                     source: box_error(source),
                 }
             })?,
             stored: row.stored,
-        })
+        }))
     }
 }
 

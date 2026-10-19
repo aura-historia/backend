@@ -84,9 +84,9 @@ paths:
     get:
       summary: Get public catalogue statistics
       description: |
-        Anonymous aggregate statistics for the public catalogue. A scheduled refresh calculates
-        every count together from authoritative PostgreSQL every six hours, and reads return that
-        stored calculation; `asOf` is its time. Including the shared edge cache, figures are
+        Anonymous aggregate statistics for the public catalogue. Hourly maintenance recalculates
+        every count together from authoritative PostgreSQL about every six hours, and reads return
+        that stored calculation; `asOf` is its time. Including the shared edge cache, figures are
         normally at most about twelve hours old; a failed refresh keeps the previous calculation.
         There are no filters, personalization, or per-source, per-partner or per-user details.
         Credentials are neither required nor evaluated, and query strings are ignored: they change
