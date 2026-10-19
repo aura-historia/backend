@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Product search sort validation (#2156)
+
+- `GET /api/v1/product-listings` applies `sort` without `order` using descending order instead of silently falling back to the default relevance ordering.
+- Invalid `sort` or `order` values now return `400` (`BAD_SORT_VALUE` / `BAD_ORDER_VALUE`) even when the other parameter is absent. `order` without `sort` returns `400 BAD_SORT_VALUE`.
+
 ## 2026-10-18 — Consistent entity freshness (#2032)
 
 - ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing, and each new value has millisecond precision. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.
