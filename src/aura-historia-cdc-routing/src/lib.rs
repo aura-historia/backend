@@ -175,6 +175,32 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
             )])
         }
         (CdcTable::GeoResolutionWakeups, _) => Ok(Vec::new()),
+        (CdcTable::UserIdentityDeletionRequests, Operation::Insert) => {
+            let row = required_row(change)?;
+            if row
+                .as_object()
+                .is_none_or(|object| object.len() != 1 || !object.contains_key("user_id"))
+            {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "user identity deletion request",
+                ));
+            }
+            let user_id: UserId = parse_canonical_storage_object_id(
+                &required_string(row, "user_id")?,
+                || CdcRouteError::InvalidObjectId("user_id"),
+                || CdcRouteError::InvalidObjectId("user_id"),
+            )?;
+            let key = format!("user-identity-deletion:{user_id}");
+            Ok(vec![domain_job(
+                WorkerQueue::UserIdentityDeletion,
+                IdempotencyKey::new(key.clone()),
+                OrderingKey::new(key),
+                DomainJobPayload::UserIdentityDeletion(
+                    aura_historia_jobs::UserIdentityDeletionJob { user_id },
+                ),
+            )])
+        }
+        (CdcTable::UserIdentityDeletionRequests, _) => Ok(Vec::new()),
         (CdcTable::ProductListingEvents, Operation::Insert) => product_event_jobs(change),
         (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
         (CdcTable::ProductListingRawRevisions, Operation::Insert) => {
@@ -207,6 +233,7 @@ pub enum CdcTable {
     GeoResolutionWakeups,
     ListingGeographyWakeups,
     ListingShippingWakeups,
+    UserIdentityDeletionRequests,
     ProductListingEvents,
     ProductListingRawRevisions,
     ProductListings,
@@ -223,6 +250,7 @@ impl From<&str> for CdcTable {
         match value {
             "listing_geography_wakeups" => Self::ListingGeographyWakeups,
             "listing_shipping_wakeups" => Self::ListingShippingWakeups,
+            "user_identity_deletion_requests" => Self::UserIdentityDeletionRequests,
             "geo_resolution_wakeups" => Self::GeoResolutionWakeups,
             "product_listing_events" => Self::ProductListingEvents,
             "product_listing_raw_revisions" => Self::ProductListingRawRevisions,
@@ -476,8 +504,8 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
         &require_string(object, "listingSourceId")?,
         source_listing_id,
     )?;
-    require_nullable_localized(object, "title", canonical_title)?;
-    require_nullable_localized(object, "description", canonical_description)?;
+    require_nullable_localized(object, "title", is_canonical_title)?;
+    require_nullable_localized(object, "description", is_canonical_description)?;
 
     let pricing = require_object_field(object, "pricing")?;
     require_exact_keys(
@@ -946,7 +974,7 @@ fn require_u64(object: &Map<String, Value>, field: &'static str) -> Result<u64, 
 fn require_nullable_localized(
     object: &Map<String, Value>,
     field: &'static str,
-    canonicalize: fn(&str) -> String,
+    is_canonical: fn(&str) -> bool,
 ) -> Result<(), CdcRouteError> {
     let value = require_value(object, field)?;
     if value.is_null() {
@@ -957,18 +985,19 @@ fn require_nullable_localized(
     let language = require_string(localized, "language")?;
     validate_language(&language, &format!("{field}.language"))?;
     let text = require_string(localized, "text")?;
-    if canonicalize(text.as_str()) != text {
+    if !is_canonical(text.as_str()) {
         return Err(noncanonical_product_listing_field(format!("{field}.text")));
     }
     Ok(())
 }
 
-fn canonical_title(value: &str) -> String {
-    Title::from(value).to_string()
+/// Events stored before typography normalization keep their original title text.
+fn is_canonical_title(value: &str) -> bool {
+    Title::has_canonical_structure(value)
 }
 
-fn canonical_description(value: &str) -> String {
-    Description::from(value).to_string()
+fn is_canonical_description(value: &str) -> bool {
+    Description::from(value).as_ref() == value
 }
 
 fn validate_listing_source_id(
@@ -1373,6 +1402,48 @@ mod tests {
     }
 
     #[test]
+    fn user_identity_deletion_requests_route_only_compact_valid_inserts() {
+        let row = json!({"user_id": "01900000-0000-7000-8000-000000000009"});
+        let source = change("user_identity_deletion_requests", "insert", row.clone());
+        let jobs = route_change(&source).unwrap();
+        assert_eq!(jobs, route_change(&source).unwrap());
+        assert_eq!(1, jobs.len());
+        assert_eq!(
+            Some(aura_historia_jobs::WorkerScope::UserIdentityDeletion),
+            jobs[0].target_queue.scope()
+        );
+        let body: Value =
+            serde_json::from_str(&aura_historia_jobs::encode(&jobs[0]).unwrap()).unwrap();
+        assert_eq!(1, body["payload"].as_object().unwrap().len());
+        assert!(
+            body["payload"]["user_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("usr_")
+        );
+        for operation in ["update", "delete"] {
+            assert!(
+                route_change(&change(
+                    "user_identity_deletion_requests",
+                    operation,
+                    row.clone()
+                ))
+                .unwrap()
+                .is_empty()
+            );
+        }
+        for row in [
+            json!({"user_id":"bad"}),
+            json!({"user_id":"01900000-0000-7000-8000-000000000009", "subject":"private"}),
+            json!({}),
+        ] {
+            assert!(
+                route_change(&change("user_identity_deletion_requests", "insert", row)).is_err()
+            );
+        }
+    }
+
+    #[test]
     fn discovered_event_fanout_preserves_order_and_keys() {
         let jobs = route_change(&change(
             "product_listing_events",
@@ -1411,6 +1482,44 @@ mod tests {
                 .all(|job| job.idempotency_key == jobs[0].idempotency_key
                     && job.ordering_key == jobs[0].ordering_key)
         );
+    }
+
+    #[test]
+    fn discovered_event_accepts_titles_stored_before_typography_normalization() {
+        let discovered = |title: &str| {
+            change(
+                "product_listing_events",
+                "insert",
+                json!({
+                    "event_id": "01900000-0000-7000-8000-000000000004",
+                    "product_listing_id": "01900000-0000-7000-8000-000000000003",
+                    "event_type": "PRODUCT_LISTING_DISCOVERED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1,
+                    "payload": {
+                        "listingSourceId": "01900000-0000-7000-8000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": {"language": "de", "text": title},
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.test/product",
+                        "imageCount": 0,
+                        "auction": null
+                    }
+                }),
+            )
+        };
+        for title in ["Anrichte | 3360", "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥 🌿✨Anrichte | 3360"] {
+            assert_eq!(4, route_change(&discovered(title)).unwrap().len());
+        }
+        for title in ["anrichte", "Anrichte.", " Anrichte", "𝐄𝐢𝐧 Anrichte."] {
+            assert!(matches!(
+                route_change(&discovered(title)),
+                Err(CdcRouteError::NonCanonicalProductListingEventField { field })
+                    if field == "title.text"
+            ));
+        }
     }
 
     #[test]

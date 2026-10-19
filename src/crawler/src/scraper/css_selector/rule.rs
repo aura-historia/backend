@@ -234,10 +234,7 @@ fn extract_from_element(
     selector_str: &str,
 ) -> Result<String, ExtractionError> {
     match kind {
-        ExtractionKind::Text => {
-            let text: String = element.text().collect::<Vec<_>>().join("");
-            Ok(text.trim().to_owned())
-        }
+        ExtractionKind::Text => Ok(visible_text(element).trim().to_owned()),
         ExtractionKind::Attribute { name } => {
             let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
                 ExtractionError::MissingAttribute {
@@ -248,6 +245,37 @@ fn extract_from_element(
             Ok(attr_value.to_owned())
         }
         ExtractionKind::ImageUrl => extract_image_url_from_element(element, selector_str),
+    }
+}
+
+/// Elements whose subtree is never rendered as text. Inline `<style>` and `<script>`
+/// blocks are descendants of ordinary containers, so a plain descendant text join
+/// would leak CSS rules and script source into extracted values.
+const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"];
+
+/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees.
+fn visible_text(element: &scraper::ElementRef<'_>) -> String {
+    let mut text = String::new();
+    if !NON_TEXT_ELEMENTS.contains(&element.value().name()) {
+        push_visible_text(element, &mut text);
+    }
+    text
+}
+
+fn push_visible_text(element: &scraper::ElementRef<'_>, text: &mut String) {
+    for child in element.children() {
+        match child.value() {
+            scraper::Node::Text(value) => text.push_str(value),
+            scraper::Node::Element(child_element) => {
+                if NON_TEXT_ELEMENTS.contains(&child_element.name()) {
+                    continue;
+                }
+                if let Some(child_element) = scraper::ElementRef::wrap(child) {
+                    push_visible_text(&child_element, text);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -594,6 +622,34 @@ mod tests {
         let r = rule("br", text_kind(), ExtractionCardinality::First);
         let err = r.apply(&doc).unwrap_err();
         assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    #[test]
+    fn should_skip_inline_style_when_container_holds_visible_text_for_text_kind() {
+        let doc = html(
+            "<div class=\"price\"><style>.price { color: red; } .hidden { display: none; }</style>
+  Price on application  </div>",
+        );
+        let r = rule("div.price", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Price on application"]);
+    }
+
+    #[rstest]
+    #[case::script("<script>function f() { return 1; }</script>")]
+    #[case::template("<template><span>Hidden</span></template>")]
+    #[case::noscript("<noscript><img alt=\"x\">Enable JS</noscript>")]
+    #[case::nested_style("<span><style>p { margin: 0; }</style></span>")]
+    fn should_skip_non_text_subtrees_when_extracting_text(#[case] hidden: &str) {
+        let doc = html(&format!("<div>Visible {hidden}<em>text</em></div>"));
+        let r = rule("div", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Visible text"]);
+    }
+
+    #[test]
+    fn should_return_empty_text_when_selected_element_is_a_non_text_element() {
+        let doc = html("<div><script>window.a = 1;</script><p>Visible</p></div>");
+        let r = rule("script", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
     }
 
     // ─── Text / All ────────────────────────────────────────────────────

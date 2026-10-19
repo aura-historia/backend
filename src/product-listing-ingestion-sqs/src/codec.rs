@@ -598,13 +598,13 @@ fn price_assertion(p: WirePriceAssertion) -> Result<ProductListingPrice> {
 }
 fn localized_title(l: Option<WireLocalized>) -> Result<Option<Localized<Language, Title>>> {
     l.map(|l| {
-        let title = Title::from(l.value.as_str());
-        if title.as_ref() != l.value {
+        // Envelopes encoded before typography normalization carry the earlier canonical title.
+        if !Title::has_canonical_structure(&l.value) {
             return Err(CodecError::Invalid);
         }
         Ok(Localized::new(
             Language::from_code(&l.language).ok_or(CodecError::Invalid)?,
-            title,
+            Title::from(l.value),
         ))
     })
     .transpose()
@@ -1457,6 +1457,26 @@ mod tests {
         let mut bad = fixtures[2].clone();
         bad["payload"]["command"]["availability"] = json!({"state": "SET", "value": "sold_out"});
         assert_semantically_invalid(bad);
+    }
+
+    #[test]
+    fn create_title_encoded_before_typography_normalization_decodes_canonically() {
+        let mut legacy = golden_fixtures().remove(0);
+        legacy["payload"]["command"]["title"]["value"] = json!("𝐁𝐥𝐮𝐞 vase 🌿✨");
+        let envelope = decode_value(&legacy).unwrap();
+        let ProductListingIngestionIntent::Create(create) = envelope.into_intent().unwrap() else {
+            panic!("expected create intent");
+        };
+        assert_eq!(
+            Some("Blue vase"),
+            create.title.as_ref().map(|title| title.payload.as_ref())
+        );
+
+        for title in ["blue vase", "Blue vase.", "𝐁𝐥𝐮𝐞 vase."] {
+            let mut bad = golden_fixtures().remove(0);
+            bad["payload"]["command"]["title"]["value"] = json!(title);
+            assert_semantically_invalid(bad);
+        }
     }
 
     #[test]

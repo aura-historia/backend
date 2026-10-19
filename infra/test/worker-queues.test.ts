@@ -20,6 +20,7 @@ const EXPECTED_WORKERS = {
   "geo-resolution": { id: "GeoResolution", visibility: 300 },
   "listing-geography": { id: "ListingGeography", visibility: 300 },
   "listing-shipping": { id: "ListingShipping", visibility: 300 },
+  "user-identity-deletion": { id: "UserIdentityDeletion", visibility: 330 },
 } as const;
 const EXPECTED_SCOPES = Object.keys(EXPECTED_WORKERS) as WorkerScope[];
 
@@ -168,7 +169,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     compute = Template.fromStack(stacks.compute);
   });
 
-  test("enables exactly twelve scopes, separate from the Shopify catalog", () => {
+  test("enables exactly thirteen scopes, separate from the Shopify catalog", () => {
     expect(WORKER_SCOPES).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
@@ -194,7 +195,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
       `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(28);
+    expect(new Set(names).size).toBe(30);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -401,7 +402,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
         Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(15);
+    expect(mappings).toHaveLength(16);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -416,7 +417,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(15);
+    expect(mappings).toHaveLength(16);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -443,8 +444,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration, CDC router and cleanup target,
-    // and all twelve queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(16);
+    // and all thirteen queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(17);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -464,7 +465,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(15);
+    expect(mappings).toHaveLength(16);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -575,7 +576,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(JSON.stringify(statements)).not.toMatch(/sqs:SendMessage|es:|ses:|s3:/);
   });
 
-  test("deploys the ProductListing translation Lambda with its dedicated queue, PostgreSQL, and Vertex LLM configuration only", () => {
+  test("deploys the ProductListing translation Lambda with its dedicated queue, PostgreSQL, and Anthropic API key only", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     const mapping = mappings.find((candidate) =>
       JSON.stringify(candidate.Properties.FunctionName).includes("ProductTranslationVersion"),
@@ -599,9 +600,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+      ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+    expect(functions[0].Properties.Environment.Variables.ANTHROPIC_API_KEY)
+      .toBe(`{{resolve:ssm:/anthropic/${stage}/api-key}}`);
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|GOOGLE|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
     const translationPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("ProductTranslationLambdaServiceRole"));

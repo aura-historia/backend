@@ -30,6 +30,7 @@ export interface EventingProps {
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly marketingConsentSyncVersion: lambda.IVersion;
+  readonly userIdentityDeletionVersion: lambda.IVersion;
   readonly geoResolutionVersion: lambda.IVersion;
   readonly listingGeographyVersion: lambda.IVersion;
   readonly listingShippingVersion: lambda.IVersion;
@@ -49,6 +50,7 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
   NOTIFICATION_DELIVERY: "notification-delivery",
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
+  USER_IDENTITY_DELETION: "user-identity-deletion",
   GEO_RESOLUTION: "geo-resolution",
   LISTING_GEOGRAPHY: "listing-geography",
   LISTING_SHIPPING: "listing-shipping",
@@ -110,6 +112,7 @@ export class Eventing extends Construct {
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
       props.marketingConsentSyncVersion,
+      props.userIdentityDeletionVersion,
       props.geoResolutionVersion,
       props.listingGeographyVersion,
       props.listingShippingVersion,
@@ -395,6 +398,7 @@ function createSqsEventSources(
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
   marketingConsentSyncVersion: lambda.IVersion,
+  userIdentityDeletionVersion: lambda.IVersion,
   geoResolutionVersion: lambda.IVersion,
   listingGeographyVersion: lambda.IVersion,
   listingShippingVersion: lambda.IVersion,
@@ -543,6 +547,15 @@ function createSqsEventSources(
     workerQueues["marketing-consent-sync"],
     marketingConsentSyncVersion,
     "Marketing consent sync",
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true },
+  );
+  addWorkerLambdaEventSource(
+    scope,
+    "UserIdentityDeletionQueueEventSource",
+    functions.userIdentityDeletion,
+    workerQueues["user-identity-deletion"],
+    userIdentityDeletionVersion,
+    "User identity deletion",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true },
   );
   addWorkerLambdaEventSource(

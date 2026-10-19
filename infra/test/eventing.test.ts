@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
@@ -41,7 +43,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(15);
+    expect(mappings).toHaveLength(16);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
     expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
     for (const mapping of mappings.filter((candidate) => candidate !== router)) {
@@ -79,6 +81,16 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     }
     expect(cleanup?.Properties.Target.Input).toBe('{"schedule":"expired-credential-cleanup"}');
     expect(JSON.stringify(cleanup?.Properties.Target.Arn)).toContain("BackendCleanupVersion");
+    const refresher = fs.readFileSync(
+      path.join(__dirname, "../../src/product-listing-postgres/src/public_catalogue_overview_refresher.rs"),
+      "utf8",
+    );
+    const statementTimeout = /REFRESH_STATEMENT_TIMEOUT: &str = "([0-9]+)s";/.exec(refresher)?.[1];
+    const cleanupFunction = resources(compute, "AWS::Lambda::Function")
+      .find((resource) => resource.Properties.FunctionName === `backend-cleanup-lambda-${stage}`);
+    expect(Number(statementTimeout)).toBeGreaterThan(0);
+    // The hourly maintenance run includes the due overview refresh.
+    expect(cleanupFunction?.Properties.Timeout).toBeGreaterThan(Number(statementTimeout));
     expect(fx?.Properties.Target.Input).toBe(
       '{"version":"0","id":"fxrate:<aws.scheduler.scheduled-time>","detail-type":"Scheduled Event","source":"aura-historia.scheduler","account":"000000000000","time":"<aws.scheduler.scheduled-time>","region":"eu-central-1","resources":["<aws.scheduler.schedule-arn>"],"detail":{}}',
     );

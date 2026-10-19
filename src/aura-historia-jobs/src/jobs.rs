@@ -36,10 +36,11 @@ pub enum WorkerQueue {
     GeoResolution,
     ListingGeography,
     ListingShipping,
+    UserIdentityDeletion,
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::WatchlistNotification,
@@ -52,6 +53,7 @@ impl WorkerQueue {
         Self::GeoResolution,
         Self::ListingGeography,
         Self::ListingShipping,
+        Self::UserIdentityDeletion,
     ];
 
     pub fn scope(self) -> Option<WorkerScope> {
@@ -92,6 +94,12 @@ pub enum DomainJobPayload {
     GeoResolution(GeoResolutionJob),
     ListingGeography(ListingGeographyJob),
     ListingShipping(ListingShippingJob),
+    UserIdentityDeletion(UserIdentityDeletionJob),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserIdentityDeletionJob {
+    pub user_id: UserId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +189,7 @@ impl DomainJob {
             DomainJobPayload::UserTierChanged(_) => false,
             DomainJobPayload::ListingGeography(_) => scope == WorkerScope::ListingGeography,
             DomainJobPayload::ListingShipping(_) => scope == WorkerScope::ListingShipping,
+            DomainJobPayload::UserIdentityDeletion(_) => scope == WorkerScope::UserIdentityDeletion,
             DomainJobPayload::GeoResolution(_) => scope == WorkerScope::GeoResolution,
         };
         let keys_match = match &self.payload {
@@ -213,6 +222,10 @@ impl DomainJobPayload {
                     format!("listing-geography:{}:{}", job.work_id, job.generation),
                     format!("listing-geography:{}", job.work_id),
                 )
+            }
+            Self::UserIdentityDeletion(job) => {
+                let key = format!("user-identity-deletion:{}", job.user_id);
+                (key.clone(), key)
             }
             Self::ListingShipping(job) => {
                 if job.generation == 0 || job.generation > i64::MAX as u64 {

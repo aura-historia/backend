@@ -155,6 +155,32 @@ async fn report(response: Response) -> Value {
 }
 
 #[tokio::test]
+async fn upsert_admission_rejects_only_items_whose_title_has_no_text() {
+    let publisher = Publisher::default();
+    let sent = publisher.sent.clone();
+    let app = app(publisher, true);
+    let id = ListingSourceId::new();
+    let body = r#"[{"sourceListingId":"SKU-1","title":{"text":"🌿✨","language":"en"}},{"sourceListingId":"SKU-2","title":{"text":"Vase ✨","language":"en"}}]"#;
+    let response = request(&app, &path(id), body, Some("title-key"), Some("token")).await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let report = report(response).await;
+    assert_eq!(report["acceptedCount"], 1);
+    assert_eq!(
+        report["failures"],
+        json!([{"index":0,"sourceListingId":"SKU-1","error":"BAD_BODY_VALUE","retryable":false}])
+    );
+    let calls = sent.lock().unwrap();
+    let ProductListingIngestionIntent::Upsert(ref command) = calls[0][0].intent else {
+        unreachable!()
+    };
+    assert_eq!(command.source_listing_id.as_ref(), "SKU-2");
+    assert_eq!(
+        Some("Vase"),
+        command.title.as_ref().map(|title| title.payload.as_ref())
+    );
+}
+
+#[tokio::test]
 async fn upsert_admission_preserves_original_indices_and_stable_command_identity() {
     let publisher = Publisher::default();
     let sent = publisher.sent.clone();

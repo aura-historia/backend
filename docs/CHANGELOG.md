@@ -2,6 +2,46 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Normalized listing title typography (#2201)
+
+- ProductListing titles in listing, watchlist, search and history responses no longer contain decorative typography. Styled letters and digits such as `𝐄𝐢𝐧`, `Ⓥⓐⓢⓔ` or `ＶＡＳＥ` are returned as ordinary text, and emoji and ornamental symbols are removed without joining the neighbouring words. Accented and non-Latin letters, punctuation, identifiers and `©`, `®` and `™` are unchanged. Existing listings are presented in normalized form; their public slugs do not change.
+- Partner listing writes normalize submitted titles the same way and reject a title without remaining text, such as a blank or emoji-only title, with `BAD_BODY_VALUE`. Synchronous `POST`/`PUT` batches fail with `400`; asynchronous batches report the item as a non-retryable failure. Blank titles were previously stored as empty text.
+
+## 2026-10-19 — Public catalogue overview (#2196)
+
+- New anonymous `GET /api/v1/overview` returns aggregate counts for the public catalogue: `sourcesIndexed`, `liveObjects`, `countries`, `languages` and `newObjectsLast7Days`. Hourly maintenance recalculates them together from PostgreSQL about every six hours; `asOf` is the UTC time of that calculation. It has no filters or personalization and returns no per-source, per-partner or per-user details. Before the first calculation, and while PostgreSQL is unavailable, it returns `503 OVERVIEW_TEMPORARILY_UNAVAILABLE`; an invalid stored calculation returns `500 OVERVIEW_INTERNAL_ERROR`.
+- Anonymous `200` responses use `public, max-age=0, s-maxage=900, stale-if-error=0`, so figures are normally at most about seven hours old. Query strings never change the representation; request it without one, since each distinct query string is cached separately. Credentials are not evaluated, but any `Authorization` header makes the response `private, no-store`; request it without a bearer token. Cache lifetimes of existing endpoints are unchanged.
+
+## 2026-10-19 — Strict NONE browsing destination (#2164)
+
+- `PUT /api/v1/me/browsing-destination` rejects a `NONE` destination carrying any member besides `kind` (for example `{"kind":"NONE","country":"FR"}`) with `400 BAD_BODY_VALUE`, as the `BrowsingDestination` schema declares. Previously such a request returned `200`, incremented the version and cleared the existing preference.
+
+## 2026-10-19 — Saved search-filter contract (#2163)
+
+- Saved search-filter response schemas no longer declare `createdBy` or `updatedBy`, matching POST, GET, PATCH and list responses. The POST schema now includes the implemented optional `notifications` flag, which defaults to `true`.
+- Every top-level PATCH field accepts `null` as an unchanged value, including `name`, `notifications`, `state`, `search` and `acceptShippingDestination`. Nested search criteria retain their documented clearing rules.
+- FREE saved searches reject geography and shipping criteria with `SEARCH_FILTER_RESTRICTED_FEATURE` on creation, addition or activation. Existing affected FREE filters become inactive with their criteria retained. PRO and ULTIMATE allow both predicates in full. Inactive filters can retain or clear existing restricted criteria.
+
+## 2026-10-19 — Personalized watchlist PATCH response (#2162)
+
+- `PATCH /api/v1/me/watchlist/{productListingId}` now returns the documented personalized product details (`item` and `userState`), including for an empty `{}` no-op, instead of a bare watchlist entry. `userState.watchlist` reflects the updated activation and notification settings; hidden/withdrawn redaction is preserved. POST responses are unchanged.
+- The route now honors `language` and `currency` (defaults `en` and `EUR`) and rejects unsupported values with `400 BAD_QUERY_PARAMETER_VALUE` before updating the entry. Delegated callers still need only `watchlist:write` for the update and its response.
+- OpenAPI no longer permits `WatchlistProductPatch.state: null`, matching the existing `400 BAD_BODY_VALUE` behavior. Omit the field to leave activation unchanged.
+
+## 2026-10-19 — CORS-exposed trace headers (#2159)
+
+- Browser clients can now read the `X-Request-Id` and `X-Correlation-Id` response headers on uncached API routes, as documented. API Gateway previously exposed only `Idempotency-Key` through CORS. The six cache-enabled discovery behaviors still remove both trace headers at CloudFront.
+
+## 2026-10-19 — Cognito account deletion (#2170)
+
+- Self-service and administrator account deletion now durably request Cognito profile removal in the account deletion transaction. Backend credentials remain immediately invalidated; HTTP `204` confirms business deletion while provider removal retries asynchronously.
+- The signup address becomes available after provider removal. A new signup creates a new account; deleted identity fences reject delayed registration callbacks. Minimal identity metadata is retained for replay protection and provider retry reconciliation. See [account lifecycle](account-lifecycle.md).
+
+## 2026-10-19 — ARS shipping currency (#2160)
+
+- The OpenAPI `ShippingCurrencyCode` enum now includes `ARS`, matching `CurrencyData`. Shipping profile and import amounts and listing shipping display prices (for example `?currency=ARS`) already accepted or returned `ARS`; clients generated from the old contract rejected those payloads and must be regenerated.
+- Saved searches in `ARS` whose shipping maximum requires FX conversion now record matches. Previously, matching such a listing failed instead of creating a match.
+
 ## 2026-10-19 — ProductListing search cursor validation (#2158)
 
 - `GET /api/v1/product-listings` rejects malformed inner `searchAfter` sort values or an incorrect sort value count with `400 BAD_QUERY_PARAMETER_VALUE`, identifying `searchAfter` as the query field, instead of returning `503`. Cursors remain opaque and must be passed back unchanged with the same search parameters.

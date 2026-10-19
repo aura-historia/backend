@@ -97,7 +97,11 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
         description: data.description.map(|description| {
             product_listing_core::description::Description::from(description.as_str()).to_string()
         }),
-        price: product_listing_price_from_parts(data.price, data.price_currency.as_deref()),
+        price: product_listing_price_from_parts(
+            data.price,
+            data.price_currency.as_deref(),
+            data.price_on_request,
+        ),
         price_estimate_min: price_from_parts(
             data.price_estimate_min,
             data.price_estimate_min_currency.as_deref(),
@@ -116,7 +120,17 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
 fn product_listing_price_from_parts(
     minor: Option<u64>,
     currency: Option<&str>,
+    on_request: bool,
 ) -> Option<product_listing_core::product_listing_price::ProductListingPrice> {
+    use product_listing_core::product_listing_price::ProductListingPrice;
+
+    if on_request {
+        assert!(
+            minor.is_none() && currency.is_none(),
+            "invalid price in fixtures.json: price_on_request excludes price and price_currency"
+        );
+        return Some(ProductListingPrice::OnRequest);
+    }
     price_from_parts(minor, currency).map(Into::into)
 }
 

@@ -72,6 +72,19 @@ impl UserCognitoIdentityRegistry for SqlxUserCognitoIdentityRegistry<'_> {
             .await
             .map_err(registry_temporary)?;
 
+        let deleted: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM user_identity_deletions WHERE issuer = $1 AND subject = $2)",
+        )
+        .bind(identity.issuer.as_str()).bind(identity.subject.as_str())
+        .fetch_one(&mut *self.connection).await.map_err(registry_temporary)?;
+        if deleted {
+            return Err(UserCognitoIdentityRegistryError::Conflict {
+                source: application::error::static_error(
+                    "deleted Cognito identity cannot register again",
+                ),
+            });
+        }
+
         let user_id = sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT user_id FROM user_cognito_identities WHERE issuer = $1 AND subject = $2",
         )
@@ -132,16 +145,26 @@ impl UserCognitoIdentityRegistry for SqlxUserCognitoIdentityRegistry<'_> {
         identity: &CognitoIdentity,
         user_id: UserId,
     ) -> Result<(), UserCognitoIdentityRegistryError> {
-        sqlx::query(
-            "INSERT INTO user_cognito_identities (issuer, subject, user_id) VALUES ($1, $2, $3)",
+        let result = sqlx::query(
+            "INSERT INTO user_cognito_identities (issuer, subject, user_id)
+             SELECT $1, $2, $3 WHERE NOT EXISTS (
+                SELECT 1 FROM user_identity_deletions WHERE issuer = $1 AND subject = $2
+             )",
         )
         .bind(identity.issuer.as_str())
         .bind(identity.subject.as_str())
         .bind(user_id.as_uuid())
         .execute(&mut *self.connection)
         .await
-        .map(|_| ())
-        .map_err(registry_write)
+        .map_err(registry_write)?;
+        if result.rows_affected() != 1 {
+            return Err(UserCognitoIdentityRegistryError::Conflict {
+                source: application::error::static_error(
+                    "deleted Cognito identity cannot be bound",
+                ),
+            });
+        }
+        Ok(())
     }
 }
 

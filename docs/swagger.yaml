@@ -80,6 +80,61 @@ paths:
           description: The readiness check succeeded.
         "503":
           description: The readiness check failed or timed out; no diagnostic body is returned.
+  /api/v1/overview:
+    get:
+      summary: Get public catalogue statistics
+      description: |
+        Anonymous aggregate statistics for the public catalogue. Hourly maintenance recalculates
+        every count together from authoritative PostgreSQL about every six hours, and reads return
+        that stored calculation; `asOf` is its time. Including the 15-minute shared edge cache,
+        figures are normally at most about seven hours old; a failed refresh keeps the previous
+        calculation.
+        There are no filters, personalization, or per-source, per-partner or per-user details.
+        Credentials are neither required nor evaluated, and query strings never change the
+        representation; send none, because each distinct query string is cached separately.
+        Clients should not attach a bearer token; any `Authorization` header makes the response
+        private.
+
+        Counts cover ProductListings with lifecycle `ACTIVE`, whatever their availability.
+        `sourcesIndexed` counts distinct ListingSources with at least one counted listing.
+        `countries` counts distinct countries in the counted listings' effective advertised-inventory
+        geography; business association and shipping destinations do not establish inventory location.
+        `languages` counts the union of original title and description languages; generated
+        translations and presentation fallbacks are excluded. `newObjectsLast7Days` counts listings
+        whose `created` timestamp lies in the 168 hours ending at `asOf` (start exclusive, end inclusive).
+        Effective geography and OpenSearch projections may lag PostgreSQL while they catch up.
+      operationId: getPublicOverview
+      tags: [Overview]
+      security: []
+      responses:
+        "200":
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=900, stale-if-error=0`; any request with Authorization uses `private, no-store`.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: public, max-age=0, s-maxage=900, stale-if-error=0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicOverviewData"
+        "500":
+          description: The aggregate read model is invalid. Cache-Control is no-store.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                status: 500
+                title: Internal Server Error
+                error: OVERVIEW_INTERNAL_ERROR
+        "503":
+          description: PostgreSQL is temporarily unavailable, or no calculation has been stored yet. Cache-Control is no-store.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OVERVIEW_TEMPORARILY_UNAVAILABLE
   /api/v1/auctions:
     get:
       summary: List public Auctions
@@ -3955,12 +4010,14 @@ paths:
 
         The number of allowed search filters and the set of usable search filter fields depend on the user's tier:
 
-        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`.
-        Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Up to 1 active search filter. Allowed search fields are `language`, `currency`, `productQuery`,
+        `price`, `excludeProductListingId`, `availability`, `orderability`, and `includeUnspecifiedAvailability`.
+        Other search fields, including `geography` and `shipping`, return `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
-        - `PRO`: Up to 5 search filters. All filter fields are allowed.
+        - `PRO`: Up to 5 active search filters. All search fields, including `geography` and `shipping`, are allowed
+        except `enhancedSearchDescription`.
 
-        - `ULTIMATE`: Unlimited search filters. All filter fields are allowed.
+        - `ULTIMATE`: Unlimited search filters. All search fields are allowed.
 
         "
       operationId: createUserSearchFilter
@@ -4369,7 +4426,7 @@ paths:
       description:
         "Updates a specific search filter by its ID for the authenticated user.
 
-        Allows partial updates: omitted members remain unchanged, documented nullable criteria
+        Allows partial updates: omitted or null top-level members remain unchanged. Within `search`, documented nullable criteria
 
         accept `null` to clear, and `null` for required scalars or collections returns `400 BAD_BODY_VALUE`.
 
@@ -4380,10 +4437,12 @@ paths:
 
         The set of usable search filter fields depends on the user's tier:
 
-        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductListingId`, and `lifecycle`. Other fields are
-        forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Allowed search fields are `language`, `currency`, `productQuery`, `price`, `excludeProductListingId`,
+        `availability`, `orderability`, and `includeUnspecifiedAvailability`. Other search fields, including `geography` and
+        `shipping`, return `SEARCH_FILTER_RESTRICTED_FEATURE` when added. Existing restricted criteria can be retained or
+        cleared on inactive filters; activating a filter validates all its criteria against the current tier.
 
-        - `PRO`: All filter fields are allowed.
+        - `PRO`: All search fields, including `geography` and `shipping`, are allowed except `enhancedSearchDescription`.
 
         - `ULTIMATE`: All filter fields are allowed.
 
@@ -6882,6 +6941,12 @@ paths:
         PostgreSQL synchronously cascades user-owned access tokens, OAuth authorization codes, watchlist entries,
         saved-search filters and matches, notifications, partnership memberships, and partnership applications.
 
+        Backend authentication is immediately invalidated. The same transaction durably records a request for Cognito identity
+        deletion; provider removal retries asynchronously. Until it completes, Cognito sign-in may still succeed
+        and the signup address may remain reserved. After removal, the email can register a new account with a
+        new identity; the deleted account cannot be recovered. Minimal identity fences prevent delayed registration
+        callbacks from recreating the deleted account and support provider reconciliation.
+
         The final active administrator cannot be deleted, including through a self-targeted admin request.
 
         "
@@ -7897,7 +7962,12 @@ paths:
       summary: Delete authenticated user
       description: "Permanently deletes the authenticated user's account.
 
-        The deletion is performed synchronously and the access token is immediately invalidated upon success.
+        Business account deletion and backend credential invalidation are synchronous. The same transaction
+        durably records a request for Cognito identity deletion; HTTP 204 confirms the commit, while provider removal retries
+        asynchronously. Until it completes, Cognito sign-in may still succeed and the signup address may remain
+        reserved. After removal, the email can register a new account with a new identity; the deleted account
+        cannot be recovered. Minimal identity fences prevent delayed registration callbacks from recreating the
+        deleted account and support provider reconciliation.
 
         Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
 
@@ -9111,9 +9181,13 @@ paths:
         "Updates settings for a specific watchlist product (e.g., toggle notifications or manually activate/deactivate
         the watchlist entry).
 
-        Returns the full personalized product data after applying the update.
+        Returns full personalized product data (`item` and `userState`) after applying the update, including
+        for an empty `{}` no-op. `userState.watchlist.watching` reflects whether the entry is active, and
+        `userState.watchlist.notifications` reflects the stored notification setting. Hidden and withdrawn
+        listings retain their usual redaction.
 
-        Requires valid Cognito JWT authentication.
+        Requires a valid user bearer credential. Delegated credentials require `watchlist:write`; no additional
+        read scope is required for the response. Responses are not cached.
 
         "
       operationId: patchWatchlistProduct
@@ -9142,15 +9216,16 @@ paths:
         - name: currency
           in: query
           required: false
-          description: Currency for price display in the response.
+          description: Currency for price display in the response. Defaults to `EUR` when omitted.
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Patch object containing fields to update
+        description: Patch object containing fields to update. An empty object leaves the entry unchanged.
         content:
           application/json:
             schema:
@@ -9174,8 +9249,12 @@ paths:
                   state: ACTIVE
       responses:
         "200":
-          description: Watchlist product updated successfully
+          description: Watchlist product updated successfully, with current personalized product details
           headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -9185,47 +9264,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
-              example:
-                item:
-                  productListingId: pl_5xdb465tg1enarx2knf04mxbxj
-                  productListingTitleSlugId: smartphone-case-a1b2c3
-                  eventId: evt_69wh1chr82fen9vvyk6n3mh80m
-                  source:
-                    listingSourceId: ls_6rd827eqfefsva9teecmwa3ate
-                    name: Tech Store
-                    slugId: tech-store
-                  sourceListingId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
-                  title:
-                    text: Smartphone Case
-                    language: en
-                  price:
-                    offer:
-                      currency: EUR
-                      amount: 2999
-                    estimate:
-                      min:
-                        currency: EUR
-                        amount: 2700
-                      max:
-                        currency: EUR
-                        amount: 3300
-                  availability: IN_STOCK
-                  url: https://tech-store.com/smartphone-case
-                  viewUrl: https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral
-                  images:
-                    - url: https://tech-store.com/images/case-1.jpg
-                  contentPolicy:
-                    decision: ALLOWED
-                  created: "2024-01-01T10:00:00Z"
-                  updated: "2024-01-01T12:00:00Z"
-                userState:
-                  watchlist:
-                    watching: true
-                    notifications: true
-                  contentVisibility:
-                    showUnassessedOrSensitiveContent: false
-                  notification:
-                    unseenNotificationIds: []
         "400":
           description: Bad request - invalid parameters or body
           content:
@@ -9266,8 +9304,21 @@ paths:
                     title: Bad Request
                     error: BAD_BODY_VALUE
                     detail: Invalid JSON format
+                unsupported_presentation:
+                  summary: Unsupported language or currency query value
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                null_state:
+                  summary: State cannot be null
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: Body field 'state' must not be null.
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credential
           content:
             application/problem+json:
               schema:
@@ -9275,7 +9326,17 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Delegated credential lacks watchlist:write
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
         "404":
           description: Watchlist entry or ProductListing not found
           content:
@@ -9324,6 +9385,12 @@ paths:
                     status: 409
                     title: Conflict
                     error: PRODUCT_LISTING_UNAVAILABLE
+        "503":
+          description: Watchlist persistence, product details, pricing or shipping is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "500":
           description: Internal server error
           content:
@@ -18410,6 +18477,7 @@ components:
       - RON
       - MXN
       - THB
+      - ARS
     ShippingMoneyData:
       type: object
       additionalProperties: false
@@ -19537,20 +19605,6 @@ components:
           nullable: true
       description: Initial absent state has revision 1. Clear retains an advancing revision tombstone; retirement
         retains the selected identity and ineligible status. No implicit fallback.
-    ActorData:
-      oneOf:
-        - type: string
-          enum:
-            - SYSTEM
-          description: Backend-initiated actor marker.
-        - type: string
-          description: User ID of the user who performed the change.
-      description: "Audit actor encoded as a plain string.
-
-        Values are either the literal `SYSTEM` or the User ID of the acting user.
-
-        "
-      example: SYSTEM
     AdminProductListingVersion:
       type: object
       additionalProperties: false
@@ -19868,7 +19922,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Original normalized title. Truncation ellipses remain stable; legacy constructor trailing whitespace is presented trimmed.
+          description: Original normalized title. Styled letters and digits are presented as ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; titles stored before a normalization change, including legacy trailing whitespace, are presented in current normalized form.
         productDescription:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -20793,7 +20847,7 @@ components:
         sourceListingId:
           type: string
         title:
-          description: Normalized discovery title, with legacy constructor trailing whitespace presented trimmed without rewriting the stored event.
+          description: Normalized discovery title. Titles stored before a normalization change, including legacy trailing whitespace and decorative typography, are presented in current normalized form without rewriting the stored event; a title without remaining text is omitted.
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
         description:
@@ -21148,20 +21202,30 @@ components:
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
           maxLength: 255
           example: My Tech Store Search
+        notifications:
+          type: boolean
+          default: true
+          description: Whether to send email notifications for new matches. Omit to enable notifications.
+          example: false
         search:
           $ref: "#/components/schemas/ProductListingSearchData"
     PatchUserSearchFilterData:
       type: object
       description: "Partial search filter update data.
 
-        All fields are optional and only provided fields will be updated.
+        All fields are optional and nullable. Omitted or null top-level members leave the stored value unchanged.
+        Nested search criteria use the null and omission rules in PatchProductListingSearchData.
 
         Can update the search filter name, notifications preference, activation state, and/or the search filter criteria.
 
         "
       properties:
         acceptShippingDestination:
-          $ref: '#/components/schemas/AcceptShippingDestinationData'
+          anyOf:
+            - $ref: '#/components/schemas/AcceptShippingDestinationData'
+            - type: object
+              nullable: true
+              enum: [null]
         name:
           type: string
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
@@ -21178,14 +21242,16 @@ components:
 
             When `false`, no notifications are sent for this filter.
 
-            Omit to leave unchanged.
+            Omit or supply `null` to leave unchanged.
 
             "
           example: true
         state:
-          allOf:
+          anyOf:
             - $ref: "#/components/schemas/PatchResourceStateData"
-          nullable: true
+            - type: string
+              nullable: true
+              enum: [null]
           description:
             "Optional activation state update for this saved search filter.
 
@@ -21193,14 +21259,16 @@ components:
 
             `INACTIVE_BY_USER` manually disables the filter.
 
-            Omit to leave the current state unchanged.
+            Omit or supply `null` to leave the current state unchanged.
 
             "
         search:
-          allOf:
+          anyOf:
             - $ref: "#/components/schemas/PatchProductListingSearchData"
-          nullable: true
-          description: Partial search filter criteria to update
+            - type: object
+              nullable: true
+              enum: [null]
+          description: Partial search filter criteria to update. Omit or supply null to leave all criteria unchanged.
     PatchUserSearchFilterMatchData:
       type: object
       description: "Partial update payload for a saved-search product match.
@@ -21309,8 +21377,6 @@ components:
         - notifications
         - state
         - search
-        - createdBy
-        - updatedBy
         - created
         - updated
       properties:
@@ -21343,10 +21409,6 @@ components:
           $ref: "#/components/schemas/ResourceStateData"
         search:
           $ref: "#/components/schemas/ProductListingSearchData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time
@@ -22286,9 +22348,8 @@ components:
         state:
           allOf:
             - $ref: "#/components/schemas/PatchResourceStateData"
-          nullable: true
           description:
-            "Optional activation state update for this watchlist entry.
+            "Optional, non-null activation state update for this watchlist entry.
 
             `ACTIVE` reactivates the entry if the user's current tier still has watchlist quota.
 
@@ -23157,7 +23218,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title. Omit or send `null` when no title is available.
+          description: Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -23364,7 +23425,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title for the product. Used only when creating a new product.
+          description: Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -23552,6 +23613,52 @@ components:
           description: Optional WooCommerce product modification timestamp. Accepted forms are no-offset GMT interpreted as UTC, RFC3339 `Z`, and RFC3339 `+00:00`; nonzero offsets are rejected. A valid value establishes provider source order; omit it when no source-ordering guarantee is available.
           example: "2026-09-06T12:34:56"
 
+    PublicOverviewData:
+      type: object
+      description: Aggregate public-catalogue statistics from the latest scheduled calculation. Contains counts only.
+      required:
+        - asOf
+        - sourcesIndexed
+        - liveObjects
+        - countries
+        - languages
+        - newObjectsLast7Days
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: UTC database timestamp at which the stored calculation counted every value.
+          example: "2026-10-19T12:00:00.123456Z"
+        sourcesIndexed:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct ListingSources represented by at least one counted live listing.
+          example: 124
+        liveObjects:
+          type: integer
+          format: int64
+          minimum: 0
+          description: ProductListings with lifecycle `ACTIVE`, including sold-out and unspecified availability.
+          example: 182450
+        countries:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct countries in the counted listings' effective advertised-inventory geography.
+          example: 18
+        languages:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct original title and description languages of the counted listings.
+          example: 9
+        newObjectsLast7Days:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counted listings created in the 168 hours ending at `asOf`.
+          example: 3120
     AdminOverviewData:
       type: object
       description: Versioned bounded administrator operational summary sourced from authoritative PostgreSQL.
@@ -25797,6 +25904,8 @@ x-tagGroups:
 tags:
   - name: Operations
     description: Public process liveness and service readiness probes.
+  - name: Overview
+    description: Public aggregate catalogue statistics.
   - name: Auctions
     description: Public Auction discovery, catalogue reads, and administrator Auction management.
   - name: ProductListings

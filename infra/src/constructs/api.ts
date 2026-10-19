@@ -91,6 +91,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/ready", ["GET"]),
 
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/overview", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/party-locations", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}", ["GET"]),
@@ -222,7 +223,7 @@ export class BackendHttpApi extends Construct {
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
         allowOrigins: props.config.apiCorsAllowOrigins,
-        exposeHeaders: ["Idempotency-Key"],
+        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"],
       },
     });
 
@@ -384,6 +385,7 @@ export class BackendHttpApi extends Construct {
       "/api/v1/auctions/*",
       "/api/v1/product-listings",
       "/api/v1/product-listings/*",
+      "/api/v1/overview",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {

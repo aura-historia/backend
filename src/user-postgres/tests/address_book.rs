@@ -466,6 +466,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         uow.clone(),
         user_postgres::SqlxMarketingConsentIntentRepository::new(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     )
     .execute(&a, DeleteUserCommand { user_id: owner })
     .await
@@ -650,6 +651,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
         SqlxUnitOfWork::new(pool.clone()),
         user_postgres::SqlxMarketingConsentIntentRepository::new(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     )
     .execute(&a, DeleteUserCommand { user_id: owner })
     .await

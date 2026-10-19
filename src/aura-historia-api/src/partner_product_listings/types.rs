@@ -136,7 +136,7 @@ impl CreateProductListingData {
         Ok(CreateProductListingCommand {
             listing_source_id,
             source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: self.title.map(title),
+            title: self.title.map(title).transpose()?,
             description: self.description.map(description),
             pricing: ProductListingPricing {
                 price: self.price.map(product_listing_price),
@@ -183,7 +183,7 @@ impl UpsertProductListingData {
         Ok(UpsertProductListingCommand {
             listing_source_id,
             source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: self.title.map(title),
+            title: self.title.map(title).transpose()?,
             description: self.description.map(description),
             price: clearable(self.price.map(product_listing_price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
@@ -222,8 +222,17 @@ impl PartnerProductFailureData {
     }
 }
 
-fn title(value: LocalizedTextData) -> localization::Localized<localization::Language, Title> {
-    value.into_localized()
+/// Rejects a title without text after normalization, such as a blank or emoji-only title.
+fn title(
+    value: LocalizedTextData,
+) -> Result<localization::Localized<localization::Language, Title>, ApiError> {
+    let title: localization::Localized<localization::Language, Title> = value.into_localized();
+    if title.payload.as_ref().is_empty() {
+        return Err(ApiError::bad_request(BAD_BODY_VALUE)
+            .with_body_field("title.text")
+            .with_detail("Title must contain text other than whitespace, emoji or symbols."));
+    }
+    Ok(title)
 }
 
 fn description(
@@ -339,6 +348,63 @@ mod tests {
                 .unwrap_or_else(|error| panic!("valid create command: {error}"));
             assert_eq!(expects_title, command.title.is_some());
             assert_eq!(expects_description, command.description.is_some());
+        }
+    }
+
+    #[test]
+    fn should_normalize_decorative_titles_on_create_and_upsert() {
+        let listing_source_id = ListingSourceId::new();
+        let create: CreateProductListingData = serde_json::from_str(
+            r#"{"sourceListingId":"SKU-1","title":{"text":"𝐀𝐧𝐫𝐢𝐜𝐡𝐭𝐞 🌿✨Kirschbaum | 3360","language":"de"},"url":"https://example.com/listing","images":[]}"#,
+        )
+        .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
+        let upsert: UpsertProductListingData = serde_json::from_str(
+            r#"{"sourceListingId":"SKU-1","title":{"text":"𝐀𝐧𝐫𝐢𝐜𝐡𝐭𝐞 🌿✨Kirschbaum | 3360","language":"de"}}"#,
+        )
+        .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
+
+        for title in [
+            create
+                .into_command(listing_source_id)
+                .unwrap_or_else(|error| panic!("valid create command: {error}"))
+                .title,
+            upsert
+                .into_command(listing_source_id)
+                .unwrap_or_else(|error| panic!("valid upsert command: {error}"))
+                .title,
+        ] {
+            assert_eq!(
+                Some("Anrichte Kirschbaum | 3360"),
+                title.as_ref().map(|title| title.payload.as_ref())
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_titles_without_text_on_create_and_upsert() {
+        let listing_source_id = ListingSourceId::new();
+        for text in ["", "   ", "🌿✨", " ★ ✿ "] {
+            let title = serde_json::json!({"text": text, "language": "en"});
+            let create: CreateProductListingData = serde_json::from_value(serde_json::json!({
+                "sourceListingId": "SKU-1",
+                "title": title,
+                "url": "https://example.com/listing",
+                "images": []
+            }))
+            .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
+            let upsert: UpsertProductListingData = serde_json::from_value(serde_json::json!({
+                "sourceListingId": "SKU-1",
+                "title": title
+            }))
+            .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
+
+            for error in [
+                create.into_command(listing_source_id).err(),
+                upsert.into_command(listing_source_id).err(),
+            ] {
+                let error = error.unwrap_or_else(|| panic!("title {text:?} must fail"));
+                assert_eq!(BAD_BODY_VALUE, error.code());
+            }
         }
     }
 

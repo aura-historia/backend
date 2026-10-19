@@ -156,14 +156,10 @@ fn localized_title(
 ) -> Result<Option<Localized<Language, Title>>, ProductListingEmbeddingSourceReadError> {
     match (text, language) {
         (Some(raw_text), Some(raw_language)) => {
-            let title = crate::title::decode_title(&raw_text)
+            let language = parse_language(&raw_language)?;
+            let title = crate::title::decode_nonempty_title(&raw_text)
                 .map_err(|_| mapping_error("persisted product embedding title is invalid"))?;
-            if title.as_ref().is_empty() {
-                return Err(mapping_error(
-                    "persisted product embedding title is invalid",
-                ));
-            }
-            Ok(Some(Localized::new(parse_language(&raw_language)?, title)))
+            Ok(title.map(|title| Localized::new(language, title)))
         }
         (None, None) => Ok(None),
         _ => Err(mapping_error(

@@ -37,20 +37,20 @@ pub fn normalize_source_listing_id_with_url_sha_fallback(
     }
 }
 
-/// Returns the trimmed title string, or [`NormalizationError::TitleEmpty`] if
-/// the result is blank.
+/// Returns the normalized title, or [`NormalizationError::TitleEmpty`] if no
+/// title text remains, as for a blank or pictograph-only title.
 pub fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    let title = Title::from(raw);
+    if title.as_ref().is_empty() {
         return Err(NormalizationError::TitleEmpty);
     }
-    Ok(Title::from(trimmed))
+    Ok(title)
 }
 
 /// Returns a localized title with language detection applied.
 ///
-/// Errors with [`NormalizationError::TitleEmpty`] if the trimmed value is
-/// blank, or [`NormalizationError::TitleUnknownLanguage`] if the language
+/// Errors with [`NormalizationError::TitleEmpty`] if no title text remains,
+/// or [`NormalizationError::TitleUnknownLanguage`] if the language
 /// cannot be detected.
 #[allow(dead_code)]
 pub fn normalize_title_localized(
@@ -243,6 +243,26 @@ mod tests {
     fn should_return_error_when_title_is_only_whitespace() {
         let err = normalize_title("   ").unwrap_err();
         assert!(matches!(err, NormalizationError::TitleEmpty));
+    }
+
+    #[test]
+    fn should_return_error_when_title_is_only_pictographs() {
+        let err = normalize_title(" 🌿✨ ★ ").unwrap_err();
+        assert!(matches!(err, NormalizationError::TitleEmpty));
+    }
+
+    #[test]
+    fn should_detect_language_of_normalized_decorative_title() {
+        use localization::Language;
+        let localized = normalize_title_localized(
+            "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥, 𝐝𝐚𝐬 𝐑𝐮𝐡𝐞 𝐢𝐧 𝐃𝐞𝐢𝐧 𝐙𝐮𝐡𝐚𝐮𝐬𝐞 𝐛𝐫𝐢𝐧𝐠𝐭 🌿✨Anrichte Biedermeier Kirschbaum | 3360",
+        )
+        .unwrap();
+        assert_eq!(localized.localization, Language::De);
+        assert_eq!(
+            localized.payload.as_ref(),
+            "Ein Möbel, das Ruhe in Dein Zuhause bringt Anrichte Biedermeier Kirschbaum | 3360"
+        );
     }
 
     // -----------------------------------------------------------------------

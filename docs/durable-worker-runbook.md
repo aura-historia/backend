@@ -499,3 +499,16 @@ acknowledgment means OpenSearch accepted the write or external versioning fenced
 Search visibility follows the normal refresh cycle; no persisted acknowledgment claims
 search visibility. Queries continue during catch-up; repair/replay stalled geography and product
 projectors to propagate retirement, applicability and evidence removal.
+
+## User identity deletion recovery
+
+The `user-identity-deletion` scope uses the existing source/DLQ retention and replay
+procedures. Fix failures before redrive; preserve the deleted user ID, checkpointed
+provider target and claim/completion fences. An active claim remains unfinished until
+its lease expires, while completed redelivery performs no provider I/O. A lost provider
+response is reconciled using the saved target on retry. Never recreate the business
+account to make a retained Cognito profile usable, or replace its subject from an email
+match. Missing initial target evidence requires operator reconciliation under
+[account lifecycle](account-lifecycle.md#operations-and-recovery). Verify provider removal
+and retained completion before closing recovery; API authentication rejection alone is
+not evidence that the Cognito profile was removed.

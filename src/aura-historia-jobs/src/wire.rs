@@ -42,6 +42,8 @@ struct EnvelopeV2 {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "job_type", content = "payload")]
 enum PayloadV2 {
+    #[serde(rename = "USER_IDENTITY_DELETION")]
+    UserIdentityDeletion { user_id: UserId },
     #[serde(rename = "LISTING_GEOGRAPHY")]
     ListingGeography {
         work_id: product_listing_service::geography::GeographyWorkId,
@@ -185,6 +187,9 @@ pub fn encode(job: &DomainJob) -> Result<String, WireError> {
                 marketing_consent_sync_intent_id: job.marketing_consent_sync_intent_id,
             }
         }
+        DomainJobPayload::UserIdentityDeletion(job) => PayloadV2::UserIdentityDeletion {
+            user_id: job.user_id,
+        },
         DomainJobPayload::UserTierChanged(_) => return Err(WireError::Scope),
     };
     let encoded = serde_json::to_string(&EnvelopeV2 {
@@ -289,6 +294,9 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
             product_listing_id,
             origin_event_id,
         }),
+        PayloadV2::UserIdentityDeletion { user_id } => {
+            DomainJobPayload::UserIdentityDeletion(crate::jobs::UserIdentityDeletionJob { user_id })
+        }
         PayloadV2::NotificationDeliveryCreated {
             notification_delivery_id,
         } => DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
@@ -373,6 +381,12 @@ mod tests {
                     format!("notification-delivery:{NOTIFICATION_DELIVERY_ID}"),
                     format!("notification-delivery:{NOTIFICATION_DELIVERY_ID}"),
                 ),
+                WorkerScope::UserIdentityDeletion => (
+                    "USER_IDENTITY_DELETION",
+                    json!({"user_id": USER_ID}),
+                    format!("user-identity-deletion:{USER_ID}"),
+                    format!("user-identity-deletion:{USER_ID}"),
+                ),
                 WorkerScope::MarketingConsentSync => (
                     "MARKETING_CONSENT_SYNC_INTENT_CREATED",
                     json!({"marketing_consent_sync_intent_id": MARKETING_CONSENT_INTENT_ID}),
@@ -438,6 +452,10 @@ mod tests {
                 WorkerScope::NotificationDelivery => (
                     "NOTIFICATION_DELIVERY_CREATED",
                     format!("{{\"notification_delivery_id\":\"{NOTIFICATION_DELIVERY_ID}\"}}"),
+                ),
+                WorkerScope::UserIdentityDeletion => (
+                    "USER_IDENTITY_DELETION",
+                    format!("{{\"user_id\":\"{USER_ID}\"}}"),
                 ),
                 WorkerScope::MarketingConsentSync => (
                     "MARKETING_CONSENT_SYNC_INTENT_CREATED",

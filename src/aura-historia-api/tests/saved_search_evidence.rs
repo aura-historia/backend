@@ -381,7 +381,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         .await
         .unwrap();
     sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('SAVED_SHIPPING_TEST',true)").execute(&pool).await.unwrap();
-    let owner = seed_user(&pool, "FREE").await;
+    let owner = seed_user(&pool, "PRO").await;
     let foreign = seed_user(&pool, "FREE").await;
     let ctx = context(Principal::User(owner));
     let unit = SqlxUnitOfWork::new(pool.clone());

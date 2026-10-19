@@ -10,3 +10,6 @@ aws-sdk-cognitoidentityprovider = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 user-service = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time"] }

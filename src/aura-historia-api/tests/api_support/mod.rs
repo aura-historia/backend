@@ -517,6 +517,78 @@ pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
     })
 }
 
+pub fn watchlist_api_app_with_single_connection_pool()
+-> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
+    Box::pin(async {
+        let fixture_pool = get_postgres_client().await;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect_with(fixture_pool.connect_options().as_ref().clone())
+            .await
+            .unwrap_or_else(|error| panic!("failed to create single-connection API pool: {error}"));
+        fixture_pool.close().await;
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let authenticator = Arc::new(UserAuthenticationAuthenticator::new(
+            ApiAuthService::new(
+                TestJwtAuthenticator,
+                AuraAccessTokenAuthenticator::new(
+                    user_service::use_cases::AuthenticateAccessTokenHandler::new(
+                        user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
+                    ),
+                ),
+            ),
+            AuthenticateUserHandler::new(user_postgres::SqlxUserAuthenticationReader::new(
+                pool.clone(),
+            )),
+        ));
+        let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxAddressBookFactory,
+            geo_postgres::SqlxResolutionRepositoryFactory,
+        ));
+        // Shipping and the watchlist use case must compete for the same connection.
+        let shipping = product_listing_service::shipping::ShippingEnrichment::new(
+            Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
+                unit_of_work.clone(),
+                shipping_postgres::assessment::SqlxAssessmentReaderFactory,
+                address_book,
+            )),
+            Arc::new(SqlxFxRateSnapshotReader::new(pool)),
+        );
+        app(AppState::new().with_watchlist(WatchlistState::new(
+            Arc::new(ListWatchlistHandler::new(
+                unit_of_work.clone(),
+                SqlxProductListingWatchlistDetailsReaderFactory::new(),
+                SqlxFxRateSnapshotRepositoryFactory,
+                shipping.clone(),
+            )),
+            Arc::new(WatchProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxWatchlistRepositoryFactory,
+                SqlxWatchlistQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                SqlxProductListingLifecycleGuardFactory::new(),
+            )),
+            Arc::new(UpdateWatchlistProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxWatchlistRepositoryFactory,
+                SqlxWatchlistQuotaReaderFactory,
+                user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                SqlxProductListingLifecycleGuardFactory::new(),
+                SqlxProductListingDetailsReaderFactory::new(),
+                SqlxFxRateSnapshotRepositoryFactory,
+                shipping,
+            )),
+            Arc::new(UnwatchProductListingHandler::new(
+                unit_of_work,
+                SqlxWatchlistRepositoryFactory,
+            )),
+            authenticator,
+        )))
+    })
+}
+
 pub fn aura_api_app_with_failed_search_embedding()
 -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
     Box::pin(async {
@@ -1796,11 +1868,13 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxMarketingConsentIntentRepository::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserIdentityDeletionStoreFactory,
         )),
         Arc::new(DeleteUserHandler::new_admin_only(
             unit_of_work.clone(),
             user_postgres::SqlxMarketingConsentIntentRepository::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserIdentityDeletionStoreFactory,
         )),
         Arc::new(SuspendUserHandler::new(
             unit_of_work.clone(),
@@ -1947,6 +2021,9 @@ async fn test_state(
             SqlxWatchlistQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
             SqlxProductListingLifecycleGuardFactory::new(),
+            SqlxProductListingDetailsReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+            shipping.clone(),
         )),
         Arc::new(UnwatchProductListingHandler::new(
             unit_of_work.clone(),
@@ -2103,6 +2180,12 @@ async fn test_state(
             )),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
+        .with_public_overview(state::PublicOverviewState::new(Arc::new(
+            product_listing_service::use_cases::GetPublicCatalogueOverviewHandler::new(
+                unit_of_work.clone(),
+                product_listing_postgres::SqlxPublicCatalogueOverviewReaderFactory::new(),
+            ),
+        )))
         .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)

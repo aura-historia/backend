@@ -28,6 +28,7 @@ const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
   "GET /api/v1/product-listings/{}",
   "GET /api/v1/product-listings/{}/history",
   "GET /api/v1/product-listings/{}/similar",
+  "GET /api/v1/overview",
 ];
 
 const RUST_ROUTE_FILES = [
@@ -53,7 +54,8 @@ function matchesSelectiveCacheBehavior(path: string): boolean {
     path === "/api/v1/auctions" ||
     path.startsWith("/api/v1/auctions/") ||
     path === "/api/v1/product-listings" ||
-    path.startsWith("/api/v1/product-listings/")
+    path.startsWith("/api/v1/product-listings/") ||
+    path === "/api/v1/overview"
   );
 }
 
@@ -176,7 +178,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(151);
+    expect(catalog).toHaveLength(152);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -464,7 +466,7 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
-  test("limits selective CloudFront caching to the reviewed optional-bearer GET routes", () => {
+  test("limits selective CloudFront caching to the reviewed public GET routes", () => {
     const selectivePathRoutes = API_ROUTE_CATALOG.filter((route) =>
       matchesSelectiveCacheBehavior(route.path),
     );
@@ -474,12 +476,14 @@ describe("HTTP API route policy matrix", () => {
 
     expect(selectivePathRoutes.every((route) => route.method === "GET")).toBe(true);
     expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS].sort());
-    expect(selectivePathRoutes).toHaveLength(10);
+    expect(selectivePathRoutes).toHaveLength(11);
     const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
-      expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
+      // The overview evaluates no credentials; discovery routes accept optional bearers.
+      const anonymous = route.path === "/api/v1/overview";
+      expect(route.auth).toBe(anonymous ? RouteAuthPolicy.Anonymous : RouteAuthPolicy.OptionalBearer);
       expect(route.policy).toEqual({
-        bearer: "OPTIONAL",
+        bearer: anonymous ? "NONE" : "OPTIONAL",
         authorization: RouteAuthorizationClass.Public,
         oauthCredentials: OAuthCredentialRequirement.None,
         providerProof: ProviderProofRequirement.None,
@@ -525,7 +529,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(151);
+    expect(routes).toHaveLength(152);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
@@ -568,14 +572,14 @@ describe("HTTP API route policy matrix", () => {
     });
   });
 
-  test.each(STAGES)("allows Idempotency-Key requests and exposes the response header in %s Gateway CORS", (stage) => {
+  test.each(STAGES)("allows Idempotency-Key requests and exposes idempotency and trace response headers in %s Gateway CORS", (stage) => {
     const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
 
     expect(cors.AllowHeaders).toEqual(expect.arrayContaining(["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-Id"]));
     expect(cors.AllowMethods).toEqual(["*"]);
     expect(cors.AllowOrigins).toEqual(stageConfig(stage).apiCorsAllowOrigins);
-    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key"]);
+    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"]);
   });
 
   test("partitions identical discovery requests across two allowed production CORS origins", () => {
@@ -705,6 +709,7 @@ describe("HTTP API route policy matrix", () => {
       "/api/v1/auctions/*",
       "/api/v1/product-listings",
       "/api/v1/product-listings/*",
+      "/api/v1/overview",
     ];
     const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
     const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
@@ -712,6 +717,7 @@ describe("HTTP API route policy matrix", () => {
     expect(domains).toHaveLength(1);
     expect(mappings).toHaveLength(1);
     expect(cachePolicyId).toBeDefined();
+    expect(Object.keys(template.findResources("AWS::CloudFront::CachePolicy"))).toHaveLength(1);
     expect(responseHeadersPolicyId).toBeDefined();
     expect(distributionId).toBeDefined();
     expect(cachePolicyConfig).toEqual({

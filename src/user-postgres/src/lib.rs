@@ -2,6 +2,8 @@ mod address_book;
 pub use address_book::SqlxAddressBookFactory;
 mod access_token_mapping;
 mod cognito_identity;
+mod user_identity_deletion;
+pub use user_identity_deletion::SqlxUserIdentityDeletionStoreFactory;
 mod consent_workflow_cleanup;
 mod federated_account_reader;
 mod loops_webhook_receipts;

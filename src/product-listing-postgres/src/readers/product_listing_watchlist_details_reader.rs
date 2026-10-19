@@ -661,11 +661,9 @@ fn localized_title(
 ) -> Result<Option<Localized<Language, Title>>, ()> {
     match (text, language) {
         (Some(text), Some(language)) => {
-            let title = crate::title::decode_title(&text)?;
-            if title.as_ref().is_empty() {
-                return Err(());
-            }
-            Ok(Some(Localized::new(parse_language(&language)?, title)))
+            let language = parse_language(&language)?;
+            Ok(crate::title::decode_nonempty_title(&text)?
+                .map(|title| Localized::new(language, title)))
         }
         (None, None) => Ok(None),
         _ => Err(()),

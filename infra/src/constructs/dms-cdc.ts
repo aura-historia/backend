@@ -215,6 +215,7 @@ function tableMappings(): Record<string, unknown> {
     { table: "geo_resolution_wakeups", removedColumns: [] },
     { table: "listing_geography_wakeups", removedColumns: [] },
     { table: "listing_shipping_wakeups", removedColumns: [] },
+    { table: "user_identity_deletion_requests", removedColumns: [] },
     {
       table: "product_listing_events",
       removedColumns: ["created"],

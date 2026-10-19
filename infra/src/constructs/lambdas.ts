@@ -67,7 +67,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
     postgres: true,
-    timeoutSeconds: 120,
+    // The hourly run includes the due public catalogue overview refresh (480 s statement timeout).
+    timeoutSeconds: 540,
     environment: () => ({
       EXPIRY_CLEANUP_BATCH_SIZE: "100",
     }),
@@ -163,10 +164,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
     environment: (context) => ({
-      VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      VERTEX_AI_MODEL: ssmValue(`/vertex-ai/${context.config.stage}/model`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      ANTHROPIC_API_KEY: ssmValue(`/anthropic/${context.config.stage}/api-key`),
     }),
   },
   notificationDelivery: {
@@ -185,6 +183,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     maxPostgresConnections: 1,
     timeoutSeconds: 45,
     environment: marketingConsentSyncEnvironment,
+  },
+  userIdentityDeletion: {
+    id: "UserIdentityDeletionLambda",
+    binaryName: "user-identity-deletion-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
   },
   listingGeography: {
     id: "ListingGeographyLambda",
@@ -262,6 +268,7 @@ export class Lambdas extends Construct {
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
   readonly marketingConsentSyncVersion: lambda.Version;
+  readonly userIdentityDeletionVersion: lambda.Version;
   readonly geoResolutionVersion: lambda.Version;
   readonly listingGeographyVersion: lambda.Version;
   readonly listingShippingVersion: lambda.Version;
@@ -391,6 +398,14 @@ export class Lambdas extends Construct {
       lambda: this.functions.notificationDelivery,
       description: `notification-delivery-${props.parameters.commitSha}`,
     });
+    this.userIdentityDeletionVersion = new lambda.Version(
+      this,
+      "UserIdentityDeletionVersion",
+      {
+        lambda: this.functions.userIdentityDeletion,
+        description: `user-identity-deletion-${props.parameters.commitSha}`,
+      },
+    );
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
@@ -644,9 +659,16 @@ export function addUserPoolEnvironment(
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_JWKS_URL", `${issuer}/.well-known/jwks.json`);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_APP_CLIENT_IDS", publicClientId);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
+  functions.userIdentityDeletion.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
 }
 
 export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn: string): void {
+  functions.userIdentityDeletion.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["cognito-idp:ListUsers", "cognito-idp:AdminGetUser", "cognito-idp:AdminDeleteUser"],
+      resources: [userPoolArn],
+    }),
+  );
   functions.auraHistoriaApi.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["cognito-idp:AdminUserGlobalSignOut", "cognito-idp:ListUsers"],

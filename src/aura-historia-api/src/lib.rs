@@ -19,6 +19,7 @@ pub(crate) mod patch_value;
 mod product_listing_fields;
 mod product_listing_management;
 pub mod product_listings;
+pub(crate) mod public_overview;
 pub mod search_filters;
 pub mod shipping;
 mod shipping_search;
@@ -39,8 +40,8 @@ use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
     ListingSourcesState, LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState,
     PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, ReadinessCheck,
-    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
+    ReadinessCheck, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -179,15 +180,16 @@ use product_listing_postgres::{
     SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxProductListingWatchlistDetailsReaderFactory, SqlxPublicCatalogueOverviewReaderFactory,
 };
 use product_listing_service::readers::{CachedListingSourceSummaryReader, SourceSearchCacheConfig};
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetSimilarProductListingsHandler, ProductListingSearchReadExecutionPolicy,
-    SearchProductListingsHandler, SubmitPartnerProductListingIngestionHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+    GetPublicCatalogueOverviewHandler, GetSimilarProductListingsHandler,
+    ProductListingSearchReadExecutionPolicy, SearchProductListingsHandler,
+    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
+    UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -902,6 +904,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(public_overview) = state.public_overview {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/overview",
+                    get(public_overview::get_public_overview),
+                )
+                .with_state(public_overview),
+        );
+    }
+
     if let Some(listing_sources) = state.listing_sources {
         routes = routes.merge(
             Router::new()
@@ -1369,6 +1382,10 @@ async fn app_state_from_config_and_pool(
         SqlxAdminOverviewReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
+    let get_public_overview = GetPublicCatalogueOverviewHandler::new(
+        unit_of_work.clone(),
+        SqlxPublicCatalogueOverviewReaderFactory::new(),
+    );
     let create_auction = CreateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -1529,11 +1546,13 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     );
     let admin_delete_user = DeleteUserHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
+        user_postgres::SqlxUserIdentityDeletionStoreFactory,
     );
     let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
     let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(
@@ -1580,6 +1599,9 @@ async fn app_state_from_config_and_pool(
         SqlxWatchlistQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory::new(),
         SqlxProductListingLifecycleGuardFactory::new(),
+        SqlxProductListingDetailsReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
+        shipping.clone(),
     );
     let unwatch_product =
         UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
@@ -2319,6 +2341,7 @@ async fn app_state_from_config_and_pool(
             Arc::new(get_admin_overview),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
+        .with_public_overview(PublicOverviewState::new(Arc::new(get_public_overview)))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
         .with_shipping(shipping_state)

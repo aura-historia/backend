@@ -5,11 +5,48 @@ use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };
+use product_listing_service::use_cases::RefreshPublicCatalogueOverviewUseCase;
 use std::env;
 use std::time::Instant;
 use user_service::use_cases::CleanupConsentWorkflowUseCase;
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
+/// Runs last in the hourly maintenance invocation; the use case recalculates only once the
+/// stored calculation is due, so most runs skip the full aggregate.
+pub async fn run_public_catalogue_overview_refresh(
+    refresh: &dyn RefreshPublicCatalogueOverviewUseCase,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    match refresh.execute().await {
+        Ok(None) => {
+            tracing::info!(
+                event = "backend_cleanup.public_catalogue_overview.refreshed",
+                outcome = "current",
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            Ok(())
+        }
+        Ok(Some(refresh)) => {
+            tracing::info!(
+                event = "backend_cleanup.public_catalogue_overview.refreshed",
+                outcome = "success",
+                stored = refresh.stored,
+                live_objects = refresh.overview.live_objects,
+                sources_indexed = refresh.overview.sources_indexed,
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            Ok(())
+        }
+        Err(_) => {
+            tracing::warn!(
+                event = "backend_cleanup.public_catalogue_overview.refreshed",
+                outcome = "failure",
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            Err(Error::from("public catalogue overview refresh failed"))
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CleanupConfigError {
@@ -136,8 +173,62 @@ mod tests {
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
+    use product_listing_service::use_cases::{
+        PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
+        RefreshPublicCatalogueOverviewError,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use user_service::use_cases::{CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts};
+
+    struct RecordingOverviewRefresh {
+        calls: AtomicUsize,
+        due: bool,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl RefreshPublicCatalogueOverviewUseCase for RecordingOverviewRefresh {
+        async fn execute(
+            &self,
+        ) -> Result<Option<PublicCatalogueOverviewRefresh>, RefreshPublicCatalogueOverviewError>
+        {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                return Err(
+                    RefreshPublicCatalogueOverviewError::RefresherTemporarilyUnavailable {
+                        source: Box::new(std::io::Error::other("fixture failure")),
+                    },
+                );
+            }
+            Ok(self.due.then(|| PublicCatalogueOverviewRefresh {
+                overview: PublicCatalogueOverview {
+                    as_of: std::time::SystemTime::UNIX_EPOCH.into(),
+                    sources_indexed: 1,
+                    live_objects: 2,
+                    countries: 0,
+                    languages: 1,
+                    new_objects_last_7_days: 0,
+                },
+                stored: true,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_fail_invocation_only_for_a_failed_overview_refresh() {
+        for (due, fail) in [(true, false), (false, false), (true, true)] {
+            let refresh = RecordingOverviewRefresh {
+                calls: AtomicUsize::new(0),
+                due,
+                fail,
+            };
+
+            let result = run_public_catalogue_overview_refresh(&refresh).await;
+
+            assert_eq!(fail, result.is_err());
+            assert_eq!(1, refresh.calls.load(Ordering::Relaxed));
+        }
+    }
 
     struct RecordingCleanup {
         calls: AtomicUsize,
