@@ -69,9 +69,7 @@ pub async fn search_parties(
 }
 
 fn parse_search_parties_query(raw_query: Option<&str>) -> Result<SearchPartiesRequest, ApiError> {
-    let query: SearchPartiesQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
+    let query: SearchPartiesQuery = crate::wire::from_query_str(raw_query.unwrap_or_default())
         .map_err(|error| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(error.to_string())
         })?;

@@ -64,7 +64,7 @@ pub async fn discover(
     State(use_case): State<Arc<dyn DiscoverPartyLocationsUseCase>>,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    let data = match serde_qs::from_str::<QueryData>(raw.as_deref().unwrap_or_default()) {
+    let data = match crate::wire::from_query_str::<QueryData>(raw.as_deref().unwrap_or_default()) {
         Ok(data) => data,
         Err(_) => {
             return crate::error::ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
@@ -228,6 +228,27 @@ mod tests {
             ],
             fields
         );
+        assert_eq!(1, calls.load(Ordering::SeqCst));
+    }
+    #[tokio::test]
+    async fn percent_encoded_deep_object_keys_are_accepted_like_literal_brackets() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let uc: Arc<dyn DiscoverPartyLocationsUseCase> = Arc::new(Discovery(calls.clone()));
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("size", "100")
+            .append_pair("geography[countries][0]", "DE")
+            .finish();
+        assert!(query.contains("geography%5Bcountries%5D%5B0%5D=DE"));
+        let response = discover(State(uc.clone()), RawQuery(Some(query))).await;
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(1, calls.load(Ordering::SeqCst));
+
+        let rejected = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("geography[countries][0]", "DE")
+            .append_pair("geography[subdivisions][0]", "FR-IDF")
+            .finish();
+        let response = discover(State(uc), RawQuery(Some(rejected))).await;
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
         assert_eq!(1, calls.load(Ordering::SeqCst));
     }
     #[tokio::test]

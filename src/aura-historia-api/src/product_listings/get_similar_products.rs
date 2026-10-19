@@ -54,7 +54,7 @@ pub async fn get_similar_products_by_id(
 }
 
 fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductListingsQuery, ApiError> {
-    serde_qs::from_str(raw_query.unwrap_or_default()).map_err(|error| {
+    crate::wire::from_query_str(raw_query.unwrap_or_default()).map_err(|error| {
         ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
             .with_detail(error.to_string())
     })

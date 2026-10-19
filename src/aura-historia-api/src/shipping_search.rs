@@ -162,7 +162,7 @@ mod tests {
     use serde_json::json;
     #[test]
     fn query_and_saved_filter_preserve_source_currency_and_explicit_none() {
-        let query: ShippingSearchData = serde_qs::from_str("destination[kind]=COUNTRY&destination[country]=DE&maximumPerItem[amount]=9000&maximumPerItem[currency]=EUR&collectionOffered=true").unwrap();
+        let query: ShippingSearchData = crate::wire::from_query_str("destination[kind]=COUNTRY&destination[country]=DE&maximumPerItem[amount]=9000&maximumPerItem[currency]=EUR&collectionOffered=true").unwrap();
         assert_eq!(
             "ShippingSearchData(<private predicates>)",
             format!("{query:?}")
@@ -251,7 +251,7 @@ mod tests {
     }
     #[test]
     fn fx_mode_round_trips_its_explicit_target_independently_of_browsing_currency() {
-        let data: ShippingSearchData = serde_qs::from_str("destination[kind]=COUNTRY&destination[country]=DE&interpretation=WHOLE_COUNTRY_PER_ITEM_FX_V1&maximumPerItem[amount]=75&maximumPerItem[currency]=JPY").unwrap();
+        let data: ShippingSearchData = crate::wire::from_query_str("destination[kind]=COUNTRY&destination[country]=DE&interpretation=WHOLE_COUNTRY_PER_ITEM_FX_V1&maximumPerItem[amount]=75&maximumPerItem[currency]=JPY").unwrap();
         let query = parse(Some(data), false).unwrap().unwrap();
         assert!(query.fx_converted());
         assert_eq!(Currency::Jpy, query.maximum_per_item().unwrap().currency);
