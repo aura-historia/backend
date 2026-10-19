@@ -24,6 +24,7 @@ use product_listing_core::product_listing_search::{
 };
 use product_listing_core::sort_product_listing_field::SortProductListingField;
 use product_listing_core::title::Title;
+use product_listing_service::ports::product_listing_search_reader::ProductListingSearchMode;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingPriceFilterPlan, ProductListingSearchReadError,
     ProductListingSearchReadRequest, ProductListingSearchReader,
@@ -32,7 +33,7 @@ use product_listing_service::use_cases::queries::search_product_listings::{
     ProductListingSearchItem, ProductListingSearchReadResult, ProductListingSummaryPriceValuation,
 };
 use serde::ser::Error;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
 use time::format_description::well_known;
@@ -61,15 +62,61 @@ impl OpenSearchProductListingSearchReader {
             index: index.into(),
         }
     }
+
+    fn validate_continuation_mode(
+        &self,
+        request: &ProductListingSearchReadRequest,
+        expected: ProductListingSearchMode,
+    ) -> Result<(), ProductListingSearchReadError> {
+        if let Some(search_after) = request
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.search_after.as_ref())
+        {
+            let sort_field = request
+                .sort
+                .map_or(SortProductListingField::Score, |sort| sort.sort);
+            if self.continuation_mode(search_after, sort_field)? != expected {
+                return Err(ProductListingSearchReadError::InvalidCursor);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
+    fn continuation_mode(
+        &self,
+        search_after: &Value,
+        sort_field: SortProductListingField,
+    ) -> Result<ProductListingSearchMode, ProductListingSearchReadError> {
+        match search_after {
+            Value::Number(_) if matches!(sort_field, SortProductListingField::Score) => {
+                Ok(ProductListingSearchMode::Hybrid)
+            }
+            Value::Array(values) => match values.as_slice() {
+                [Value::Number(_)] if matches!(sort_field, SortProductListingField::Score) => {
+                    Ok(ProductListingSearchMode::Hybrid)
+                }
+                [primary @ Value::Number(_), Value::String(_)]
+                    if matches!(sort_field, SortProductListingField::Score)
+                        || primary.as_i64().is_some() =>
+                {
+                    Ok(ProductListingSearchMode::Lexical)
+                }
+                _ => Err(ProductListingSearchReadError::InvalidCursor),
+            },
+            _ => Err(ProductListingSearchReadError::InvalidCursor),
+        }
+    }
+
     #[tracing::instrument(name = "opensearch_product_search", skip_all)]
     async fn search(
         &self,
         request: &ProductListingSearchReadRequest,
     ) -> Result<ProductListingSearchReadResult, ProductListingSearchReadError> {
+        self.validate_continuation_mode(request, ProductListingSearchMode::Lexical)?;
         let sort = request.sort.unwrap_or(Sort {
             sort: SortProductListingField::Score,
             order: SortOrder::Desc,
@@ -108,6 +155,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
         if request.compiled_search.search.distance_query().is_some() {
             return self.search(request).await;
         }
+        self.validate_continuation_mode(request, ProductListingSearchMode::Hybrid)?;
         let body = build_hybrid_search_request(request, embedding)
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
         let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
@@ -893,6 +941,7 @@ mod tests {
     use indexmap::IndexSet;
     use listing_source_core::ListingSourceId;
     use money::MonetaryAmount;
+    use opensearch::http::transport::Transport;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
         product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
@@ -1034,6 +1083,264 @@ mod tests {
             sort: None,
             cursor,
         })
+    }
+
+    fn local_reader() -> Result<OpenSearchProductListingSearchReader, Box<dyn std::error::Error>> {
+        Ok(OpenSearchProductListingSearchReader::new(OpenSearch::new(
+            Transport::single_node("http://127.0.0.1:1")?,
+        )))
+    }
+
+    fn distance_request(
+        search_after: Value,
+    ) -> Result<ProductListingSearchReadRequest, Box<dyn std::error::Error>> {
+        let mut request = search_request(Some(Cursor {
+            size: 1,
+            search_after: Some(search_after),
+        }))?;
+        request.compiled_search.search.geography =
+            Some(geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(geo::GeoPoint::new(48.137, 11.575)?),
+                None,
+                Default::default(),
+                Some(geo::core::discovery::DistanceOrder::Asc),
+            )?);
+        Ok(request)
+    }
+
+    #[test]
+    fn should_reject_malformed_continuations_locally() -> Result<(), Box<dyn std::error::Error>> {
+        let reader = local_reader()?;
+        for search_after in [
+            json!({}),
+            json!(null),
+            json!("next"),
+            json!(true),
+            json!([]),
+            json!(["next"]),
+            json!([{}]),
+            json!([[]]),
+            json!([null]),
+            json!([true]),
+            json!([{}, {}]),
+            json!([1, {}]),
+            json!([1, []]),
+            json!([1, null]),
+            json!([1, false]),
+            json!([1, 2]),
+            json!(["invalid", "listing"]),
+            json!([1, "listing", 3]),
+        ] {
+            for sort_field in [
+                SortProductListingField::Score,
+                SortProductListingField::Created,
+                SortProductListingField::Updated,
+            ] {
+                assert!(
+                    matches!(
+                        reader.continuation_mode(&search_after, sort_field),
+                        Err(ProductListingSearchReadError::InvalidCursor)
+                    ),
+                    "{sort_field:?}: {search_after}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_recognize_numeric_score_and_hybrid_continuations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let reader = local_reader()?;
+        for primary in [
+            json!(0),
+            json!(-1),
+            json!(1.25),
+            json!(u64::MAX),
+            json!(1.0e100),
+        ] {
+            for search_after in [primary.clone(), json!([primary])] {
+                assert_eq!(
+                    ProductListingSearchMode::Hybrid,
+                    reader.continuation_mode(&search_after, SortProductListingField::Score)?
+                );
+                let request = search_request(Some(Cursor {
+                    size: 1,
+                    search_after: Some(search_after),
+                }))?;
+                assert_eq!(
+                    json!([primary]),
+                    build_hybrid_search_request(&request, &[0.1; 4])?["search_after"]
+                );
+            }
+            let search_after = json!([primary, "opaque-keyword"]);
+            assert_eq!(
+                ProductListingSearchMode::Lexical,
+                reader.continuation_mode(&search_after, SortProductListingField::Score)?
+            );
+            let request = search_request(Some(Cursor {
+                size: 1,
+                search_after: Some(search_after.clone()),
+            }))?;
+            assert_eq!(
+                search_after,
+                build_search_request(
+                    &request,
+                    &Sort {
+                        sort: SortProductListingField::Score,
+                        order: SortOrder::Desc,
+                    }
+                )?["search_after"]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_require_signed_integer_date_primaries_and_two_sort_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let reader = local_reader()?;
+        for sort_field in [
+            SortProductListingField::Created,
+            SortProductListingField::Updated,
+        ] {
+            for (primary, valid) in [
+                (json!(i64::MIN), true),
+                (json!(-1234), true),
+                (json!(0), true),
+                (json!(i64::MAX), true),
+                (json!(u64::MAX), false),
+                (json!(1234.0), false),
+                (json!(1234.5), false),
+                (json!("2025-01-01T00:00:00.000Z"), false),
+            ] {
+                let search_after = json!([primary, "opaque-keyword"]);
+                let result = reader.continuation_mode(&search_after, sort_field);
+                if valid {
+                    assert_eq!(ProductListingSearchMode::Lexical, result?);
+                    let mut request = search_request(Some(Cursor {
+                        size: 1,
+                        search_after: Some(search_after.clone()),
+                    }))?;
+                    let sort = Sort {
+                        sort: sort_field,
+                        order: SortOrder::Asc,
+                    };
+                    request.sort = Some(sort);
+                    assert_eq!(
+                        search_after,
+                        build_search_request(&request, &sort)?["search_after"]
+                    );
+                } else {
+                    assert!(matches!(
+                        result,
+                        Err(ProductListingSearchReadError::InvalidCursor)
+                    ));
+                }
+                for search_after in [primary.clone(), json!([primary])] {
+                    assert!(matches!(
+                        reader.continuation_mode(&search_after, sort_field),
+                        Err(ProductListingSearchReadError::InvalidCursor)
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_fractional_distance_continuations() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let reader = local_reader()?;
+        for distance in [0.0, 1.25] {
+            let search_after = json!([distance, "opaque-keyword"]);
+            let request = distance_request(search_after.clone())?;
+            assert_eq!(
+                ProductListingSearchMode::Lexical,
+                reader.continuation_mode(&search_after, SortProductListingField::Score)?
+            );
+            reader.validate_continuation_mode(&request, ProductListingSearchMode::Lexical)?;
+            let body = build_search_request(
+                &request,
+                &Sort {
+                    sort: SortProductListingField::Score,
+                    order: SortOrder::Desc,
+                },
+            )?;
+            assert_eq!(search_after, body["search_after"]);
+            assert_eq!("km", body["sort"][0]["_geo_distance"]["unit"]);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_or_wrong_mode_continuations_before_network()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let reader = OpenSearchProductListingSearchReader::new(OpenSearch::new(
+            Transport::single_node(&format!("http://{}", listener.local_addr()?))?,
+        ));
+        let timeout = std::time::Duration::from_secs(1);
+        for search_after in [
+            json!(1.25),
+            json!([1.25]),
+            json!({}),
+            json!(null),
+            json!([]),
+            json!([1, {}]),
+        ] {
+            let request = search_request(Some(Cursor {
+                size: 1,
+                search_after: Some(search_after),
+            }))?;
+            assert!(matches!(
+                tokio::time::timeout(timeout, reader.search(&request)).await?,
+                Err(ProductListingSearchReadError::InvalidCursor)
+            ));
+        }
+        for sort_field in [
+            SortProductListingField::Score,
+            SortProductListingField::Created,
+            SortProductListingField::Updated,
+        ] {
+            for search_after in [
+                json!([1234, "opaque-keyword"]),
+                json!({}),
+                json!(null),
+                json!([]),
+                json!([1, {}]),
+            ] {
+                let mut request = search_request(Some(Cursor {
+                    size: 1,
+                    search_after: Some(search_after),
+                }))?;
+                request.sort = Some(Sort {
+                    sort: sort_field,
+                    order: SortOrder::Desc,
+                });
+                assert!(matches!(
+                    tokio::time::timeout(timeout, reader.search_hybrid(&request, &[0.1; 4]))
+                        .await?,
+                    Err(ProductListingSearchReadError::InvalidCursor)
+                ));
+            }
+        }
+        for search_after in [json!(1.25), json!([1.25])] {
+            let request = distance_request(search_after)?;
+            assert!(matches!(
+                tokio::time::timeout(timeout, reader.search_hybrid(&request, &[0.1; 4])).await?,
+                Err(ProductListingSearchReadError::InvalidCursor)
+            ));
+        }
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+        Ok(())
     }
 
     #[rstest]

@@ -122,6 +122,31 @@ mod tests {
     }
 
     #[test]
+    fn should_publish_every_supported_currency_in_openapi_currency_enums() {
+        use strum::IntoEnumIterator;
+
+        let swagger = include_str!("../../../docs/swagger.yaml");
+        let supported: Vec<&str> = Currency::iter().map(Currency::as_str).collect();
+        for schema in ["CurrencyData", "ShippingCurrencyCode"] {
+            assert_eq!(supported, openapi_enum(swagger, schema), "{schema}");
+        }
+    }
+
+    fn openapi_enum<'a>(swagger: &'a str, schema: &str) -> Vec<&'a str> {
+        let start = swagger
+            .find(&format!("\n    {schema}:\n"))
+            .unwrap_or_else(|| panic!("missing OpenAPI schema: {schema}"));
+        swagger[start + 1..]
+            .lines()
+            .skip(1)
+            .take_while(|line| line.starts_with("      "))
+            .skip_while(|line| line.trim() != "enum:")
+            .skip(1)
+            .map_while(|line| line.trim_start().strip_prefix("- "))
+            .collect()
+    }
+
+    #[test]
     fn should_map_prices_and_localized_text_at_the_api_boundary() {
         let price = PriceData {
             currency: Currency::Eur,

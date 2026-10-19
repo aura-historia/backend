@@ -455,7 +455,7 @@ pub(super) struct ProductListingSearchData<
     )]
     enhanced_search_description: Option<String>,
     #[serde(
-        rename = "excludeProductId",
+        rename = "excludeProductListingId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
@@ -553,7 +553,7 @@ impl TryFrom<ProductListingSearchData<String, String, String>> for ProductListin
                 })?,
             exclude_product_listing_id_query: parse_body_object_ids::<ProductListingId>(
                 data.exclude_product_listing_id_query,
-                "search.excludeProductId",
+                "search.excludeProductListingId",
                 "ProductListing",
             )?
             .into(),
@@ -832,6 +832,34 @@ mod tests {
                 .ok_or("invalid ID accepted")?;
             assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_and_validate_saved_filter_excluded_product_listing_ids()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_listing_id = ProductListingId::new();
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_exclude_product_listing_id_query(HashSet::from([product_listing_id]).into());
+
+        let value = serde_json::to_value(ProductListingSearchData::from(search.clone()))?;
+        assert_eq!(
+            Some(&serde_json::json!([product_listing_id.to_string()])),
+            value.get("excludeProductListingId")
+        );
+        assert!(value.get("excludeProductId").is_none());
+        let decoded = ProductListingSearch::try_from(serde_json::from_value::<
+            ProductListingSearchData,
+        >(value)?)?;
+        assert_eq!(search, decoded);
+
+        let data: ProductListingSearchData = serde_json::from_value(serde_json::json!({
+            "excludeProductListingId": [product_listing_id.as_uuid().to_string()]
+        }))?;
+        let error = ProductListingSearch::try_from(data)
+            .err()
+            .ok_or("invalid ID accepted")?;
+        assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
         Ok(())
     }
 

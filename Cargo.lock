@@ -351,6 +351,7 @@ dependencies = [
  "shipping-postgres",
  "shipping-service",
  "sqlx",
+ "strum 0.28.0",
  "test-api",
  "thiserror 2.0.21",
  "time",
