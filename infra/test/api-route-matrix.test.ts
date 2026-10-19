@@ -568,14 +568,14 @@ describe("HTTP API route policy matrix", () => {
     });
   });
 
-  test.each(STAGES)("allows Idempotency-Key requests and exposes the response header in %s Gateway CORS", (stage) => {
+  test.each(STAGES)("allows Idempotency-Key requests and exposes idempotency and trace response headers in %s Gateway CORS", (stage) => {
     const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
 
     expect(cors.AllowHeaders).toEqual(expect.arrayContaining(["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-Id"]));
     expect(cors.AllowMethods).toEqual(["*"]);
     expect(cors.AllowOrigins).toEqual(stageConfig(stage).apiCorsAllowOrigins);
-    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key"]);
+    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"]);
   });
 
   test("partitions identical discovery requests across two allowed production CORS origins", () => {
