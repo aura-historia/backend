@@ -256,6 +256,17 @@ struct IndexedFixture {
 }
 #[async_trait::async_trait]
 impl product_listing_service::ports::ProductListingSearchReader for IndexedFixture {
+    fn continuation_mode(
+        &self,
+        _: &Value,
+        _: product_listing_core::sort_product_listing_field::SortProductListingField,
+    ) -> Result<
+        product_listing_service::ports::product_listing_search_reader::ProductListingSearchMode,
+        product_listing_service::ports::ProductListingSearchReadError,
+    > {
+        Ok(product_listing_service::ports::product_listing_search_reader::ProductListingSearchMode::Lexical)
+    }
+
     async fn search(
         &self,
         request: &product_listing_service::ports::ProductListingSearchReadRequest,
@@ -342,7 +353,7 @@ impl product_listing_service::ports::ProductListingSearchReader for IndexedFixtu
             total: Some(u64::from(matched)),
             cursor: application::pagination::Cursor {
                 size: 20,
-                search_after: matched.then(|| json!([self.item.product_listing_id])),
+                search_after: matched.then(|| json!([1.0, self.item.product_listing_id])),
             },
         })
     }

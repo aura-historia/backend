@@ -525,9 +525,10 @@ mod tests {
         let (app, calls) = app();
         let fx_rate_id = FxRateId::new();
         let auction_id = AuctionId::new();
+        let product_listing_id = ProductListingId::new();
         let cursor = serde_json::json!({
             "fxRateId": fx_rate_id,
-            "searchAfter": ["next"]
+            "searchAfter": [1234, product_listing_id]
         })
         .to_string();
         let encoded_cursor: String =
@@ -566,7 +567,7 @@ mod tests {
                 size: 100,
                 search_after: Some(ProductListingSearchCursor {
                     fx_rate_id,
-                    search_after: Value::Array(vec![Value::String("next".to_owned())]),
+                    search_after: serde_json::json!([1234, product_listing_id]),
                 }),
             }),
             request.cursor
@@ -883,6 +884,240 @@ mod tests {
             assert!(lock(&calls).is_empty(), "{query}");
         }
         Ok(())
+    }
+
+    mod cursor_validation {
+        use super::*;
+        use crate::state::AppState;
+        use embedding::{
+            EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+        };
+        use fxrate_core::FxRateSnapshot;
+        use fxrate_service::ports::{FxRateSnapshotReadError, FxRateSnapshotReader};
+        use opensearch::{
+            OpenSearch,
+            http::transport::{SingleNodeConnectionPool, TransportBuilder},
+        };
+        use product_listing_opensearch::OpenSearchProductListingSearchReader;
+        use product_listing_service::ports::{
+            ListingSourceSummaryReadError, ListingSourceSummaryReader,
+            ListingSourceSummaryWithReferral, ProductListingContentAssessment,
+            ProductListingContentAssessmentReadError, ProductListingContentAssessmentReader,
+            ProductListingUserStateLookup, ProductListingUserStateReadError,
+            ProductListingUserStateReader,
+        };
+        use product_listing_service::shipping::ShippingEnrichment;
+        use product_listing_service::use_cases::SearchProductListingsHandler;
+        use product_listing_service::user_state::ProductListingUserState;
+        use serde_json::json;
+        use shipping_service::assessment::{
+            AssessDeliveryRequest, AssessDeliveryUseCase, AssessmentError, DeliveryAssessmentView,
+        };
+        use std::collections::HashMap;
+        use std::io::ErrorKind;
+        use std::net::TcpListener;
+        use std::time::Duration;
+
+        struct UnusedSearchDependencies;
+
+        #[async_trait::async_trait]
+        impl FxRateSnapshotReader for UnusedSearchDependencies {
+            async fn find_by_id(
+                &self,
+                _id: FxRateId,
+            ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotReadError> {
+                panic!("invalid cursor must be rejected before pinned FX lookup")
+            }
+
+            async fn find_latest_at_or_before(
+                &self,
+                _at: OffsetDateTime,
+            ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotReadError> {
+                panic!("invalid cursor must be rejected before latest FX lookup")
+            }
+
+            async fn find_latest_at_or_before_many(
+                &self,
+                _timestamps: &[OffsetDateTime],
+            ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+                panic!("invalid cursor must be rejected before batch FX lookup")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl EmbeddingGenerator for UnusedSearchDependencies {
+            async fn embed_product(
+                &self,
+                _title: &EmbeddingText,
+                _additional_text: Option<&EmbeddingText>,
+                _image_url: Option<&EmbeddingImageUrl>,
+            ) -> Result<EmbeddingVector, EmbeddingError> {
+                panic!("product search must not generate product embeddings")
+            }
+
+            async fn embed_search_query(
+                &self,
+                _query: &EmbeddingText,
+            ) -> Result<EmbeddingVector, EmbeddingError> {
+                panic!("invalid cursor must be rejected before query embedding")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl ListingSourceSummaryReader for UnusedSearchDependencies {
+            async fn find_summaries(
+                &self,
+                _listing_source_ids: &[ListingSourceId],
+            ) -> Result<
+                HashMap<ListingSourceId, ListingSourceSummaryWithReferral>,
+                ListingSourceSummaryReadError,
+            > {
+                panic!("invalid cursor must be rejected before source enrichment")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl ProductListingUserStateReader for UnusedSearchDependencies {
+            async fn find_for_user(
+                &self,
+                _lookup: &ProductListingUserStateLookup,
+            ) -> Result<
+                HashMap<ProductListingId, ProductListingUserState>,
+                ProductListingUserStateReadError,
+            > {
+                panic!("invalid cursor must be rejected before user state enrichment")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl ProductListingContentAssessmentReader for UnusedSearchDependencies {
+            async fn find_current_assessments(
+                &self,
+                _product_listing_ids: &[ProductListingId],
+            ) -> Result<
+                HashMap<ProductListingId, ProductListingContentAssessment>,
+                ProductListingContentAssessmentReadError,
+            > {
+                panic!("invalid cursor must be rejected before content assessment")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl AssessDeliveryUseCase for UnusedSearchDependencies {
+            async fn execute(
+                &self,
+                _context: &OperationContext,
+                _request: AssessDeliveryRequest,
+            ) -> Result<DeliveryAssessmentView, AssessmentError> {
+                panic!("invalid cursor must be rejected before shipping enrichment")
+            }
+        }
+
+        #[tokio::test]
+        async fn should_reject_malformed_inner_cursors_before_dependency_io()
+        -> Result<(), Box<dyn std::error::Error>> {
+            let listener = TcpListener::bind("127.0.0.1:0")?;
+            listener.set_nonblocking(true)?;
+            let endpoint = url::Url::parse(&format!("http://{}", listener.local_addr()?))?;
+            let transport =
+                TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()?;
+            let handler = SearchProductListingsHandler::new(
+                OpenSearchProductListingSearchReader::new(OpenSearch::new(transport)),
+                UnusedSearchDependencies,
+                UnusedSearchDependencies,
+                UnusedSearchDependencies,
+                UnusedSearchDependencies,
+                UnusedSearchDependencies,
+                ShippingEnrichment::new(
+                    Arc::new(UnusedSearchDependencies),
+                    Arc::new(UnusedSearchDependencies),
+                ),
+            );
+            let state = ProductListingsState::new(
+                Arc::new(UnusedGetProductListingUseCase),
+                Arc::new(UnusedSimilarProductListingsUseCase),
+                Arc::new(handler),
+                Arc::new(AnonymousAuthenticator),
+            );
+            let app = crate::app(AppState::new().with_products(state));
+            let fx_rate_id = FxRateId::new();
+            let product_listing_id = ProductListingId::new();
+
+            for sort in ["", "&sort=score", "&sort=updated", "&sort=created"] {
+                let mut invalid_values = vec![
+                    json!({"unexpected": "cursor"}),
+                    Value::Null,
+                    json!("next"),
+                    json!([]),
+                    json!(["next"]),
+                    json!([1234, product_listing_id, "extra"]),
+                    json!([{}, product_listing_id]),
+                    json!([1234, {}]),
+                ];
+                if matches!(sort, "&sort=updated" | "&sort=created") {
+                    invalid_values.extend([json!([1234]), json!(1234)]);
+                }
+                for search_after in invalid_values {
+                    let cursor = json!({
+                        "fxRateId": fx_rate_id,
+                        "searchAfter": search_after,
+                    })
+                    .to_string();
+                    let query = url::form_urlencoded::Serializer::new(String::new())
+                        .append_pair("searchAfter", &cursor)
+                        .finish();
+                    let response = tokio::time::timeout(
+                        Duration::from_secs(5),
+                        app.clone().oneshot(
+                            Request::get(format!(
+                                "/api/v1/product-listings?productQuery=cabinet{sort}&{query}"
+                            ))
+                            .body(Body::empty())?,
+                        ),
+                    )
+                    .await??;
+
+                    assert_eq!(
+                        StatusCode::BAD_REQUEST,
+                        response.status(),
+                        "{sort}: {cursor}"
+                    );
+                    assert_eq!(
+                        "application/problem+json",
+                        response.headers()[header::CONTENT_TYPE],
+                        "{sort}: {cursor}"
+                    );
+                    assert_eq!(
+                        "private, no-store",
+                        response.headers()[header::CACHE_CONTROL],
+                        "{sort}: {cursor}"
+                    );
+                    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+                    let body = serde_json::from_slice::<Value>(&body)?;
+                    assert_eq!(400, body["status"], "{sort}: {cursor}");
+                    assert_eq!(
+                        BAD_QUERY_PARAMETER_VALUE.to_string(),
+                        body["error"],
+                        "{sort}: {cursor}"
+                    );
+                    assert_eq!(
+                        json!({"field": "searchAfter", "type": "QUERY"}),
+                        body["source"],
+                        "{sort}: {cursor}"
+                    );
+                    assert_eq!(
+                        "searchAfter contains invalid sort values or an incorrect number of sort values.",
+                        body["detail"],
+                        "{sort}: {cursor}"
+                    );
+                    assert!(
+                        matches!(listener.accept(), Err(error) if error.kind() == ErrorKind::WouldBlock),
+                        "invalid cursor reached OpenSearch: {sort}: {cursor}"
+                    );
+                }
+            }
+            Ok(())
+        }
     }
 
     fn app() -> (Router, SearchProductListingsCalls) {

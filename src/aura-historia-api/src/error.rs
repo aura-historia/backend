@@ -1628,10 +1628,18 @@ impl From<SearchProductListingsError> for ApiError {
     fn from(error: SearchProductListingsError) -> Self {
         match error {
             SearchProductListingsError::Shipping(error) => error.into(),
+            SearchProductListingsError::InvalidCursor => Self::bad_request(
+                BAD_QUERY_PARAMETER_VALUE,
+            )
+            .with_query_field("searchAfter")
+            .with_detail(
+                "searchAfter contains invalid sort values or an incorrect number of sort values.",
+            ),
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
             SearchProductListingsError::ProductListingSearchQueryFailed
+            | SearchProductListingsError::QueryEmbeddingFailed { .. }
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
             | SearchProductListingsError::ListingSourceSummaryQueryFailed { .. }
@@ -3218,6 +3226,54 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
         assert_eq!(AUTH_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_invalid_product_search_cursor_to_bad_query_parameter_value()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(SearchProductListingsError::InvalidCursor).into_response();
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(
+            "application/problem+json",
+            response.headers()[header::CONTENT_TYPE]
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(
+            json!({
+                "status": 400,
+                "title": "Bad Request",
+                "error": BAD_QUERY_PARAMETER_VALUE.to_string(),
+                "source": {"field": "searchAfter", "type": "QUERY"},
+                "detail": "searchAfter contains invalid sort values or an incorrect number of sort values."
+            }),
+            body
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_hybrid_continuation_embedding_failure_to_service_unavailable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(SearchProductListingsError::QueryEmbeddingFailed {
+            source: application::error::box_error(std::io::Error::other("provider unavailable")),
+        })
+        .into_response();
+
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(
+            json!({
+                "status": 503,
+                "title": "Service Unavailable",
+                "error": PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE.to_string(),
+                "detail": "ProductListing search is temporarily unavailable."
+            }),
+            body
+        );
         Ok(())
     }
 

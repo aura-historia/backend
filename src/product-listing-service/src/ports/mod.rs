@@ -137,8 +137,8 @@ pub use product_listing_search_projection::{
     ProductListingSearchProjectionWriteOutcome,
 };
 pub use product_listing_search_reader::{
-    CompiledProductListingSearch, ProductListingSearchReadError, ProductListingSearchReadRequest,
-    ProductListingSearchReader,
+    CompiledProductListingSearch, ProductListingSearchMode, ProductListingSearchReadError,
+    ProductListingSearchReadRequest, ProductListingSearchReader,
 };
 pub use product_listing_similar_product_listings_reader::{
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,

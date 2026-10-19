@@ -1272,7 +1272,8 @@ fn product_search_error(
         ProductListingSearchReadError::ProductListingSearchQueryFailed => {
             RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed
         }
-        ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
+        ProductListingSearchReadError::InvalidCursor
+        | ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
             RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid
         }
     }
@@ -1513,6 +1514,17 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingSearchReader for NoopProductListings {
+        fn continuation_mode(
+            &self,
+            _: &serde_json::Value,
+            _: product_listing_core::sort_product_listing_field::SortProductListingField,
+        ) -> Result<
+            product_listing_service::ports::product_listing_search_reader::ProductListingSearchMode,
+            ProductListingSearchReadError,
+        > {
+            unreachable!("periodic matching does not resume search continuations")
+        }
+
         async fn search(
             &self,
             _request: &ProductListingSearchReadRequest,
