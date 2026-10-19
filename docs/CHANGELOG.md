@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+
+## 2026-10-19 — ProductListing search default page size (#2157)
+
+- `GET /api/v1/product-listings` without `size` now returns up to the documented default of 21 listings per page, for both keyword and semantic search. Previously it returned 10 (keyword) or 20 (semantic).
+
 ## 2026-10-19 — Product search sort validation (#2156)
 
 - `GET /api/v1/product-listings` applies `sort` without `order` using descending order instead of silently falling back to the default relevance ordering.
