@@ -108,7 +108,8 @@ or dangling separators; whitespace collapses and text is NFC-composed. Accented 
 non-Latin letters, punctuation, identifiers, superscripts and `©`, `®` and `™` are
 preserved. Structure follows: outer whitespace and sentence-final periods are removed,
 the first letter is capitalized and overlong titles are truncated with a stable ellipsis.
-A title without remaining text is absent; raw normalization reports `TitleEmpty`.
+Partner writes reject a submitted title without remaining text, and raw normalization
+reports `TitleEmpty`; a stored title without remaining text is absent.
 
 Stored titles and events, and in-flight ingestion and CDC payloads, written by an earlier
 constructor remain readable when they satisfy the structural rules, including the bounded

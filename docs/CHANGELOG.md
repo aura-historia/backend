@@ -5,7 +5,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-10-19 — Normalized listing title typography (#2201)
 
 - ProductListing titles in listing, watchlist, search and history responses no longer contain decorative typography. Styled letters and digits such as `𝐄𝐢𝐧`, `Ⓥⓐⓢⓔ` or `ＶＡＳＥ` are returned as ordinary text, and emoji and ornamental symbols are removed without joining the neighbouring words. Accented and non-Latin letters, punctuation, identifiers and `©`, `®` and `™` are unchanged. Existing listings are presented in normalized form; their public slugs do not change.
-- Partner listing writes normalize submitted titles the same way. A title without remaining text, for example one made only of emoji, is treated as absent.
+- Partner listing writes normalize submitted titles the same way and reject a title without remaining text, such as a blank or emoji-only title, with `BAD_BODY_VALUE`. Synchronous `POST`/`PUT` batches fail with `400`; asynchronous batches report the item as a non-retryable failure. Blank titles were previously stored as empty text.
 
 ## 2026-10-19 — Strict NONE browsing destination (#2164)
 

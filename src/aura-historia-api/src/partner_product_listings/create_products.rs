@@ -278,6 +278,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_reject_batch_with_title_without_text_before_create_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut create = MockCreateUseCase::new();
+        create.expect_execute().never();
+        let app = app(create);
+        let listing_source_id = ListingSourceId::new();
+        let emoji_only = product("emoji-only").replace("Cabinet", "🌿✨");
+
+        let response = request(
+            &app,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            format!("[{},{emoji_only}]", product("created")),
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(json!("BAD_BODY_VALUE"), body_json(response).await?["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_missing_auth_or_invalid_body_before_create_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut create = MockCreateUseCase::new();

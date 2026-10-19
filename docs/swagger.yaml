@@ -23163,7 +23163,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text, emoji and ornamental symbols are removed, and a title without remaining text is treated as absent.
+          description: Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -23370,7 +23370,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text, emoji and ornamental symbols are removed, and a title without remaining text is treated as absent.
+          description: Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
