@@ -228,7 +228,10 @@ impl ProductListing {
             title_slug_id: state.title_slug_id,
             listing_source_id: state.listing_source_id,
             source_listing_id: state.source_listing_id,
-            title: state.title,
+            // A title without text, such as one made only of pictographs, is absent.
+            title: state
+                .title
+                .filter(|title| !title.payload.as_ref().is_empty()),
             description: state.description,
             pricing: state.pricing,
             sale_observation: state.sale_observation,
@@ -717,6 +720,23 @@ mod tests {
             discovered.availability()
         );
         assert_eq!(1, discovered.image_count().value());
+    }
+
+    #[test]
+    fn should_treat_a_title_without_text_as_absent() {
+        let mut source = input();
+        source.title = Some(Localized::new(Language::En, Title::from("🌿✨")));
+
+        let mut listing =
+            ProductListing::create(source).unwrap_or_else(|error| panic!("create: {error}"));
+
+        assert!(listing.title().is_none());
+        let Some(ProductListingEventPayload::Discovered(discovered)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected discovered payload");
+        };
+        assert!(discovered.title().is_none());
     }
 
     #[test]

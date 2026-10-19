@@ -19867,7 +19867,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Original normalized title. Truncation ellipses remain stable; legacy constructor trailing whitespace is presented trimmed.
+          description: Original normalized title. Styled letters and digits are presented as ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; titles stored before a normalization change, including legacy trailing whitespace, are presented in current normalized form.
         productDescription:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -20792,7 +20792,7 @@ components:
         sourceListingId:
           type: string
         title:
-          description: Normalized discovery title, with legacy constructor trailing whitespace presented trimmed without rewriting the stored event.
+          description: Normalized discovery title. Titles stored before a normalization change, including legacy trailing whitespace and decorative typography, are presented in current normalized form without rewriting the stored event; a title without remaining text is omitted.
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
         description:
@@ -23163,7 +23163,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title. Omit or send `null` when no title is available.
+          description: Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text, emoji and ornamental symbols are removed, and a title without remaining text is treated as absent.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -23370,7 +23370,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title for the product. Used only when creating a new product.
+          description: Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text, emoji and ornamental symbols are removed, and a title without remaining text is treated as absent.
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"

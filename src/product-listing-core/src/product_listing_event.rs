@@ -56,7 +56,10 @@ impl ProductListingEventPayload {
         Ok(Self::Discovered(ProductListingDiscovered {
             listing_source_id: state.listing_source_id,
             source_listing_id: state.source_listing_id,
-            title: state.title,
+            // A title without text, such as one made only of pictographs, is absent.
+            title: state
+                .title
+                .filter(|title| !title.payload.as_ref().is_empty()),
             description: state.description,
             pricing: state.pricing,
             availability: state.availability,

@@ -100,13 +100,22 @@ read model; it never copies authoritative source addresses into the aggregate. P
 
 Title and description are optional creation-only inputs. Upsert of an existing listing preserves them. Availability, main price and estimates use tri-state patches: omitted preserves, `null` clears, a value sets. Absent response availability is explicit `null`.
 
-Title normalization is idempotent: truncation ellipses remain stable, and removing
-sentence-final periods also removes exposed outer whitespace. Shortened ellipses
-from prior rehydration remain readable. PostgreSQL title decoders also accept
-bounded, otherwise-canonical titles with trailing whitespace emitted by the old
-constructor, presenting the canonical value without rewriting immutable history.
-Leading whitespace, case/punctuation changes and overlength persisted titles still
-fail validation. This compatibility does not regenerate public IDs or slugs.
+Title normalization is idempotent and runs wherever a title is constructed, including
+translated titles. Typography comes first: styled letters and digits (mathematical,
+enclosed, circled, squared and fullwidth forms) become ordinary text; emoji sequences,
+pictographs and ornamental symbols are removed without joining words or leaving doubled
+or dangling separators; whitespace collapses and text is NFC-composed. Accented and
+non-Latin letters, punctuation, identifiers, superscripts and `©`, `®` and `™` are
+preserved. Structure follows: outer whitespace and sentence-final periods are removed,
+the first letter is capitalized and overlong titles are truncated with a stable ellipsis.
+A title without remaining text is absent; raw normalization reports `TitleEmpty`.
+
+Stored titles and events, and in-flight ingestion and CDC payloads, written by an earlier
+constructor remain readable when they satisfy the structural rules, including the bounded
+trailing whitespace of the old constructor and shortened ellipses from prior rehydration.
+Readers present the current canonical value without rewriting immutable history; a later
+aggregate write stores it. Leading whitespace, case/punctuation changes and overlength
+titles still fail validation. This compatibility does not regenerate public IDs or slugs.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 

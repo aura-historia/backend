@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Normalized listing title typography (#2201)
+
+- ProductListing titles in listing, watchlist, search and history responses no longer contain decorative typography. Styled letters and digits such as `𝐄𝐢𝐧`, `Ⓥⓐⓢⓔ` or `ＶＡＳＥ` are returned as ordinary text, and emoji and ornamental symbols are removed without joining the neighbouring words. Accented and non-Latin letters, punctuation, identifiers and `©`, `®` and `™` are unchanged. Existing listings are presented in normalized form; their public slugs do not change.
+- Partner listing writes normalize submitted titles the same way. A title without remaining text, for example one made only of emoji, is treated as absent.
+
 ## 2026-10-19 — Strict NONE browsing destination (#2164)
 
 - `PUT /api/v1/me/browsing-destination` rejects a `NONE` destination carrying any member besides `kind` (for example `{"kind":"NONE","country":"FR"}`) with `400 BAD_BODY_VALUE`, as the `BrowsingDestination` schema declares. Previously such a request returned `200`, incremented the version and cleared the existing preference.

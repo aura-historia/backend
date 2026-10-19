@@ -6227,6 +6227,7 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
  "time",
+ "unicode-normalization",
  "url",
  "uuid",
 ]

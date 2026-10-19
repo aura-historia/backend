@@ -99,14 +99,11 @@ impl TryFrom<ProductListingTranslationSourceRow> for ProductListingTranslationSo
         let event = translation_event(&row)?;
         let (title, title_language) = match (row.title_text, row.title_language) {
             (Some(raw_title), Some(raw_language)) => {
-                let title = crate::title::decode_title(&raw_title)
+                let language = parse_language(&raw_language)?;
+                let title = crate::title::decode_nonempty_title(&raw_title)
                     .map_err(|_| mapping_error("persisted product translation title is invalid"))?;
-                if title.as_ref().is_empty() {
-                    return Err(mapping_error(
-                        "persisted product translation title is invalid",
-                    ));
-                }
-                (Some(title), Some(parse_language(&raw_language)?))
+                let language = title.is_some().then_some(language);
+                (title, language)
             }
             (None, None) => (None, None),
             _ => {

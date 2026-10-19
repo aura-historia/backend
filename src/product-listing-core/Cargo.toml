@@ -23,6 +23,7 @@ listing-source-core = { workspace = true }
 strum_macros = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
+unicode-normalization = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
 
