@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Saved search-filter `excludeProductListingId` (#2179)
+
+- Saved search filters name the excluded-listings field `search.excludeProductListingId`, matching the `GET /api/v1/product-listings` query parameter. This applies to `POST /api/v1/me/search-filters` request bodies and all search-filter responses. `search.excludeProductId` is no longer read or returned; existing filters keep their exclusions and now return them under the new name. Invalid values report `search.excludeProductListingId` as the body field. Free-tier allowed fields are unchanged apart from the new name.
+
 ## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
 - The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.
