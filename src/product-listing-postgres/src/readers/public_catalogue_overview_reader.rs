@@ -17,7 +17,7 @@ struct SqlxPublicCatalogueOverviewReader<'tx> {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct PublicCatalogueOverviewRow {
+pub(crate) struct PublicCatalogueOverviewRow {
     as_of: OffsetDateTime,
     sources_indexed: i64,
     live_objects: i64,
@@ -27,8 +27,8 @@ struct PublicCatalogueOverviewRow {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum PublicCatalogueOverviewRowMappingError {
-    #[error("invalid aggregated {field} count")]
+pub(crate) enum PublicCatalogueOverviewRowMappingError {
+    #[error("invalid {field} count")]
     Count {
         field: &'static str,
         #[source]
@@ -55,62 +55,32 @@ impl PublicCatalogueOverviewReaderFactory<SqlxTransaction>
     }
 }
 
-// One statement fixes the snapshot and `as_of`. Grouping first keeps the distinct
-// counts over a few source/language/country combinations instead of sorting every
-// live listing per metric; language sets are combined only after that aggregation.
-// The window is a fixed 168 hours so the session time zone cannot change its length.
 const PUBLIC_CATALOGUE_OVERVIEW_SQL: &str = r#"
-WITH live_groups AS (
-    SELECT
-        listing.listing_source_id,
-        listing.title_language,
-        listing.description_language,
-        geography.geography #>> '{inventory,country}' AS inventory_country,
-        COUNT(*) AS live_objects,
-        COUNT(*) FILTER (
-            WHERE listing.created > statement_timestamp() - interval '168 hours'
-              AND listing.created <= statement_timestamp()
-        ) AS new_objects
-    FROM product_listings listing
-    LEFT JOIN product_listing_geographies geography
-      ON geography.product_listing_id = listing.product_listing_id
-    WHERE listing.lifecycle = 'ACTIVE'
-    GROUP BY 1, 2, 3, 4
-),
-languages AS (
-    SELECT title_language AS language FROM live_groups WHERE title_language IS NOT NULL
-    UNION
-    SELECT description_language FROM live_groups WHERE description_language IS NOT NULL
-)
-SELECT
-    statement_timestamp() AS as_of,
-    COUNT(DISTINCT listing_source_id)::bigint AS sources_indexed,
-    COALESCE(SUM(live_objects), 0)::bigint AS live_objects,
-    COUNT(DISTINCT inventory_country)::bigint AS countries,
-    (SELECT COUNT(*) FROM languages)::bigint AS languages,
-    COALESCE(SUM(new_objects), 0)::bigint AS new_objects_last_7_days
-FROM live_groups
+SELECT as_of, sources_indexed, live_objects, countries, languages, new_objects_last_7_days
+FROM public_catalogue_overview
+WHERE singleton
 "#;
 
 #[async_trait::async_trait]
 impl PublicCatalogueOverviewReader for SqlxPublicCatalogueOverviewReader<'_> {
     async fn read_overview(
         &mut self,
-    ) -> Result<PublicCatalogueOverview, PublicCatalogueOverviewReadError> {
-        let row = sqlx::query_as::<_, PublicCatalogueOverviewRow>(PUBLIC_CATALOGUE_OVERVIEW_SQL)
-            .fetch_one(&mut *self.connection)
+    ) -> Result<Option<PublicCatalogueOverview>, PublicCatalogueOverviewReadError> {
+        sqlx::query_as::<_, PublicCatalogueOverviewRow>(PUBLIC_CATALOGUE_OVERVIEW_SQL)
+            .fetch_optional(&mut *self.connection)
             .await
             .map_err(
                 |source| PublicCatalogueOverviewReadError::TemporarilyUnavailable {
                     source: box_error(source),
                 },
-            )?;
-
-        PublicCatalogueOverview::try_from(row).map_err(|source| {
-            PublicCatalogueOverviewReadError::InvalidReadModel {
-                source: box_error(source),
-            }
-        })
+            )?
+            .map(PublicCatalogueOverview::try_from)
+            .transpose()
+            .map_err(
+                |source| PublicCatalogueOverviewReadError::InvalidReadModel {
+                    source: box_error(source),
+                },
+            )
     }
 }
 
@@ -165,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_negative_aggregated_count() {
+    fn should_reject_negative_count() {
         let result = PublicCatalogueOverview::try_from(PublicCatalogueOverviewRow {
             countries: -1,
             ..row()

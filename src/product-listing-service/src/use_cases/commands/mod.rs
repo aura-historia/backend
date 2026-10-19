@@ -10,6 +10,7 @@ pub mod process_product_listing_ingestion;
 pub mod product_listing_ingestion;
 pub mod project_product_listing;
 pub mod record_product_listing_sale_observation;
+pub mod refresh_public_catalogue_overview;
 
 pub mod submit_product_listing_ingestion;
 pub mod translate_product_listing_event;

@@ -108,7 +108,8 @@ ceiling; never raise a shared minimum, default or ceiling to lengthen one route,
 explicit TTL before moving a route to a policy with a higher ceiling. Cookies are forwarded
 but not keyed: never add cookie-dependent data to a shared representation. OPTIONS is not
 cached; no stale-while-revalidate or positive stale-on-error window exists. Caching reduces
-origin work but does not bound it: each edge or cache-key miss recomputes the response.
+origin work but does not bound it: each edge or cache-key miss reaches the origin, so the
+overview origin only reads its stored calculation.
 
 Only reviewed discovery path behaviors and the exact overview behavior use these policies;
 generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard expansion requires

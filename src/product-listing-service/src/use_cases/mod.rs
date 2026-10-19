@@ -26,6 +26,10 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
+pub use commands::refresh_public_catalogue_overview::{
+    PublicCatalogueOverviewRefresh, RefreshPublicCatalogueOverviewError,
+    RefreshPublicCatalogueOverviewHandler, RefreshPublicCatalogueOverviewUseCase,
+};
 
 pub use commands::process_product_listing_ingestion::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,

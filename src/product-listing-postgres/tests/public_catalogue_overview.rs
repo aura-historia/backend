@@ -2,12 +2,16 @@ use application::transaction::{Transaction, UnitOfWork};
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPublicCatalogueOverviewReaderFactory, geography::SqlxGeographyProjectionStoreFactory,
+    SqlxPublicCatalogueOverviewReaderFactory, SqlxPublicCatalogueOverviewRefresherFactory,
+    geography::SqlxGeographyProjectionStoreFactory,
 };
 use product_listing_service::{
     geography::{ProjectListingGeographyHandler, ProjectListingGeographyUseCase},
     ports::{PublicCatalogueOverviewReader, PublicCatalogueOverviewReaderFactory},
-    use_cases::queries::get_public_catalogue_overview::PublicCatalogueOverview,
+    use_cases::{
+        PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
+        RefreshPublicCatalogueOverviewHandler, RefreshPublicCatalogueOverviewUseCase,
+    },
 };
 use serde_json::json;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -44,7 +48,7 @@ impl Listing {
     }
 }
 
-async fn read_overview() -> PublicCatalogueOverview {
+async fn stored_overview() -> Option<PublicCatalogueOverview> {
     let pool = get_postgres_client().await;
     let mut tx = SqlxUnitOfWork::new(pool)
         .begin()
@@ -59,6 +63,24 @@ async fn read_overview() -> PublicCatalogueOverview {
         .await
         .unwrap_or_else(|error| panic!("failed to commit overview transaction: {error}"));
     overview
+}
+
+async fn refresh() -> PublicCatalogueOverviewRefresh {
+    RefreshPublicCatalogueOverviewHandler::new(
+        SqlxUnitOfWork::new(get_postgres_client().await),
+        SqlxPublicCatalogueOverviewRefresherFactory::new(),
+    )
+    .execute()
+    .await
+    .unwrap_or_else(|error| panic!("failed to refresh public overview: {error}"))
+}
+
+/// Refreshes, then returns what public reads observe.
+async fn read_overview() -> PublicCatalogueOverview {
+    let refresh = refresh().await;
+    assert!(refresh.stored);
+    assert_eq!(Some(refresh.overview), stored_overview().await);
+    refresh.overview
 }
 
 async fn database_now(pool: &sqlx::PgPool) -> OffsetDateTime {
@@ -167,6 +189,34 @@ async fn seed_geography(
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("failed to seed listing geography: {error}"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_read_nothing_before_the_first_refresh() {
+    assert_eq!(None, stored_overview().await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_replace_older_but_never_newer_stored_calculations() {
+    let first = read_overview().await;
+    let second = read_overview().await;
+    assert!(first.as_of < second.as_of);
+
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "UPDATE public_catalogue_overview SET as_of = now() + interval '1 day', live_objects = 7",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to date stored overview: {error}"));
+    let stale = refresh().await;
+
+    assert!(!stale.stored);
+    let stored = stored_overview()
+        .await
+        .unwrap_or_else(|| panic!("stored overview must remain"));
+    assert_eq!(7, stored.live_objects);
+    assert!(stored.as_of > stale.overview.as_of);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

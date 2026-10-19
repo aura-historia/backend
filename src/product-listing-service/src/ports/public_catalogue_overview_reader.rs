@@ -18,10 +18,10 @@ pub enum PublicCatalogueOverviewReadError {
 
 #[async_trait::async_trait]
 pub trait PublicCatalogueOverviewReader: Send {
-    /// Aggregates the public catalogue at one database timestamp, returned as `as_of`.
+    /// Returns the latest stored calculation, or `None` before the first refresh.
     async fn read_overview(
         &mut self,
-    ) -> Result<PublicCatalogueOverview, PublicCatalogueOverviewReadError>;
+    ) -> Result<Option<PublicCatalogueOverview>, PublicCatalogueOverviewReadError>;
 }
 
 pub trait PublicCatalogueOverviewReaderFactory<Tx>: Send + Sync {

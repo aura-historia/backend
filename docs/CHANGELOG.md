@@ -4,8 +4,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-19 — Public catalogue overview (#2196)
 
-- New anonymous `GET /api/v1/overview` returns versioned aggregate counts for the public catalogue: `sourcesIndexed`, `liveObjects`, `countries`, `languages` and `newObjectsLast7Days`, calculated together from PostgreSQL at the returned UTC `asOf` timestamp. It has no filters or personalization and returns no per-source, per-partner or per-user details. Errors are `503 OVERVIEW_TEMPORARILY_UNAVAILABLE` and `500 OVERVIEW_INTERNAL_ERROR`.
-- Anonymous `200` responses use `public, max-age=0, s-maxage=21600, stale-if-error=0`, so figures may be up to six hours old. Query strings are ignored and never create separate cached copies. Credentials are not evaluated, but any `Authorization` header makes the response `private, no-store`; request it without a bearer token. Cache lifetimes of existing endpoints are unchanged.
+- New anonymous `GET /api/v1/overview` returns aggregate counts for the public catalogue: `sourcesIndexed`, `liveObjects`, `countries`, `languages` and `newObjectsLast7Days`. A scheduled refresh calculates them together from PostgreSQL every six hours; `asOf` is the UTC time of that calculation. It has no filters or personalization and returns no per-source, per-partner or per-user details. Before the first calculation, and while PostgreSQL is unavailable, it returns `503 OVERVIEW_TEMPORARILY_UNAVAILABLE`; an invalid stored calculation returns `500 OVERVIEW_INTERNAL_ERROR`.
+- Anonymous `200` responses use `public, max-age=0, s-maxage=21600, stale-if-error=0`, so figures are normally at most about twelve hours old. Query strings are ignored and never create separate cached copies. Credentials are not evaluated, but any `Authorization` header makes the response `private, no-store`; request it without a bearer token. Cache lifetimes of existing endpoints are unchanged.
 
 ## 2026-10-19 — CORS-exposed trace headers (#2159)
 

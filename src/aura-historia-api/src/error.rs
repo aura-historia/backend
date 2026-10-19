@@ -479,6 +479,10 @@ impl From<GetAdminOverviewError> for ApiError {
 impl From<GetPublicCatalogueOverviewError> for ApiError {
     fn from(error: GetPublicCatalogueOverviewError) -> Self {
         match error {
+            GetPublicCatalogueOverviewError::NotYetCalculated => {
+                ApiError::service_unavailable(OVERVIEW_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Overview has not been calculated yet.")
+            }
             GetPublicCatalogueOverviewError::ReaderTemporarilyUnavailable { .. }
             | GetPublicCatalogueOverviewError::BeginTransaction { .. }
             | GetPublicCatalogueOverviewError::CommitTransaction { .. } => {

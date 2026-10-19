@@ -188,6 +188,25 @@ function createMaintenanceSchedules(
     },
   });
 
+  // Recalculates the public catalogue overview off the hour, outside the hourly maintenance run.
+  new scheduler.CfnSchedule(scope, "PublicCatalogueOverviewRefreshSchedule", {
+    name: `aura-historia-public-catalogue-overview-refresh-${config.stage}`,
+    scheduleExpression: "cron(30 */6 * * ? *)",
+    scheduleExpressionTimezone: "UTC",
+    flexibleTimeWindow: { mode: "OFF" },
+    state: "ENABLED",
+    target: {
+      arn: cleanupVersion.functionArn,
+      roleArn: role.roleArn,
+      input: JSON.stringify({ schedule: "public-catalogue-overview-refresh" }),
+      deadLetterConfig: { arn: deadLetterQueue.queueArn },
+      retryPolicy: {
+        maximumEventAgeInSeconds: SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS,
+        maximumRetryAttempts: SCHEDULE_MAXIMUM_RETRY_ATTEMPTS,
+      },
+    },
+  });
+
   new scheduler.CfnSchedule(scope, "FxRateRefreshSchedule", {
     name: `aura-historia-fxrate-refresh-${config.stage}`,
     scheduleExpression: "cron(0 6,18 * * ? *)",

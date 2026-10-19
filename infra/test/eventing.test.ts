@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
@@ -66,10 +68,11 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   test("schedules cleanup version and the unqualified initialization FX function", () => {
     const { compute, initialize } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
-    expect(schedules).toHaveLength(3);
+    expect(schedules).toHaveLength(4);
     const fx = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)");
     const cleanup = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 * * * ? *)");
-    for (const schedule of [fx, cleanup]) {
+    const overview = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(30 */6 * * ? *)");
+    for (const schedule of [fx, cleanup, overview]) {
       expect(schedule?.Properties).toMatchObject({
         State: "ENABLED",
         ScheduleExpressionTimezone: "UTC",
@@ -79,6 +82,18 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     }
     expect(cleanup?.Properties.Target.Input).toBe('{"schedule":"expired-credential-cleanup"}');
     expect(JSON.stringify(cleanup?.Properties.Target.Arn)).toContain("BackendCleanupVersion");
+    expect(overview?.Properties.Name).toBe(`aura-historia-public-catalogue-overview-refresh-${stage}`);
+    expect(overview?.Properties.Target.Input).toBe('{"schedule":"public-catalogue-overview-refresh"}');
+    expect(overview?.Properties.Target.Arn).toEqual(cleanup?.Properties.Target.Arn);
+    const refresher = fs.readFileSync(
+      path.join(__dirname, "../../src/product-listing-postgres/src/public_catalogue_overview_refresher.rs"),
+      "utf8",
+    );
+    const statementTimeout = /REFRESH_STATEMENT_TIMEOUT: &str = "([0-9]+)s";/.exec(refresher)?.[1];
+    const cleanupFunction = resources(compute, "AWS::Lambda::Function")
+      .find((resource) => resource.Properties.FunctionName === `backend-cleanup-lambda-${stage}`);
+    expect(Number(statementTimeout)).toBeGreaterThan(0);
+    expect(cleanupFunction?.Properties.Timeout).toBeGreaterThan(Number(statementTimeout));
     expect(fx?.Properties.Target.Input).toBe(
       '{"version":"0","id":"fxrate:<aws.scheduler.scheduled-time>","detail-type":"Scheduled Event","source":"aura-historia.scheduler","account":"000000000000","time":"<aws.scheduler.scheduled-time>","region":"eu-central-1","resources":["<aws.scheduler.schedule-arn>"],"detail":{}}',
     );

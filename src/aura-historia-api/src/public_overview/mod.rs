@@ -14,14 +14,12 @@ use product_listing_service::use_cases::PublicCatalogueOverview;
 use serde::Serialize;
 use time::OffsetDateTime;
 
-const PUBLIC_OVERVIEW_SCHEMA_VERSION: u8 = 1;
 /// Matches the dedicated CloudFront overview policy ceiling; other routes keep their own TTLs.
 pub(crate) const PUBLIC_OVERVIEW_SHARED_TTL_SECONDS: u32 = 21_600;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicOverviewData {
-    schema_version: u8,
     #[serde(with = "time::serde::rfc3339")]
     as_of: OffsetDateTime,
     sources_indexed: u64,
@@ -34,7 +32,6 @@ struct PublicOverviewData {
 impl From<PublicCatalogueOverview> for PublicOverviewData {
     fn from(value: PublicCatalogueOverview) -> Self {
         Self {
-            schema_version: PUBLIC_OVERVIEW_SCHEMA_VERSION,
             as_of: value.as_of,
             sources_indexed: value.sources_indexed,
             live_objects: value.live_objects,
@@ -90,6 +87,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum Outcome {
         Overview,
+        NotYetCalculated,
         Unavailable,
         InvalidReadModel,
     }
@@ -108,6 +106,7 @@ mod tests {
             lock(&self.requests).push(context.clone());
             match self.outcome {
                 Outcome::Overview => Ok(overview()),
+                Outcome::NotYetCalculated => Err(GetPublicCatalogueOverviewError::NotYetCalculated),
                 Outcome::Unavailable => Err(
                     GetPublicCatalogueOverviewError::ReaderTemporarilyUnavailable {
                         source: static_error("reader unavailable"),
@@ -202,7 +201,6 @@ mod tests {
         );
         assert_eq!(
             serde_json::json!({
-                "schemaVersion": 1,
                 "asOf": "2026-10-19T12:34:56.789Z",
                 "sourcesIndexed": 12,
                 "liveObjects": 3456,
@@ -226,7 +224,7 @@ mod tests {
             "/api/v1/overview",
             "/api/v1/overview?",
             "/api/v1/overview?utm_source=landing",
-            "/api/v1/overview?schemaVersion=2&language=de&currency=USD",
+            "/api/v1/overview?language=de&currency=USD",
             "/api/v1/overview?asOf=invalid&asOf=duplicate",
         ] {
             let response = get(app(Outcome::Overview, Arc::clone(&requests)), uri, None).await;
@@ -265,6 +263,11 @@ mod tests {
     #[tokio::test]
     async fn should_not_cache_overview_errors() {
         for (outcome, status, error) in [
+            (
+                Outcome::NotYetCalculated,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OVERVIEW_TEMPORARILY_UNAVAILABLE",
+            ),
             (
                 Outcome::Unavailable,
                 StatusCode::SERVICE_UNAVAILABLE,

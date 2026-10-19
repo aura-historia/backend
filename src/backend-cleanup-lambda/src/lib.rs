@@ -5,11 +5,58 @@ use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };
+use product_listing_service::use_cases::RefreshPublicCatalogueOverviewUseCase;
+use serde_json::Value;
 use std::env;
 use std::time::Instant;
 use user_service::use_cases::CleanupConsentWorkflowUseCase;
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
+pub const PUBLIC_CATALOGUE_OVERVIEW_REFRESH_SCHEDULE: &str = "public-catalogue-overview-refresh";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduledTask {
+    Maintenance,
+    PublicCatalogueOverviewRefresh,
+}
+
+/// Only the dedicated refresh schedule diverts; every other input keeps the hourly
+/// maintenance run, so its long aggregate never shares that run's time budget.
+pub fn scheduled_task(payload: &Value) -> ScheduledTask {
+    match payload.get("schedule").and_then(Value::as_str) {
+        Some(PUBLIC_CATALOGUE_OVERVIEW_REFRESH_SCHEDULE) => {
+            ScheduledTask::PublicCatalogueOverviewRefresh
+        }
+        _ => ScheduledTask::Maintenance,
+    }
+}
+
+pub async fn run_public_catalogue_overview_refresh(
+    refresh: &dyn RefreshPublicCatalogueOverviewUseCase,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    match refresh.execute().await {
+        Ok(refresh) => {
+            tracing::info!(
+                event = "backend_cleanup.public_catalogue_overview.refreshed",
+                outcome = "success",
+                stored = refresh.stored,
+                live_objects = refresh.overview.live_objects,
+                sources_indexed = refresh.overview.sources_indexed,
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            Ok(())
+        }
+        Err(_) => {
+            tracing::warn!(
+                event = "backend_cleanup.public_catalogue_overview.refreshed",
+                outcome = "failure",
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            Err(Error::from("public catalogue overview refresh failed"))
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CleanupConfigError {
@@ -136,8 +183,81 @@ mod tests {
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
+    use product_listing_service::use_cases::{
+        PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
+        RefreshPublicCatalogueOverviewError,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use user_service::use_cases::{CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts};
+
+    struct RecordingOverviewRefresh {
+        calls: AtomicUsize,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl RefreshPublicCatalogueOverviewUseCase for RecordingOverviewRefresh {
+        async fn execute(
+            &self,
+        ) -> Result<PublicCatalogueOverviewRefresh, RefreshPublicCatalogueOverviewError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                return Err(
+                    RefreshPublicCatalogueOverviewError::RefresherTemporarilyUnavailable {
+                        source: Box::new(std::io::Error::other("fixture failure")),
+                    },
+                );
+            }
+            Ok(PublicCatalogueOverviewRefresh {
+                overview: PublicCatalogueOverview {
+                    as_of: std::time::SystemTime::UNIX_EPOCH.into(),
+                    sources_indexed: 1,
+                    live_objects: 2,
+                    countries: 0,
+                    languages: 1,
+                    new_objects_last_7_days: 0,
+                },
+                stored: true,
+            })
+        }
+    }
+
+    #[test]
+    fn should_divert_only_the_refresh_schedule_from_hourly_maintenance() {
+        for (payload, task) in [
+            (
+                serde_json::json!({ "schedule": "public-catalogue-overview-refresh" }),
+                ScheduledTask::PublicCatalogueOverviewRefresh,
+            ),
+            (
+                serde_json::json!({ "schedule": "expired-credential-cleanup" }),
+                ScheduledTask::Maintenance,
+            ),
+            (serde_json::json!({}), ScheduledTask::Maintenance),
+            (
+                serde_json::json!({ "schedule": 1 }),
+                ScheduledTask::Maintenance,
+            ),
+            (Value::Null, ScheduledTask::Maintenance),
+        ] {
+            assert_eq!(task, scheduled_task(&payload), "{payload}");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_report_overview_refresh_outcome() {
+        for fail in [false, true] {
+            let refresh = RecordingOverviewRefresh {
+                calls: AtomicUsize::new(0),
+                fail,
+            };
+
+            let result = run_public_catalogue_overview_refresh(&refresh).await;
+
+            assert_eq!(fail, result.is_err());
+            assert_eq!(1, refresh.calls.load(Ordering::Relaxed));
+        }
+    }
 
     struct RecordingCleanup {
         calls: AtomicUsize,

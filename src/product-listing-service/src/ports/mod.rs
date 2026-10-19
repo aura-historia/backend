@@ -34,6 +34,7 @@ pub mod product_listing_user_state_reader;
 pub mod product_listing_watchlist_details_reader;
 pub mod product_listing_watchlist_notification_source_reader;
 pub mod public_catalogue_overview_reader;
+pub mod public_catalogue_overview_refresher;
 pub mod watchlist_notification_recipient_reader;
 
 pub use auction_catalogue_reader::{
@@ -175,6 +176,10 @@ pub use product_listing_watchlist_notification_source_reader::{
 pub use public_catalogue_overview_reader::{
     PublicCatalogueOverviewReadError, PublicCatalogueOverviewReader,
     PublicCatalogueOverviewReaderFactory,
+};
+pub use public_catalogue_overview_refresher::{
+    PublicCatalogueOverviewRefreshError, PublicCatalogueOverviewRefresher,
+    PublicCatalogueOverviewRefresherFactory,
 };
 pub use watchlist_notification_recipient_reader::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,

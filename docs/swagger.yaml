@@ -84,11 +84,14 @@ paths:
     get:
       summary: Get public catalogue statistics
       description: |
-        Anonymous aggregate statistics for the public catalogue, calculated together from
-        authoritative PostgreSQL at `asOf`. There are no filters, personalization, or per-source,
-        per-partner or per-user details. Credentials are neither required nor evaluated, and query
-        strings are ignored: they change neither the representation nor the shared cache key.
-        Clients should not attach a bearer token; any `Authorization` header makes the response private.
+        Anonymous aggregate statistics for the public catalogue. A scheduled refresh calculates
+        every count together from authoritative PostgreSQL every six hours, and reads return that
+        stored calculation; `asOf` is its time. Including the shared edge cache, figures are
+        normally at most about twelve hours old; a failed refresh keeps the previous calculation.
+        There are no filters, personalization, or per-source, per-partner or per-user details.
+        Credentials are neither required nor evaluated, and query strings are ignored: they change
+        neither the representation nor the shared cache key. Clients should not attach a bearer
+        token; any `Authorization` header makes the response private.
 
         Counts cover ProductListings with lifecycle `ACTIVE`, whatever their availability.
         `sourcesIndexed` counts distinct ListingSources with at least one counted listing.
@@ -98,8 +101,6 @@ paths:
         translations and presentation fallbacks are excluded. `newObjectsLast7Days` counts listings
         whose `created` timestamp lies in the 168 hours ending at `asOf` (start exclusive, end inclusive).
         Effective geography and OpenSearch projections may lag PostgreSQL while they catch up.
-
-        Anonymous `200` responses may be served from the shared edge cache for up to six hours.
       operationId: getPublicOverview
       tags: [Overview]
       security: []
@@ -124,7 +125,7 @@ paths:
                 title: Internal Server Error
                 error: OVERVIEW_INTERNAL_ERROR
         "503":
-          description: PostgreSQL is temporarily unavailable. Cache-Control is no-store.
+          description: PostgreSQL is temporarily unavailable, or no calculation has been stored yet. Cache-Control is no-store.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
@@ -23618,9 +23619,8 @@ components:
 
     PublicOverviewData:
       type: object
-      description: Versioned aggregate public-catalogue statistics. Contains counts only.
+      description: Aggregate public-catalogue statistics from the latest scheduled calculation. Contains counts only.
       required:
-        - schemaVersion
         - asOf
         - sourcesIndexed
         - liveObjects
@@ -23628,15 +23628,10 @@ components:
         - languages
         - newObjectsLast7Days
       properties:
-        schemaVersion:
-          type: integer
-          minimum: 1
-          enum: [1]
-          description: Response contract version.
         asOf:
           type: string
           format: date-time
-          description: UTC database timestamp at which every count was calculated.
+          description: UTC database timestamp at which the stored calculation counted every value.
           example: "2026-10-19T12:00:00.123456Z"
         sourcesIndexed:
           type: integer

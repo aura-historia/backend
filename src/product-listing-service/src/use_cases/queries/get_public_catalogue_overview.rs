@@ -9,7 +9,8 @@ use application::{
 };
 use time::OffsetDateTime;
 
-/// Aggregate public-catalogue statistics over `ACTIVE` ProductListings at `as_of`.
+/// Aggregate public-catalogue statistics over `ACTIVE` ProductListings, calculated at `as_of`
+/// by the scheduled refresh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicCatalogueOverview {
     pub as_of: OffsetDateTime,
@@ -22,6 +23,8 @@ pub struct PublicCatalogueOverview {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetPublicCatalogueOverviewError {
+    #[error("public catalogue overview has not been calculated yet")]
+    NotYetCalculated,
     #[error("temporary public catalogue overview reader failure")]
     ReaderTemporarilyUnavailable {
         #[source]
@@ -96,7 +99,7 @@ where
             .await
             .map_err(|source| GetPublicCatalogueOverviewError::CommitTransaction { source })?;
 
-        Ok(overview)
+        overview.ok_or(GetPublicCatalogueOverviewError::NotYetCalculated)
     }
 }
 
@@ -135,6 +138,7 @@ mod tests {
         begin: bool,
         read: bool,
         commit: bool,
+        missing: bool,
     }
 
     struct FakeUnitOfWork {
@@ -181,11 +185,13 @@ mod tests {
     struct FakeReaderFactory {
         state: Arc<Mutex<State>>,
         fails: bool,
+        stored: bool,
     }
 
     struct FakeReader {
         state: Arc<Mutex<State>>,
         fails: bool,
+        stored: bool,
     }
 
     impl PublicCatalogueOverviewReaderFactory<FakeTransaction> for FakeReaderFactory {
@@ -196,6 +202,7 @@ mod tests {
             FakeReader {
                 state: Arc::clone(&self.state),
                 fails: self.fails,
+                stored: self.stored,
             }
         }
     }
@@ -204,14 +211,14 @@ mod tests {
     impl PublicCatalogueOverviewReader for FakeReader {
         async fn read_overview(
             &mut self,
-        ) -> Result<PublicCatalogueOverview, PublicCatalogueOverviewReadError> {
+        ) -> Result<Option<PublicCatalogueOverview>, PublicCatalogueOverviewReadError> {
             lock(&self.state).reads += 1;
             if self.fails {
                 return Err(PublicCatalogueOverviewReadError::TemporarilyUnavailable {
                     source: static_error("reader unavailable"),
                 });
             }
-            Ok(overview())
+            Ok(self.stored.then(overview))
         }
     }
 
@@ -245,6 +252,7 @@ mod tests {
             FakeReaderFactory {
                 state: Arc::clone(state),
                 fails: failures.read,
+                stored: !failures.missing,
             },
         )
         .execute(&OperationContext {
@@ -256,12 +264,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_read_anonymous_overview_in_one_committed_transaction() {
+    async fn should_read_stored_overview_in_one_committed_transaction() {
         let state = Arc::new(Mutex::new(State::default()));
 
         let result = execute(&state, Failures::default()).await;
 
         assert_eq!(overview(), result.unwrap_or_else(|error| panic!("{error}")));
+        let state = lock(&state);
+        assert_eq!((1, 1, 1), (state.begins, state.reads, state.commits));
+    }
+
+    #[tokio::test]
+    async fn should_report_missing_calculation_without_aggregating() {
+        let state = Arc::new(Mutex::new(State::default()));
+
+        let result = execute(
+            &state,
+            Failures {
+                missing: true,
+                ..Failures::default()
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(GetPublicCatalogueOverviewError::NotYetCalculated)
+        ));
         let state = lock(&state);
         assert_eq!((1, 1, 1), (state.begins, state.reads, state.commits));
     }

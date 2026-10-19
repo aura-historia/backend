@@ -1,4 +1,7 @@
-use backend_cleanup_lambda::{cleanup_batch_size_from_env, run_cleanup};
+use backend_cleanup_lambda::{
+    ScheduledTask, cleanup_batch_size_from_env, run_cleanup, run_public_catalogue_overview_refresh,
+    scheduled_task,
+};
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
@@ -24,10 +27,12 @@ use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxPublicCatalogueOverviewRefresherFactory,
 };
 use product_listing_service::geography::{
     ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
 };
+use product_listing_service::use_cases::RefreshPublicCatalogueOverviewHandler;
 use search_filter_postgres::{
     SqlxPendingSavedSearchNotificationReader, SqlxSearchFilterMatchNotificationSourceReaderFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
@@ -110,12 +115,20 @@ async fn main() -> Result<(), Error> {
                             )),
                         ),
                         MaintainSavedSearchDigestsHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxSavedSearchDigestStoreFactory,
+                        ),
+                        RefreshPublicCatalogueOverviewHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxPublicCatalogueOverviewRefresherFactory::new(),
                         ),
                     ))
                 })
                 .await?;
+
+            if scheduled_task(&event.payload) == ScheduledTask::PublicCatalogueOverviewRefresh {
+                return run_public_catalogue_overview_refresh(&cleanup.value().6).await;
+            }
 
             let cleanup_result = run_cleanup(
                 &cleanup.value().0,

@@ -1,5 +1,11 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 use api_support::{json_response, seed_product};
+use platform_postgres::SqlxUnitOfWork;
+use product_listing_postgres::SqlxPublicCatalogueOverviewRefresherFactory;
+use product_listing_service::use_cases::{
+    PublicCatalogueOverview, RefreshPublicCatalogueOverviewHandler,
+    RefreshPublicCatalogueOverviewUseCase,
+};
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -26,17 +32,35 @@ async fn get_overview(
     (status, body, cache_control)
 }
 
-async fn database_now() -> OffsetDateTime {
-    sqlx::query_scalar("SELECT clock_timestamp()")
-        .fetch_one(&get_postgres_client().await)
-        .await
-        .unwrap_or_else(|error| panic!("failed to read database clock: {error}"))
+async fn refresh() -> PublicCatalogueOverview {
+    RefreshPublicCatalogueOverviewHandler::new(
+        SqlxUnitOfWork::new(get_postgres_client().await),
+        SqlxPublicCatalogueOverviewRefresherFactory::new(),
+    )
+    .execute()
+    .await
+    .unwrap_or_else(|error| panic!("failed to refresh public overview: {error}"))
+    .overview
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_share_anonymous_overview_regardless_of_query_strings() {
+async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
+    let (status, body, cache_control) = get_overview("/api/v1/overview", None).await;
+
+    assert_eq!(reqwest::StatusCode::SERVICE_UNAVAILABLE, status);
+    assert_eq!(Some("private, no-store".to_owned()), cache_control);
+    assert_eq!(
+        Some(&json!("OVERVIEW_TEMPORARILY_UNAVAILABLE")),
+        body.get("error")
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_share_the_stored_overview_regardless_of_query_strings() {
     seed_product().await;
-    let before = database_now().await;
+    let calculated = refresh().await;
+    // Later catalogue changes wait for the next scheduled refresh.
+    seed_product().await;
 
     let mut representations = Vec::new();
     for path_and_query in [
@@ -58,13 +82,12 @@ async fn should_share_anonymous_overview_regardless_of_query_strings() {
             .unwrap_or_else(|| panic!("overview must contain asOf: {body}"));
         let as_of = OffsetDateTime::parse(&as_of, &Rfc3339)
             .unwrap_or_else(|error| panic!("asOf must be RFC 3339: {error}"));
-        assert!(before <= as_of && as_of <= database_now().await);
+        assert_eq!(calculated.as_of, as_of);
         representations.push(body);
     }
 
     assert_eq!(
         json!({
-            "schemaVersion": 1,
             "sourcesIndexed": 1,
             "liveObjects": 1,
             "countries": 0,
@@ -78,6 +101,8 @@ async fn should_share_anonymous_overview_regardless_of_query_strings() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_keep_authorization_bearing_overview_requests_private() {
+    refresh().await;
+
     let (status, body, cache_control) =
         get_overview("/api/v1/overview", Some("Bearer invalid")).await;
 

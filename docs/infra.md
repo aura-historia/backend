@@ -324,6 +324,17 @@ accepted tasks. Scheduler delivery DLQ and ECS/application failure evidence are
 different channels; neither proves an expected run completed. Inspect actual task
 revision, exit/report and next scheduled outcome before retiring an old trigger.
 
+The [public catalogue overview](swagger.yaml) is a rebuildable single-row PostgreSQL
+calculation. A dedicated six-hourly Scheduler input runs only its refresh on the backend
+cleanup Lambda, outside the hourly maintenance run; the refresh scans every live listing
+once under its own statement timeout, which must stay below that Lambda's timeout. Reads
+never aggregate listings: a failed refresh keeps serving the previous calculation, and a
+new stage answers `503` until the first one succeeds. After the first deployment, or to
+recover sooner, invoke the cleanup function asynchronously with
+`{"schedule":"public-catalogue-overview-refresh"}` instead of waiting for the next run.
+Refresh duration grows with the live catalogue; watch its logged duration against the
+statement timeout before the catalogue outgrows it.
+
 ## Rollback and stack recovery
 
 After compatibility review, manual Deploy from `develop` selects an older supported
