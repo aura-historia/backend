@@ -96,7 +96,9 @@ impl From<UserAddressView> for AddressData {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum DestinationData {
-    None,
+    // A struct variant so `deny_unknown_fields` applies; serde lets internally tagged unit
+    // variants ignore extra members.
+    None {},
     Address {
         #[serde(rename = "addressId")]
         address_id: UserAddressId,
@@ -110,7 +112,7 @@ enum DestinationData {
 impl DestinationData {
     fn into_core(self) -> Result<BrowsingDestination, ApiError> {
         Ok(match self {
-            Self::None => BrowsingDestination::None,
+            Self::None {} => BrowsingDestination::None,
             Self::Address { address_id } => BrowsingDestination::Address(address_id),
             Self::CountryPostal {
                 country,
@@ -129,7 +131,7 @@ impl DestinationData {
 impl From<BrowsingDestination> for DestinationData {
     fn from(v: BrowsingDestination) -> Self {
         match v {
-            BrowsingDestination::None => Self::None,
+            BrowsingDestination::None => Self::None {},
             BrowsingDestination::Address(id) => Self::Address { address_id: id },
             BrowsingDestination::CountryPostal {
                 country,
@@ -365,5 +367,31 @@ impl From<UserAddressResolution> for AddressResolutionData {
                 attribution_url: a.attribution_url,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn browsing_destination_rejects_members_outside_its_kind() {
+        for data in [
+            json!({"kind":"NONE","country":"FR"}),
+            json!({"kind":"NONE","postalCode":"75001"}),
+            json!({"kind":"NONE","addressId":"00000000-0000-0000-0000-000000000000"}),
+            json!({"kind":"COUNTRY_POSTAL","country":"DE","addressId":"00000000-0000-0000-0000-000000000000"}),
+        ] {
+            assert!(
+                serde_json::from_value::<DestinationData>(data.clone()).is_err(),
+                "{data}"
+            );
+        }
+        let none: DestinationData = serde_json::from_value(json!({"kind":"NONE"})).unwrap();
+        assert!(matches!(none.into_core(), Ok(BrowsingDestination::None)));
+        assert_eq!(
+            json!({"kind":"NONE"}),
+            serde_json::to_value(DestinationData::from(BrowsingDestination::None)).unwrap()
+        );
     }
 }
