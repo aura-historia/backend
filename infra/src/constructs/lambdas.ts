@@ -186,6 +186,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
     environment: marketingConsentSyncEnvironment,
   },
+  userIdentityDeletion: {
+    id: "UserIdentityDeletionLambda",
+    binaryName: "user-identity-deletion-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+  },
   listingGeography: {
     id: "ListingGeographyLambda",
     binaryName: "listing-geography-lambda",
@@ -262,6 +270,7 @@ export class Lambdas extends Construct {
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
   readonly marketingConsentSyncVersion: lambda.Version;
+  readonly userIdentityDeletionVersion: lambda.Version;
   readonly geoResolutionVersion: lambda.Version;
   readonly listingGeographyVersion: lambda.Version;
   readonly listingShippingVersion: lambda.Version;
@@ -391,6 +400,14 @@ export class Lambdas extends Construct {
       lambda: this.functions.notificationDelivery,
       description: `notification-delivery-${props.parameters.commitSha}`,
     });
+    this.userIdentityDeletionVersion = new lambda.Version(
+      this,
+      "UserIdentityDeletionVersion",
+      {
+        lambda: this.functions.userIdentityDeletion,
+        description: `user-identity-deletion-${props.parameters.commitSha}`,
+      },
+    );
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
@@ -644,9 +661,16 @@ export function addUserPoolEnvironment(
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_JWKS_URL", `${issuer}/.well-known/jwks.json`);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_APP_CLIENT_IDS", publicClientId);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
+  functions.userIdentityDeletion.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
 }
 
 export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn: string): void {
+  functions.userIdentityDeletion.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["cognito-idp:ListUsers", "cognito-idp:AdminGetUser", "cognito-idp:AdminDeleteUser"],
+      resources: [userPoolArn],
+    }),
+  );
   functions.auraHistoriaApi.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["cognito-idp:AdminUserGlobalSignOut", "cognito-idp:ListUsers"],

@@ -1796,11 +1796,13 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxMarketingConsentIntentRepository::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserIdentityDeletionStoreFactory,
         )),
         Arc::new(DeleteUserHandler::new_admin_only(
             unit_of_work.clone(),
             user_postgres::SqlxMarketingConsentIntentRepository::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserIdentityDeletionStoreFactory,
         )),
         Arc::new(SuspendUserHandler::new(
             unit_of_work.clone(),

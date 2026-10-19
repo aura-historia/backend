@@ -1,0 +1,26 @@
+[package]
+name = "user-identity-deletion-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aura-historia-jobs = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-cognitoidentityprovider = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["sqs"] }
+lambda_runtime = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+user-cognito = { workspace = true }
+user-core = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
+
+[dev-dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }

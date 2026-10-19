@@ -25,6 +25,19 @@ function resourceByType(template: Template, type: string): [string, Resource][] 
 }
 
 describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
+  test("gives the identity deletion worker only pool-scoped lifecycle access", () => {
+    const template = computeTemplate(stage);
+    const cleanup = resourceByFunctionName(template, `user-identity-deletion-lambda-${stage}`);
+    expect(cleanup.Properties.Environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
+    const policies = resourceByType(template, "AWS::IAM::Policy").map(([, resource]) => resource);
+    const cleanupPolicy = policies.find((policy) => JSON.stringify(policy.Properties.Roles).includes("UserIdentityDeletionLambdaServiceRole"));
+    const statement = cleanupPolicy?.Properties.PolicyDocument.Statement.find((entry: any) => JSON.stringify(entry.Action).includes("cognito-idp:AdminDeleteUser"));
+    expect(statement.Action).toEqual(["cognito-idp:ListUsers", "cognito-idp:AdminGetUser", "cognito-idp:AdminDeleteUser"]);
+    expect(JSON.stringify(statement.Resource)).toContain("UserPool");
+    expect(statement.Resource).not.toBe("*");
+    const apiPolicy = policies.find((policy) => JSON.stringify(policy.Properties.Roles).includes("AuraHistoriaApiLambdaServiceRole"));
+    expect(JSON.stringify(apiPolicy?.Properties)).not.toContain("cognito-idp:AdminDeleteUser");
+  });
   test("uses the generated static English verification email with Cognito's code placeholder", () => {
     const template = computeTemplate(stage);
     const [[, pool]] = resourceByType(template, "AWS::Cognito::UserPool");

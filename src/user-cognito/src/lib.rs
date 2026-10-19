@@ -5,7 +5,9 @@ use user_service::ports::{
 };
 
 mod account_linker;
+mod identity_deleter;
 pub use account_linker::{CognitoAccountLinkError, CognitoAccountLinker};
+pub use identity_deleter::CognitoUserIdentityDeleter;
 
 pub struct CognitoUserSessionRevoker {
     provider: Box<dyn CognitoProvider>,

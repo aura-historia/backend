@@ -447,6 +447,7 @@ fn classify_dms_table_operation(
         | (CdcTable::GeoResolutionWakeups, CdcOperation::Insert)
         | (CdcTable::ListingGeographyWakeups, CdcOperation::Insert)
         | (CdcTable::ListingShippingWakeups, CdcOperation::Insert)
+        | (CdcTable::UserIdentityDeletionRequests, CdcOperation::Insert)
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
         | (CdcTable::NotificationDeliveries, CdcOperation::Insert)
@@ -457,6 +458,7 @@ fn classify_dms_table_operation(
         | (CdcTable::GeoResolutionWakeups, _)
         | (CdcTable::ListingGeographyWakeups, _)
         | (CdcTable::ListingShippingWakeups, _)
+        | (CdcTable::UserIdentityDeletionRequests, _)
         | (CdcTable::ProductListingRawRevisions, _)
         | (CdcTable::SearchFilterMatches, _)
         | (CdcTable::NotificationDeliveries, _)
@@ -472,6 +474,7 @@ fn dms_table_is_selected(table: &str) -> bool {
             | CdcTable::GeoResolutionWakeups
             | CdcTable::ListingGeographyWakeups
             | CdcTable::ListingShippingWakeups
+            | CdcTable::UserIdentityDeletionRequests
             | CdcTable::ProductListingRawRevisions
             | CdcTable::SearchFilterMatches
             | CdcTable::NotificationDeliveries
@@ -505,6 +508,12 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
     for change in &batch.changes {
         match classify_dms_change(change) {
             DmsKinesisRecordClassification::Trigger => {}
+            DmsKinesisRecordClassification::Noop
+                if change.table == "user_identity_deletion_requests" =>
+            {
+                require_exact_dms_columns(row_for_operation(change)?, &["user_id"])?;
+                continue;
+            }
             DmsKinesisRecordClassification::Noop
                 if matches!(
                     change.table.as_str(),
@@ -545,6 +554,7 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         }
 
         let required_columns = match (change.table.as_str(), change.operation) {
+            ("user_identity_deletion_requests", CdcOperation::Insert) => ["user_id"].as_slice(),
             ("geo_resolution_wakeups", CdcOperation::Insert) => {
                 ["resolution_id", "generation"].as_slice()
             }
@@ -589,6 +599,7 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
             || change.table == "geo_resolution_wakeups"
             || change.table == "listing_geography_wakeups"
             || change.table == "listing_shipping_wakeups"
+            || change.table == "user_identity_deletion_requests"
         {
             require_exact_dms_columns(row, required_columns)?;
         }
@@ -785,6 +796,30 @@ mod tests {
         });
         assert!(published_jobs(&control.to_string()).is_empty());
     }
+    #[test]
+    fn user_identity_deletion_dms_delivery_preserves_compact_job_and_replay_identity() {
+        let (router, _) = fanout();
+        let fixture =
+            include_str!("../tests/fixtures/dms-kinesis/user-identity-deletion-insert.json");
+        let jobs = published_jobs(fixture);
+        assert_eq!(jobs, published_jobs(fixture));
+        assert_eq!(1, jobs.len());
+        assert_eq!("user-identity-deletion", jobs[0]["scope"]);
+        assert_eq!(1, jobs[0]["payload"].as_object().unwrap().len());
+        for operation in ["update", "delete"] {
+            let mut record: Value = serde_json::from_str(fixture).unwrap();
+            record["metadata"]["operation"] = json!(operation);
+            assert!(published_jobs(&record.to_string()).is_empty());
+        }
+        let mut poison: Value = serde_json::from_str(fixture).unwrap();
+        poison["data"]["subject"] = json!("private-subject");
+        assert!(
+            router
+                .prepare_dms_kinesis_record(poison.to_string().as_bytes())
+                .is_err()
+        );
+    }
+
     #[test]
     fn listing_shipping_dms_regression_validates_and_routes_all_operations() {
         let (router, _) = fanout();

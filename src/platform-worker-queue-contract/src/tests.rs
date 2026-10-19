@@ -22,8 +22,9 @@ fn deployed_names_and_visibility_stay_stable() {
         ("geo-resolution", 300),
         ("listing-geography", 300),
         ("listing-shipping", 300),
+        ("user-identity-deletion", 330),
     ];
-    assert_eq!(12, expected.len());
+    assert_eq!(13, expected.len());
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
         assert_eq!(scope.as_str(), name);

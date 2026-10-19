@@ -21,5 +21,6 @@
   "geo-resolution-lambda",
   "listing-geography-lambda",
   "listing-shipping-lambda",
-  "cdc-router-lambda"
+  "cdc-router-lambda",
+  "user-identity-deletion-lambda"
 ]

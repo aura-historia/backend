@@ -13,6 +13,7 @@ export const WORKER_SCOPES = [
   "geo-resolution",
   "listing-geography",
   "listing-shipping",
+  "user-identity-deletion",
 ] as const;
 
 export type WorkerScope = (typeof WORKER_SCOPES)[number];
@@ -41,6 +42,7 @@ export const WORKER_QUEUE_DEFINITIONS = {
   "geo-resolution": { id: "GeoResolution", visibilityTimeoutSeconds: 300 },
   "listing-geography": { id: "ListingGeography", visibilityTimeoutSeconds: 300 },
   "listing-shipping": { id: "ListingShipping", visibilityTimeoutSeconds: 300 },
+  "user-identity-deletion": { id: "UserIdentityDeletion", visibilityTimeoutSeconds: 330 },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 
 export interface WorkerQueueSettings {

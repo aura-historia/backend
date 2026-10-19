@@ -204,12 +204,15 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "product_listing_events",
       "product_listing_raw_revisions",
       "search_filter_matches",
+      "user_identity_deletion_requests",
     ]);
     expect(JSON.stringify(mappings)).not.toContain("search_filters");
     for (const excludedTable of [
       "user_addresses",
       "user_browsing_destinations",
       "users",
+      "user_identity_deletions",
+      "user_cognito_identities",
       "newsletter_subscription_confirmations",
       "loops_webhook_receipts",
       "loops_webhook_preference_fences",

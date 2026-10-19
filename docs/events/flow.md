@@ -26,6 +26,16 @@ success may confirm a transaction or queue custody; neither implies search visib
 or external delivery. PostgreSQL remains authoritative. DMS start and router activation
 require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
 
+## Account identity deletion
+
+Account removal atomically appends `user_identity_deletion_requests`. DMS selects only
+its deleted user ID; provider identities and delivery state stay outside CDC. Inserts
+route schema-2 `USER_IDENTITY_DELETION` jobs to the isolated `user-identity-deletion`
+Standard queue. The worker rereads retained identity state and acknowledges only committed
+completion. Unknown targets, active claims and uncertain provider effects remain retryable.
+[Account lifecycle](../account-lifecycle.md) owns provider and re-registration rules;
+[worker recovery](../durable-worker-runbook.md#user-identity-deletion-recovery) owns redrive.
+
 ## Shipping management signals
 
 [Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable

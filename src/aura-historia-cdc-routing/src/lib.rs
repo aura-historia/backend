@@ -175,6 +175,32 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
             )])
         }
         (CdcTable::GeoResolutionWakeups, _) => Ok(Vec::new()),
+        (CdcTable::UserIdentityDeletionRequests, Operation::Insert) => {
+            let row = required_row(change)?;
+            if row
+                .as_object()
+                .is_none_or(|object| object.len() != 1 || !object.contains_key("user_id"))
+            {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "user identity deletion request",
+                ));
+            }
+            let user_id: UserId = parse_canonical_storage_object_id(
+                &required_string(row, "user_id")?,
+                || CdcRouteError::InvalidObjectId("user_id"),
+                || CdcRouteError::InvalidObjectId("user_id"),
+            )?;
+            let key = format!("user-identity-deletion:{user_id}");
+            Ok(vec![domain_job(
+                WorkerQueue::UserIdentityDeletion,
+                IdempotencyKey::new(key.clone()),
+                OrderingKey::new(key),
+                DomainJobPayload::UserIdentityDeletion(
+                    aura_historia_jobs::UserIdentityDeletionJob { user_id },
+                ),
+            )])
+        }
+        (CdcTable::UserIdentityDeletionRequests, _) => Ok(Vec::new()),
         (CdcTable::ProductListingEvents, Operation::Insert) => product_event_jobs(change),
         (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
         (CdcTable::ProductListingRawRevisions, Operation::Insert) => {
@@ -207,6 +233,7 @@ pub enum CdcTable {
     GeoResolutionWakeups,
     ListingGeographyWakeups,
     ListingShippingWakeups,
+    UserIdentityDeletionRequests,
     ProductListingEvents,
     ProductListingRawRevisions,
     ProductListings,
@@ -223,6 +250,7 @@ impl From<&str> for CdcTable {
         match value {
             "listing_geography_wakeups" => Self::ListingGeographyWakeups,
             "listing_shipping_wakeups" => Self::ListingShippingWakeups,
+            "user_identity_deletion_requests" => Self::UserIdentityDeletionRequests,
             "geo_resolution_wakeups" => Self::GeoResolutionWakeups,
             "product_listing_events" => Self::ProductListingEvents,
             "product_listing_raw_revisions" => Self::ProductListingRawRevisions,
@@ -1370,6 +1398,48 @@ mod tests {
             "record": record,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn user_identity_deletion_requests_route_only_compact_valid_inserts() {
+        let row = json!({"user_id": "01900000-0000-7000-8000-000000000009"});
+        let source = change("user_identity_deletion_requests", "insert", row.clone());
+        let jobs = route_change(&source).unwrap();
+        assert_eq!(jobs, route_change(&source).unwrap());
+        assert_eq!(1, jobs.len());
+        assert_eq!(
+            Some(aura_historia_jobs::WorkerScope::UserIdentityDeletion),
+            jobs[0].target_queue.scope()
+        );
+        let body: Value =
+            serde_json::from_str(&aura_historia_jobs::encode(&jobs[0]).unwrap()).unwrap();
+        assert_eq!(1, body["payload"].as_object().unwrap().len());
+        assert!(
+            body["payload"]["user_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("usr_")
+        );
+        for operation in ["update", "delete"] {
+            assert!(
+                route_change(&change(
+                    "user_identity_deletion_requests",
+                    operation,
+                    row.clone()
+                ))
+                .unwrap()
+                .is_empty()
+            );
+        }
+        for row in [
+            json!({"user_id":"bad"}),
+            json!({"user_id":"01900000-0000-7000-8000-000000000009", "subject":"private"}),
+            json!({}),
+        ] {
+            assert!(
+                route_change(&change("user_identity_deletion_requests", "insert", row)).is_err()
+            );
+        }
     }
 
     #[test]
