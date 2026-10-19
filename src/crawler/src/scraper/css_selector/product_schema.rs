@@ -333,14 +333,27 @@ fn apply_optional_rule(
     html: &Html,
     miss_log: OptionalMissLog,
 ) -> Result<Vec<String>, ExtractionError> {
-    const MESSAGE: &str = "Optional schema rule matched nothing; leaving the field empty";
     match rule.apply(html) {
         Ok(values) => Ok(values),
         Err(ExtractionError::NoElementMatched { selector }) => {
+            // The message must be a literal in each arm: a `const` in message position
+            // becomes a field named after the constant and leaves `message` empty.
             match miss_log {
-                OptionalMissLog::Warn => tracing::warn!(field, selector = %selector, MESSAGE),
-                OptionalMissLog::Debug => tracing::debug!(field, selector = %selector, MESSAGE),
-                OptionalMissLog::Trace => tracing::trace!(field, selector = %selector, MESSAGE),
+                OptionalMissLog::Warn => tracing::warn!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
+                OptionalMissLog::Debug => tracing::debug!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
+                OptionalMissLog::Trace => tracing::trace!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
             }
             Ok(Vec::new())
         }
