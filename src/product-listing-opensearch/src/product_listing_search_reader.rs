@@ -39,7 +39,6 @@ use time::format_description::well_known;
 
 const DEFAULT_INDEX: &str = "product-listings";
 const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
-const DEFAULT_HYBRID_PAGE_SIZE: u64 = 20;
 const HYBRID_K: u16 = 100;
 
 #[derive(Clone)]
@@ -306,10 +305,7 @@ fn map_hybrid_search_response(
     cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<ProductListingSearchReadResult, ProductListingSearchReadError> {
     let search = &compiled_search.search;
-    let requested_size = cursor
-        .as_ref()
-        .map(|cursor| cursor.size)
-        .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE);
+    let requested_size = page_size(cursor);
     let item_count = search_response.hits.hits.len() as u64;
     let search_after = (item_count >= requested_size)
         .then(|| {
@@ -352,11 +348,12 @@ pub(crate) fn build_search_request(
     });
     let cursor = &request.cursor;
 
-    if let Some(cursor) = cursor {
-        body["size"] = json!(cursor.size);
-        if let Some(search_after) = &cursor.search_after {
-            body["search_after"] = opensearch_search_after(search_after);
-        }
+    body["size"] = json!(page_size(cursor));
+    if let Some(search_after) = cursor
+        .as_ref()
+        .and_then(|cursor| cursor.search_after.as_ref())
+    {
+        body["search_after"] = opensearch_search_after(search_after);
     }
 
     let sort_field = match sort.sort {
@@ -440,11 +437,7 @@ pub(crate) fn build_hybrid_search_request(
     }
     let mut body = json!({
         "_source": { "excludes": [ProductListingDocumentSerdeField::Embedding] },
-        "size": cursor
-            .as_ref()
-            .map(|cursor| cursor.size)
-            .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE)
-            .max(1),
+        "size": page_size(cursor).max(1),
         "query": {
             "hybrid": {
                 "queries": [
@@ -474,6 +467,14 @@ pub(crate) fn build_hybrid_search_request(
     }
 
     Ok(body)
+}
+
+/// Requested page size, falling back to the API default page size instead of OpenSearch's.
+fn page_size(cursor: &Option<Cursor<serde_json::Value>>) -> u64 {
+    cursor.as_ref().map_or_else(
+        || Cursor::<serde_json::Value>::default().size,
+        |cursor| cursor.size,
+    )
 }
 
 fn opensearch_search_after(search_after: &serde_json::Value) -> serde_json::Value {
@@ -1020,6 +1021,40 @@ mod tests {
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
+    }
+
+    fn search_request(
+        cursor: Option<Cursor<serde_json::Value>>,
+    ) -> Result<ProductListingSearchReadRequest, Box<dyn std::error::Error>> {
+        Ok(ProductListingSearchReadRequest {
+            compiled_search: CompiledProductListingSearch::new(
+                ProductListingSearch::new(Language::En, Currency::Eur),
+                price_filter(Currency::Eur, None)?,
+            )?,
+            sort: None,
+            cursor,
+        })
+    }
+
+    #[rstest]
+    #[case::default(None, 21)]
+    #[case::explicit(Some(Cursor { size: 5, search_after: None }), 5)]
+    fn should_request_default_page_size_without_cursor(
+        #[case] cursor: Option<Cursor<serde_json::Value>>,
+        #[case] expected: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let request = search_request(cursor)?;
+        let sort = Sort {
+            sort: SortProductListingField::Score,
+            order: SortOrder::Desc,
+        };
+
+        let lexical = build_search_request(&request, &sort)?;
+        let hybrid = build_hybrid_search_request(&request, &[0.1; 4])?;
+
+        assert_eq!(Some(&json!(expected)), lexical.get("size"));
+        assert_eq!(Some(&json!(expected)), hybrid.get("size"));
+        Ok(())
     }
 
     #[test]

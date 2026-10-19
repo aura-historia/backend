@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — ProductListing search default page size (#2157)
+
+- `GET /api/v1/product-listings` without `size` now returns up to the documented default of 21 listings per page, for both keyword and semantic search. Previously it returned 10 (keyword) or 20 (semantic).
+
 ## 2026-10-18 — Consistent entity freshness (#2032)
 
 - ProductListing `updated` now advances for every committed change to listing-owned state, including enrichment: title translations, embedding, effective geography, effective shipping summary, content assessment and newly accepted delivery evidence. It is strictly increasing per listing, and each new value has millisecond precision. Enrichment still does not change `expectedVersion` or public history; FX captures and response-time conversion never advance it.
