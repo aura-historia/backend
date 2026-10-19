@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-19 — OAuth credential errors no longer echo input (#2207)
 
-- `POST /api/v1/oauth/token`, `/introspect` and `/revoke` no longer include the submitted value in the problem `detail` when `client_secret` or `token` is malformed, for example a mistyped value or an access token sent as `client_secret`. Status and error codes are unchanged: a malformed `client_secret` returns `401 INVALID_CREDENTIALS`, a malformed `token` returns `400 BAD_BODY_VALUE`. Both now identify the form field in `source` and use a fixed `detail`. Clients that parsed the old message to find the expected prefix should use `source.field` instead.
+- `POST /api/v1/oauth/token`, `/introspect` and `/revoke` no longer include the submitted value in the problem `detail` when `client_secret` or `token` is malformed, for example a mistyped value or an access token sent as `client_secret`. Status and error codes are unchanged: a malformed `client_secret` returns `401 INVALID_CREDENTIALS`, a malformed `token` returns `400 BAD_BODY_VALUE`. Both now identify the form field in `source` and use a fixed `detail`. Clients that parsed the old message should rely on `error` and `source.field` instead.
 
 ## 2026-10-19 — Normalized listing title typography (#2201)
 

@@ -109,7 +109,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_reject_malformed_client_secret_without_reflecting_it() {
-        for client_secret in [SECRET_MARKER.to_owned(), String::from(RawAccessToken::new())] {
+        for client_secret in [
+            SECRET_MARKER.to_owned(),
+            String::from(RawAccessToken::new()),
+        ] {
             let response = request(&form(&[
                 ("grant_type", "authorization_code".to_owned()),
                 ("code", OAuthAuthorizationCode::new().to_string()),

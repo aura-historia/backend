@@ -150,14 +150,12 @@ pub(crate) fn required_form_access_token(
 pub(crate) fn required_form_client_secret(
     form: &HashMap<String, String>,
 ) -> Result<RawOAuthClientSecret, Response> {
-    RawOAuthClientSecret::try_from(required_form(form, "client_secret")?.to_owned()).map_err(
-        |_| {
-            ApiError::unauthorized(INVALID_CREDENTIALS)
-                .with_body_field("client_secret")
-                .with_detail("Form field 'client_secret' is not a valid OAuth client secret.")
-                .into_response()
-        },
-    )
+    RawOAuthClientSecret::try_from(required_form(form, "client_secret")?.to_owned()).map_err(|_| {
+        ApiError::unauthorized(INVALID_CREDENTIALS)
+            .with_body_field("client_secret")
+            .with_detail("Form field 'client_secret' is not a valid OAuth client secret.")
+            .into_response()
+    })
 }
 
 #[cfg(test)]
@@ -182,7 +180,10 @@ pub(crate) mod test_support {
         let status = response.status().as_u16();
         for (name, value) in response.headers() {
             assert!(
-                !value.as_bytes().windows(secret.len()).any(|w| w == secret.as_bytes()),
+                !value
+                    .as_bytes()
+                    .windows(secret.len())
+                    .any(|w| w == secret.as_bytes()),
                 "header {name} reflects the submitted credential"
             );
         }
@@ -267,9 +268,7 @@ mod tests {
         ]);
 
         assert!(matches!(required_form_access_token(&form), Ok(value) if value == token));
-        assert!(
-            matches!(required_form_client_secret(&form), Ok(value) if value == client_secret)
-        );
+        assert!(matches!(required_form_client_secret(&form), Ok(value) if value == client_secret));
     }
 
     #[test]
