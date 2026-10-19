@@ -80,6 +80,61 @@ paths:
           description: The readiness check succeeded.
         "503":
           description: The readiness check failed or timed out; no diagnostic body is returned.
+  /api/v1/overview:
+    get:
+      summary: Get public catalogue statistics
+      description: |
+        Anonymous aggregate statistics for the public catalogue. Hourly maintenance recalculates
+        every count together from authoritative PostgreSQL about every six hours, and reads return
+        that stored calculation; `asOf` is its time. Including the 15-minute shared edge cache,
+        figures are normally at most about seven hours old; a failed refresh keeps the previous
+        calculation.
+        There are no filters, personalization, or per-source, per-partner or per-user details.
+        Credentials are neither required nor evaluated, and query strings never change the
+        representation; send none, because each distinct query string is cached separately.
+        Clients should not attach a bearer token; any `Authorization` header makes the response
+        private.
+
+        Counts cover ProductListings with lifecycle `ACTIVE`, whatever their availability.
+        `sourcesIndexed` counts distinct ListingSources with at least one counted listing.
+        `countries` counts distinct countries in the counted listings' effective advertised-inventory
+        geography; business association and shipping destinations do not establish inventory location.
+        `languages` counts the union of original title and description languages; generated
+        translations and presentation fallbacks are excluded. `newObjectsLast7Days` counts listings
+        whose `created` timestamp lies in the 168 hours ending at `asOf` (start exclusive, end inclusive).
+        Effective geography and OpenSearch projections may lag PostgreSQL while they catch up.
+      operationId: getPublicOverview
+      tags: [Overview]
+      security: []
+      responses:
+        "200":
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=900, stale-if-error=0`; any request with Authorization uses `private, no-store`.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: public, max-age=0, s-maxage=900, stale-if-error=0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicOverviewData"
+        "500":
+          description: The aggregate read model is invalid. Cache-Control is no-store.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                status: 500
+                title: Internal Server Error
+                error: OVERVIEW_INTERNAL_ERROR
+        "503":
+          description: PostgreSQL is temporarily unavailable, or no calculation has been stored yet. Cache-Control is no-store.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OVERVIEW_TEMPORARILY_UNAVAILABLE
   /api/v1/auctions:
     get:
       summary: List public Auctions
@@ -23558,6 +23613,52 @@ components:
           description: Optional WooCommerce product modification timestamp. Accepted forms are no-offset GMT interpreted as UTC, RFC3339 `Z`, and RFC3339 `+00:00`; nonzero offsets are rejected. A valid value establishes provider source order; omit it when no source-ordering guarantee is available.
           example: "2026-09-06T12:34:56"
 
+    PublicOverviewData:
+      type: object
+      description: Aggregate public-catalogue statistics from the latest scheduled calculation. Contains counts only.
+      required:
+        - asOf
+        - sourcesIndexed
+        - liveObjects
+        - countries
+        - languages
+        - newObjectsLast7Days
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: UTC database timestamp at which the stored calculation counted every value.
+          example: "2026-10-19T12:00:00.123456Z"
+        sourcesIndexed:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct ListingSources represented by at least one counted live listing.
+          example: 124
+        liveObjects:
+          type: integer
+          format: int64
+          minimum: 0
+          description: ProductListings with lifecycle `ACTIVE`, including sold-out and unspecified availability.
+          example: 182450
+        countries:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct countries in the counted listings' effective advertised-inventory geography.
+          example: 18
+        languages:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Distinct original title and description languages of the counted listings.
+          example: 9
+        newObjectsLast7Days:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counted listings created in the 168 hours ending at `asOf`.
+          example: 3120
     AdminOverviewData:
       type: object
       description: Versioned bounded administrator operational summary sourced from authoritative PostgreSQL.
@@ -25803,6 +25904,8 @@ x-tagGroups:
 tags:
   - name: Operations
     description: Public process liveness and service readiness probes.
+  - name: Overview
+    description: Public aggregate catalogue statistics.
   - name: Auctions
     description: Public Auction discovery, catalogue reads, and administrator Auction management.
   - name: ProductListings

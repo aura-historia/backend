@@ -17,6 +17,7 @@ pub mod product_listing_raw_normalization;
 pub mod product_listing_repository;
 pub mod product_listing_translation_source_reader;
 pub mod product_listing_translation_writer;
+pub mod public_catalogue_overview_refresher;
 pub mod readers;
 mod title;
 mod url;
@@ -39,6 +40,7 @@ pub use product_listing_raw_normalization::{
 pub use product_listing_repository::SqlxProductListingRepositoryFactory;
 pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
 pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
+pub use public_catalogue_overview_refresher::SqlxPublicCatalogueOverviewRefresherFactory;
 pub use readers::{
     SqlxAdminProductListingReader, SqlxAuctionCatalogueReaderFactory,
     SqlxListingSourceSummaryReader, SqlxProductListingContentAssessmentReader,
@@ -49,6 +51,7 @@ pub use readers::{
     SqlxProductListingSearchFilterMatchSourceReaderFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
+    SqlxPublicCatalogueOverviewReaderFactory,
 };
 
 pub mod geography;

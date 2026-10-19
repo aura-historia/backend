@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Public catalogue overview (#2196)
+
+- New anonymous `GET /api/v1/overview` returns aggregate counts for the public catalogue: `sourcesIndexed`, `liveObjects`, `countries`, `languages` and `newObjectsLast7Days`. Hourly maintenance recalculates them together from PostgreSQL about every six hours; `asOf` is the UTC time of that calculation. It has no filters or personalization and returns no per-source, per-partner or per-user details. Before the first calculation, and while PostgreSQL is unavailable, it returns `503 OVERVIEW_TEMPORARILY_UNAVAILABLE`; an invalid stored calculation returns `500 OVERVIEW_INTERNAL_ERROR`.
+- Anonymous `200` responses use `public, max-age=0, s-maxage=900, stale-if-error=0`, so figures are normally at most about seven hours old. Query strings never change the representation; request it without one, since each distinct query string is cached separately. Credentials are not evaluated, but any `Authorization` header makes the response `private, no-store`; request it without a bearer token. Cache lifetimes of existing endpoints are unchanged.
+
 ## 2026-10-19 — Strict NONE browsing destination (#2164)
 
 - `PUT /api/v1/me/browsing-destination` rejects a `NONE` destination carrying any member besides `kind` (for example `{"kind":"NONE","country":"FR"}`) with `400 BAD_BODY_VALUE`, as the `BrowsingDestination` schema declares. Previously such a request returned `200`, incremented the version and cleared the existing preference.
@@ -17,7 +22,6 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - `PATCH /api/v1/me/watchlist/{productListingId}` now returns the documented personalized product details (`item` and `userState`), including for an empty `{}` no-op, instead of a bare watchlist entry. `userState.watchlist` reflects the updated activation and notification settings; hidden/withdrawn redaction is preserved. POST responses are unchanged.
 - The route now honors `language` and `currency` (defaults `en` and `EUR`) and rejects unsupported values with `400 BAD_QUERY_PARAMETER_VALUE` before updating the entry. Delegated callers still need only `watchlist:write` for the update and its response.
 - OpenAPI no longer permits `WatchlistProductPatch.state: null`, matching the existing `400 BAD_BODY_VALUE` behavior. Omit the field to leave activation unchanged.
-
 
 ## 2026-10-19 — CORS-exposed trace headers (#2159)
 

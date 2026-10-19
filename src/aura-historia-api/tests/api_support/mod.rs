@@ -2180,6 +2180,12 @@ async fn test_state(
             )),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
+        .with_public_overview(state::PublicOverviewState::new(Arc::new(
+            product_listing_service::use_cases::GetPublicCatalogueOverviewHandler::new(
+                unit_of_work.clone(),
+                product_listing_postgres::SqlxPublicCatalogueOverviewReaderFactory::new(),
+            ),
+        )))
         .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)
