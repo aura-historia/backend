@@ -571,19 +571,28 @@ function renderCoverageSummary(matrix) {
     const pageRefs = matrix.candidates[0].pages || [];
     const covered = pageRefs.filter(page => pageCovered(matrix, page.page_reference)).length;
     const failures = currentCandidateFailures(matrix);
-    const pagesWithMisses = currentCandidatePagesWithOptionalMisses(matrix);
     return `<div class="hint-card">
       <strong>Coverage</strong>
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
-      ${pagesWithMisses.length ? `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} page${pagesWithMisses.length === 1 ? '' : 's'}: ${pagesWithMisses.map(page => `${escapeHtml(displayName(page.role))} (${optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ')})`).join('; ')}</div>` : ''}
+      ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
     </div>`;
+}
+
+function renderOptionalMissSummary(pagesWithMisses) {
+    if (!pagesWithMisses.length) return '';
+    const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
+    const perPage = pagesWithMisses.map(page => {
+        const fields = optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ');
+        return `${escapeHtml(displayName(page.role))} (${fields})`;
+    }).join('; ');
+    return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
 }
 
 // A field whose primary and additional selectors all matched nothing on a page
 // that still applied: the field was left empty instead of failing the page.
 function optionalFieldMisses(page) {
-    if (!page || !page.apply_ok) return [];
+    if (!page?.apply_ok) return [];
     return (page.fields || []).filter(field =>
         field.selector_match_count === 0
         && (field.additional_selector_match_counts || []).every(count => count === 0)
