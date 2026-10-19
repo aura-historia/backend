@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Synchronous Partner API authorization and conflict documentation (#2169)
+
+- The OpenAPI contract for synchronous batch `POST`, `PATCH`, `PUT` and `DELETE` on `/api/v1/listing-sources/{listingSourceId}/product-listings` no longer claims that Aura Historia administrators are allowed callers. As enforced, each entry requires a user with a Partnership grant for the path ListingSource; administrator role alone returns `403 FORBIDDEN`. Administrators use `/api/v1/admin/product-listings`. An authenticated empty array returns `200 []` without Partnership or scope checks.
+- The batch response declarations now include the first-failure statuses the API already returns: `409 CONFLICT` for `POST`, `PATCH` and `PUT`, `404 AUCTION_NOT_FOUND` / `PRODUCT_LISTING_NOT_FOUND` where applicable, and `503 AUCTION_TEMPORARILY_UNAVAILABLE`. Runtime behavior is unchanged.
+
 ## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
 - The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.
