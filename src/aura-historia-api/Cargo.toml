@@ -108,6 +108,7 @@ openssl = { workspace = true, features = ["vendored"] }
 product-listing-normalization = { workspace = true }
 product-service = { workspace = true }
 rstest = { workspace = true }
+strum = { workspace = true }
 sha2 = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }

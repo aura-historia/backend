@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — ARS shipping currency (#2160)
+
+- The OpenAPI `ShippingCurrencyCode` enum now includes `ARS`, matching `CurrencyData`. Shipping profile and import amounts and listing shipping display prices (for example `?currency=ARS`) already accepted or returned `ARS`; clients generated from the old contract rejected those payloads and must be regenerated.
+- Saved searches in `ARS` whose shipping maximum requires FX conversion now record matches. Previously, matching such a listing failed instead of creating a match.
+
 ## 2026-10-19 — Search `excludeProductListingId` documentation (#2155)
 
 - The OpenAPI contract for `GET /api/v1/product-listings` now names the exclusion query parameter `excludeProductListingId`, which is the name the API has always read. The previously documented `excludeProductId` was never supported on this endpoint and is ignored; clients generated from the old contract must switch to `excludeProductListingId`. Values must be strict `pl_` TypeIDs. Saved search-filter bodies are unchanged.
