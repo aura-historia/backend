@@ -508,16 +508,17 @@ export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
 
 /**
  * Exact paths whose body or query carries OAuth redirect URIs: client registration/update,
- * authorize and token exchange. They only store or compare those URIs and never fetch them.
+ * authorize and token exchange. The API never fetches URIs submitted to these routes.
  * The URI path is matched raw, so encoded, dot-segment or trailing-slash variants stay out of scope.
  */
 export const API_OAUTH_REDIRECT_URI_PATH_PATTERN =
   "^/api/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token))$";
 
 /**
- * Common-rule-set rules for URLs that target internal hosts (EC2 metadata SSRF and IPv4 RFI) in
- * the body or query. Contract-valid loopback HTTPS callbacks such as `https://localhost:3458/...`
- * can match them, so they are counted in the group and blocked outside OAuth redirect-URI paths.
+ * Common-rule-set rules for URLs that target internal hosts in the body or query. Contract-valid
+ * loopback HTTPS callbacks can match them: `https://localhost:3458/...` the EC2 metadata SSRF
+ * rules, IPv4 literals such as `https://127.0.0.1:3458/...` also the RFI rules. They are counted
+ * in the group and blocked outside OAuth redirect-URI paths.
  */
 export const API_SCOPED_URL_TARGET_RULES = [
   { name: "EC2MetaDataSSRF_BODY", label: "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body" },

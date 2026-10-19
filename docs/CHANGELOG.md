@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
 
-- OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` and `POST /api/v1/oauth/token` now accept contract-valid loopback HTTPS redirect URIs such as `https://localhost:3458/oauth/callback`, used by Shopify CLI `--use-localhost` development. CloudFront previously rejected registering such a URI with an HTML `403` (`Request blocked.`) before authentication or validation, and the same edge rules could reject authorize and token requests carrying it. Redirect URI validation is unchanged.
+- CloudFront no longer applies its EC2 metadata SSRF and IPv4 remote-file-inclusion request checks to OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` or `POST /api/v1/oauth/token`. Contract-valid loopback HTTPS redirect URIs, such as `https://localhost:3458/oauth/callback` used by Shopify CLI `--use-localhost` development, therefore reach the API's redirect URI validation. Registering that URI previously failed with an HTML `403` (`Request blocked.`) before authentication or validation. Redirect URI validation is unchanged, and other routes keep these checks.
 
 ## 2026-10-19 — Normalized listing title typography (#2201)
 
