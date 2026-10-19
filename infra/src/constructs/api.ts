@@ -368,27 +368,6 @@ export class BackendHttpApi extends Construct {
         },
       },
     });
-    // The overview representation has no inputs, so query strings stay out of its key. Its own
-    // ceiling keeps the shared discovery policy, and every other route's lifetime, unchanged.
-    const overviewCachePolicy = new cloudfront.CfnCachePolicy(this, "PublicOverviewCachePolicy", {
-      cachePolicyConfig: {
-        comment: `${props.stageName} API public overview cache`,
-        defaultTtl: 0,
-        maxTtl: 21600,
-        minTtl: 0,
-        name: `api-${props.stageName}-public-overview-cache`,
-        parametersInCacheKeyAndForwardedToOrigin: {
-          cookiesConfig: { cookieBehavior: "none" },
-          enableAcceptEncodingBrotli: true,
-          enableAcceptEncodingGzip: true,
-          headersConfig: {
-            headerBehavior: "whitelist",
-            headers: ["Authorization", "Origin", "Host"],
-          },
-          queryStringsConfig: { queryStringBehavior: "none" },
-        },
-      },
-    });
     const responseHeadersPolicy = new cloudfront.CfnResponseHeadersPolicy(this, "SelectiveReadResponseHeadersPolicy", {
       responseHeadersPolicyConfig: {
         comment: `${props.stageName} API selective read response headers`,
@@ -406,6 +385,7 @@ export class BackendHttpApi extends Construct {
       "/api/v1/auctions/*",
       "/api/v1/product-listings",
       "/api/v1/product-listings/*",
+      "/api/v1/overview",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
@@ -423,17 +403,6 @@ export class BackendHttpApi extends Construct {
             targetOriginId: originId,
             viewerProtocolPolicy: "redirect-to-https",
           })),
-          {
-            allowedMethods: ["GET", "HEAD", "OPTIONS"],
-            cachedMethods: ["GET", "HEAD"],
-            cachePolicyId: overviewCachePolicy.ref,
-            compress: true,
-            originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
-            pathPattern: "/api/v1/overview",
-            responseHeadersPolicyId: responseHeadersPolicy.ref,
-            targetOriginId: originId,
-            viewerProtocolPolicy: "redirect-to-https",
-          },
           {
             allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
             cachedMethods: ["GET", "HEAD", "OPTIONS"],

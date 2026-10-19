@@ -86,12 +86,14 @@ paths:
       description: |
         Anonymous aggregate statistics for the public catalogue. Hourly maintenance recalculates
         every count together from authoritative PostgreSQL about every six hours, and reads return
-        that stored calculation; `asOf` is its time. Including the shared edge cache, figures are
-        normally at most about twelve hours old; a failed refresh keeps the previous calculation.
+        that stored calculation; `asOf` is its time. Including the 15-minute shared edge cache,
+        figures are normally at most about seven hours old; a failed refresh keeps the previous
+        calculation.
         There are no filters, personalization, or per-source, per-partner or per-user details.
-        Credentials are neither required nor evaluated, and query strings are ignored: they change
-        neither the representation nor the shared cache key. Clients should not attach a bearer
-        token; any `Authorization` header makes the response private.
+        Credentials are neither required nor evaluated, and query strings never change the
+        representation; send none, because each distinct query string is cached separately.
+        Clients should not attach a bearer token; any `Authorization` header makes the response
+        private.
 
         Counts cover ProductListings with lifecycle `ACTIVE`, whatever their availability.
         `sourcesIndexed` counts distinct ListingSources with at least one counted listing.
@@ -106,11 +108,11 @@ paths:
       security: []
       responses:
         "200":
-          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=21600, stale-if-error=0`; any request with Authorization uses `private, no-store`.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=900, stale-if-error=0`; any request with Authorization uses `private, no-store`.
           headers:
             Cache-Control:
               schema: { type: string }
-              example: public, max-age=0, s-maxage=21600, stale-if-error=0
+              example: public, max-age=0, s-maxage=900, stale-if-error=0
           content:
             application/json:
               schema:

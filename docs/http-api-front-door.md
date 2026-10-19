@@ -93,28 +93,22 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing collection | 60 s |
 | Product-listing ID/by-slug detail | 120 s |
 | Product-listing history and ready similar results | 300 s |
-| Public catalogue overview (`/api/v1/overview`) | 21600 s |
+| Public catalogue overview | 900 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
 responses containing advertised shipping cap this TTL at referenced geographic provider
 evidence retention deadlines; shipping observation age does not expire terms. Destination
 personalization remains private and uncached.
-The discovery policy has zero minimum/default TTL and a 900-second ceiling, keys on
-`Authorization`, `Origin`, `Host` and **all query strings**, and enables gzip/Brotli variation.
-The exact overview behavior uses its own policy with zero minimum/default TTL, a 21600-second
-ceiling, the same headers and **no query strings**: its representation has no inputs, and the
-route evaluates no credentials. Each route's explicit TTL is effective only within its policy
-ceiling; never raise a shared minimum, default or ceiling to lengthen one route, and add an
-explicit TTL before moving a route to a policy with a higher ceiling. Cookies are forwarded
-but not keyed: never add cookie-dependent data to a shared representation. OPTIONS is not
-cached; no stale-while-revalidate or positive stale-on-error window exists. Caching reduces
-origin work but does not bound it: each edge or cache-key miss reaches the origin, so the
-overview origin only reads its stored calculation.
+The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin`,
+`Host` and **all query strings**, and enables gzip/Brotli variation. Cookies are
+forwarded but not keyed: never add cookie-dependent data to a shared representation.
+OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors and the exact overview behavior use these policies;
-generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard expansion requires
-route/cache review and tests. Do not add token-derived keys, cookie partitions or an
-edge auth function. Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
+Only reviewed discovery path behaviors, including the exact `/api/v1/overview` path, use
+this policy; generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard
+expansion requires route/cache review and tests. Do not add token-derived keys, cookie
+partitions or an edge auth function.
+Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
 

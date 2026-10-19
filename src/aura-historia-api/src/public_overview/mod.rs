@@ -14,8 +14,9 @@ use product_listing_service::use_cases::PublicCatalogueOverview;
 use serde::Serialize;
 use time::OffsetDateTime;
 
-/// Matches the dedicated CloudFront overview policy ceiling; other routes keep their own TTLs.
-pub(crate) const PUBLIC_OVERVIEW_SHARED_TTL_SECONDS: u32 = 21_600;
+/// The shared discovery policy ceiling: reads only return the stored calculation, so a short
+/// edge lifetime costs little and keeps figures close to their `asOf`.
+const PUBLIC_OVERVIEW_SHARED_TTL_SECONDS: u32 = 900;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,7 +81,7 @@ mod tests {
     use time::macros::datetime;
     use tower::ServiceExt;
 
-    const PUBLIC_CACHE_CONTROL: &str = "public, max-age=0, s-maxage=21600, stale-if-error=0";
+    const PUBLIC_CACHE_CONTROL: &str = "public, max-age=0, s-maxage=900, stale-if-error=0";
 
     type Requests = Arc<Mutex<Vec<OperationContext>>>;
 
@@ -180,7 +181,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_share_anonymous_overview_for_six_hours() {
+    async fn should_share_anonymous_overview_for_fifteen_minutes() {
         let requests = Arc::new(Mutex::new(Vec::new()));
 
         let response = get(

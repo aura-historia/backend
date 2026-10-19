@@ -72,7 +72,7 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
 
         assert_eq!(reqwest::StatusCode::OK, status, "{path_and_query}");
         assert_eq!(
-            Some("public, max-age=0, s-maxage=21600, stale-if-error=0".to_owned()),
+            Some("public, max-age=0, s-maxage=900, stale-if-error=0".to_owned()),
             cache_control,
             "{path_and_query}"
         );
