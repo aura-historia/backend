@@ -20,7 +20,7 @@ pub async fn search_admin_product_listings(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let request = serde_qs::from_str::<SearchQuery>(raw.as_deref().unwrap_or_default())
+    let request = crate::wire::from_query_str::<SearchQuery>(raw.as_deref().unwrap_or_default())
         .map_err(|_| query_error("query", "Invalid directory query."))
         .and_then(SearchQuery::into_request);
     let request = match request {

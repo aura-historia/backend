@@ -186,10 +186,9 @@ fn parse_list_admin_access_tokens_query(
     user_id: UserId,
     raw_query: Option<&str>,
 ) -> Result<ListAdminAccessTokensRequest, ApiError> {
-    let query: ListAdminAccessTokensQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
-        .map_err(|error| bad_query("query", error))?;
+    let query: ListAdminAccessTokensQuery =
+        crate::wire::from_query_str(raw_query.unwrap_or_default())
+            .map_err(|error| bad_query("query", error))?;
     let size = query
         .size
         .map(|value| {

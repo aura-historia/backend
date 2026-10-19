@@ -33,7 +33,7 @@ pub(super) async fn list_notifications(
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query = match serde_qs::from_str::<ListNotificationsQuery>(
+    let query = match crate::wire::from_query_str::<ListNotificationsQuery>(
         raw_query.as_deref().unwrap_or_default(),
     ) {
         Ok(query) => query,

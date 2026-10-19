@@ -5,6 +5,18 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use std::str::FromStr;
 
+/// Query decoding shared by every handler. Form encoding makes percent-encoded deep-object
+/// brackets (`a%5Bb%5D=1`), as produced by ordinary HTTP client encoders, nest exactly like
+/// literal brackets instead of becoming opaque top-level keys that lenient structs ignore.
+const QUERY_CONFIG: serde_qs::Config = serde_qs::Config::new().use_form_encoding(true);
+
+pub(crate) fn from_query_str<'de, T>(raw_query: &'de str) -> Result<T, serde_qs::Error>
+where
+    T: Deserialize<'de>,
+{
+    QUERY_CONFIG.deserialize_str(raw_query)
+}
+
 pub(crate) fn parse_path_object_id<T>(
     value: &str,
     field: &'static str,
@@ -666,6 +678,30 @@ mod tests {
         let response = error.into_response();
         let body = to_bytes(response.into_body(), usize::MAX).await?;
         Ok(serde_json::from_slice(&body)?)
+    }
+
+    #[test]
+    fn query_decoding_treats_percent_encoded_brackets_as_deep_object_syntax()
+    -> Result<(), Box<dyn std::error::Error>> {
+        type Query = std::collections::BTreeMap<String, Value>;
+        let pairs = [
+            ("geography[countries][0]", "DE"),
+            ("searchAfter[locationId]", "loc"),
+            ("cursor", r#"{"searchAfter":["a[0]"]}"#),
+        ];
+        let literal = "geography[countries][0]=DE&searchAfter[locationId]=loc&cursor=%7B%22searchAfter%22%3A%5B%22a%5B0%5D%22%5D%7D";
+        let encoded = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+
+        let expected = json!({
+            "geography": { "countries": ["DE"] },
+            "searchAfter": { "locationId": "loc" },
+            "cursor": r#"{"searchAfter":["a[0]"]}"#,
+        });
+        assert_eq!(expected, json!(from_query_str::<Query>(literal)?));
+        assert_eq!(expected, json!(from_query_str::<Query>(&encoded)?));
+        Ok(())
     }
 
     #[test]

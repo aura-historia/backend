@@ -74,8 +74,9 @@ pub async fn get_auction_catalogue(
             Ok(value) => value,
             Err(error) => return no_store(error.into_response()),
         };
-    let query = match serde_qs::from_str::<CatalogueQuery>(raw_query.as_deref().unwrap_or_default())
-    {
+    let query = match crate::wire::from_query_str::<CatalogueQuery>(
+        raw_query.as_deref().unwrap_or_default(),
+    ) {
         Ok(value) => value,
         Err(error) => {
             return no_store(
@@ -134,8 +135,9 @@ pub async fn list_public_auctions(
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let data = match serde_qs::from_str::<DirectoryQuery>(raw_query.as_deref().unwrap_or_default())
-    {
+    let data = match crate::wire::from_query_str::<DirectoryQuery>(
+        raw_query.as_deref().unwrap_or_default(),
+    ) {
         Ok(value) => value,
         Err(error) => {
             return no_store(
@@ -1046,7 +1048,7 @@ mod tests {
         let catalogue_query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("searchAfter", &catalogue_json)
             .finish();
-        let catalogue_query = serde_qs::from_str::<CatalogueQuery>(&catalogue_query)?;
+        let catalogue_query = crate::wire::from_query_str::<CatalogueQuery>(&catalogue_query)?;
         let catalogue_cursor = parse_catalogue_cursor(
             catalogue_query
                 .search_after
@@ -1073,7 +1075,7 @@ mod tests {
         let directory_query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("searchAfter", &directory_json)
             .finish();
-        let directory_query = serde_qs::from_str::<DirectoryQuery>(&directory_query)?;
+        let directory_query = crate::wire::from_query_str::<DirectoryQuery>(&directory_query)?;
         let directory_cursor = parse_directory_cursor(
             directory_query
                 .search_after
@@ -1087,26 +1089,27 @@ mod tests {
     #[test]
     fn should_parse_directory_sort_order_and_unbounded_schedule()
     -> Result<(), Box<dyn std::error::Error>> {
-        let default = serde_qs::from_str::<DirectoryQuery>("")?.try_into_request()?;
+        let default = crate::wire::from_query_str::<DirectoryQuery>("")?.try_into_request()?;
         assert_eq!(None, default.sort);
         assert_eq!(SortOrder::Desc, default.order());
         assert_eq!(None, default.scope().order);
 
         let scheduled =
-            serde_qs::from_str::<DirectoryQuery>("sort=scheduled&timeRole=LIVE_STARTS")?
+            crate::wire::from_query_str::<DirectoryQuery>("sort=scheduled&timeRole=LIVE_STARTS")?
                 .try_into_request()?;
         assert_eq!(Some(AuctionSchedulePoint::LiveStarts), scheduled.sort);
         assert_eq!(SortOrder::Asc, scheduled.order());
         assert_eq!(None, scheduled.schedule);
         assert_eq!(Some(SortOrder::Asc), scheduled.scope().order);
 
-        let descending = serde_qs::from_str::<DirectoryQuery>(
+        let descending = crate::wire::from_query_str::<DirectoryQuery>(
             "sort=scheduled&timeRole=SCHEDULED_END&order=desc",
         )?
         .try_into_request()?;
         assert_eq!(SortOrder::Desc, descending.order());
         let ascending_created =
-            serde_qs::from_str::<DirectoryQuery>("sort=created&order=asc")?.try_into_request()?;
+            crate::wire::from_query_str::<DirectoryQuery>("sort=created&order=asc")?
+                .try_into_request()?;
         assert_eq!(SortOrder::Asc, ascending_created.order());
         Ok(())
     }
@@ -1121,7 +1124,7 @@ mod tests {
             "sort=scheduled&timeRole=LIVE_STARTS&from=2026-01-01T00%3A00%3A00Z",
             "from=2026-01-01T00%3A00%3A00Z",
         ] {
-            let parsed = serde_qs::from_str::<DirectoryQuery>(query)
+            let parsed = crate::wire::from_query_str::<DirectoryQuery>(query)
                 .unwrap_or_else(|error| panic!("failed to parse {query}: {error}"));
             assert!(parsed.try_into_request().is_err(), "accepted {query}");
         }

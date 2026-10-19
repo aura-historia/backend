@@ -235,7 +235,7 @@ mod tests {
     use product_listing_core::product_listing_id::ProductListingId;
 
     fn parse(raw: &str) -> Result<AdminProductListingSearchRequest, ApiError> {
-        serde_qs::from_str::<SearchQuery>(raw)
+        crate::wire::from_query_str::<SearchQuery>(raw)
             .map_err(|_| query_error("query", "Invalid query."))?
             .into_request()
     }

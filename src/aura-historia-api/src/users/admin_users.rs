@@ -100,9 +100,7 @@ pub async fn search_users(
 }
 
 fn parse_search_users_query(raw_query: Option<&str>) -> Result<SearchUsersRequest, ApiError> {
-    let query: SearchUsersQuery = serde_qs::Config::new()
-        .use_form_encoding(true)
-        .deserialize_str(raw_query.unwrap_or_default())
+    let query: SearchUsersQuery = crate::wire::from_query_str(raw_query.unwrap_or_default())
         .map_err(|error| {
             ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
                 .with_detail(error.to_string())

@@ -39,9 +39,10 @@ pub async fn search_admin_auctions(
         Ok(value) => value,
         Err(response) => return no_store(*response),
     };
-    let request = serde_qs::from_str::<SearchQuery>(raw_query.as_deref().unwrap_or_default())
-        .map_err(|error| query_error(error.to_string()))
-        .and_then(SearchQuery::into_request);
+    let request =
+        crate::wire::from_query_str::<SearchQuery>(raw_query.as_deref().unwrap_or_default())
+            .map_err(|error| query_error(error.to_string()))
+            .and_then(SearchQuery::into_request);
     let request = match request {
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
@@ -323,7 +324,7 @@ mod tests {
     use listing_source_core::ListingSourceId;
 
     fn parse(raw: &str) -> Result<AdminAuctionSearchRequest, ApiError> {
-        serde_qs::from_str::<SearchQuery>(raw)
+        crate::wire::from_query_str::<SearchQuery>(raw)
             .map_err(|error| query_error(error.to_string()))?
             .into_request()
     }
