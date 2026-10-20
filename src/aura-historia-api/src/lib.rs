@@ -70,7 +70,7 @@ use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
     VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
 };
-use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::readers::FxSearchCacheConfig;
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use notification_postgres::{
@@ -171,9 +171,9 @@ use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_postgres::{
     SqlxAuctionCatalogueReaderFactory, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
-    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingWatchlistDetailsReaderFactory, SqlxPublicCatalogueOverviewReaderFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingLifecycleGuardFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPublicCatalogueOverviewReaderFactory,
 };
 use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
