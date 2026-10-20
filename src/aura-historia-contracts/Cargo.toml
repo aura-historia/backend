@@ -5,13 +5,31 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
+auction-core = { workspace = true }
+domain-primitives = { workspace = true }
+fxrate-core = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+notification-core = { workspace = true }
+party-core = { workspace = true }
 product-listing-core = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+product-listing-service = { workspace = true }
 schemars = { workspace = true }
+search-filter-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shipping-core = { workspace = true }
+shipping-json = { workspace = true }
+shipping-service = { workspace = true }
 strum = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["serde", "serde-well-known"] }
+url = { workspace = true }
 
 [dev-dependencies]
 jsonschema = { version = "0.59.0", default-features = false }
 serde_json = { workspace = true }
+shipping-core = { workspace = true, features = ["test-data"] }
+time = { workspace = true, features = ["macros"] }

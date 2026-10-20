@@ -4,12 +4,15 @@
 handles. REST and MCP call those handles directly. This crate does not own transport state,
 DTOs, authentication, business rules, transaction boundaries or publication deadlines.
 
-The initial extracted family is public listing-source discovery: search and detail by slug.
-`Runtime::public_listing_sources()` constructs its handles once for the warm pool. It reads no
-Stripe, Loops, webhook, Cognito, OpenSearch or Google configuration. Add another explicit family
-only with the task that exposes its operations; keep provider configuration inside that selected
-family's composition. Shared DTOs and pure mappings belong to `aura-historia-contracts` as each
-family migrates.
+`Runtime::public_listing_sources()` constructs public listing-source search/detail handles once
+for the warm pool, without loading unrelated provider configuration. Listing discovery selects
+`Runtime::public_product_listings(ProductListingDependencies)` with explicit OpenSearch and
+embedding-provider handles and the existing cache/read policies. Its detail, similarity and search
+handles are reused for the warm pool. `Runtime::listing_shipping()` shares the existing shipping
+assessment/address-resolution composition with catalogue readers. Constructing these handles
+performs no provider request. Shared DTOs and pure mappings belong to `aura-historia-contracts`.
+Add further explicit families only with the task exposing their operations; keep configuration
+requirements confined to the selected family.
 
 Native entry points use `Runtime::from_env()` with the existing explicit PostgreSQL settings.
 Lambda entry points use `RotatingRuntime::from_env()` and call `current()` before each invocation.
