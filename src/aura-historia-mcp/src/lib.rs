@@ -7,6 +7,7 @@ mod http;
 pub mod lambda;
 mod metadata;
 mod protocol;
+pub mod public;
 pub mod public_discovery;
 mod registry;
 

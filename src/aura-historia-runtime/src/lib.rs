@@ -5,6 +5,8 @@
 //! with their existing owners. Extract further families only when a transport needs them.
 
 mod postgres;
+pub mod product_listing_config;
+mod product_listing_providers;
 mod public_auctions;
 mod public_listing_source_read_budget;
 mod public_listing_sources;
@@ -15,6 +17,8 @@ mod public_product_listings;
 mod rotation;
 
 pub use postgres::PostgresConfigError;
+pub use product_listing_config::ProductListingConfig;
+pub use product_listing_providers::ProductListingProviderError;
 pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
 pub use public_listing_sources::PublicListingSources;

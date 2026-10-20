@@ -58,6 +58,7 @@ function loopsNewsletterEnvironment(config: StageConfig): Record<string, string>
 
 export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
+    ...listingProviderEnvironment(context),
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
     MCP_ALLOWED_HOSTS: context.config.mcp.domainName,
@@ -66,18 +67,16 @@ export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string
 }
 
 export function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  const { config, search } = context;
+  const { config } = context;
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
-    OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
     NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
     NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: frontendOrigin(config),
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
-    STAGE: config.stage,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
     STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,
     STRIPE_PORTAL_RETURN_URL: config.stripePortalReturnUrl,
@@ -90,15 +89,24 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
 
   return {
     ...environment,
+    ...listingProviderEnvironment(context),
+    STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
+    ...loopsNewsletterEnvironment(config),
+    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
+  };
+}
+
+function listingProviderEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  const { config, search } = context;
+  return {
+    STAGE: config.stage,
+    OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
     OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
     AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(
       `/secrets/${config.stage}/google-application-credentials`,
     ),
-    STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
-    ...loopsNewsletterEnvironment(config),
-    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
   };
 }

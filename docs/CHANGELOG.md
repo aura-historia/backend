@@ -6,9 +6,9 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - OpenAPI now documents the existing `orderability` and `includeUnspecifiedAvailability` query filters on `GET /v1/product-listings`. They retain the same availability-query semantics as saved searches.
 
-## 2026-10-20 — Shared public MCP discovery family (#2238)
+## 2026-10-20 — Anonymous MCP catalogue (#2239)
 
-- Add the anonymous `searchPublicListingSources`, `getPublicListingSourceBySlug`, `discoverPartyLocations` and `getPublicOverview` operation family with shared REST contracts and direct application service calls. Source search retains query-bound cursors, admission limits and timeouts; location discovery retains complete geography, paging and public context. Registration and argument/error behavior are documented in [MCP transport](mcp.md#public-source-location-and-overview-family).
+- Add twelve anonymous listing, history, auction, source, location and overview tools at the canonical MCP endpoint, using the existing operation IDs and complete shared contracts. Search retains its full filters and continuations; listing history remains complete and unpaginated. Newsletter, private/write/admin and control-plane operations are excluded. See the [public MCP contract](mcp.md#public-catalogue) and [selected-operation manifest](../src/aura-historia-mcp/public-operations.json).
 
 ## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
 

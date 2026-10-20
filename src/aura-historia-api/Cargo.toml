@@ -36,7 +36,6 @@ fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }
 
-google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }

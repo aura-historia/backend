@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }
+application = { workspace = true }
+async-trait = { workspace = true }
+google-cloud-auth = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }
@@ -26,12 +29,11 @@ shipping-service = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+url = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
 
 [dev-dependencies]
-application = { workspace = true }
-async-trait = { workspace = true }
 listing-source-core = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }

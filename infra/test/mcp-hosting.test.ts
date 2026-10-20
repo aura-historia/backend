@@ -133,7 +133,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
   });
 
-  test("allocates a separate bounded Lambda and PostgreSQL budget with only runtime database access", () => {
+  test("allocates a bounded public Lambda with listing providers and only runtime database IAM", () => {
     const [[functionId, fn]] = Object.entries(compute.findResources("AWS::Lambda::Function"))
       .filter(([, resource]) => resource.Properties.FunctionName === `aura-historia-mcp-${stage}`);
     const environment = fn.Properties.Environment.Variables;
@@ -146,11 +146,20 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(environment).toMatchObject({
       AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true", COMMIT_SHA: { Ref: "CommitSHA" },
       MCP_ALLOWED_HOSTS: config.mcp.domainName, MCP_ALLOWED_ORIGINS: config.mcp.allowedOrigins.join(","),
+      STAGE: stage,
+      OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
+      OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
+      OPENSEARCH_PASSWORD: `{{resolve:ssm:/opensearch/${stage}/reader/password}}`,
+      VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
+      VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
       POSTGRES_DATABASE: "aura_historia", POSTGRES_MAX_CONNECTIONS: "1",
       POSTGRES_TLS_ROOT_CERT: "/opt/aura-historia/rds-ca/global-bundle.pem",
     });
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
+      "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT",
     ].sort());
     const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
@@ -159,6 +168,10 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)!;
     expect(rest.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(rest.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    for (const key of ["STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON"]) {
+      expect(environment[key]).toEqual(rest.Properties.Environment.Variables[key]);
+    }
     const roleId = fn.Properties.Role["Fn::GetAtt"][0];
     const statements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === roleId))

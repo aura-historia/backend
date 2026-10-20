@@ -34,17 +34,17 @@ Lambda/ECS database usage. Inspect capacity before activating consumers.
 
 MCP has its own Lambda reserved concurrency: **2 dev / 5 prod**, with one PostgreSQL
 connection per process, independently configured from REST. This bounds active MCP
-invocations and adds a configured steady-state pool budget of 2/5 connections once
-service families open their pool; the empty foundation shell opens none. Frozen warm
-environments, old versions and deployments can retain idle connections beyond active
-concurrency, so this is not a database-enforced global connection ceiling. Confirm
+invocations and adds a configured steady-state pool budget of 2/5 connections when
+use cases open their pool. Frozen warm environments, old versions and deployments can retain
+idle connections beyond active concurrency, so this is not a database-enforced global connection ceiling. Confirm
 actual PostgreSQL/account headroom including REST, workers, migration/admin reserves
 and version/drain overlap before traffic or increasing either setting. Recycle/drain
 old environments and measure real connections during promotion; Gateway rate limits
-are not a database capacity guarantee. MCP receives only runtime-secret access and
-private database/TLS configuration; add other adapters and credentials only with their
-own selected operation family. Certificate/DNS prerequisites and the generic stage
-smoke belong to the [MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).
+are not a database capacity guarantee. MCP receives private database/TLS and shared listing
+provider configuration, while IAM retains only its runtime PostgreSQL secret access. Its public
+catalogue requires no billing, newsletter or Cognito configuration. Add provider credentials only with their selected family.
+Certificate/DNS prerequisites and the generic stage smoke belong to the
+[MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).
 
 The declared single NAT, Single-AZ database/CDC resources and single stage search
 host are outage dependencies, not a high-availability promise. Review current
