@@ -10569,27 +10569,19 @@ paths:
                       type: QUERY
                     detail: must be a valid OAuthClient ID
         "401":
-          description:
-            Unauthorized — the Cognito bearer token is missing, invalid, or the OAuth client was not found / credentials
-            are invalid.
+          description: Unauthorized — the bearer token is missing or invalid (`INVALID_CREDENTIALS`).
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_bearer:
-                  summary: Missing or invalid bearer token
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: UNAUTHORIZED
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "403":
           description:
             Forbidden — the bearer is an Aura Historia access token. Approving an authorization request requires a
@@ -10603,6 +10595,16 @@ paths:
                 title: Forbidden
                 error: FORBIDDEN
                 detail: Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.
+        "404":
+          description: No OAuth client is registered with the requested `client_id` (`OAUTH_CLIENT_NOT_FOUND`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
         "500":
           description: Internal server error.
           content:
@@ -11543,7 +11545,6 @@ paths:
                     status: 403
                     title: Forbidden
                     error: FORBIDDEN
-                    detail: OAuth client creation requires the ADMIN role.
                 delegated_credential:
                   summary: Bearer is an Aura Historia access token
                   value:

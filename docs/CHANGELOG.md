@@ -6,7 +6,6 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.
 - `POST /v1/admin/oauth-clients` now requires a Cognito access JWT because its response contains a new client secret. An administrator's Aura Historia access token receives `403 FORBIDDEN` and no client is registered. OpenAPI no longer lists `AccessTokenAuth` for this operation. Reading, updating and deleting OAuth clients keep accepting administrators' Aura Historia access tokens with the existing scopes.
-- An OAuth access token is an independent credential of the user who approved it. Expiring or revoking any other Aura Historia access token does not affect it.
 
 ## 2026-10-20 — REST base path development cutover (#2216)
 

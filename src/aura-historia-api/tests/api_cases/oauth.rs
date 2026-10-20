@@ -813,7 +813,7 @@ async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
 async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
     let OAuthAdmin {
         client,
-        access_token: token,
+        cognito_token: token,
         ..
     } = oauth_admin().await;
     let response = client
@@ -907,8 +907,8 @@ async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
 async fn should_reject_noncanonical_oauth_client_query_ids() {
     let OAuthAdmin {
         client,
+        cognito_token,
         access_token: token,
-        ..
     } = oauth_admin().await;
 
     for invalid_id in noncanonical_oauth_client_ids(UserId::new().to_string()) {
@@ -931,7 +931,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
 
         let response = client
             .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
-            .bearer_auth(&token)
+            .bearer_auth(&cognito_token)
             .query(&[
                 ("response_type", "code"),
                 ("client_id", invalid_id.as_str()),
@@ -1264,29 +1264,38 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_oauth_client_creation_for_non_admin() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
+    let access_token = seed_access_token_for(
         user_id,
         std::collections::HashSet::from([Scope::AccessTokensWrite]),
     )
     .await;
-    let response = reqwest::Client::new()
-        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
-        .json(&serde_json::json!({
-            "client_name": "Non-admin OAuth Client",
-            "tos_uri": "https://client.example/tos",
-            "policy_uri": "https://client.example/policy",
-            "client_uri": "https://client.example",
-            "logo_uri": "https://client.example/logo.png",
-            "redirect_uris": ["https://client.example/callback"],
-            "scope": ["access-tokens:read"]
-        }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to reject non-admin OAuth client create: {error}"));
-    let (status, body) = json_response(response).await;
 
-    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    for token in [
+        cognito_access_token_for_test_user(user_id),
+        String::from(access_token),
+    ] {
+        let response = reqwest::Client::new()
+            .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
+            .bearer_auth(token)
+            .json(&serde_json::json!({
+                "client_name": "Non-admin OAuth Client",
+                "tos_uri": "https://client.example/tos",
+                "policy_uri": "https://client.example/policy",
+                "client_uri": "https://client.example",
+                "logo_uri": "https://client.example/logo.png",
+                "redirect_uris": ["https://client.example/callback"],
+                "scope": ["access-tokens:read"]
+            }))
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed to reject non-admin OAuth client create: {error}")
+            });
+        let (status, body) = json_response(response).await;
+
+        api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+        assert!(body.get("detail").is_none(), "{body}");
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -1313,6 +1322,7 @@ async fn should_reject_oauth_client_creation_for_admin_without_delegated_write()
     let (status, body) = json_response(response).await;
 
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert!(body.get("detail").is_none(), "{body}");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
