@@ -88,6 +88,11 @@ async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
             .await?;
         assert!(result.items.is_empty());
         assert!(result.continuation.is_none());
+        let history = runtime.public_product_listing_history();
+        assert!(Arc::ptr_eq(
+            &history.get,
+            &runtime.public_product_listing_history().get
+        ));
         assert_eq!(0, runtime.postgres_pool().size());
         runtime.postgres_pool().close().await;
     }

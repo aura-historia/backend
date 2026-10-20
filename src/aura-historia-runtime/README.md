@@ -14,6 +14,10 @@ performs no provider request. Shared DTOs and pure mappings belong to `aura-hist
 Add further explicit families only with the task exposing their operations; keep configuration
 requirements confined to the selected family.
 
+`Runtime::public_product_listing_history()` independently composes the existing complete-history
+use case from PostgreSQL and historical FX readers. It requires no search or embedding providers;
+REST and MCP reuse the same handle.
+
 Native entry points use `Runtime::from_env()` with the existing explicit PostgreSQL settings.
 Lambda entry points use `RotatingRuntime::from_env()` and call `current()` before each invocation.
 It reuses `platform-lambda-bootstrap` configuration and versioned composition leases, plus the

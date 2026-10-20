@@ -185,10 +185,6 @@ where
     }
 }
 
-pub(crate) mod source_listing_id {
-    pub(crate) use aura_historia_contracts::wire::source_listing_id::serialize;
-}
-
 pub(crate) mod currency {
     use super::*;
     use money::Currency;
@@ -196,24 +192,7 @@ pub(crate) mod currency {
     pub(crate) use aura_historia_contracts::wire::currency::{deserialize, serialize};
 
     pub(crate) mod option {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            value: &Option<Currency>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_option_code(value, serializer, Currency::as_str)
-        }
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<Currency>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_option_code(deserializer, Currency::from_code, None)
-        }
+        pub(crate) use aura_historia_contracts::wire::currency::option::{deserialize, serialize};
     }
 
     pub(crate) mod patch {
