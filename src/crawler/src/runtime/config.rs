@@ -70,7 +70,8 @@ impl CrawlerRuntimeConfig {
     /// rate limits, then logs the effective configuration that [`build`](super::build) applies.
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
         for name in REMOVED_ENV {
-            if env_value(name).ok().flatten().is_some() {
+            // A non-UTF-8 value is still a value: it must fail like any other.
+            if !matches!(env_value(name), Ok(None)) {
                 return Err(CrawlerRuntimeConfigError::RemovedSetting { name });
             }
         }

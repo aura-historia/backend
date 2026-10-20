@@ -2,7 +2,7 @@ use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
-use crate::review::repository::CrawlerReviewRepository;
+use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -28,6 +28,9 @@ pub enum UrlPatternServiceError {
 
     #[error(transparent)]
     Classification(#[from] UrlClassificationError),
+
+    #[error(transparent)]
+    Review(#[from] ReviewRepositoryError),
 
     #[error(
         "URL pattern generation is blocked pending review '{review_id}' for ListingSource '{listing_source_id}'"
@@ -88,11 +91,13 @@ pub trait UrlPatternService: Send + Sync {
 
 /// Where a domain's product URL pattern comes from.
 pub enum UrlPatternAuthoring {
-    /// The LLM infers the pattern. With a review repository, the inferred pattern waits for
-    /// approval instead of becoming active.
+    /// The LLM infers the pattern. With a review repository, the inferred pattern is recorded as
+    /// a review and waits for approval, or, with `apply_directly`, is approved at once. A pending
+    /// review for the domain blocks inference either way.
     Inferred {
         classification_service: Box<dyn UrlClassificationService>,
         review_repository: Option<CrawlerReviewRepository>,
+        apply_directly: bool,
     },
     /// An operator writes the pattern: classification opens an undecided review and makes no
     /// LLM call.
@@ -140,7 +145,7 @@ impl UrlPatternServiceImpl {
         let current_pattern = self
             .load_pattern_for_domain(listing_source_id, domain_id)
             .await?;
-        review_repository
+        Ok(review_repository
             .create_url_pattern_review(
                 listing_source_id,
                 domain_id,
@@ -149,10 +154,7 @@ impl UrlPatternServiceImpl {
                 urls,
                 current_pattern.as_ref(),
             )
-            .await
-            .map_err(|err| {
-                UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
-            })
+            .await?)
     }
 }
 
@@ -235,11 +237,12 @@ impl UrlPatternService for UrlPatternServiceImpl {
             });
         }
 
-        let (classification_service, review_repository) = match &self.authoring {
+        let (classification_service, review_repository, apply_directly) = match &self.authoring {
             UrlPatternAuthoring::Inferred {
                 classification_service,
                 review_repository,
-            } => (classification_service, review_repository),
+                apply_directly,
+            } => (classification_service, review_repository, *apply_directly),
             UrlPatternAuthoring::Manual { review_repository } => {
                 let review_id = self
                     .open_review(
@@ -280,6 +283,17 @@ impl UrlPatternService for UrlPatternServiceImpl {
                     urls,
                 )
                 .await?;
+            if apply_directly {
+                // Approval stores the pattern, so the review records what became active.
+                review_repository
+                    .approve_review(
+                        review_id,
+                        Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
+                    )
+                    .await?;
+                debug!(crawl_root_url, domain_id = %domain_id, review_id = %review_id, "Applied inferred product URL pattern");
+                return Ok(pattern);
+            }
             return Err(UrlPatternServiceError::PendingReview {
                 listing_source_id: *listing_source_id,
                 review_id,
@@ -352,6 +366,7 @@ mod tests {
             UrlPatternAuthoring::Inferred {
                 classification_service: Box::new(MockUrlClassificationService::new()),
                 review_repository: None,
+                apply_directly: false,
             },
         );
 

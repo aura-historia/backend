@@ -25,6 +25,9 @@ impl ScraperServiceImpl {
     ///
     /// The candidate keeps `existing_schemas` and appends a starter schema for the operator to
     /// rewrite; approval replaces the ListingSource's schemas with the reviewed list.
+    ///
+    /// Rejecting a manual review is the operator's verdict that its page is not a product
+    /// page: the URL is then classified as other instead of reopening the same review.
     pub(crate) async fn open_manual_schema_review(
         &self,
         review_repository: &CrawlerReviewRepository,
@@ -33,6 +36,28 @@ impl ScraperServiceImpl {
         existing_schemas: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
     ) -> ScraperError {
+        match review_repository
+            .has_rejected_schema_review_for_page(
+                listing_source_id,
+                MANUAL_SCHEMA_REASON,
+                url.as_str(),
+            )
+            .await
+        {
+            Ok(true) => {
+                self.mark_url_other_best_effort(listing_source_id, url, None)
+                    .await;
+                return ScraperError::NotProductPage {
+                    url: url.clone(),
+                    details: "an operator rejected the manual schema review for this page"
+                        .to_owned(),
+                };
+            }
+            Ok(false) => {}
+            Err(error) => {
+                return review_error_to_schema_service_error(error.into()).into();
+            }
+        }
         let mut schemas = existing_schemas.to_vec();
         schemas.push(starter_schema());
         let validation_summary = json!({

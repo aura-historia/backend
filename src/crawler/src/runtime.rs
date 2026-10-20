@@ -209,8 +209,8 @@ where
                     models.url_classification,
                     llm_governor,
                 )),
-                review_repository: (authoring == CrawlerAuthoringMode::Review)
-                    .then(|| review_repo.clone()),
+                review_repository: Some(review_repo.clone()),
+                apply_directly: authoring == CrawlerAuthoringMode::Auto,
             }
         }
     };

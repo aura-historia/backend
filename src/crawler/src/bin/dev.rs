@@ -26,6 +26,7 @@
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
+//! | `CRAWLER_REVIEW_REQUIRED`, `CRAWLER_REVIEW_URL_PATTERN_REQUIRED`, `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Removed: any non-empty value fails startup. Replace them with `CRAWLER_AUTHORING_MODE` (mapping in `docs/crawler/operations.md#authoring-modes`) | unset |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |

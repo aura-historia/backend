@@ -113,6 +113,26 @@ impl CrawlerReviewRepository {
         .transpose()
     }
 
+    /// Whether an operator rejected a product schema review opened for `reason` over `url`.
+    pub async fn has_rejected_schema_review_for_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        reason: &str,
+        url: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM crawler_reviews r \
+             JOIN crawler_review_pages p ON p.review_id = r.review_id \
+             WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
+               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = $3)",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(reason)
+        .bind(url)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn has_pending_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,

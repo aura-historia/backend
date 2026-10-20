@@ -148,6 +148,7 @@ async fn main() {
             UrlPatternAuthoring::Inferred {
                 classification_service,
                 review_repository: None,
+                apply_directly: false,
             },
         ));
 
