@@ -48,6 +48,15 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 15,
     environment: apiEnvironment,
   },
+  auraHistoriaMcp: {
+    id: "AuraHistoriaMcpLambda",
+    binaryName: "aura-historia-mcp",
+    memorySize: 512,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 28,
+    environment: mcpEnvironment,
+  },
   cloudWatchLogRetention: {
     id: "CloudWatchLogRetentionLambda",
     binaryName: "cloudwatch-log-retention-lambda",
@@ -258,6 +267,7 @@ export interface LambdasProps {
 export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
   readonly apiAlias: lambda.Alias;
+  readonly mcpAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
   readonly productListingIngestionVersion: lambda.Version;
@@ -307,6 +317,11 @@ export class Lambdas extends Construct {
         removalPolicy: consentEvidenceLogGroupRemovalPolicy,
       },
     );
+    const mcpLogGroup = new logs.LogGroup(this, "AuraHistoriaMcpLogGroup", {
+      logGroupName: `/aws/lambda/aura-historia-mcp-${props.config.stage}`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: props.config.removalPolicy,
+    });
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       emailConfigurationSet: props.emailConfigurationSet,
@@ -335,19 +350,23 @@ export class Lambdas extends Construct {
           props.artifactBucket,
           `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
         ),
-        currentVersionOptions: key === "auraHistoriaApi"
-          ? { description: `aura-historia-api-${props.parameters.commitSha}` }
+        currentVersionOptions: key === "auraHistoriaApi" || key === "auraHistoriaMcp"
+          ? { description: `${definition.binaryName}-${props.parameters.commitSha}` }
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" || key === "listingShipping" ? 2 : undefined,
+        reservedConcurrentExecutions: key === "auraHistoriaMcp"
+          ? props.config.mcp.reservedConcurrency
+          : key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" || key === "listingShipping" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"
             ? apiEvidenceLogGroup
-            : key === "postConfirmation"
-              ? postConfirmationEvidenceLogGroup
-              : undefined,
+            : key === "auraHistoriaMcp"
+              ? mcpLogGroup
+              : key === "postConfirmation"
+                ? postConfirmationEvidenceLogGroup
+                : undefined,
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -361,6 +380,11 @@ export class Lambdas extends Construct {
       aliasName: API_LAMBDA_ALIAS_NAME,
       version: this.functions.auraHistoriaApi.currentVersion,
       description: "Stable HTTP API integration target",
+    });
+    this.mcpAlias = new lambda.Alias(this, "AuraHistoriaMcpAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.auraHistoriaMcp.currentVersion,
+      description: "Stable MCP HTTP integration target",
     });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
@@ -742,6 +766,15 @@ function consentLogRetentionEnvironment(context: LambdaEnvironmentContext): Reco
   };
 }
 
+function mcpEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
+    COMMIT_SHA: context.commitSha,
+    MCP_ALLOWED_HOSTS: context.config.mcp.domainName,
+    MCP_ALLOWED_ORIGINS: context.config.mcp.allowedOrigins.join(","),
+  };
+}
+
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   const { config, search } = context;
   const environment = {
@@ -785,7 +818,7 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
   const importScope = new Construct(scope, id);
 
   for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-    if (key === "auraHistoriaApi") {
+    if (key === "auraHistoriaApi" || key === "auraHistoriaMcp") {
       catalog[key] = lambda.Function.fromFunctionAttributes(
         importScope,
         `${definition.id}AliasImport`,

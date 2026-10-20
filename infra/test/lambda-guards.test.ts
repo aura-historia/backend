@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
-import { STAGES, type StageName } from "../src/config";
+import { STAGES, stageConfig, type StageName } from "../src/config";
 
 type CloudFormationResource = {
   readonly Properties?: Record<string, unknown>;
@@ -29,7 +29,8 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
     for (const template of templatesFor(stage)) {
       for (const resource of resources(template, "AWS::Lambda::Function")) {
         expect(resource.Properties?.ReservedConcurrentExecutions).toBe(
-          resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2
+          resource.Properties?.FunctionName === `aura-historia-mcp-${stage}` ? stageConfig(stage).mcp.reservedConcurrency
+            : resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2
             : resource.Properties?.FunctionName === `geo-resolution-lambda-${stage}` ? 2
             : resource.Properties?.FunctionName === `listing-geography-lambda-${stage}` || resource.Properties?.FunctionName === `listing-shipping-lambda-${stage}` ? 2 : undefined,
         );

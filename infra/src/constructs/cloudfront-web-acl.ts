@@ -13,6 +13,7 @@ interface CloudFrontWebAclProps {
   readonly name: string;
   readonly customResponseBodies: Record<string, unknown>;
   readonly rules: unknown[];
+  readonly sampledRequestsEnabled?: boolean;
 }
 
 /** The workload stack is regional; CloudFront WAF resources must live in us-east-1. */
@@ -49,6 +50,7 @@ export function createCloudFrontWebAcl(scope: Construct, props: CloudFrontWebAcl
       Region: "us-east-1",
       Rules: props.rules,
       Scope: "CLOUDFRONT",
+      ...(props.sampledRequestsEnabled === undefined ? {} : { SampledRequestsEnabled: props.sampledRequestsEnabled }),
     },
   });
   return webAcl.getAttString("WebAclArn");

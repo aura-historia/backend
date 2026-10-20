@@ -2,8 +2,10 @@
 
 The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
 `aura-historia-mcp` crate serves the same `/v1` router natively and through
-Lambda HTTP API v2. Hosting and public business-tool releases are separate
-from this transport foundation; its production registry is empty.
+Lambda HTTP API v2. The [front-door contract](http-api-front-door.md#mcp-front-door)
+owns hosting,
+certificates, Origin/CORS and stage verification. Its production registry is empty;
+public business-tool releases supply their selected operation families.
 
 ## Protocol compatibility
 

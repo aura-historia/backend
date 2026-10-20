@@ -18,7 +18,7 @@ staging API; it is not a stage named `stage`. Application stacks are composed in
 | `data` | PostgreSQL, CDC transport, durable queues, scoped worker policies and dev CDC alarms |
 | `initialize` | Private migrator and FX functions; deployment does not invoke them |
 | `compute` | Application/worker Lambdas, Cognito, eventing and scheduled work |
-| `api` | HTTP API, regional domain, CloudFront and WAF |
+| `api` | REST and MCP HTTP APIs, regional domains, CloudFront and WAF |
 | `observability` | Production alarms and alarm topic |
 
 Network precedes data and initialize; compute precedes API and prod observability.
@@ -31,6 +31,20 @@ generated secrets and hostname-verifying TLS with the committed public RDS CA bu
 Never substitute plaintext, a raw-IP URL or disabled verification. CA refresh is
 a reviewed asset release. Per-process connection limits do not cap aggregate
 Lambda/ECS database usage. Inspect capacity before activating consumers.
+
+MCP has its own Lambda reserved concurrency: **2 dev / 5 prod**, with one PostgreSQL
+connection per process, independently configured from REST. This bounds active MCP
+invocations and adds a configured steady-state pool budget of 2/5 connections once
+service families open their pool; the empty foundation shell opens none. Frozen warm
+environments, old versions and deployments can retain idle connections beyond active
+concurrency, so this is not a database-enforced global connection ceiling. Confirm
+actual PostgreSQL/account headroom including REST, workers, migration/admin reserves
+and version/drain overlap before traffic or increasing either setting. Recycle/drain
+old environments and measure real connections during promotion; Gateway rate limits
+are not a database capacity guarantee. MCP receives only runtime-secret access and
+private database/TLS configuration; add other adapters and credentials only with their
+own selected operation family. Certificate/DNS prerequisites and the generic stage
+smoke belong to the [MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).
 
 The declared single NAT, Single-AZ database/CDC resources and single stage search
 host are outage dependencies, not a high-availability promise. Review current
@@ -152,7 +166,10 @@ callback migration; never silently replace a production pool.
 ### Release artifacts
 
 Release prepares the selected source's Lambda/image catalogs and compiled mail
-templates even for foundation-only releases. ZIPs and templates are stage/SHA-local;
+templates even for foundation-only releases. The MCP ZIP is selected from the same
+[`lambda-binaries.json`](../ci/lambda-binaries.json) catalog and stage/SHA artifact
+keys as REST; compute publishes its immutable version and `live` alias before the
+API stack can send requests to it. ZIPs and templates are stage/SHA-local;
 existing objects are reused, never overwritten. Missing objects use conditional
 creation; authorization/transport failures are not evidence of absence.
 
