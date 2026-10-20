@@ -162,7 +162,7 @@ async function health(
   enabled,
   since,
   stacks,
-  { api = aws, delay = sleep, attempts = 90 } = {},
+  { api = aws, delay = sleep, attempts = 90, report = console.log } = {},
 ) {
   const instance = api(ctx, 'dms', 'describe-replication-instances', [
     '--filters',
@@ -176,12 +176,18 @@ async function health(
   };
   const stream = stacks.data.resources.filter((r) => r.ResourceType === 'AWS::Kinesis::Stream');
   if (stream.length !== 1) throw new Error('Cannot resolve the stage CDC stream for recovery verification.');
-  const deadline = Date.now() + 15 * 60 * 1000;
+  const startedAt = Date.now(),
+    deadline = startedAt + 15 * 60 * 1000;
+  let nextReport = 0,
+    lastObservation = 'No health observations completed.';
+  report(
+    `CDC health check for ${ctx.stage}: checking task, tables and fresh capture/router metrics; deadline 15 minutes.`,
+  );
   for (let i = 0; i < attempts && Date.now() < deadline; i++) {
     const task = read(ctx, recorded.arn, api);
     sameTask(task, recorded);
     if (task.Status !== 'running')
-      throw new Error(`CDC verification observed DMS ${task.Status}; release is deployed but unverified.`);
+      throw new Error(`CDC verification observed DMS ${task.Status}; capture health is unverified.`);
     const tables = api(ctx, 'dms', 'describe-table-statistics', [
       '--replication-task-arn',
       recorded.arn,
@@ -192,15 +198,21 @@ async function health(
         (t) => typeof t.TableState !== 'string' || /error|suspend|cancel|does not exist/i.test(t.TableState),
       )
     )
-      throw new Error(
-        'CDC table statistics are missing or report errors; release is deployed but unverified.',
-      );
+      throw new Error('CDC table statistics are missing or report errors; capture health is unverified.');
+    const mapping =
+      enabled === 'true' ? cdcMetrics.routerMapping(ctx, stacks, stream[0].PhysicalResourceId, api) : null;
     // Ignore old and delayed points. Idle capture is healthy only with fresh latency
     // and throughput evidence; an absent metric is never interpreted as zero.
     const metrics = cdcMetrics.observe(ctx, dimensions, enabled, since, stream[0].PhysicalResourceId, api);
-    const { source, target, rows, router, idleStream } = metrics;
+    const { source, target, rows, router, readerAge, readRecords, successfulReads } = metrics;
     const progress = task.RecoveryCheckpoint !== recorded.checkpoint;
-    if (cdcMetrics.ready(metrics, enabled, progress))
+    const waiting = cdcMetrics.pending(metrics, enabled, progress);
+    lastObservation = `${waiting.length ? `Waiting for ${waiting.join('; ')}` : 'Healthy'}; ${cdcMetrics.describe(metrics)}; checkpointProgress=${progress}`;
+    if (Date.now() >= nextReport || !waiting.length) {
+      report(`CDC health ${Math.round((Date.now() - startedAt) / 1000)}s: ${lastObservation}`);
+      nextReport = Date.now() + 30000;
+    }
+    if (!waiting.length)
       return {
         verifiedAt: new Date().toISOString(),
         checkpointHash: hash(task.RecoveryCheckpoint),
@@ -209,12 +221,16 @@ async function health(
         sourceLatencySeconds: source,
         targetLatencySeconds: target,
         routerAgeMs: router,
-        idleStream: idleStream === 0,
+        idleStream: cdcMetrics.idle(metrics),
+        routerMapping: mapping,
+        streamReadAgeMs: readerAge,
+        streamReadRecords: readRecords,
+        streamSuccessfulReads: successfulReads,
       };
     await delay(10000);
   }
   throw new Error(
-    'CDC recovery exceeded 15 minutes: require fresh source/target latency <=300s, checkpoint progress or idle throughput, and router age <=60s or a proven idle stream. Capture may be running; ownership remains deployed-but-unverified.',
+    `CDC health verification exceeded 15 minutes. ${lastObservation}. This health check does not stop or start DMS; baseline/release verification remains incomplete.`,
   );
 }
 module.exports = {

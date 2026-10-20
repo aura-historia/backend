@@ -230,11 +230,17 @@ ledger and advisory lock remain authoritative. Initial FX is not invoked.
 
 Capture recovery has a 15-minute deadline. It requires a running task without table
 errors, fresh source/target latency at most 300 seconds, and checkpoint movement or
-fresh zero source throughput. For an enabled router, require iterator age at most
-60 seconds or, when iterator metrics are absent, fresh zero incoming stream records. Missing metrics are not zero; allow
-for publication delay within the deadline. This supports idle stages without requiring
-empty queues. Disabled routers keep their activation state and are exempt from router
-lag checks. Failure after resumption is **deployed but unverified** and retains ownership.
+fresh zero source throughput. An enabled router must have its stage-owned mapping enabled
+and iterator age at most 60 seconds. When invocation metrics are absent, fresh zero incoming
+stream records can prove idleness. Streams can also omit write metrics while idle: fresh
+zero source throughput, successful empty Kinesis reads and zero stream read iterator age
+provide an alternative idle proof. Missing or stale metrics never count as zero, and
+observed router lag cannot be waived by idle evidence. Allow publication delay within the
+deadline; progress logs identify unmet observations every 30 seconds and include the last
+observation on timeout. This supports idle stages without requiring empty queues.
+Disabled routers keep their activation state and are exempt from router lag checks.
+Failure after resumption is **deployed but unverified** and retains ownership. Adoption
+uses the same read-only health check and records no baseline unless it succeeds.
 
 Traffic, callbacks, workers, schedules, existing messages and running invocations keep
 working throughout. PostgreSQL writes can accumulate in WAL during the pause. Review
