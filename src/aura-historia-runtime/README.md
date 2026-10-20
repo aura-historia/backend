@@ -4,8 +4,9 @@
 handles. REST and MCP call those handles directly. This crate does not own transport state,
 DTOs, authentication, business rules, transaction boundaries or publication deadlines.
 
-`Runtime::public_listing_sources()` constructs public listing-source search/detail handles once
-for the warm pool, without loading unrelated provider configuration. Listing discovery selects
+`Runtime::public_listing_sources()`, `public_party_locations()` and `public_overview()`
+construct public source, location and catalogue aggregate handles once for the warm pool,
+without loading unrelated provider configuration. Listing discovery selects
 `Runtime::public_product_listings(ProductListingDependencies)` with explicit OpenSearch and
 embedding-provider handles and the existing cache/read policies. Its detail, similarity and search
 handles are reused for the warm pool. `Runtime::listing_shipping()` shares the existing shipping
@@ -34,8 +35,13 @@ let result = services.search.execute(&context, request).await?;
 
 `Runtime::from_pool()` supports caller-owned fixture pools. `postgres_pool()` remains a composition
 interface for REST families awaiting extraction; request handlers must call service use cases.
-The existing REST authenticators, optional-auth rejection, HTTP budgets and response mapping stay
-in the REST adapter. Native and Lambda entry points inject the same family handles.
+`PublicListingSourceReadBudget` supplies the shared non-queuing permit pool and per-read
+timeout for source search and slug detail. Transports share one cloneable budget across those
+operations, hold its permit for active work, and cap execution by the invocation deadline. Its
+default is the existing REST policy (four concurrent reads, 500 ms); REST keeps its configured
+bounds and authentication within the same read budget. The existing REST authenticators,
+optional-auth rejection and response mapping stay in the REST adapter. Native and Lambda entry
+points inject the same family handles.
 
 The runtime unit suite checks clean-environment anonymous startup, warm reuse, credential-version
 replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment

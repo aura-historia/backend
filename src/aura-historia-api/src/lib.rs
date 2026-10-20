@@ -173,14 +173,13 @@ use product_listing_postgres::{
     SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
     SqlxProductListingEventAppenderFactory, SqlxProductListingLifecycleGuardFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingWatchlistDetailsReaderFactory,
-    SqlxPublicCatalogueOverviewReaderFactory,
 };
 use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, GetPublicCatalogueOverviewHandler,
-    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+    GetAuctionCatalogueHandler, ProductListingSearchReadExecutionPolicy,
+    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
+    UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -1355,10 +1354,7 @@ async fn app_state_from_config_and_runtime(
         SqlxAdminOverviewReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let get_public_overview = GetPublicCatalogueOverviewHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicCatalogueOverviewReaderFactory::new(),
-    );
+    let public_overview = runtime.public_overview();
     let create_auction = CreateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -1859,12 +1855,7 @@ async fn app_state_from_config_and_runtime(
             SqlxPartyLocationAccessFactory,
             location_admin(),
         )),
-        discovery: Some(Arc::new(
-            party_service::discovery::DiscoverPartyLocationsHandler::new(
-                unit_of_work.clone(),
-                party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory,
-            ),
-        )),
+        discovery: Some(Arc::clone(&runtime.public_party_locations().discover)),
         create: Arc::new(CreatePartyLocationHandler::new(
             unit_of_work.clone(),
             SqlxPartyLocationRepositoryFactory,
@@ -2274,7 +2265,7 @@ async fn app_state_from_config_and_runtime(
             Arc::new(get_admin_overview),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
-        .with_public_overview(PublicOverviewState::new(Arc::new(get_public_overview)))
+        .with_public_overview(PublicOverviewState::new(Arc::clone(&public_overview.get)))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
         .with_shipping(shipping_state)
