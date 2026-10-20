@@ -32,10 +32,18 @@ function ruleState(ctx, stack, resource, properties, api) {
   const bus = destination(ctx, stack, properties.EventBusName, 'AWS::Events::EventBus', api);
   const prefix = `arn:aws:events:${ctx.region}:${ctx.account}:event-bus/`;
   const busName = bus.startsWith(prefix) ? bus.slice(prefix.length) : bus;
-  if (!/^[/.\-_A-Za-z0-9]+$/.test(busName) || !/^[.\-_A-Za-z0-9]{1,64}$/.test(resource.PhysicalResourceId))
+  // CloudFormation encodes rules on custom buses as bus|rule, while Ref returns a rule name.
+  const parts = resource.PhysicalResourceId.split('|');
+  const ruleName = parts.at(-1);
+  const physicalBus = parts[0].startsWith(prefix) ? parts[0].slice(prefix.length) : parts[0];
+  if (
+    !/^[/.\-_A-Za-z0-9]+$/.test(busName) ||
+    !/^[.\-_A-Za-z0-9]{1,64}$/.test(ruleName) ||
+    parts.length > 2 ||
+    (parts.length === 2 && physicalBus !== busName)
+  )
     throw new Error('Invalid or foreign EventBridge rule identity.');
-  return api(ctx, 'events', 'describe-rule', ['--name', resource.PhysicalResourceId, '--event-bus-name', bus])
-    .State;
+  return api(ctx, 'events', 'describe-rule', ['--name', ruleName, '--event-bus-name', bus]).State;
 }
 
 function scheduleState(ctx, stack, resource, properties, api) {

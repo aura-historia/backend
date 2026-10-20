@@ -47,6 +47,38 @@ test('resolves the deployed stage partner bus SSM reference without decrypting',
   ]);
 });
 
+test('inspects CloudFormation composite partner rule IDs on their exact bus', () => {
+  const name = 'aws.partner/shopify.com/source';
+  const arn = `arn:aws:events:${ctx.region}:${ctx.account}:event-bus/${name}`;
+  for (const bus of [name, arn])
+    for (const physicalBus of [name, arn]) {
+      const live = fixture('AWS::Events::Rule', { EventBusName: bus }, `${physicalBus}|stage-resource`);
+      const state = runtimeActivation(ctx, live, (_ctx, service, operation, args) => {
+        assert.equal(service, 'events');
+        assert.equal(operation, 'describe-rule');
+        assert.deepEqual(args, ['--name', 'stage-resource', '--event-bus-name', bus]);
+        return { State: 'ENABLED' };
+      });
+      assert.equal(state['compute/Work'], 'ENABLED');
+    }
+});
+
+test('rejects malformed or mismatched composite rule IDs before reading another bus', () => {
+  for (const physical of [
+    'other-bus|stage-resource',
+    'expected-bus|extra|stage-resource',
+    `arn:aws:events:${ctx.region}:999999999999:event-bus/expected-bus|stage-resource`,
+  ]) {
+    assert.throws(
+      () =>
+        runtimeActivation(ctx, fixture('AWS::Events::Rule', { EventBusName: 'expected-bus' }, physical), () =>
+          assert.fail('No API call allowed'),
+        ),
+      /EventBridge rule identity/,
+    );
+  }
+});
+
 test('rejects unresolved, foreign and secret bus destinations before inspecting a rule', () => {
   for (const bus of [
     { 'Fn::ImportValue': 'unresolved' },
