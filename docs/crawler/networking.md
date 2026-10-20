@@ -21,18 +21,19 @@ Every crawler request (spider pages and robots.txt, scraper HTML fetches, image 
 
 - The crawler identifies itself honestly instead of posing as a browser. robots.txt groups are matched against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
-- A 401 or 403 from the crawl root is reported as `AccessDenied` (`crawl_root_access_denied`) with the root status and the user agent in the crawl diagnostics, including when robots.txt was refused first. Spider's own reading of the refusal (a JavaScript challenge, a recognised vendor block) keeps precedence. A refused robots.txt on an otherwise reachable root stays `robots_txt_request_denied`.
+- A 401 or 403 from the crawl root is reported as `AccessDenied` with the root status and the user agent in the crawl diagnostics. Spider's own reading of the refusal (a blocked status, a JavaScript challenge, a recognised vendor block) keeps precedence over the generic `crawl_root_access_denied` reason.
 
 ## robots.txt
 
-Spider and scraper both honour robots.txt. Spider uses its library's built-in handling. The scraper applies RFC 9309 through the crawler's network module, per origin and before every HTML request, redirect hops included:
+Spider and scraper honour robots.txt through one RFC 9309 implementation in the crawler's network module:
 
 - The group naming `AuraHistoriaBot` applies, otherwise the `*` groups; the longest matching `Allow`/`Disallow` rule decides and `Allow` wins ties.
-- robots.txt redirects are followed up to five times on the shop's bare or `www` host. A 4xx answer, a redirect elsewhere or too many redirects means robots.txt is unavailable and every URL is allowed. A 5xx answer means robots.txt is unreachable and the whole origin is disallowed for 15 minutes before robots.txt is fetched again. A transport failure fails the request like any other transport failure.
-- A fetched policy is reused for one hour.
-- `Crawl-delay`, capped at 60 seconds like Spider's, is a minimum spacing between request starts on the shop's domain, bare and `www` host together. It only ever raises the scraper's pacing delay, and the wait does not count against the fetch timeouts. Redirect hops take only the regular pacing delay.
+- robots.txt redirects are followed up to five times on the shop's bare or `www` host. A 4xx answer (401 and 403 included), a redirect elsewhere or too many redirects means robots.txt is unavailable and everything is allowed. A 5xx answer means robots.txt is unreachable and everything is disallowed. A transport failure fails the request or crawl like any other transport failure.
+- `Crawl-delay`, capped at 60 seconds, only ever raises the component's own delay between requests.
 
-A refused URL is not requested. It fails with `RobotsDisallowed` or `RobotsUnreachable` and receives the URL retry cooldown described in [Scheduling and retries](scheduling-and-retries.md#fetch-retries); a refusal never opens a domain circuit.
+The scraper checks robots.txt per origin before every HTML request, redirect hops included. It reuses a fetched policy for one hour and an unreachable one for 15 minutes. `Crawl-delay` is a minimum spacing between request starts on the shop's domain, bare and `www` host together; redirect hops take only the regular pacing delay, and the wait does not count against the fetch timeouts. A refused URL is not requested: it fails with `RobotsDisallowed` or `RobotsUnreachable`, receives the URL retry cooldown described in [Scheduling and retries](scheduling-and-retries.md#fetch-retries), and never opens a domain circuit.
+
+The spider reads robots.txt once per crawl, after the root preflight. A root robots.txt disallows fails the crawl as `RobotsBlocked`; an unreachable robots.txt fails it as `ServerError`. The Spider library's own robots handling is off, and its only pre-fetch veto is a regex deny list. So the rules reach it as deny-list patterns, which are exact for `Disallow` rules and for literal-prefix `Allow` exceptions. Other `Allow` exceptions are not carved out, so the spider may skip more than robots.txt asks, never less. When such an exception was written for a `Disallow` (its pattern extends the `Disallow`, as Shopify's `Allow: /*/account/login` does), the crawl diagnostics count the rule and `crawler.spider.robots_rules_failing_closed` names it.
 
 ## Resource rails
 

@@ -8,6 +8,9 @@
 use std::time::Duration;
 use url::Url;
 
+mod deny_list;
+pub use deny_list::DenyList;
+
 /// Upper bound for an honoured `Crawl-delay`; the Spider library caps the
 /// delay it reads from robots.txt at the same value.
 pub const MAX_CRAWL_DELAY: Duration = Duration::from_secs(60);
@@ -59,7 +62,7 @@ impl RobotsPolicy {
 
     pub fn crawl_delay(&self) -> Option<Duration> {
         match self {
-            Self::Rules(rules) => rules.crawl_delay,
+            Self::Rules(rules) => rules.crawl_delay(),
             Self::Unavailable | Self::Unreachable => None,
         }
     }
@@ -112,6 +115,10 @@ impl RobotsRules {
                 .max()
                 .map(|delay| delay.min(MAX_CRAWL_DELAY)),
         }
+    }
+
+    pub fn crawl_delay(&self) -> Option<Duration> {
+        self.crawl_delay
     }
 
     /// The longest matching rule decides; `Allow` wins a tie and a URL no
