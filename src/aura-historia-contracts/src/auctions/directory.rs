@@ -140,6 +140,25 @@ fn deserialize_nullable_scheduled<'de, D: serde::Deserializer<'de>>(
     time::serde::rfc3339::option::deserialize(deserializer).map(Some)
 }
 
+/// A required cursor member whose value is an RFC3339 instant or an explicit JSON null.
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+pub struct RequiredCursorInstant(
+    #[serde(with = "time::serde::rfc3339::option")] Option<OffsetDateTime>,
+);
+
+impl From<Option<OffsetDateTime>> for RequiredCursorInstant {
+    fn from(value: Option<OffsetDateTime>) -> Self {
+        Self(value)
+    }
+}
+
+fn deserialize_required_cursor_instant<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<RequiredCursorInstant, D::Error> {
+    time::serde::rfc3339::option::deserialize(deserializer).map(RequiredCursorInstant)
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DirectoryCursorScopeData {
@@ -161,12 +180,12 @@ pub struct DirectoryCursorScopeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "super::optional_order_schema")]
     pub order: Option<SortOrder>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(deserialize_with = "deserialize_required_cursor_instant")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
-    pub from: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    pub from: RequiredCursorInstant,
+    #[serde(deserialize_with = "deserialize_required_cursor_instant")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
-    pub to: Option<OffsetDateTime>,
+    pub to: RequiredCursorInstant,
 }
 
 impl DirectoryCursorData {
@@ -220,7 +239,7 @@ impl DirectoryCursorScopeData {
                 .transpose()?,
             format: parse_auction_format(self.format)?,
             reported_status: parse_auction_status(self.reported_status)?,
-            schedule: parse_schedule_filter(role, self.from, self.to, sort.is_some())?,
+            schedule: parse_schedule_filter(role, self.from.0, self.to.0, sort.is_some())?,
             sort,
             order,
         })
@@ -248,8 +267,8 @@ impl From<AuctionDirectoryScope> for DirectoryCursorScopeData {
             time_role,
             sort: value.sort.map(|_| "scheduled".to_owned()),
             order: value.order,
-            from,
-            to,
+            from: from.into(),
+            to: to.into(),
         }
     }
 }

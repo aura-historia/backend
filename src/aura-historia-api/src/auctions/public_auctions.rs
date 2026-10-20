@@ -9,7 +9,10 @@ use crate::{
 };
 use auction_core::AuctionId;
 use auction_service::use_cases::{GetPublicAuctionError, ListAuctionsError};
-use aura_historia_contracts::auctions::*;
+use aura_historia_contracts::auctions::{
+    AuctionQueryError, CatalogueData, CatalogueQuery, DirectoryQuery, PublicAuctionData,
+    PublicAuctionDirectoryData,
+};
 use axum::{
     Json,
     extract::{Path, RawQuery, State},
@@ -245,6 +248,10 @@ mod tests {
             GetPublicAuctionResult, GetPublicAuctionUseCase, ListAuctionsRequest,
             ListAuctionsResult, ListAuctionsUseCase,
         },
+    };
+    use aura_historia_contracts::auctions::{
+        CatalogueCursorData, DirectoryCursorData, DirectoryCursorScopeData, parse_catalogue_cursor,
+        parse_directory_cursor,
     };
     use axum::{
         Router,
@@ -616,8 +623,8 @@ mod tests {
                 time_role: None,
                 sort: None,
                 order: None,
-                from: None,
-                to: None,
+                from: None.into(),
+                to: None.into(),
             },
         })?;
         let directory_query = url::form_urlencoded::Serializer::new(String::new())
@@ -693,8 +700,8 @@ mod tests {
                 time_role: Some("LIVE_STARTS".to_owned()),
                 sort: Some("scheduled".to_owned()),
                 order: Some(SortOrder::Asc),
-                from: None,
-                to: None,
+                from: None.into(),
+                to: None.into(),
             },
         };
         let value = serde_json::to_value(&cursor)?;
@@ -739,8 +746,8 @@ mod tests {
                 time_role: None,
                 sort: None,
                 order: None,
-                from: None,
-                to: None,
+                from: None.into(),
+                to: None.into(),
             },
         };
         let value = serde_json::to_value(cursor)?;
