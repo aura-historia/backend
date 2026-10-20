@@ -164,6 +164,33 @@ inputs/cursors receive `-32602`, missing sources receive `NOT_FOUND`, and invali
 receive a safe `-32603`. The outer HTTP deadline keeps its documented `408` admission behavior.
 
 
+## Anonymous auction family
+
+The module-local [auction registrations](../src/aura-historia-mcp/src/auctions/mod.rs)
+provide `listAuctions`, `getAuction` and `getAuctionCatalogue` for release composition.
+They call the existing inbound auction and catalogue use cases with `Anonymous`.
+The [shared auction contracts](../src/aura-historia-contracts/src/auctions/mod.rs)
+own both REST wire DTOs and generated MCP schemas, including the schedule used by
+administrator auction output. Production admission and registration belong to the
+public release composition.
+
+`listAuctions` retains source, format, reported status, schedule range, sort/order and
+pagination inputs. A scheduled sort requires `timeRole`; a time range requires both
+bounds. Directory cursors bind the complete filter and sort scope, including nullable
+schedule instants. `getAuction` retains source metadata, schedule, reported status/counts,
+visible count and catalogue/outbound links without administrator keys or audit state.
+`getAuctionCatalogue` combines `auctionId` with the existing language, currency,
+`pageSize` and `searchAfter` inputs and reuses listing localization, image redaction,
+shipping presentation and user-state omission.
+
+For directory and catalogue continuation, serialize the returned `searchAfter` object
+as the next input's JSON string, as on REST. Catalogue cursors retain auction identity,
+catalogue position and listing identity; the use case retains its current/sale-observation
+FX selection. Malformed or wrong-scope cursors are invalid arguments, missing auctions
+are `NOT_FOUND`, and pricing or storage outages are explicit temporary failures.
+The [contract tests](../src/aura-historia-contracts/tests/auctions.rs) and
+[operation tests](../src/aura-historia-mcp/src/auctions/tests.rs) cover these mappings.
+
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON

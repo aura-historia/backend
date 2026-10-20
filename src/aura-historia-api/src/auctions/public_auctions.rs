@@ -7,16 +7,15 @@ use crate::{
     state::PublicAuctionsState,
     wire::parse_path_object_id,
 };
-mod data;
 use auction_core::AuctionId;
 use auction_service::use_cases::{GetPublicAuctionError, ListAuctionsError};
+use aura_historia_contracts::auctions::*;
 use axum::{
     Json,
     extract::{Path, RawQuery, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use data::*;
 
 pub async fn get_public_auction(
     State(state): State<PublicAuctionsState>,
@@ -48,7 +47,9 @@ pub async fn get_public_auction(
                 matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
                 60,
             ),
-            Err(error) => no_store(error.into_response()),
+            Err(_) => {
+                no_store(ApiError::internal_server_error(AUCTION_INTERNAL_ERROR).into_response())
+            }
         },
         Err(error) => no_store(ApiError::from(error).into_response()),
     }
@@ -77,12 +78,9 @@ pub async fn get_auction_catalogue(
             );
         }
     };
-    let cursor = match query.search_after.map(parse_catalogue_cursor).transpose() {
-        Ok(value) => application::pagination::Cursor {
-            size: query.page_size.unwrap_or(21),
-            search_after: value,
-        },
-        Err(error) => return no_store(error.into_response()),
+    let request = match query.try_into_request(auction_id) {
+        Ok(value) => value,
+        Err(error) => return no_store(ApiError::from(error).into_response()),
     };
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -94,15 +92,7 @@ pub async fn get_auction_catalogue(
     };
     match state
         .catalogue
-        .execute(
-            &principal.operation_context(metadata),
-            product_listing_service::use_cases::GetAuctionCatalogueRequest {
-                auction_id,
-                language: query.language,
-                currency: query.currency,
-                cursor: Some(cursor),
-            },
-        )
+        .execute(&principal.operation_context(metadata), request)
         .await
     {
         Ok(page) => {
@@ -140,7 +130,7 @@ pub async fn list_public_auctions(
     };
     let request = match data.try_into_request() {
         Ok(value) => value,
-        Err(error) => return no_store(error.into_response()),
+        Err(error) => return no_store(ApiError::from(error).into_response()),
     };
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -162,6 +152,26 @@ pub async fn list_public_auctions(
             60,
         ),
         Err(error) => no_store(ApiError::from(error).into_response()),
+    }
+}
+
+impl From<AuctionQueryError> for ApiError {
+    fn from(error: AuctionQueryError) -> Self {
+        match error {
+            AuctionQueryError::InvalidQuery(detail) => {
+                Self::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(detail)
+            }
+            AuctionQueryError::InvalidCursor(error) => Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("searchAfter")
+                .with_detail(error.to_string()),
+            AuctionQueryError::InvalidObjectId {
+                field,
+                semantic_type,
+                ..
+            } => Self::bad_request(crate::error::INVALID_OBJECT_ID)
+                .with_query_field(field)
+                .with_detail(format!("must be a valid {semantic_type} ID")),
+        }
     }
 }
 

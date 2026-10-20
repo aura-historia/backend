@@ -19,6 +19,11 @@ requirements confined to the selected family.
 use case from PostgreSQL and historical FX readers. It requires no search or embedding providers;
 REST and MCP reuse the same handle.
 
+`Runtime::public_auctions()` supplies public directory, detail and catalogue handles.
+Its catalogue reuses the runtime's listing shipping enrichment from the same pool and the
+existing transactional catalogue/FX use case; selecting auctions needs no search,
+embedding or identity-provider configuration.
+
 Native entry points use `Runtime::from_env()` with the existing explicit PostgreSQL settings.
 Lambda entry points use `RotatingRuntime::from_env()` and call `current()` before each invocation.
 It reuses `platform-lambda-bootstrap` configuration and versioned composition leases, plus the

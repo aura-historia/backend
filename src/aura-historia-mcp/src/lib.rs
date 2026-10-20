@@ -23,3 +23,5 @@ pub use registry::{AccessClass, OperationDefinition, OperationPolicy, Registry, 
 pub mod product_listing_history;
 pub mod product_listings;
 mod shipping_error;
+
+pub mod auctions;

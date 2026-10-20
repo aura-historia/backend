@@ -1,127 +1,45 @@
-use crate::{
-    error::{AUCTION_INTERNAL_ERROR, ApiError, BAD_QUERY_PARAMETER_VALUE},
-    wire::parse_query_object_id,
-};
+use super::PublicSourceData;
+use super::{AuctionQueryError, parse_query_object_id};
 use application::pagination::Cursor;
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedulePoint};
 use auction_service::{
     ports::{
         AuctionDirectoryCursor, AuctionDirectoryScope, AuctionInstantScheduleFilter,
-        ListAuctionsDirectoryRequest, PublicAuctionDetails,
+        ListAuctionsDirectoryRequest,
     },
     use_cases::ListAuctionsRequest,
 };
 use domain_primitives::sort::SortOrder;
-use listing_source_core::ListingSourceId;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct CatalogueQuery {
-    #[serde(default, with = "crate::wire::language")]
-    pub(super) language: localization::Language,
-    #[serde(default, with = "crate::wire::currency")]
-    pub(super) currency: money::Currency,
-    pub(super) page_size: Option<u64>,
-    pub(super) search_after: Option<String>,
-}
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct CatalogueCursorData {
-    pub(super) auction_id: String,
-    pub(super) catalogue_position: Option<u32>,
-    pub(super) product_listing_id: String,
-}
-impl CatalogueCursorData {
-    fn try_into_cursor(
-        self,
-    ) -> Result<product_listing_service::ports::AuctionCatalogueCursor, ApiError> {
-        Ok(product_listing_service::ports::AuctionCatalogueCursor {
-            auction_id: parse_query_object_id(
-                &self.auction_id,
-                "searchAfter.auctionId",
-                "Auction",
-            )?,
-            catalogue_position: self.catalogue_position,
-            product_listing_id: parse_query_object_id(
-                &self.product_listing_id,
-                "searchAfter.productListingId",
-                "ProductListing",
-            )?,
-        })
-    }
-}
-
-pub(super) fn parse_catalogue_cursor(
-    value: String,
-) -> Result<product_listing_service::ports::AuctionCatalogueCursor, ApiError> {
-    serde_json::from_str::<CatalogueCursorData>(&value)
-        .map_err(|error| {
-            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("searchAfter")
-                .with_detail(error.to_string())
-        })?
-        .try_into_cursor()
-}
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct CatalogueData {
-    pub(super) items:
-        Vec<crate::product_listings::product_data::PersonalizedProductListingDetailsData>,
-    pub(super) page_size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) search_after: Option<CatalogueCursorData>,
-}
-impl
-    From<
-        application::pagination::CursoredResult<
-            product_listing_service::use_cases::PersonalizedProductListingDetailsView,
-            product_listing_service::ports::AuctionCatalogueCursor,
-        >,
-    > for CatalogueData
-{
-    fn from(
-        value: application::pagination::CursoredResult<
-            product_listing_service::use_cases::PersonalizedProductListingDetailsView,
-            product_listing_service::ports::AuctionCatalogueCursor,
-        >,
-    ) -> Self {
-        Self {
-            page_size: value.cursor.size,
-            search_after: value.cursor.search_after.map(|cursor| CatalogueCursorData {
-                auction_id: cursor.auction_id.to_string(),
-                catalogue_position: cursor.catalogue_position,
-                product_listing_id: cursor.product_listing_id.to_string(),
-            }),
-            items: value
-                .items
-                .into_iter()
-                .map(crate::product_listings::product_data::personalized_product_details_data)
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct DirectoryQuery {
-    pub(super) listing_source_id: Option<String>,
-    pub(super) format: Option<String>,
-    pub(super) reported_status: Option<String>,
-    pub(super) time_role: Option<String>,
-    pub(super) sort: Option<String>,
-    pub(super) order: Option<String>,
+pub struct DirectoryQuery {
+    #[schemars(schema_with = "crate::wire::schema::optional_listing_source_id")]
+    pub listing_source_id: Option<String>,
+    #[schemars(schema_with = "super::format_schema")]
+    pub format: Option<String>,
+    #[schemars(schema_with = "super::status_schema")]
+    pub reported_status: Option<String>,
+    #[schemars(schema_with = "schedule_role_schema")]
+    pub time_role: Option<String>,
+    #[schemars(schema_with = "sort_schema")]
+    pub sort: Option<String>,
+    #[schemars(schema_with = "super::optional_order_schema")]
+    pub order: Option<String>,
     #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) from: Option<OffsetDateTime>,
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    pub from: Option<OffsetDateTime>,
     #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) to: Option<OffsetDateTime>,
-    pub(super) page_size: Option<u64>,
-    pub(super) search_after: Option<String>,
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    pub to: Option<OffsetDateTime>,
+    pub page_size: Option<u64>,
+    pub search_after: Option<String>,
 }
 
 impl DirectoryQuery {
-    pub(super) fn try_into_request(self) -> Result<ListAuctionsRequest, ApiError> {
+    pub fn try_into_request(self) -> Result<ListAuctionsRequest, AuctionQueryError> {
         let listing_source_id = self
             .listing_source_id
             .map(|value| parse_query_object_id(&value, "listingSourceId", "ListingSource"))
@@ -151,7 +69,7 @@ impl DirectoryQuery {
     }
 }
 
-fn schedule_point(value: &str) -> Result<AuctionSchedulePoint, ApiError> {
+fn schedule_point(value: &str) -> Result<AuctionSchedulePoint, AuctionQueryError> {
     match value {
         "BIDDING_OPENS" => Ok(AuctionSchedulePoint::BiddingOpens),
         "LIVE_STARTS" => Ok(AuctionSchedulePoint::LiveStarts),
@@ -164,7 +82,7 @@ fn schedule_point(value: &str) -> Result<AuctionSchedulePoint, ApiError> {
 fn parse_directory_sort(
     value: Option<&str>,
     role: Option<AuctionSchedulePoint>,
-) -> Result<Option<AuctionSchedulePoint>, ApiError> {
+) -> Result<Option<AuctionSchedulePoint>, AuctionQueryError> {
     match value.unwrap_or("created") {
         "created" => Ok(None),
         "scheduled" => role
@@ -174,20 +92,22 @@ fn parse_directory_sort(
     }
 }
 
-fn parse_directory_order(value: &str) -> Result<SortOrder, ApiError> {
+fn parse_directory_order(value: &str) -> Result<SortOrder, AuctionQueryError> {
     SortOrder::try_from(value).map_err(|_| query_error("order must be asc or desc."))
 }
 
-fn query_error(detail: &'static str) -> ApiError {
-    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(detail)
+fn query_error(detail: &'static str) -> AuctionQueryError {
+    AuctionQueryError::InvalidQuery(detail)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct DirectoryCursorData {
+pub struct DirectoryCursorData {
     #[serde(with = "time::serde::rfc3339")]
-    pub(super) created: OffsetDateTime,
-    pub(super) auction_id: String,
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
+    pub created: OffsetDateTime,
+    #[schemars(schema_with = "crate::wire::schema::auction_id")]
+    pub auction_id: String,
     // The outer Option distinguishes a missing field from a null schedule instant.
     #[serde(
         default,
@@ -195,8 +115,9 @@ pub(super) struct DirectoryCursorData {
         serialize_with = "serialize_nullable_scheduled",
         deserialize_with = "deserialize_nullable_scheduled"
     )]
-    pub(super) scheduled: Option<Option<OffsetDateTime>>,
-    pub(super) scope: DirectoryCursorScopeData,
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    pub scheduled: Option<Option<OffsetDateTime>>,
+    pub scope: DirectoryCursorScopeData,
 }
 
 fn serialize_nullable_scheduled<S: serde::Serializer>(
@@ -213,25 +134,33 @@ fn deserialize_nullable_scheduled<'de, D: serde::Deserializer<'de>>(
     time::serde::rfc3339::option::deserialize(deserializer).map(Some)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct DirectoryCursorScopeData {
-    pub(super) listing_source_id: Option<String>,
-    pub(super) format: Option<String>,
-    pub(super) reported_status: Option<String>,
-    pub(super) time_role: Option<String>,
+pub struct DirectoryCursorScopeData {
+    #[schemars(schema_with = "crate::wire::schema::optional_listing_source_id")]
+    pub listing_source_id: Option<String>,
+    #[schemars(schema_with = "super::format_schema")]
+    pub format: Option<String>,
+    #[schemars(schema_with = "super::status_schema")]
+    pub reported_status: Option<String>,
+    #[schemars(schema_with = "schedule_role_schema")]
+    pub time_role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) sort: Option<String>,
+    #[schemars(schema_with = "sort_schema")]
+    pub sort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) order: Option<SortOrder>,
+    #[schemars(schema_with = "super::optional_order_schema")]
+    pub order: Option<SortOrder>,
     #[serde(with = "time::serde::rfc3339::option")]
-    pub(super) from: Option<OffsetDateTime>,
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    pub from: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
-    pub(super) to: Option<OffsetDateTime>,
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    pub to: Option<OffsetDateTime>,
 }
 
 impl DirectoryCursorData {
-    fn try_into_cursor(self) -> Result<AuctionDirectoryCursor, ApiError> {
+    fn try_into_cursor(self) -> Result<AuctionDirectoryCursor, AuctionQueryError> {
         let scope = self.scope.try_into_scope()?;
         if scope.sort.is_some() != self.scheduled.is_some() {
             return Err(query_error(
@@ -251,18 +180,14 @@ impl DirectoryCursorData {
     }
 }
 
-pub(super) fn parse_directory_cursor(value: String) -> Result<AuctionDirectoryCursor, ApiError> {
+pub fn parse_directory_cursor(value: String) -> Result<AuctionDirectoryCursor, AuctionQueryError> {
     serde_json::from_str::<DirectoryCursorData>(&value)
-        .map_err(|error| {
-            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("searchAfter")
-                .with_detail(error.to_string())
-        })?
+        .map_err(AuctionQueryError::InvalidCursor)?
         .try_into_cursor()
 }
 
 impl DirectoryCursorScopeData {
-    fn try_into_scope(self) -> Result<AuctionDirectoryScope, ApiError> {
+    fn try_into_scope(self) -> Result<AuctionDirectoryScope, AuctionQueryError> {
         let role = self.time_role.as_deref().map(schedule_point).transpose()?;
         let sort = parse_directory_sort(self.sort.as_deref(), role)?;
         let order = match (sort, self.order) {
@@ -319,7 +244,7 @@ impl From<AuctionDirectoryScope> for DirectoryCursorScopeData {
     }
 }
 
-fn parse_auction_format(value: Option<String>) -> Result<Option<AuctionFormat>, ApiError> {
+fn parse_auction_format(value: Option<String>) -> Result<Option<AuctionFormat>, AuctionQueryError> {
     value
         .map(|value| {
             value
@@ -329,7 +254,9 @@ fn parse_auction_format(value: Option<String>) -> Result<Option<AuctionFormat>, 
         .transpose()
 }
 
-fn parse_auction_status(value: Option<String>) -> Result<Option<AuctionReportedStatus>, ApiError> {
+fn parse_auction_status(
+    value: Option<String>,
+) -> Result<Option<AuctionReportedStatus>, AuctionQueryError> {
     value
         .map(|value| {
             value
@@ -344,7 +271,7 @@ fn parse_schedule_filter(
     from: Option<OffsetDateTime>,
     to: Option<OffsetDateTime>,
     allow_unbounded: bool,
-) -> Result<Option<AuctionInstantScheduleFilter>, ApiError> {
+) -> Result<Option<AuctionInstantScheduleFilter>, AuctionQueryError> {
     match (time_role, from, to) {
         (None, None, None) => Ok(None),
         (Some(_), None, None) if allow_unbounded => Ok(None),
@@ -370,78 +297,29 @@ fn schedule_role_code(value: AuctionSchedulePoint) -> &'static str {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct PublicAuctionData {
-    pub(super) auction_id: AuctionId,
-    pub(super) listing_source: PublicSourceData,
-    pub(super) name: Option<crate::values::LocalizedTextData>,
-    pub(super) catalogue_url: Option<url::Url>,
-    pub(super) view_url: Option<url::Url>,
-    pub(super) format: Option<&'static str>,
-    pub(super) schedule: crate::auctions::types::AuctionScheduleResponseData,
-    pub(super) reported_status: Option<&'static str>,
-    pub(super) reported_lot_count: Option<u32>,
-    pub(super) visible_listing_count: u64,
-}
-impl TryFrom<PublicAuctionDetails> for PublicAuctionData {
-    type Error = ApiError;
-
-    fn try_from(value: PublicAuctionDetails) -> Result<Self, Self::Error> {
-        let view_url = value
-            .catalogue_url
-            .as_ref()
-            .map(|url| {
-                listing_source_core::outbound_url(value.source.referral_configuration.as_ref(), url)
-                    .map_err(|_| ApiError::internal_server_error(AUCTION_INTERNAL_ERROR))
-            })
-            .transpose()?;
-        Ok(Self {
-            auction_id: value.auction_id,
-            listing_source: PublicSourceData {
-                listing_source_id: value.source.listing_source_id,
-                name: value.source.name.as_ref().to_owned(),
-                slug_id: value.source.slug_id.to_string(),
-            },
-            name: value.name.map(Into::into),
-            catalogue_url: value.catalogue_url,
-            view_url,
-            format: value.format.map(AuctionFormat::as_str),
-            schedule: value.schedule.into(),
-            reported_status: value.reported_status.map(AuctionReportedStatus::as_str),
-            reported_lot_count: value.reported_lot_count.map(|count| count.value()),
-            visible_listing_count: value.visible_active_assigned_listing_count,
-        })
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct PublicSourceData {
-    pub(super) listing_source_id: ListingSourceId,
-    pub(super) name: String,
-    pub(super) slug_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct PublicAuctionDirectoryData {
-    pub(super) items: Vec<PublicAuctionDirectoryItemData>,
-    pub(super) page_size: u64,
+pub struct PublicAuctionDirectoryData {
+    pub items: Vec<PublicAuctionDirectoryItemData>,
+    pub page_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) search_after: Option<DirectoryCursorData>,
+    pub search_after: Option<DirectoryCursorData>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct PublicAuctionDirectoryItemData {
-    pub(super) auction_id: AuctionId,
-    pub(super) listing_source: PublicSourceData,
-    pub(super) name: Option<crate::values::LocalizedTextData>,
-    pub(super) format: Option<&'static str>,
-    pub(super) schedule: crate::auctions::types::AuctionScheduleResponseData,
-    pub(super) reported_status: Option<&'static str>,
+pub struct PublicAuctionDirectoryItemData {
+    #[schemars(schema_with = "crate::wire::schema::auction_id")]
+    pub auction_id: AuctionId,
+    pub listing_source: PublicSourceData,
+    pub name: Option<crate::values::LocalizedTextData>,
+    #[schemars(schema_with = "super::format_schema")]
+    pub format: Option<&'static str>,
+    pub schedule: super::AuctionScheduleResponseData,
+    #[schemars(schema_with = "super::status_schema")]
+    pub reported_status: Option<&'static str>,
     #[serde(with = "time::serde::rfc3339")]
-    pub(super) created: OffsetDateTime,
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
+    pub created: OffsetDateTime,
 }
 impl From<auction_service::ports::ListAuctionsDirectoryResult> for PublicAuctionDirectoryData {
     fn from(value: auction_service::ports::ListAuctionsDirectoryResult) -> Self {
@@ -472,4 +350,16 @@ impl From<auction_service::ports::ListAuctionsDirectoryResult> for PublicAuction
                 .collect(),
         }
     }
+}
+
+fn schedule_role_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    super::optional_codes([
+        schedule_role_code(AuctionSchedulePoint::BiddingOpens),
+        schedule_role_code(AuctionSchedulePoint::LiveStarts),
+        schedule_role_code(AuctionSchedulePoint::LotsBeginClosing),
+        schedule_role_code(AuctionSchedulePoint::ScheduledEnd),
+    ])
+}
+fn sort_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    super::optional_codes(["created", "scheduled"])
 }

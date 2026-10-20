@@ -47,16 +47,12 @@ use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
-    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader,
-    SqlxAuctionEventAppenderFactory, SqlxAuctionReferenceValidatorFactory,
-    SqlxAuctionRepositoryFactory, SqlxPublicAuctionDetailsReader,
+    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionEventAppenderFactory,
+    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
-    queries::{
-        get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
-        list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
-    },
+    queries::{get_auction::GetAuctionHandler, search_admin_auctions::SearchAdminAuctionsHandler},
 };
 use aura_historia_runtime::Runtime;
 use axum::Router;
@@ -169,17 +165,16 @@ use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_postgres::{
-    SqlxAuctionCatalogueReaderFactory, SqlxPartnerProductListingAuthorizerFactory,
-    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingLifecycleGuardFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, ProductListingSearchReadExecutionPolicy,
-    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
-    UpsertProductListingHandler, WithdrawProductListingHandler,
+    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
+    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -1385,22 +1380,13 @@ async fn app_state_from_config_and_runtime(
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
         auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
     ));
-    let get_public_auction =
-        GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
-    let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
+    let public_auctions = runtime.public_auctions();
     let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
         unit_of_work.clone(),
         user_postgres::SqlxAddressBookFactory,
         geo_postgres::SqlxResolutionRepositoryFactory,
     ));
     let shipping = runtime.listing_shipping().clone();
-    let get_auction_catalogue = GetAuctionCatalogueHandler::new(
-        unit_of_work.clone(),
-        SqlxAuctionCatalogueReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        SqlxPublicAuctionDetailsReader::new(pool.clone()),
-        shipping.clone(),
-    );
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -2256,9 +2242,9 @@ async fn app_state_from_config_and_runtime(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_public_auctions(PublicAuctionsState::new(
-            Arc::new(get_public_auction),
-            Arc::new(list_auctions),
-            Arc::new(get_auction_catalogue),
+            Arc::clone(&public_auctions.get),
+            Arc::clone(&public_auctions.list),
+            Arc::clone(&public_auctions.catalogue),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_admin_overview(AdminOverviewState::new(
