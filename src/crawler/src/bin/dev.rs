@@ -27,6 +27,7 @@
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
 //! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
+//! | `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Schema review mode under `CRAWLER_REVIEW_REQUIRED`: `human_only`, `report_only` or `auto_approve_high_confidence`; invalid values fail startup | `human_only` |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
@@ -117,9 +118,9 @@ async fn main() {
     init_logging();
 
     async {
-        // Fail fast on missing Vertex AI settings before starting Docker or touching the database.
+        // Fail fast on invalid runtime settings before starting Docker or touching the database.
         let runtime_config = CrawlerRuntimeConfig::from_env()
-            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+            .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
 
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),

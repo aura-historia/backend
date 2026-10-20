@@ -340,7 +340,7 @@ async fn main() {
         let review_config =
             ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
         let runtime_config = CrawlerRuntimeConfig::from_env()
-            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+            .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
 
         // 4. Sync crawler scope from authoritative WebCrawl sources.
         let listing_source_source = Box::new(PostgresWebCrawlSource::new(Box::new(

@@ -44,6 +44,18 @@ The server also hosts the crawler review console. It binds to `127.0.0.1:7878` u
 
 `GET /health` is the only unauthenticated liveness endpoint and returns no crawler state. With a review token configured, `/api/health` is authenticated. `CRAWLER_REVIEW_REQUIRED` and `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` enable review gates for schemas and URL patterns.
 
+`CRAWLER_SCHEMA_LLM_REVIEW_MODE` decides how generated schemas pass the schema review gate:
+
+| Value | Effect |
+|---|---|
+| `human_only` (default) | Every generated schema waits for human review. |
+| `report_only` | Same gate as `human_only`; the name marks that the LLM evaluation is only informational. |
+| `auto_approve_high_confidence` | Approves a schema without human review when deterministic coverage passes and the LLM evaluation is a high-confidence approval. |
+
+The LLM confidence evaluation is recorded on the schema review in every mode.
+
+The default is `human_only` whether or not review is required, so auto-approval is always an explicit opt-in. The mode only takes effect while `CRAWLER_REVIEW_REQUIRED` is enabled; without it, generated schemas are persisted directly. Any other value, including an empty one, fails startup with an error naming the variable, the rejected value and the accepted values. The crawler logs the effective review gates and whether the mode came from the environment or the default once at startup.
+
 ## Validation
 
 Run targeted checks after crawler changes:

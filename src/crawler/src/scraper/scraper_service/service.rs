@@ -468,33 +468,30 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How generated product schemas pass the review gate when review is required.
+///
+/// Only [`Self::AutoApproveHighConfidence`] lets the LLM confidence evaluation approve a schema,
+/// so auto-approval is always an explicit opt-in; the default keeps schemas pending human review.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SchemaLlmReviewMode {
+    #[default]
     HumanOnly,
     ReportOnly,
     AutoApproveHighConfidence,
 }
 
 impl SchemaLlmReviewMode {
-    pub fn from_env(review_required: bool) -> Self {
-        let fallback = if review_required {
-            Self::AutoApproveHighConfidence
-        } else {
-            Self::HumanOnly
-        };
-        std::env::var("CRAWLER_SCHEMA_LLM_REVIEW_MODE")
-            .ok()
-            .and_then(|raw| Self::parse(&raw))
-            .unwrap_or(fallback)
-    }
+    pub const ALL: [Self; 3] = [
+        Self::HumanOnly,
+        Self::ReportOnly,
+        Self::AutoApproveHighConfidence,
+    ];
 
     pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "human_only" => Some(Self::HumanOnly),
-            "report_only" => Some(Self::ReportOnly),
-            "auto_approve_high_confidence" => Some(Self::AutoApproveHighConfidence),
-            _ => None,
-        }
+        let normalized = raw.trim().to_ascii_lowercase();
+        Self::ALL
+            .into_iter()
+            .find(|mode| mode.as_str() == normalized)
     }
 
     pub(crate) fn allows_auto_approval(self) -> bool {
@@ -546,7 +543,7 @@ impl ScraperServiceImpl {
             max_llm_calls_per_listing_source,
             review_repository: None,
             review_required: false,
-            schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
+            schema_llm_review_mode: SchemaLlmReviewMode::default(),
         }
     }
 
@@ -554,15 +551,11 @@ impl ScraperServiceImpl {
         mut self,
         review_repository: CrawlerReviewRepository,
         review_required: bool,
+        schema_llm_review_mode: SchemaLlmReviewMode,
     ) -> Self {
         self.review_repository = Some(review_repository);
         self.review_required = review_required;
-        self.schema_llm_review_mode = SchemaLlmReviewMode::from_env(review_required);
-        self
-    }
-
-    pub fn with_schema_llm_review_mode(mut self, mode: SchemaLlmReviewMode) -> Self {
-        self.schema_llm_review_mode = mode;
+        self.schema_llm_review_mode = schema_llm_review_mode;
         self
     }
 
@@ -678,7 +671,17 @@ mod tests {
             SchemaLlmReviewMode::parse("auto_approve_high_confidence"),
             Some(SchemaLlmReviewMode::AutoApproveHighConfidence)
         );
-        assert_eq!(SchemaLlmReviewMode::parse("unknown"), None);
+        assert_eq!(
+            SchemaLlmReviewMode::parse(" Report_Only "),
+            Some(SchemaLlmReviewMode::ReportOnly)
+        );
+        assert_eq!(SchemaLlmReviewMode::parse("jev_auto"), None);
+        assert_eq!(SchemaLlmReviewMode::parse(""), None);
+    }
+
+    #[test]
+    fn should_require_human_review_by_default() {
+        assert!(!SchemaLlmReviewMode::default().allows_auto_approval());
     }
 
     #[test]

@@ -19,7 +19,9 @@ use crate::scraper::css_selector::product_schema_repository::ListingSourceProduc
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crate::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
-use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
+use crate::scraper::scraper_service::{
+    ReqwestHtmlFetcher, SchemaLlmReviewMode, ScraperServiceImpl,
+};
 use crate::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crate::service::listing_source_registration::{
@@ -51,25 +53,48 @@ pub struct CrawlerRuntimeProfile {
     pub raw_capture: Box<dyn ProductListingRawCaptureService>,
 }
 
+const SCHEMA_LLM_REVIEW_MODE_ENV: &str = "CRAWLER_SCHEMA_LLM_REVIEW_MODE";
+
 /// Environment settings shared by every crawler entry point.
 pub struct CrawlerRuntimeConfig {
     pub review_required: bool,
     pub url_pattern_review_required: bool,
+    pub schema_llm_review_mode: SchemaLlmReviewMode,
     pub vertex_ai: CrawlerVertexAiConfig,
     pub vertex_ai_models: CrawlerVertexAiModels,
     pub llm_rate_limit: CrawlerLlmRateLimitConfig,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum CrawlerRuntimeConfigError {
+    #[error(
+        "invalid {SCHEMA_LLM_REVIEW_MODE_ENV} value {value:?}; expected one of: {}",
+        accepted_schema_llm_review_modes()
+    )]
+    InvalidSchemaLlmReviewMode { value: String },
+    #[error(transparent)]
+    VertexAi(#[from] CrawlerVertexAiConfigError),
+}
+
 impl CrawlerRuntimeConfig {
-    /// Reads the review gates, Vertex AI selection and LLM rate limits, then logs the LLM
-    /// governor configuration that [`build`] applies.
-    pub fn from_env() -> Result<Self, CrawlerVertexAiConfigError> {
+    /// Reads the review gates, Vertex AI selection and LLM rate limits, then logs the review
+    /// gates and the LLM governor configuration that [`build`] applies.
+    pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
         let review_required = env_flag("CRAWLER_REVIEW_REQUIRED");
         let url_pattern_review_required = env_flag("CRAWLER_REVIEW_URL_PATTERN_REQUIRED");
+        let (schema_llm_review_mode, schema_llm_review_mode_source) =
+            schema_llm_review_mode_from_env()?;
         let vertex_ai = CrawlerVertexAiConfig::from_env()?;
         let vertex_ai_models = CrawlerVertexAiModels::from_env();
         let llm_rate_limit = CrawlerLlmRateLimitConfig::from_env();
 
+        info!(
+            review_required,
+            url_pattern_review_required,
+            schema_llm_review_mode = schema_llm_review_mode.as_str(),
+            schema_llm_review_mode_source,
+            "Crawler review gates configured"
+        );
         info!(
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
@@ -82,6 +107,7 @@ impl CrawlerRuntimeConfig {
         Ok(Self {
             review_required,
             url_pattern_review_required,
+            schema_llm_review_mode,
             vertex_ai,
             vertex_ai_models,
             llm_rate_limit,
@@ -153,6 +179,7 @@ where
     let CrawlerRuntimeConfig {
         review_required,
         url_pattern_review_required,
+        schema_llm_review_mode,
         vertex_ai_models,
         llm_rate_limit,
         ..
@@ -201,7 +228,7 @@ where
             cron_config.scraper_max_llm_calls_per_listing_source,
         )
         .with_removed_page_schema_repository(removed_page_schema_repo)
-        .with_review_gate(review_repo.clone(), review_required),
+        .with_review_gate(review_repo.clone(), review_required, schema_llm_review_mode),
     );
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
@@ -314,6 +341,32 @@ impl CrawlerRuntime {
             }
         }
     }
+}
+
+/// Reads the schema review mode and whether it came from the environment or the default.
+/// A set but unrecognized value fails startup instead of silently changing the review policy.
+fn schema_llm_review_mode_from_env()
+-> Result<(SchemaLlmReviewMode, &'static str), CrawlerRuntimeConfigError> {
+    let raw = match std::env::var(SCHEMA_LLM_REVIEW_MODE_ENV) {
+        Ok(raw) => raw,
+        Err(std::env::VarError::NotPresent) => {
+            return Ok((SchemaLlmReviewMode::default(), "default"));
+        }
+        Err(std::env::VarError::NotUnicode(raw)) => {
+            return Err(CrawlerRuntimeConfigError::InvalidSchemaLlmReviewMode {
+                value: raw.to_string_lossy().into_owned(),
+            });
+        }
+    };
+    SchemaLlmReviewMode::parse(&raw)
+        .map(|mode| (mode, "env"))
+        .ok_or(CrawlerRuntimeConfigError::InvalidSchemaLlmReviewMode { value: raw })
+}
+
+fn accepted_schema_llm_review_modes() -> String {
+    SchemaLlmReviewMode::ALL
+        .map(SchemaLlmReviewMode::as_str)
+        .join(", ")
 }
 
 /// Reads a boolean review-gate switch; unset or unrecognized values keep the gate off.
@@ -433,10 +486,90 @@ mod tests {
 
         assert!(matches!(
             config,
-            Err(CrawlerVertexAiConfigError::MissingEnvironment {
-                name: "VERTEX_AI_PROJECT_ID"
-            })
+            Err(CrawlerRuntimeConfigError::VertexAi(
+                CrawlerVertexAiConfigError::MissingEnvironment {
+                    name: "VERTEX_AI_PROJECT_ID"
+                }
+            ))
         ));
+    }
+
+    /// Reads the runtime config with a valid Vertex AI environment and the given review settings.
+    fn runtime_config_with_review_env(
+        review_required: &str,
+        schema_llm_review_mode: Option<&str>,
+    ) -> Result<CrawlerRuntimeConfig, CrawlerRuntimeConfigError> {
+        set_env("CRAWLER_REVIEW_REQUIRED", Some(review_required));
+        set_env(SCHEMA_LLM_REVIEW_MODE_ENV, schema_llm_review_mode);
+        set_env("VERTEX_AI_PROJECT_ID", Some("test-project"));
+        set_env("VERTEX_AI_LOCATION", Some("europe-west3"));
+
+        let config = CrawlerRuntimeConfig::from_env();
+        for name in [
+            "CRAWLER_REVIEW_REQUIRED",
+            SCHEMA_LLM_REVIEW_MODE_ENV,
+            "VERTEX_AI_PROJECT_ID",
+            "VERTEX_AI_LOCATION",
+        ] {
+            set_env(name, None);
+        }
+        config
+    }
+
+    #[rstest]
+    #[case::human_only("human_only", SchemaLlmReviewMode::HumanOnly)]
+    #[case::report_only("report_only", SchemaLlmReviewMode::ReportOnly)]
+    #[case::auto_approve(
+        "auto_approve_high_confidence",
+        SchemaLlmReviewMode::AutoApproveHighConfidence
+    )]
+    #[serial]
+    fn should_read_schema_llm_review_mode_from_env(
+        #[case] value: &str,
+        #[case] expected: SchemaLlmReviewMode,
+    ) {
+        let config = runtime_config_with_review_env("true", Some(value))
+            .unwrap_or_else(|error| panic!("runtime config from env: {error}"));
+
+        assert_eq!(config.schema_llm_review_mode, expected);
+    }
+
+    #[rstest]
+    #[case::review_required("true")]
+    #[case::review_not_required("false")]
+    #[serial]
+    fn should_require_human_schema_review_when_mode_is_unset(#[case] review_required: &str) {
+        let config = runtime_config_with_review_env(review_required, None)
+            .unwrap_or_else(|error| panic!("runtime config from env: {error}"));
+
+        assert_eq!(
+            config.schema_llm_review_mode,
+            SchemaLlmReviewMode::HumanOnly
+        );
+    }
+
+    #[rstest]
+    #[case::unknown("jev_auto")]
+    #[case::empty("")]
+    #[serial]
+    fn should_reject_invalid_schema_llm_review_mode(#[case] value: &str) {
+        let error = match runtime_config_with_review_env("true", Some(value)) {
+            Ok(_) => panic!("invalid schema review mode {value:?} must fail startup"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            &error,
+            CrawlerRuntimeConfigError::InvalidSchemaLlmReviewMode { value: rejected }
+                if rejected == value
+        ));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid CRAWLER_SCHEMA_LLM_REVIEW_MODE value {value:?}; expected one of: \
+                 human_only, report_only, auto_approve_high_confidence"
+            )
+        );
     }
 
     #[test]
@@ -559,6 +692,7 @@ mod tests {
         CrawlerRuntimeConfig {
             review_required: true,
             url_pattern_review_required: true,
+            schema_llm_review_mode: SchemaLlmReviewMode::default(),
             vertex_ai: CrawlerVertexAiConfig::new("test-project", "europe-west3"),
             vertex_ai_models: CrawlerVertexAiModels {
                 product_schema: "schema-model".to_owned(),
