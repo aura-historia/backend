@@ -1,4 +1,5 @@
 use crate::CrawlerReviewId;
+use crate::authoring::CrawlerAuthoringMode;
 use crate::review::model::SchemaMatrix;
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
@@ -53,20 +54,12 @@ impl ScraperServiceImpl {
                 .await?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         };
-        if !self.review_required {
-            let saved = self
-                .schema_service
-                .save_product_schemas(listing_source_id, schemas)
-                .await?;
-            return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
-        }
-
         let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
         let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
         let mut validation_summary =
             with_schema_matrix_summary(validation_summary, &matrix, deterministic_approval_ok);
         let approved_by_llm = should_auto_approve_generated_schema(
-            self.schema_llm_review_mode,
+            self.authoring,
             deterministic_approval_ok,
             &evaluation,
         );
@@ -77,7 +70,7 @@ impl ScraperServiceImpl {
         // result after deterministic coverage, so a schema that failed coverage never reads
         // as approved.
         info!(
-            mode = self.schema_llm_review_mode.as_str(),
+            mode = self.authoring.as_str(),
             outcome = if approved_by_llm {
                 "auto_approved"
             } else {
@@ -192,16 +185,16 @@ fn with_auto_schema_evaluation(
 }
 
 fn should_auto_approve_generated_schema(
-    mode: crate::scraper::scraper_service::service::SchemaLlmReviewMode,
+    authoring: CrawlerAuthoringMode,
     deterministic_approval_ok: bool,
     evaluation: &SchemaLlmEvaluation,
 ) -> bool {
-    mode.allows_auto_approval()
+    authoring == CrawlerAuthoringMode::Auto
         && deterministic_approval_ok
         && evaluation.is_high_confidence_approval()
 }
 
-fn review_error_to_schema_service_error(
+pub(crate) fn review_error_to_schema_service_error(
     err: crate::review::repository::ReviewRepositoryError,
 ) -> ProductListingSchemaServiceError {
     use crate::review::repository::ReviewRepositoryError;
@@ -384,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn should_auto_approve_only_high_confidence_generation_when_mode_allows_it() {
+    fn should_auto_approve_only_high_confidence_generation_in_auto_mode() {
         let high = SchemaLlmEvaluation {
             decision: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationDecision::Approve,
             confidence: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High,
@@ -401,22 +394,22 @@ mod tests {
         };
 
         assert!(should_auto_approve_generated_schema(
-            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            CrawlerAuthoringMode::Auto,
             true,
             &high,
         ));
         assert!(!should_auto_approve_generated_schema(
-            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            CrawlerAuthoringMode::Auto,
             true,
             &medium,
         ));
         assert!(!should_auto_approve_generated_schema(
-            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            CrawlerAuthoringMode::Auto,
             false,
             &high,
         ));
         assert!(!should_auto_approve_generated_schema(
-            crate::scraper::scraper_service::service::SchemaLlmReviewMode::HumanOnly,
+            CrawlerAuthoringMode::Review,
             true,
             &high,
         ));

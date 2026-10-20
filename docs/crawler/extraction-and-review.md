@@ -52,4 +52,6 @@ A review-approved `NO_PATTERN` is a completed URL classification. It suppresses 
 
 LLM use is limited to URL-pattern inference, product-schema generation, fresh page classification, and schema evaluation. Provider selection belongs to executable wiring; crawler services rely on the generic LLM capability.
 
+LLM use is optional. In manual authoring mode, every point that would infer a URL pattern or generate a product schema opens a pending manual review instead, so operator-authored artifacts enter crawler configuration only through the same review rail and validation as generated ones. Fresh page classification has no manual counterpart; non-product pages are excluded through the URL pattern. The operator contract, including the auto and review modes, is in [crawler operations](operations.md#authoring-modes).
+
 Crawler LLM calls are governed by bounded concurrency, minimum request-start spacing, bounded provider retries, and a per-ListingSource budget. A request reservation does not hold the scheduling mutex while it waits, and retry sleeps release the request permit. This keeps expensive recovery explicit and prevents unlimited generation.

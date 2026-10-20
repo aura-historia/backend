@@ -10,9 +10,13 @@ use crate::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, UrlPatternState,
 };
 
+use crate::review::model::UrlPatternDecision;
 use regex::Regex;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, info};
+
+/// Review reason for a URL pattern an operator has to write because LLM calls are disabled.
+pub const MANUAL_URL_PATTERN_REASON: &str = "manual_url_pattern_required";
 
 #[derive(Debug, Error)]
 pub enum UrlPatternServiceError {
@@ -82,38 +86,73 @@ pub trait UrlPatternService: Send + Sync {
     ) -> Result<(), UrlPatternServiceError>;
 }
 
+/// Where a domain's product URL pattern comes from.
+pub enum UrlPatternAuthoring {
+    /// The LLM infers the pattern. With a review repository, the inferred pattern waits for
+    /// approval instead of becoming active.
+    Inferred {
+        classification_service: Box<dyn UrlClassificationService>,
+        review_repository: Option<CrawlerReviewRepository>,
+    },
+    /// An operator writes the pattern: classification opens an undecided review and makes no
+    /// LLM call.
+    Manual {
+        review_repository: CrawlerReviewRepository,
+    },
+}
+
+impl UrlPatternAuthoring {
+    fn review_repository(&self) -> Option<&CrawlerReviewRepository> {
+        match self {
+            Self::Inferred {
+                review_repository, ..
+            } => review_repository.as_ref(),
+            Self::Manual { review_repository } => Some(review_repository),
+        }
+    }
+}
+
 pub struct UrlPatternServiceImpl {
     repository: Arc<dyn ListingSourceUrlPatternRepository>,
-    classification_service: Box<dyn UrlClassificationService>,
-    review_repository: Option<CrawlerReviewRepository>,
-    review_required: bool,
+    authoring: UrlPatternAuthoring,
 }
 
 impl UrlPatternServiceImpl {
     pub fn new(
         repository: Arc<dyn ListingSourceUrlPatternRepository>,
-        classification_service: Box<dyn UrlClassificationService>,
+        authoring: UrlPatternAuthoring,
     ) -> Self {
         Self {
             repository,
-            classification_service,
-            review_repository: None,
-            review_required: false,
+            authoring,
         }
     }
 
-    pub fn new_with_review(
-        repository: Arc<dyn ListingSourceUrlPatternRepository>,
-        classification_service: Box<dyn UrlClassificationService>,
-        review_repository: CrawlerReviewRepository,
-        review_required: bool,
-    ) -> Self {
-        Self {
-            repository,
-            classification_service,
-            review_repository: Some(review_repository),
-            review_required,
-        }
+    async fn open_review(
+        &self,
+        review_repository: &CrawlerReviewRepository,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        reason: &str,
+        decision: UrlPatternDecision,
+        urls: &[String],
+    ) -> Result<CrawlerReviewId, UrlPatternServiceError> {
+        let current_pattern = self
+            .load_pattern_for_domain(listing_source_id, domain_id)
+            .await?;
+        review_repository
+            .create_url_pattern_review(
+                listing_source_id,
+                domain_id,
+                reason,
+                decision,
+                urls,
+                current_pattern.as_ref(),
+            )
+            .await
+            .map_err(|err| {
+                UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
+            })
     }
 }
 
@@ -185,8 +224,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
             return Ok(None);
         }
 
-        if self.review_required
-            && let Some(review_repository) = &self.review_repository
+        if let Some(review_repository) = self.authoring.review_repository()
             && let Some(review_id) = review_repository
                 .latest_pending_url_pattern_review_id(listing_source_id, domain_id)
                 .await?
@@ -197,33 +235,51 @@ impl UrlPatternService for UrlPatternServiceImpl {
             });
         }
 
+        let (classification_service, review_repository) = match &self.authoring {
+            UrlPatternAuthoring::Inferred {
+                classification_service,
+                review_repository,
+            } => (classification_service, review_repository),
+            UrlPatternAuthoring::Manual { review_repository } => {
+                let review_id = self
+                    .open_review(
+                        review_repository,
+                        listing_source_id,
+                        domain_id,
+                        MANUAL_URL_PATTERN_REASON,
+                        UrlPatternDecision::Undecided,
+                        urls,
+                    )
+                    .await?;
+                info!(
+                    review_id = %review_id,
+                    "Opened manual URL pattern review; crawl waits for an operator pattern"
+                );
+                return Err(UrlPatternServiceError::PendingReview {
+                    listing_source_id: *listing_source_id,
+                    review_id,
+                });
+            }
+        };
+
         self.repository
             .increment_listing_source_llm_calls(listing_source_id, 1)
             .await?;
-        let pattern = self
-            .classification_service
+        let pattern = classification_service
             .find_product_url_pattern(urls)
             .await?;
 
-        if self.review_required
-            && let Some(review_repository) = &self.review_repository
-        {
-            let current_pattern = self
-                .load_pattern_for_domain(listing_source_id, domain_id)
-                .await?;
-            let review_id = review_repository
-                .create_url_pattern_review(
+        if let Some(review_repository) = review_repository {
+            let review_id = self
+                .open_review(
+                    review_repository,
                     listing_source_id,
                     domain_id,
                     "url_pattern_generation",
-                    pattern.as_ref(),
+                    UrlPatternDecision::inferred(pattern.as_ref()),
                     urls,
-                    current_pattern.as_ref(),
                 )
-                .await
-                .map_err(|err| {
-                    UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
-                })?;
+                .await?;
             return Err(UrlPatternServiceError::PendingReview {
                 listing_source_id: *listing_source_id,
                 review_id,
@@ -264,9 +320,11 @@ impl UrlPatternService for UrlPatternServiceImpl {
 mod tests {
     use super::*;
     use crate::spider::classification::url_classification_service::MockUrlClassificationService;
+    use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
     use crate::spider::classification::url_pattern_repository::{
         ListingSourceUrlPatternRecord, MockListingSourceUrlPatternRepository,
     };
+    use crate::test_support::migrated_crawler_database;
     use listing_source_core::Domain;
 
     #[tokio::test]
@@ -291,7 +349,10 @@ mod tests {
             });
         let service = UrlPatternServiceImpl::new(
             Arc::new(repository),
-            Box::new(MockUrlClassificationService::new()),
+            UrlPatternAuthoring::Inferred {
+                classification_service: Box::new(MockUrlClassificationService::new()),
+                review_repository: None,
+            },
         );
 
         let pattern = service
@@ -305,5 +366,77 @@ mod tests {
             .unwrap();
 
         assert!(pattern.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_open_undecided_review_without_llm_call_when_authoring_is_manual() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        sqlx::query(
+            "INSERT INTO listing_sources              (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated)              VALUES ($1, 'Manual source', 'manual-source', TRUE, NOW(), NOW())",
+        )
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+        sqlx::query(
+            "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host)              VALUES ($1, $2, 'manual.example.com', 'manual.example.com')",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert domain: {error}"));
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let service = UrlPatternServiceImpl::new(
+            Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
+            UrlPatternAuthoring::Manual {
+                review_repository: review_repository.clone(),
+            },
+        );
+        let urls = ["https://manual.example.com/item/1".to_owned()];
+
+        let first = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                &urls,
+            )
+            .await;
+        let second = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                &urls,
+            )
+            .await;
+
+        let Err(UrlPatternServiceError::PendingReview { review_id, .. }) = first else {
+            panic!("manual authoring must open a pending review");
+        };
+        assert!(matches!(
+            second,
+            Err(UrlPatternServiceError::PendingReview { review_id: pending, .. }) if pending == review_id
+        ));
+        let review = review_repository
+            .get_review(review_id)
+            .await
+            .unwrap_or_else(|error| panic!("read manual URL pattern review: {error}"));
+        assert_eq!(review.review.reason, MANUAL_URL_PATTERN_REASON);
+        assert_eq!(
+            review.review.candidate_payload["decision"]["type"],
+            "UNDECIDED"
+        );
+        let llm_calls: i64 = sqlx::query_scalar(
+            "SELECT llm_calls_count FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read LLM call count: {error}"));
+        assert_eq!(llm_calls, 0);
     }
 }

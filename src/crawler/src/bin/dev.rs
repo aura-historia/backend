@@ -16,8 +16,8 @@
 //!
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
-//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
-//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual`)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual`)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
@@ -25,9 +25,7 @@
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
-//! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
-//! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
-//! | `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Schema review mode under `CRAWLER_REVIEW_REQUIRED`: `human_only` or `auto_approve_high_confidence`; invalid values fail startup | `human_only` |
+//! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
@@ -50,9 +48,7 @@ use crawler::local_db::{
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::server::ReviewServerConfig;
-use crawler::runtime::{
-    CrawlerLlmModels, CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations,
-};
+use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
 use crawler::service::cron::CrawlerCronConfig;
@@ -193,7 +189,6 @@ async fn main() {
             "Crawler dev seeded demo ListingSources. Press Ctrl+C to stop."
         );
 
-        let models = CrawlerLlmModels::vertex_ai(&runtime_config);
         crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
@@ -207,7 +202,6 @@ async fn main() {
                 )),
             },
             runtime_config,
-            models,
         )
         .run()
         .await;

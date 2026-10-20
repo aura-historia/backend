@@ -50,9 +50,7 @@ use crawler::logging::{
     ensure_cloudwatch_log_destination,
 };
 use crawler::review::server::ReviewServerConfig;
-use crawler::runtime::{
-    CrawlerLlmModels, CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations,
-};
+use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
@@ -358,7 +356,6 @@ async fn main() {
         ));
 
         // 6. Wire the shared crawler pipeline and run forever.
-        let models = CrawlerLlmModels::vertex_ai(&runtime_config);
         crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
@@ -368,7 +365,6 @@ async fn main() {
                 raw_capture,
             },
             runtime_config,
-            models,
         )
         .run()
         .await;

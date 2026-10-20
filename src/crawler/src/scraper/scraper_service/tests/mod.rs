@@ -8,6 +8,7 @@ mod fresh_schema_generation;
 mod happy_path;
 mod hash_skip;
 mod image_evidence;
+mod manual_schema_authoring;
 mod redirect_guard;
 mod removed_page;
 mod richest_schema_selection;

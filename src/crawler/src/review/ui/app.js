@@ -323,6 +323,7 @@ function renderAutoSchemaEvaluation(review) {
 function renderNonSchemaReview(review, urls) {
     return `<div class="review-card">
       <div class="tab-panel">
+        ${renderUrlPatternEditor(review, urls)}
         ${urls.length ? renderUrls(urls) : ''}
         <h3>Candidate Payload</h3>
         <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
@@ -331,6 +332,60 @@ function renderNonSchemaReview(review, urls) {
         <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
       </div>
     </div>`;
+}
+
+function urlPatternDecision(review) {
+    return ((review || {}).candidate_payload || {}).decision || {type: 'UNDECIDED'};
+}
+
+function renderUrlPatternEditor(review, urls) {
+    if (review.artifact_type !== 'URL_PATTERN' || review.status !== 'PENDING_REVIEW') return '';
+    const decision = urlPatternDecision(review);
+    const value = decision.type === 'PATTERN' ? decision.value : '';
+    return `<h3>URL Pattern</h3>
+      <div class="hint-card">Decision: ${escapeHtml(decision.type)}. ${decision.type === 'UNDECIDED'
+        ? 'Enter a product URL regex or save NO_PATTERN before approving.'
+        : 'Save a new decision to change it.'}</div>
+      <input id="urlPatternInput" value="${escapeHtmlAttr(value)}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
+      <div id="urlPatternPreview" class="muted">${urlPatternPreviewText(value, urls)}</div>
+      <div class="actions">
+        <button onclick="saveUrlPattern()">Save pattern</button>
+        <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
+      </div>`;
+}
+
+function urlPatternPreviewText(pattern, urls) {
+    if (!pattern) return `${urls.length} sample URLs.`;
+    let regex;
+    try {
+        regex = new RegExp(pattern);
+    } catch (error) {
+        return `Invalid pattern: ${escapeHtml(error.message)}`;
+    }
+    const matches = urls.filter(u => regex.test(u.url)).length;
+    return `${matches} of ${urls.length} sample URLs match (browser preview; the server validates the pattern on save).`;
+}
+
+function previewUrlPattern() {
+    const input = document.getElementById('urlPatternInput');
+    const preview = document.getElementById('urlPatternPreview');
+    if (!input || !preview || !selectedDetail) return;
+    preview.innerHTML = urlPatternPreviewText(input.value.trim(), selectedDetail.urls || []);
+}
+
+async function saveUrlPatternDecision(decision) {
+    const currentPattern = ((selectedDetail.review || {}).candidate_payload || {}).current_pattern ?? null;
+    await saveCandidatePayload({decision, current_pattern: currentPattern});
+}
+
+async function saveUrlPattern() {
+    const value = document.getElementById('urlPatternInput').value.trim();
+    if (!value) return;
+    await saveUrlPatternDecision({type: 'PATTERN', value});
+}
+
+async function saveNoUrlPattern() {
+    await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
 function renderUrls(urls) {

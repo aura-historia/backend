@@ -316,14 +316,19 @@ impl CrawlerReviewRepository {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         reason: &str,
-        candidate_pattern: Option<&Regex>,
+        decision: UrlPatternDecision,
         urls: &[String],
         current_pattern: Option<&Regex>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_payload = serde_json::to_value(UrlPatternReviewCandidate::pattern(
-            candidate_pattern,
-            current_pattern,
-        ))?;
+        let candidate_regex = match &decision {
+            UrlPatternDecision::Pattern { value } => Some(
+                Regex::new(value).map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?,
+            ),
+            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
+        };
+        let candidate_pattern = candidate_regex.as_ref();
+        let candidate_payload =
+            serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
             "sample_count": urls.len(),
             "candidate_product_count": candidate_pattern
