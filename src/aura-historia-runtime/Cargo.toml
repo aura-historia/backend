@@ -21,6 +21,7 @@ shipping-postgres = { workspace = true }
 shipping-service = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
 

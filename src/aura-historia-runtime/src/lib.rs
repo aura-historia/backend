@@ -5,12 +5,14 @@
 //! with their existing owners. Extract further families only when a transport needs them.
 
 mod postgres;
+mod public_listing_source_read_budget;
 mod public_listing_sources;
 mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
 
 pub use postgres::PostgresConfigError;
+pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
 pub use public_listing_sources::PublicListingSources;
 pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
