@@ -1116,6 +1116,18 @@ mod tests {
     }
 
     #[test]
+    fn should_tell_generation_to_select_sale_price_container_in_both_instructions() {
+        let html = "<html><body><h1>A</h1></body></html>";
+        for instruction in [
+            build_create_schemas_instruction(&[html.to_string()]),
+            build_single_schema_instruction(html),
+        ] {
+            assert!(instruction.contains("drops struck-through descendants (del, s, strike)"));
+            assert!(instruction.contains("select the price element that contains both"));
+        }
+    }
+
+    #[test]
     fn should_build_schema_prompt_dsl_with_generic_tree_nodes() {
         let html = r#"
             <html>
