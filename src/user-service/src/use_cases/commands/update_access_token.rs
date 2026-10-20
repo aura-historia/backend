@@ -140,7 +140,16 @@ where
         let current = access_token.clone();
         let changed = apply_update(&mut access_token, command)?;
         if context.principal.is_delegated() && !access_token.grants_no_more_than(&current) {
-            return Err(UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden);
+            let error = UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden;
+            tracing::warn!(
+                event = "access_token.updated",
+                actor_id = %principal.label(),
+                user_id = %current.user_id(),
+                access_token_id = %current.id(),
+                error_category = %error,
+                outcome = "failure",
+            );
+            return Err(error);
         }
         if changed {
             access_token = repository.update(&access_token, version).await?.value;

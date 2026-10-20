@@ -1613,6 +1613,56 @@ async fn should_reject_delegated_access_token_authority_expansion() {
     }
 
     let response = client
+        .get(&endpoint)
+        .bearer_auth(String::from(delegate_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list access tokens: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    let own_token_id = body
+        .as_array()
+        .and_then(|items| {
+            items.iter().find(|item| {
+                item["accessTokenId"] != serde_json::json!(access_token_id.to_string())
+            })
+        })
+        .map(|item| item["accessTokenId"].clone())
+        .unwrap_or_else(|| panic!("the delegate's own token is listed: {body}"));
+    let own_scopes = serde_json::json!(["access-tokens:read", "access-tokens:write"]);
+    let response = client
+        .patch(&endpoint)
+        .bearer_auth(String::from(delegate_token.clone()))
+        .json(&serde_json::json!({
+            "accessTokenId": own_token_id,
+            "scopes": ["access-tokens:read", "access-tokens:write", "users:write"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to request own-token expansion: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    let response = client
+        .get(format!(
+            "{endpoint}/{}",
+            own_token_id
+                .as_str()
+                .unwrap_or_else(|| panic!("own token ID is a string: {own_token_id}"))
+        ))
+        .bearer_auth(String::from(delegate_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read back own token: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    let mut scopes = body["scopes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("scopes serialize as an array: {body}"));
+    scopes.sort_by_key(|scope| scope.as_str().map(str::to_owned));
+    assert_eq!(own_scopes, serde_json::Value::Array(scopes));
+
+    let response = client
         .patch(&endpoint)
         .bearer_auth(String::from(delegate_token.clone()))
         .json(&serde_json::json!({
@@ -2832,23 +2882,23 @@ fn should_keep_own_access_token_openapi_contract_aligned() {
     assert!(update.contains("#/components/schemas/OwnAccessTokenData"));
     assert!(get.contains("#/components/schemas/OwnAccessTokenData"));
 
-    for (operation, capability) in [
-        (create, "access-tokens:write"),
-        (list, "access-tokens:read"),
-        (update, "access-tokens:write"),
-        (get, "access-tokens:read"),
-        (delete, "access-tokens:write"),
-    ] {
+    for operation in [create, list, update, get, delete] {
         assert!(operation.contains("- BearerAuth: []"));
-        assert!(operation.contains(capability));
         assert!(operation.contains("error: INVALID_CREDENTIALS"));
         assert!(operation.contains("field: Authorization"));
         assert!(!operation.contains("error: UNAUTHORIZED"));
         assert!(!operation.contains("Requires valid Cognito JWT authentication."));
     }
-    for operation in [list, update, get, delete] {
+    for (operation, capability) in [
+        (list, "access-tokens:read"),
+        (update, "access-tokens:write"),
+        (get, "access-tokens:read"),
+        (delete, "access-tokens:write"),
+    ] {
         assert!(operation.contains("- AccessTokenAuth: []"));
+        assert!(operation.contains(capability));
     }
+    assert!(create.contains("Requires a Cognito access JWT."));
     assert!(!create.contains("- AccessTokenAuth: []"));
     for (operation, detail) in [
         (

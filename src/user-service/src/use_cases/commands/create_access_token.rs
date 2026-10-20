@@ -184,7 +184,15 @@ fn authorize_access_token_write(
         .service_or_system()
         .authorize::<CreateAccessTokenError>()?;
     if context.principal.is_delegated() {
-        return Err(CreateAccessTokenError::DelegatedIssuanceForbidden);
+        let error = CreateAccessTokenError::DelegatedIssuanceForbidden;
+        tracing::warn!(
+            event = "access_token.created",
+            actor_id = %context.principal.label(),
+            user_id = %user_id,
+            error_category = %error,
+            outcome = "failure",
+        );
+        return Err(error);
     }
     Ok(())
 }
@@ -403,7 +411,7 @@ mod tests {
         }
     }
 
-    fn delegated(user_id: UserId, capabilities: &[Scope]) -> Principal {
+    fn delegate(user_id: UserId, capabilities: &[Scope]) -> Principal {
         Principal::DelegatedUser {
             user_id,
             capabilities: capabilities.iter().copied().collect(),
@@ -424,7 +432,7 @@ mod tests {
             let fakes = Fakes::default();
             let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
                 .execute(
-                    &context(delegated(user_id, &delegate_scopes)),
+                    &context(delegate(user_id, &delegate_scopes)),
                     command(user_id, scopes),
                 )
                 .await;
@@ -448,9 +456,9 @@ mod tests {
         let user_id = UserId::new();
 
         for (principal, target) in [
-            (delegated(user_id, &[]), user_id),
+            (delegate(user_id, &[]), user_id),
             (
-                delegated(user_id, &[Scope::AccessTokensWrite]),
+                delegate(user_id, &[Scope::AccessTokensWrite]),
                 UserId::new(),
             ),
             (Principal::User(user_id), UserId::new()),
