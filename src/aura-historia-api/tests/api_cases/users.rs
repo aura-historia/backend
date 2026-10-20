@@ -1,9 +1,9 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, fail_session_revocation_for, json_response, seed_access_token_for, seed_user,
-    seed_user_cognito_identity, seed_user_with_search_fields, seed_user_with_tier,
-    set_user_stripe_customer_id,
+    assert_problem, cognito_access_token_for_test_user, fail_session_revocation_for, json_response,
+    seed_access_token_for, seed_user, seed_user_cognito_identity, seed_user_with_search_fields,
+    seed_user_with_tier, set_user_stripe_customer_id,
 };
 
 use test_api::{IntegrationTestService, aura_integration_test};
@@ -1014,15 +1014,10 @@ async fn should_reject_noncanonical_admin_user_read_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::AccessTokensWrite, Scope::AccessTokensRead]),
-    )
-    .await;
 
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
+        .bearer_auth(cognito_access_token_for_test_user(user_id))
         .json(&serde_json::json!({
             "name": "acceptance token",
             "scopes": ["product-listings:write", "watchlist:write"]
@@ -1097,7 +1092,8 @@ async fn should_list_access_tokens_for_current_user() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
     let target_user_id = seed_user("USER").await;
-    let target_authentication_token = seed_access_token_for(
+    // A pre-existing token alongside the two created below gives three pages.
+    seed_access_token_for(
         target_user_id,
         std::collections::HashSet::from([Scope::AccessTokensWrite]),
     )
@@ -1110,7 +1106,7 @@ async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
     ] {
         let response = client
             .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
-            .bearer_auth(String::from(target_authentication_token.clone()))
+            .bearer_auth(cognito_access_token_for_test_user(target_user_id))
             .json(&serde_json::json!({
                 "name": name,
                 "scopes": ["users:read"],
@@ -1369,7 +1365,7 @@ async fn should_get_access_token_for_current_user() {
         std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
     )
     .await;
-    let access_token_id = create_access_token(&token).await;
+    let access_token_id = create_access_token(user_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -1409,7 +1405,7 @@ async fn should_update_access_token_for_current_user() {
         std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
     )
     .await;
-    let access_token_id = create_access_token(&token).await;
+    let access_token_id = create_access_token(user_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
@@ -1483,6 +1479,229 @@ async fn should_reject_noncanonical_access_token_ids_in_update_body() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_access_token_creation_with_delegated_bearer() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([
+            Scope::AccessTokensRead,
+            Scope::AccessTokensWrite,
+            Scope::ProductListingsWrite,
+        ]),
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    for request in [
+        serde_json::json!({
+            "name": "within delegation",
+            "scopes": ["product-listings:write"],
+            "expires": "2099-01-01T00:00:00Z"
+        }),
+        serde_json::json!({"name": "beyond delegation", "scopes": ["users:write"]}),
+    ] {
+        let response = client
+            .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .bearer_auth(String::from(token.clone()))
+            .json(&request)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to request delegated issuance: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+        assert_eq!(
+            serde_json::json!(
+                "Aura Historia access tokens cannot create access tokens; use a Cognito access JWT."
+            ),
+            body["detail"]
+        );
+        assert!(body.get("accessToken").is_none());
+    }
+
+    let response = client
+        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list access tokens: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        Some(1),
+        body.as_array().map(Vec::len),
+        "only the delegate's own token exists: {body}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_delegated_access_token_authority_expansion() {
+    let user_id = seed_user("USER").await;
+    let delegate_token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
+    )
+    .await;
+    let (access_token_id, _) = create_access_token_with_body(
+        user_id,
+        serde_json::json!({
+            "name": "bounded token",
+            "scopes": ["users:read", "watchlist:read"],
+            "expires": "2099-01-01T00:00:00Z"
+        }),
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let endpoint = format!("{}/api/v1/me/access-tokens", AURA_API.base_url());
+    let read_back = || async {
+        let response = client
+            .get(format!("{endpoint}/{access_token_id}"))
+            .bearer_auth(String::from(delegate_token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to read back access token: {error}"));
+        let (status, body) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+        let scopes = body["scopes"]
+            .as_array()
+            .unwrap_or_else(|| panic!("scopes serialize as an array: {body}"))
+            .iter()
+            .filter_map(|scope| scope.as_str().map(str::to_owned))
+            .collect::<std::collections::HashSet<_>>();
+        (body["name"].clone(), scopes, body["expires"].clone())
+    };
+
+    for change in [
+        serde_json::json!({"scopes": ["users:read", "watchlist:read", "users:write"]}),
+        serde_json::json!({"scopes": ["access-tokens:write"]}),
+        serde_json::json!({"expires": null}),
+        serde_json::json!({"expires": "2099-01-01T00:00:01Z"}),
+        serde_json::json!({"scopes": [], "expires": "2100-01-01T00:00:00Z"}),
+    ] {
+        let mut request = change.clone();
+        request["accessTokenId"] = serde_json::json!(access_token_id);
+        request["name"] = serde_json::json!("renamed by delegate");
+        let response = client
+            .patch(&endpoint)
+            .bearer_auth(String::from(delegate_token.clone()))
+            .json(&request)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to request delegated expansion: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+        assert_eq!(
+            serde_json::json!(
+                "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry."
+            ),
+            body["detail"],
+            "{change}"
+        );
+        assert_eq!(
+            (
+                serde_json::json!("bounded token"),
+                std::collections::HashSet::from([
+                    "users:read".to_owned(),
+                    "watchlist:read".to_owned()
+                ]),
+                serde_json::json!("2099-01-01T00:00:00Z"),
+            ),
+            read_back().await,
+            "{change}"
+        );
+    }
+
+    let response = client
+        .get(&endpoint)
+        .bearer_auth(String::from(delegate_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list access tokens: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    let own_token_id = body
+        .as_array()
+        .and_then(|items| {
+            items.iter().find(|item| {
+                item["accessTokenId"] != serde_json::json!(access_token_id.to_string())
+            })
+        })
+        .map(|item| item["accessTokenId"].clone())
+        .unwrap_or_else(|| panic!("the delegate's own token is listed: {body}"));
+    let own_scopes = serde_json::json!(["access-tokens:read", "access-tokens:write"]);
+    let response = client
+        .patch(&endpoint)
+        .bearer_auth(String::from(delegate_token.clone()))
+        .json(&serde_json::json!({
+            "accessTokenId": own_token_id,
+            "scopes": ["access-tokens:read", "access-tokens:write", "users:write"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to request own-token expansion: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    let response = client
+        .get(format!(
+            "{endpoint}/{}",
+            own_token_id
+                .as_str()
+                .unwrap_or_else(|| panic!("own token ID is a string: {own_token_id}"))
+        ))
+        .bearer_auth(String::from(delegate_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read back own token: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    let mut scopes = body["scopes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("scopes serialize as an array: {body}"));
+    scopes.sort_by_key(|scope| scope.as_str().map(str::to_owned));
+    assert_eq!(own_scopes, serde_json::Value::Array(scopes));
+
+    let response = client
+        .patch(&endpoint)
+        .bearer_auth(String::from(delegate_token.clone()))
+        .json(&serde_json::json!({
+            "accessTokenId": access_token_id,
+            "name": "narrowed by delegate",
+            "scopes": ["watchlist:read"],
+            "expires": "2098-01-01T00:00:00Z"
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to narrow access token: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(
+        (
+            serde_json::json!("narrowed by delegate"),
+            std::collections::HashSet::from(["watchlist:read".to_owned()]),
+            serde_json::json!("2098-01-01T00:00:00Z"),
+        ),
+        read_back().await
+    );
+
+    let response = client
+        .patch(&endpoint)
+        .bearer_auth(cognito_access_token_for_test_user(user_id))
+        .json(&serde_json::json!({
+            "accessTokenId": access_token_id,
+            "scopes": ["users:read", "users:write"],
+            "expires": null
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to widen access token as owner: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert!(body.get("expires").is_none(), "{body}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1490,7 +1709,7 @@ async fn should_delete_access_token_for_current_user() {
         std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
     )
     .await;
-    let access_token_id = create_access_token(&token).await;
+    let access_token_id = create_access_token(user_id).await;
 
     let response = reqwest::Client::new()
         .delete(format!(
@@ -1891,13 +2110,8 @@ async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
     let target_user_id = seed_user("USER").await;
-    let target_authentication_token = seed_access_token_for(
-        target_user_id,
-        std::collections::HashSet::from([Scope::AccessTokensWrite]),
-    )
-    .await;
     let (access_token_id, revoked_token) =
-        create_access_token_with_raw(&target_authentication_token, &["users:read"]).await;
+        create_access_token_with_raw(target_user_id, &["users:read"]).await;
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
         admin_id,
@@ -1978,13 +2192,8 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_not_revoke_another_users_access_token_from_admin_route() {
     let token_owner_id = seed_user("USER").await;
-    let owner_authentication_token = seed_access_token_for(
-        token_owner_id,
-        std::collections::HashSet::from([Scope::AccessTokensWrite]),
-    )
-    .await;
     let (access_token_id, owner_token) =
-        create_access_token_with_raw(&owner_authentication_token, &["users:read"]).await;
+        create_access_token_with_raw(token_owner_id, &["users:read"]).await;
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2586,20 +2795,29 @@ async fn should_reject_suspended_user_aura_token_on_later_request() {
     );
 }
 
-async fn create_access_token(token: &user_core::access_token::RawAccessToken) -> AccessTokenId {
-    create_access_token_with_raw(token, &["product-listings:write"])
+async fn create_access_token(user_id: UserId) -> AccessTokenId {
+    create_access_token_with_raw(user_id, &["product-listings:write"])
         .await
         .0
 }
 
-async fn create_access_token_with_raw(
-    token: &user_core::access_token::RawAccessToken,
-    scopes: &[&str],
+async fn create_access_token_with_raw(user_id: UserId, scopes: &[&str]) -> (AccessTokenId, String) {
+    create_access_token_with_body(
+        user_id,
+        serde_json::json!({"name": "editable token", "scopes": scopes}),
+    )
+    .await
+}
+
+/// Issues a token with first-party authority, which delegated bearers lack.
+async fn create_access_token_with_body(
+    user_id: UserId,
+    body: serde_json::Value,
 ) -> (AccessTokenId, String) {
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
-        .bearer_auth(String::from(token.clone()))
-        .json(&serde_json::json!({"name": "editable token", "scopes": scopes}))
+        .bearer_auth(cognito_access_token_for_test_user(user_id))
+        .json(&body)
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create access token API: {error}"));
@@ -2664,20 +2882,37 @@ fn should_keep_own_access_token_openapi_contract_aligned() {
     assert!(update.contains("#/components/schemas/OwnAccessTokenData"));
     assert!(get.contains("#/components/schemas/OwnAccessTokenData"));
 
+    for operation in [create, list, update, get, delete] {
+        assert!(operation.contains("- BearerAuth: []"));
+        assert!(operation.contains("error: INVALID_CREDENTIALS"));
+        assert!(operation.contains("field: Authorization"));
+        assert!(!operation.contains("error: UNAUTHORIZED"));
+        assert!(!operation.contains("Requires valid Cognito JWT authentication."));
+    }
     for (operation, capability) in [
-        (create, "access-tokens:write"),
         (list, "access-tokens:read"),
         (update, "access-tokens:write"),
         (get, "access-tokens:read"),
         (delete, "access-tokens:write"),
     ] {
-        assert!(operation.contains("- BearerAuth: []"));
         assert!(operation.contains("- AccessTokenAuth: []"));
         assert!(operation.contains(capability));
-        assert!(operation.contains("error: INVALID_CREDENTIALS"));
-        assert!(operation.contains("field: Authorization"));
-        assert!(!operation.contains("error: UNAUTHORIZED"));
-        assert!(!operation.contains("Requires valid Cognito JWT authentication."));
+    }
+    assert!(create.contains("Requires a Cognito access JWT."));
+    assert!(!create.contains("- AccessTokenAuth: []"));
+    for (operation, detail) in [
+        (
+            create,
+            "detail: Aura Historia access tokens cannot create access tokens; use a Cognito access JWT.",
+        ),
+        (
+            update,
+            "detail: Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
+        ),
+    ] {
+        assert!(operation.contains("\"403\":"));
+        assert!(operation.contains("error: FORBIDDEN"));
+        assert!(operation.contains(detail));
     }
     assert!(create.contains("detail: Request body is required."));
     assert!(update.contains("detail: Request body is required."));

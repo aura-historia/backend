@@ -36,6 +36,8 @@ pub enum CreateAccessTokenError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("delegated credentials cannot issue access tokens")]
+    DelegatedIssuanceForbidden,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -168,6 +170,9 @@ impl From<AuthenticationRequired> for CreateAccessTokenError {
     }
 }
 
+/// Issuance requires first-party authority. The operation context does not
+/// carry a delegation's lifetime, so a delegate could not be prevented from
+/// minting a token that outlives its own grant.
 fn authorize_access_token_write(
     context: &OperationContext,
     user_id: UserId,
@@ -177,7 +182,19 @@ fn authorize_access_token_write(
         .credential_capability(CredentialCapability::AccessTokensWrite)
         .user(&user_id)
         .service_or_system()
-        .authorize::<CreateAccessTokenError>()
+        .authorize::<CreateAccessTokenError>()?;
+    if context.principal.is_delegated() {
+        let error = CreateAccessTokenError::DelegatedIssuanceForbidden;
+        tracing::warn!(
+            event = "access_token.created",
+            actor_id = %context.principal.label(),
+            user_id = %user_id,
+            error_category = %error,
+            outcome = "failure",
+        );
+        return Err(error);
+    }
+    Ok(())
 }
 
 impl From<AccessTokenRepositoryError> for CreateAccessTokenError {
@@ -382,5 +399,98 @@ mod tests {
             Err(CreateAccessTokenError::AuthenticatedActorRequired)
         ));
         assert_eq!(0, lock(&fakes.0).begins);
+    }
+
+    fn command(user_id: UserId, scopes: HashSet<Scope>) -> CreateAccessTokenCommand {
+        CreateAccessTokenCommand {
+            user_id,
+            name: AccessTokenName::from("created"),
+            scopes,
+            expires: None,
+            origin: AccessTokenOrigin::User,
+        }
+    }
+
+    fn delegate(user_id: UserId, capabilities: &[Scope]) -> Principal {
+        Principal::DelegatedUser {
+            user_id,
+            capabilities: capabilities.iter().copied().collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_reject_delegated_issuance_without_issuing_or_storing_token() {
+        let user_id = UserId::new();
+        let delegate_scopes = [Scope::AccessTokensWrite, Scope::ProductListingsWrite];
+
+        for scopes in [
+            HashSet::new(),
+            HashSet::from([Scope::ProductListingsWrite]),
+            HashSet::from(delegate_scopes),
+            HashSet::from([Scope::UsersWrite]),
+        ] {
+            let fakes = Fakes::default();
+            let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(delegate(user_id, &delegate_scopes)),
+                    command(user_id, scopes),
+                )
+                .await;
+
+            assert!(
+                matches!(
+                    result,
+                    Err(CreateAccessTokenError::DelegatedIssuanceForbidden)
+                ),
+                "unexpected result: {result:?}"
+            );
+            let state = lock(&fakes.0);
+            assert_eq!(0, state.begins);
+            assert_eq!(0, state.insert_calls);
+            assert!(state.token.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn should_keep_capability_and_ownership_checks_for_delegates() {
+        let user_id = UserId::new();
+
+        for (principal, target) in [
+            (delegate(user_id, &[]), user_id),
+            (
+                delegate(user_id, &[Scope::AccessTokensWrite]),
+                UserId::new(),
+            ),
+            (Principal::User(user_id), UserId::new()),
+        ] {
+            let fakes = Fakes::default();
+            let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(&context(principal), command(target, HashSet::new()))
+                .await;
+
+            assert!(
+                matches!(result, Err(CreateAccessTokenError::Forbidden)),
+                "unexpected result: {result:?}"
+            );
+            assert_eq!(0, lock(&fakes.0).begins);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_let_service_and_system_issue_tokens_for_users() {
+        let user_id = UserId::new();
+
+        for principal in [Principal::Service("svc".to_owned()), Principal::System] {
+            let fakes = Fakes::default();
+            let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(principal),
+                    command(user_id, HashSet::from([Scope::UsersWrite])),
+                )
+                .await;
+
+            assert!(result.is_ok(), "unexpected result: {result:?}");
+            assert_eq!(1, lock(&fakes.0).insert_calls);
+        }
     }
 }
