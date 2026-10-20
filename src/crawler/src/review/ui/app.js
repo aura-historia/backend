@@ -335,7 +335,7 @@ function renderNonSchemaReview(review, urls) {
 }
 
 function urlPatternDecision(review) {
-    return ((review || {}).candidate_payload || {}).decision || {type: 'UNDECIDED'};
+    return review?.candidate_payload?.decision || {type: 'UNDECIDED'};
 }
 
 function renderUrlPatternEditor(review, urls) {
@@ -374,7 +374,7 @@ function previewUrlPattern() {
 }
 
 async function saveUrlPatternDecision(decision) {
-    const currentPattern = ((selectedDetail.review || {}).candidate_payload || {}).current_pattern ?? null;
+    const currentPattern = selectedDetail.review?.candidate_payload?.current_pattern ?? null;
     await saveCandidatePayload({decision, current_pattern: currentPattern});
 }
 
