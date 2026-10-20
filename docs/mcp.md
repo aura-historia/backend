@@ -56,9 +56,10 @@ DTOs and constructors; transport wrappers may assemble path/query/body inputs
 but must not duplicate business fields or business behavior.
 
 Input schemas use Schemars deserialization direction; output schemas use
-serialization direction. Inputs must be objects. Object results retain their
-shared DTO shape. Array, scalar, nullable or otherwise non-object root schemas
-use `{ "result": <shared response> }`, because legacy MCP output schemas
+serialization direction. Inputs must be objects, including tagged unions whose
+variants are all objects. Object results retain their shared DTO shape. Array,
+scalar, nullable or otherwise non-object root schemas use
+`{ "result": <shared response> }`, because legacy MCP output schemas
 require an object. The same value is emitted as structured content and JSON
 text for older generic clients. Neither representation drops fields. A result
 that exceeds the limit fails explicitly; collection pagination belongs in the

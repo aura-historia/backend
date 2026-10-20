@@ -66,12 +66,12 @@ impl OperationDefinition {
         if policy.read_only && policy.destructive {
             return Err(RegistryError::Annotations);
         }
-        let input = schema::<I>(SchemaSettings::default().for_deserialize())?;
-        if input.get("type").and_then(Value::as_str) != Some("object") {
+        let mut input = schema::<I>(SchemaSettings::default().for_deserialize())?;
+        if !normalize_object_schema(&mut input) {
             return Err(RegistryError::ObjectInput);
         }
-        let output = schema::<O>(SchemaSettings::default().for_serialize())?;
-        let direct_output = output.get("type").and_then(Value::as_str) == Some("object");
+        let mut output = schema::<O>(SchemaSettings::default().for_serialize())?;
+        let direct_output = normalize_object_schema(&mut output);
         let output = if direct_output {
             output
         } else {
@@ -180,6 +180,31 @@ fn schema<T: JsonSchema>(settings: SchemaSettings) -> Result<JsonObject, Registr
         .as_object()
         .cloned()
         .ok_or(RegistryError::ObjectInput)
+}
+
+fn normalize_object_schema(schema: &mut JsonObject) -> bool {
+    if !has_only_object_variants(schema) {
+        return false;
+    }
+    // Schemars describes tagged object enums with oneOf, omitting the root type.
+    // Legacy MCP requires that explicit root even when every variant is an object.
+    schema.insert("type".into(), json!("object"));
+    true
+}
+
+fn has_only_object_variants(schema: &JsonObject) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("object")
+        || ["oneOf", "anyOf"].iter().any(|keyword| {
+            schema
+                .get(*keyword)
+                .and_then(Value::as_array)
+                .is_some_and(|variants| {
+                    !variants.is_empty()
+                        && variants.iter().all(|variant| {
+                            variant.as_object().is_some_and(has_only_object_variants)
+                        })
+                })
+        })
 }
 
 #[derive(Debug, thiserror::Error)]

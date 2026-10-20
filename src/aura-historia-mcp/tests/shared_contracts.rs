@@ -1,4 +1,4 @@
-use aura_historia_contracts::values::{LocalizedTextData, PriceData};
+use aura_historia_contracts::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use aura_historia_mcp::{
     AccessClass, AnonymousGate, OperationDefinition, OperationError, OperationPolicy, Registry,
     TransportConfig, router,
@@ -133,4 +133,37 @@ async fn should_preserve_shared_price_integer_precision_without_transport_field_
     assert!(jsonschema::is_valid(output_schema, output));
     let text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert_eq!(price, serde_json::from_str::<Value>(text).unwrap());
+}
+
+#[tokio::test]
+async fn should_reuse_object_only_tagged_shared_contracts_without_an_envelope() {
+    let operation = OperationDefinition::new(
+        "testListingPrice",
+        "Shared tagged price test",
+        policy(),
+        |input: ProductListingPriceData, _| async move { Ok::<_, OperationError>(input) },
+    )
+    .expect("each tagged variant has an object wire shape");
+    let app = app(vec![operation]);
+    let list = post(app.clone(), "tools/list", json!({})).await;
+    let tool = &list["result"]["tools"][0];
+    assert_eq!("object", tool["inputSchema"]["type"]);
+    assert_eq!("object", tool["outputSchema"]["type"]);
+    for price in [
+        json!({"type":"ON_REQUEST"}),
+        json!({"type":"MONETARY","currency":"EUR","amount":u64::MAX}),
+    ] {
+        assert!(jsonschema::is_valid(&tool["inputSchema"], &price));
+        let response = post(
+            app.clone(),
+            "tools/call",
+            json!({"name":"testListingPrice","arguments":price}),
+        )
+        .await;
+        let output = &response["result"]["structuredContent"];
+        assert_eq!(price, *output);
+        assert!(jsonschema::is_valid(&tool["outputSchema"], output));
+        let text = response["result"]["content"][0]["text"].as_str().unwrap();
+        assert_eq!(price, serde_json::from_str::<Value>(text).unwrap());
+    }
 }

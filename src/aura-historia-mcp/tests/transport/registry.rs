@@ -183,6 +183,68 @@ async fn should_preserve_legacy_json_schema_object_requirement_only_where_needed
 }
 
 #[tokio::test]
+async fn should_wrap_mixed_root_results_and_reject_mixed_or_nullable_inputs() {
+    #[derive(Serialize, Deserialize, JsonSchema)]
+    #[serde(untagged)]
+    enum Mixed {
+        Object { value: String },
+        Text(String),
+    }
+
+    assert!(
+        OperationDefinition::new("mixedInput", "Test", policy(), |_: Mixed, _| async {
+            Ok(())
+        })
+        .is_err()
+    );
+    assert!(
+        OperationDefinition::new(
+            "nullableInput",
+            "Test",
+            policy(),
+            |_: Option<Arguments>, _| async { Ok(()) },
+        )
+        .is_err()
+    );
+    let operation = OperationDefinition::new(
+        "mixedOutput",
+        "Test",
+        policy(),
+        |input: Arguments, _| async move {
+            Ok(if input.value.is_empty() {
+                Mixed::Text("empty".into())
+            } else {
+                Mixed::Object { value: input.value }
+            })
+        },
+    )
+    .unwrap();
+    let output_schema = operation.tool().output_schema.as_ref().unwrap().clone();
+    let app = router(
+        config(),
+        Registry::new([operation]).unwrap(),
+        Arc::new(AnonymousGate),
+    )
+    .unwrap();
+    for (input, expected) in [
+        ("", json!({"result":"empty"})),
+        ("value", json!({"result":{"value":"value"}})),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(&modern(
+                "tools/call",
+                json!({"name":"mixedOutput","arguments":{"value":input}}),
+            )))
+            .await
+            .unwrap();
+        let body = json_response(response).await;
+        assert_eq!(expected, body["result"]["structuredContent"]);
+        assert!(jsonschema::is_valid(&json!(output_schema), &expected));
+    }
+}
+
+#[tokio::test]
 async fn should_preserve_genuine_serialization_failure_as_safe_internal_error() {
     let op = OperationDefinition::new("testOperation", "Test", policy(), |_: Arguments, _| async {
         Ok(BrokenOutput)
