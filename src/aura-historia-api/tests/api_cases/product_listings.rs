@@ -718,9 +718,9 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
             body["item"]["productListingId"]
         );
         assert!(body["item"].get("productListingTitleSlugId").is_none());
-        assert_eq!(json!(true), body["userState"]["searchFilter"]["hidden"]);
+        // A token without read scopes still gets the redaction, but no private state.
+        assert!(body.get("userState").is_none());
         assert!(body["item"]["shipping"].is_null());
-        assert!(body["userState"].get("shipping").is_none());
     }
 }
 
