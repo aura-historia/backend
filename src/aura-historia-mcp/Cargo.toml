@@ -1,0 +1,30 @@
+[package]
+name = "aura-historia-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+http-body-util = { workspace = true }
+lambda_http = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-observability = { workspace = true }
+rmcp = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+aura-historia-contracts = { workspace = true }
+jsonschema = { version = "0.59.0", default-features = false }
+rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }

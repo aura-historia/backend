@@ -1,0 +1,137 @@
+# MCP transport
+
+The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
+`aura-historia-mcp` crate serves the same `/v1` router natively and through
+Lambda HTTP API v2. Hosting and public business-tool releases are separate
+from this transport foundation; its production registry is empty.
+
+## Protocol compatibility
+
+The official Rust SDK is pinned to `rmcp = 3.6.0`. The supported matrix is
+exercised at the HTTP boundary and with official SDK clients in
+[`transport.rs`](../src/aura-historia-mcp/tests/transport.rs).
+
+| Revision | Entry flow | Subsequent requests |
+| --- | --- | --- |
+| `2026-07-28` | `server/discover` or an ordinary request | Self-contained protocol version, client identity and capabilities in `params._meta`; matching `MCP-Protocol-Version`, `Mcp-Method` and applicable `Mcp-Name` headers |
+| `2025-11-25`, `2025-06-18`, `2025-03-26` | `initialize`, then `notifications/initialized` | Stateless POST; version header recommended, absent header uses `2025-03-26` |
+
+Each POST contains one UTF-8 JSON-RPC message, uses `Content-Type:
+application/json`, and accepts both `application/json` and
+`text/event-stream` as required by Streamable HTTP. Responses are bounded
+JSON; accepted notifications receive an empty `202`. The transport advertises
+tools without streaming, subscriptions, sampling, elicitation or tasks.
+HTTP GET and DELETE at `/v1` return `405` with `Allow: POST`. The old
+HTTP+SSE transport is excluded.
+
+Legacy initialization negotiates a supported legacy revision through the SDK.
+No flow creates or requires a session ID; a supplied legacy session ID has no
+authorization meaning and is never echoed. Each request can reach a different
+Lambda invocation. Supplied routing headers must agree with body identity even
+on legacy calls. Duplicate routing or credential headers are rejected; encoded
+`Mcp-Name` values are decoded before comparison. The SDK additionally validates
+current per-request metadata and any schema-declared parameter headers.
+
+The version allowlist rejects unsupported non-initialize revisions with HTTP
+`400`, JSON-RPC `-32022` and the supported revisions. Unknown methods return
+`-32601` (HTTP `404` for current requests, `200` for legacy requests). Unknown
+tools, malformed arguments and invalid catalogue cursors return `-32602`.
+Malformed JSON receives `400`/`-32700`; identity-header disagreement receives
+`400`/`-32020`. Wrong content type and unacceptable response types receive
+`415` and `406` respectively.
+
+The normative contracts are the [current Streamable HTTP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
+[current versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
+and [legacy Streamable HTTP specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+SDK upgrades must rerun the matrix before expanding the supported revisions.
+
+## Operation families and admission
+
+Families register `OperationDefinition::new<I, O>` with the selected existing
+API operation ID, a description, access class, required Aura scopes, and all
+four mutation/retry/open-world annotations. Release composition assembles the
+allowlist. A closure captures narrow service handles and calls the shared
+inbound application use case directly. Use shared `aura-historia-contracts`
+DTOs and constructors; transport wrappers may assemble path/query/body inputs
+but must not duplicate business fields or business behavior.
+
+Input schemas use Schemars deserialization direction; output schemas use
+serialization direction. Inputs must be objects. Object results retain their
+shared DTO shape. Array, scalar, nullable or otherwise non-object root schemas
+use `{ "result": <shared response> }`, because legacy MCP output schemas
+require an object. The same value is emitted as structured content and JSON
+text for older generic clients. Neither representation drops fields. A result
+that exceeds the limit fails explicitly; collection pagination belongs in the
+shared use case and must never become transport truncation.
+
+The registry rejects duplicate IDs, lists tools lexically by operation ID,
+and returns at most 50 definitions with an explicit continuation cursor. Its
+manifest includes `aura.historia/operationId`, `aura.historia/access` and
+`aura.historia/requiredScopes` metadata. Protected tools remain discoverable.
+Health and readiness are HTTP-only `/health` and `/ready` probes, outside the
+operation registry.
+
+`AdmissionGate` runs before SDK operation dispatch. It receives the bounded
+body's method and selected registered operation only after supplied routing
+headers agree. The future authentication gate must validate supplied tokens
+through application services on every request and preserve the exact
+`DelegatedUser` capabilities. Services remain the authorization authority.
+The foundation gate accepts anonymous requests, rejects supplied credentials,
+and rejects protected calls with HTTP `401`. A gate can return actual HTTP
+`401`/`403` and `WWW-Authenticate` before tool-result wrapping. It must not
+infer argument authorization from unvalidated `Mcp-Param-*` headers.
+
+Family adapters classify expected input, missing-resource, conflict, forbidden
+and temporary failures into distinct static tool-error codes. Invalid arguments
+are protocol errors; unexpected failures are safe `-32603` errors. Technical
+causes remain attached to internal error types and never appear in client
+messages. No mutation is automatically retried: a timeout or oversized response
+may follow a completed write, so callers must follow the operation's existing
+idempotency and recovery contract.
+
+## Bounds, metadata and runtime configuration
+
+The default admission bounds are 256 KiB per request, 2 MiB per complete JSON
+response and 64 concurrent requests per process. Library composition may lower
+these bounds. Body admission counts streamed bytes regardless of
+`Content-Length`; oversized input receives `413`. Output serialization stops
+at the limit and returns an explicit failure. With a 2 MiB JSON body, escaping
+that text inside the Lambda response envelope remains below the 6 MiB Lambda
+synchronous response limit. The actual Lambda adapter is exercised with escaped
+output in [`lambda.rs`](../src/aura-historia-mcp/tests/lambda.rs).
+
+The request deadline is 25 seconds at most, including body admission and the
+authentication gate. Lambda caps this by its remaining invocation time with
+one second reserved for response handling. Exhausted budgets receive HTTP
+`408`; work gets a cancellation token and an absolute deadline through
+`InvocationContext`. Native HTTP disconnects cancel active work; Lambda cannot
+observe a gateway client disconnect, so its deadline bounds that work. Separate
+legacy cancellation notifications do not locate work in another invocation.
+Application wrappers must propagate the supplied deadline/token to external
+work and must not detach unbounded tasks.
+
+Requests get a new request ID (the invocation ID on Lambda) and a correlation ID.
+An optional `X-Correlation-Id` is accepted only as a nonempty ASCII identifier
+of at most 128 letters, digits, dashes, underscores or periods. These values
+reach the shared `OperationContext` and successful responses carry both headers.
+All HTTP responses and authentication challenges use `Cache-Control: no-store`.
+MCP catalogue/discovery cache hints remain private with zero lifetime.
+
+| Environment variable | Meaning |
+| --- | --- |
+| `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
+| `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
+| `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
+
+Configure the public hostname explicitly for Lambda. Missing Origin is accepted;
+present Origin must be a valid allowed scheme/host/port tuple. No wildcard or
+opaque `null` origin is supported. Default ports compare by their effective
+value, so `https://app.example` and `https://app.example:443` agree; another port
+does not. Invalid environment configuration prevents startup.
+
+The binary suppresses all SDK logging with `rmcp=off`: SDK trace events include
+private protocol payloads. Library embedders must retain that directive or an
+equivalent filter even when enabling debug/trace logs elsewhere. Never log
+Authorization values, protocol bodies, private arguments/results or technical
+error causes containing provider data. The empty production catalogue needs no
+business-service credentials; families inject their own runtime handles.
