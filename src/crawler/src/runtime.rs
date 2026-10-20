@@ -518,7 +518,6 @@ mod tests {
 
     #[rstest]
     #[case::human_only("human_only", SchemaLlmReviewMode::HumanOnly)]
-    #[case::report_only("report_only", SchemaLlmReviewMode::ReportOnly)]
     #[case::auto_approve(
         "auto_approve_high_confidence",
         SchemaLlmReviewMode::AutoApproveHighConfidence
@@ -550,6 +549,7 @@ mod tests {
 
     #[rstest]
     #[case::unknown("jev_auto")]
+    #[case::removed_report_only("report_only")]
     #[case::empty("")]
     #[serial]
     fn should_reject_invalid_schema_llm_review_mode(#[case] value: &str) {
@@ -567,7 +567,7 @@ mod tests {
             error.to_string(),
             format!(
                 "invalid CRAWLER_SCHEMA_LLM_REVIEW_MODE value {value:?}; expected one of: \
-                 human_only, report_only, auto_approve_high_confidence"
+                 human_only, auto_approve_high_confidence"
             )
         );
     }

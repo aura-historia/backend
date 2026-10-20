@@ -49,7 +49,6 @@ The server also hosts the crawler review console. It binds to `127.0.0.1:7878` u
 | Value | Effect |
 |---|---|
 | `human_only` (default) | Every generated schema waits for human review. |
-| `report_only` | Same gate as `human_only`; the name marks that the LLM evaluation is only informational. |
 | `auto_approve_high_confidence` | Approves a schema without human review when deterministic coverage passes and the LLM evaluation is a high-confidence approval. |
 
 The LLM confidence evaluation is recorded on the schema review in every mode.

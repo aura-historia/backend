@@ -416,7 +416,7 @@ mod tests {
             &high,
         ));
         assert!(!should_auto_approve_generated_schema(
-            crate::scraper::scraper_service::service::SchemaLlmReviewMode::ReportOnly,
+            crate::scraper::scraper_service::service::SchemaLlmReviewMode::HumanOnly,
             true,
             &high,
         ));

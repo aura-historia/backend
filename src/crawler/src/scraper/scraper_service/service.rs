@@ -476,16 +476,11 @@ pub struct ScraperServiceImpl {
 pub enum SchemaLlmReviewMode {
     #[default]
     HumanOnly,
-    ReportOnly,
     AutoApproveHighConfidence,
 }
 
 impl SchemaLlmReviewMode {
-    pub const ALL: [Self; 3] = [
-        Self::HumanOnly,
-        Self::ReportOnly,
-        Self::AutoApproveHighConfidence,
-    ];
+    pub const ALL: [Self; 2] = [Self::HumanOnly, Self::AutoApproveHighConfidence];
 
     pub fn parse(raw: &str) -> Option<Self> {
         let normalized = raw.trim().to_ascii_lowercase();
@@ -501,7 +496,6 @@ impl SchemaLlmReviewMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::HumanOnly => "human_only",
-            Self::ReportOnly => "report_only",
             Self::AutoApproveHighConfidence => "auto_approve_high_confidence",
         }
     }
@@ -664,17 +658,14 @@ mod tests {
             Some(SchemaLlmReviewMode::HumanOnly)
         );
         assert_eq!(
-            SchemaLlmReviewMode::parse("report_only"),
-            Some(SchemaLlmReviewMode::ReportOnly)
-        );
-        assert_eq!(
             SchemaLlmReviewMode::parse("auto_approve_high_confidence"),
             Some(SchemaLlmReviewMode::AutoApproveHighConfidence)
         );
         assert_eq!(
-            SchemaLlmReviewMode::parse(" Report_Only "),
-            Some(SchemaLlmReviewMode::ReportOnly)
+            SchemaLlmReviewMode::parse(" Human_Only "),
+            Some(SchemaLlmReviewMode::HumanOnly)
         );
+        assert_eq!(SchemaLlmReviewMode::parse("report_only"), None);
         assert_eq!(SchemaLlmReviewMode::parse("jev_auto"), None);
         assert_eq!(SchemaLlmReviewMode::parse(""), None);
     }
@@ -686,7 +677,7 @@ mod tests {
 
     #[test]
     fn auto_approval_is_only_allowed_for_high_confidence_mode() {
-        assert!(!SchemaLlmReviewMode::ReportOnly.allows_auto_approval());
+        assert!(!SchemaLlmReviewMode::HumanOnly.allows_auto_approval());
         assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 
