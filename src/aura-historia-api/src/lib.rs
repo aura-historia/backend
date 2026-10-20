@@ -58,6 +58,7 @@ use auction_service::use_cases::{
         list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
     },
 };
+use aura_historia_runtime::Runtime;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -102,7 +103,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
 };
@@ -123,16 +124,13 @@ use woocommerce_service::WoocommerceWebhookIntake;
 
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
-    SqlxListingSourceSearchReaderFactory, SqlxPublicListingSourceDetailsReaderFactory,
-    SqlxPublicListingSourceSearchReaderFactory,
+    SqlxListingSourceSearchReaderFactory,
 };
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
-use listing_source_service::use_cases::queries::get_public_listing_source_by_slug::GetPublicListingSourceBySlugHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
-use listing_source_service::use_cases::queries::search_public_listing_sources::SearchPublicListingSourcesHandler;
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
@@ -204,7 +202,6 @@ use search_filter_service::use_cases::{
 use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -310,15 +307,6 @@ const DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS: u64 = 30;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES: u64 = 4_096;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS: u64 = 60;
-const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
-const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
-const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
-const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
-const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
-const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
-const POSTGRES_TLS_ROOT_CERT_ENV: &str = "POSTGRES_TLS_ROOT_CERT";
-const DEFAULT_POSTGRES_PORT: u16 = 5432;
-const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -725,8 +713,8 @@ pub fn app(state: AppState) -> Router {
 
 fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
     let health_routes = Router::new()
-        .route("/api/v1/health", get(health))
-        .route("/api/v1/ready", get(ready))
+        .route("/v1/health", get(health))
+        .route("/v1/ready", get(ready))
         .with_state(Arc::clone(&state.readiness));
     let mut routes = health_routes;
 
@@ -734,23 +722,23 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/product-listings",
+                    "/v1/product-listings",
                     get(product_listings::search_products::get_products),
                 )
                 .route(
-                    "/api/v1/product-listings/{product_listing_id}",
+                    "/v1/product-listings/{product_listing_id}",
                     get(product_listings::get_product_by_id::get_product_by_id),
                 )
                 .route(
-                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
+                    "/v1/product-listings/by-slug/{product_listing_title_slug_id}",
                     get(product_listings::get_product_by_title_slug::get_product_by_title_slug),
                 )
                 .route(
-                    "/api/v1/product-listings/{product_listing_id}/history",
+                    "/v1/product-listings/{product_listing_id}/history",
                     get(product_listings::get_product_listing_history::get_product_listing_history_by_id),
                 )
                 .route(
-                    "/api/v1/product-listings/{product_listing_id}/similar",
+                    "/v1/product-listings/{product_listing_id}/similar",
                     get(product_listings::get_similar_products::get_similar_products_by_id),
                 )
                 .with_state(products),
@@ -761,7 +749,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/webhooks/woocommerce/{listing_source_id}",
+                    "/v1/webhooks/woocommerce/{listing_source_id}",
                     post(webhooks::post_woocommerce::post_woocommerce),
                 )
                 .with_state(webhooks),
@@ -772,7 +760,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/webhooks/loops",
+                    "/v1/webhooks/loops",
                     post(webhooks::post_loops::post_loops).layer(
                         tower_http::limit::RequestBodyLimitLayer::new(
                             crate::transport::MAX_LOOPS_WEBHOOK_BODY_BYTES,
@@ -787,7 +775,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listingSourceId}/product-listings",
+                    "/v1/listing-sources/{listingSourceId}/product-listings",
                     post(partner_product_listings::create_products::create_products)
                         .patch(partner_product_listings::update_products::update_products)
                         .put(partner_product_listings::upsert_products::upsert_products)
@@ -801,17 +789,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listingSourceId}/product-listings",
+                    "/v1/listing-sources/{listingSourceId}/product-listings",
                     get(partner_product_listings::management::list_partner_product_listings),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}",
+                    "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}",
                     get(partner_product_listings::management::get_partner_product_listing)
                         .patch(partner_product_listings::management::update_partner_product_listing)
                         .delete(partner_product_listings::management::withdraw_partner_product_listing),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore",
+                    "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore",
                     post(partner_product_listings::management::restore_partner_product_listing),
                 )
                 .layer(axum::middleware::map_response(product_listing_management::no_store))
@@ -823,7 +811,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
+                    "/v1/listing-sources/{listingSourceId}/product-listings/async",
                     post(partner_product_listings::async_create_products::create_products)
                         .patch(partner_product_listings::async_update_products::update_products)
                         .put(partner_product_listings::async_upsert_products::upsert_products)
@@ -837,15 +825,15 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/auctions",
+                    "/v1/auctions",
                     get(auctions::public_auctions::list_public_auctions),
                 )
                 .route(
-                    "/api/v1/auctions/{auction_id}",
+                    "/v1/auctions/{auction_id}",
                     get(auctions::public_auctions::get_public_auction),
                 )
                 .route(
-                    "/api/v1/auctions/{auction_id}/product-listings",
+                    "/v1/auctions/{auction_id}/product-listings",
                     get(auctions::public_auctions::get_auction_catalogue),
                 )
                 .with_state(public_auctions),
@@ -856,17 +844,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/product-listings",
+                    "/v1/admin/product-listings",
                     get(admin_product_listings::search_admin_product_listings),
                 )
                 .route(
-                    "/api/v1/admin/product-listings/{product_listing_id}",
+                    "/v1/admin/product-listings/{product_listing_id}",
                     get(admin_product_listings::get_admin_product_listing)
                         .patch(admin_product_listings::update_admin_product_listing)
                         .delete(admin_product_listings::withdraw_admin_product_listing),
                 )
                 .route(
-                    "/api/v1/admin/product-listings/{product_listing_id}/restore",
+                    "/v1/admin/product-listings/{product_listing_id}/restore",
                     post(admin_product_listings::restore_admin_product_listing),
                 )
                 .layer(axum::middleware::map_response(
@@ -880,12 +868,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/auctions",
+                    "/v1/admin/auctions",
                     get(auctions::search_admin_auctions::search_admin_auctions)
                         .post(auctions::create_auction::create_auction),
                 )
                 .route(
-                    "/api/v1/admin/auctions/{auction_id}",
+                    "/v1/admin/auctions/{auction_id}",
                     get(auctions::get_auction::get_auction)
                         .patch(auctions::update_auction::update_auction),
                 )
@@ -897,7 +885,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/overview",
+                    "/v1/admin/overview",
                     get(admin_overview::get_admin_overview),
                 )
                 .with_state(admin_overview),
@@ -907,10 +895,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(public_overview) = state.public_overview {
         routes = routes.merge(
             Router::new()
-                .route(
-                    "/api/v1/overview",
-                    get(public_overview::get_public_overview),
-                )
+                .route("/v1/overview", get(public_overview::get_public_overview))
                 .with_state(public_overview),
         );
     }
@@ -919,33 +904,33 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/listing-sources/{listing_source_id}",
+                    "/v1/admin/listing-sources/{listing_source_id}",
                     get(listing_sources::get_listing_source::get_listing_source)
                         .patch(listing_sources::update_listing_source::update_listing_source)
                         .delete(listing_sources::delete_listing_source::delete_listing_source),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
+                    "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
                     axum::routing::put(listing_sources::put_ingestion_configuration::put_woocommerce_configuration),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
+                    "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
                     axum::routing::put(listing_sources::put_ingestion_configuration::put_shopify_configuration),
                 )
                 .route(
-                    "/api/v1/listing-sources",
+                    "/v1/listing-sources",
                     get(listing_sources::search_public_listing_sources::search_public_listing_sources),
                 )
                 .route(
-                    "/api/v1/listing-sources/by-slug/{listing_source_slug_id}",
+                    "/v1/listing-sources/by-slug/{listing_source_slug_id}",
                     get(listing_sources::get_listing_source_by_slug::get_listing_source_by_slug),
                 )
                 .route(
-                    "/api/v1/me/listing-sources",
+                    "/v1/me/listing-sources",
                     get(listing_sources::list_my_listing_sources::list_my_listing_sources),
                 )
                 .route(
-                    "/api/v1/admin/listing-sources",
+                    "/v1/admin/listing-sources",
                     get(listing_sources::search_listing_sources::search_listing_sources)
                         .post(listing_sources::create_listing_source::create_listing_source),
                 )
@@ -957,31 +942,28 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/oauth-clients",
+                    "/v1/admin/oauth-clients",
                     get(oauth::list_clients::list_clients)
                         .post(oauth::create_client::create_client),
                 )
                 .route(
-                    "/api/v1/admin/oauth-clients/{client_id}",
+                    "/v1/admin/oauth-clients/{client_id}",
                     get(oauth::get_client::get_client)
                         .patch(oauth::update_client::update_client)
                         .delete(oauth::delete_client::delete_client),
                 )
                 .route(
-                    "/api/v1/oauth/clients/{client_id}",
+                    "/v1/oauth/clients/{client_id}",
                     get(oauth::get_consent_client::get_consent_client),
                 )
-                .route("/api/v1/oauth/authorize", get(oauth::authorize::authorize))
-                .route("/api/v1/oauth/token", post(oauth::token::token))
+                .route("/v1/oauth/authorize", get(oauth::authorize::authorize))
+                .route("/v1/oauth/token", post(oauth::token::token))
                 .route(
-                    "/api/v1/oauth/tokens/by-third-party-code/{third_party_code}",
+                    "/v1/oauth/tokens/by-third-party-code/{third_party_code}",
                     get(oauth::token_by_third_party_code::token_by_third_party_code),
                 )
-                .route("/api/v1/oauth/revoke", post(oauth::revoke::revoke))
-                .route(
-                    "/api/v1/oauth/introspect",
-                    post(oauth::introspect::introspect),
-                )
+                .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
+                .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
                 .with_state(oauth),
         );
     }
@@ -990,17 +972,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/me/addresses",
+                    "/v1/me/addresses",
                     get(users::addresses::list).post(users::addresses::create),
                 )
                 .route(
-                    "/api/v1/me/addresses/{address_id}",
+                    "/v1/me/addresses/{address_id}",
                     get(users::addresses::get)
                         .put(users::addresses::update)
                         .delete(users::addresses::delete),
                 )
                 .route(
-                    "/api/v1/me/browsing-destination",
+                    "/v1/me/browsing-destination",
                     get(users::addresses::get_destination).put(users::addresses::set_destination),
                 )
                 .layer(axum::middleware::map_response(
@@ -1013,12 +995,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery",
+                    "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery",
                     get(partner_product_listings::delivery::get)
                         .patch(partner_product_listings::delivery::change),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async",
+                    "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async",
                     axum::routing::post(partner_product_listings::delivery::submit),
                 )
                 .layer(axum::middleware::map_response(
@@ -1031,10 +1013,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(shipping) = state.shipping {
         routes = routes.merge(
             Router::new()
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles", get(shipping::list).post(shipping::create))
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", get(shipping::get).put(shipping::replace).delete(shipping::retire))
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", axum::routing::post(shipping::restore))
-                .route("/api/v1/listing-sources/{listing_source_id}/shipping-default", get(shipping::get_default).put(shipping::assign_default).delete(shipping::clear_default))
+                .route("/v1/listing-sources/{listing_source_id}/shipping-profiles", get(shipping::list).post(shipping::create))
+                .route("/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", get(shipping::get).put(shipping::replace).delete(shipping::retire))
+                .route("/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", axum::routing::post(shipping::restore))
+                .route("/v1/listing-sources/{listing_source_id}/shipping-default", get(shipping::get_default).put(shipping::assign_default).delete(shipping::clear_default))
                 .layer(axum::middleware::map_response(parties::locations::no_store_response))
                 .with_state(shipping),
         );
@@ -1043,7 +1025,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/location-default",
+                    "/v1/listing-sources/{listing_source_id}/location-default",
                     get(listing_sources::location_default::get)
                         .put(listing_sources::location_default::assign)
                         .patch(listing_sources::location_default::change)
@@ -1059,7 +1041,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+                    "/v1/admin/listing-sources/{listing_source_id}/location-default",
                     get(listing_sources::location_default::get)
                         .put(listing_sources::location_default::assign)
                         .patch(listing_sources::location_default::change)
@@ -1076,7 +1058,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
             routes = routes.merge(
                 Router::new()
                     .route(
-                        "/api/v1/party-locations",
+                        "/v1/party-locations",
                         get(parties::discover_locations::discover),
                     )
                     .with_state(discovery),
@@ -1085,23 +1067,23 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/parties/{party_id}/locations",
+                    "/v1/parties/{party_id}/locations",
                     get(parties::locations::list).post(parties::locations::create),
                 )
                 .route(
-                    "/api/v1/parties/{party_id}/locations/{location_id}",
+                    "/v1/parties/{party_id}/locations/{location_id}",
                     get(parties::locations::get).patch(parties::locations::update),
                 )
                 .route(
-                    "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle",
+                    "/v1/parties/{party_id}/locations/{location_id}/lifecycle",
                     axum::routing::put(parties::locations::lifecycle),
                 )
                 .route(
-                    "/api/v1/admin/parties/{party_id}/location-managers",
+                    "/v1/admin/parties/{party_id}/location-managers",
                     get(parties::list_location_managers::list),
                 )
                 .route(
-                    "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
+                    "/v1/admin/parties/{party_id}/location-managers/{user_id}",
                     axum::routing::put(parties::locations::grant),
                 )
                 .layer(axum::middleware::map_response(
@@ -1114,12 +1096,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/admin/parties",
+                    "/v1/admin/parties",
                     get(parties::search_parties::search_parties)
                         .post(parties::create_party::create_party),
                 )
                 .route(
-                    "/api/v1/admin/parties/{party_id}",
+                    "/v1/admin/parties/{party_id}",
                     get(parties::get_party::get_party)
                         .patch(parties::update_party::update_party)
                         .delete(parties::delete_party::delete_party),
@@ -1132,44 +1114,44 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/me/account",
+                    "/v1/me/account",
                     get(users::account::get_me).patch(users::account::patch_me),
                 )
-                .route("/api/v1/me", delete(users::account::delete_me))
+                .route("/v1/me", delete(users::account::delete_me))
                 .route(
-                    "/api/v1/me/access-tokens",
+                    "/v1/me/access-tokens",
                     get(users::access_tokens::list_access_tokens)
                         .post(users::access_tokens::post_access_token)
                         .patch(users::access_tokens::patch_access_token),
                 )
                 .route(
-                    "/api/v1/me/access-tokens/{access_token_id}",
+                    "/v1/me/access-tokens/{access_token_id}",
                     get(users::access_tokens::get_access_token)
                         .delete(users::access_tokens::delete_access_token),
                 )
-                .route("/api/v1/admin/users", get(users::admin_users::search_users))
+                .route("/v1/admin/users", get(users::admin_users::search_users))
                 .route(
-                    "/api/v1/admin/users/{user_id}",
+                    "/v1/admin/users/{user_id}",
                     get(users::admin_users::get_user)
                         .patch(users::admin_users::patch_admin_user)
                         .delete(users::admin_users::delete_admin_user),
                 )
                 .route(
-                    "/api/v1/admin/users/{user_id}/suspension",
+                    "/v1/admin/users/{user_id}/suspension",
                     axum::routing::put(users::suspend_user::suspend_user)
                         .delete(users::unsuspend_user::unsuspend_user),
                 )
                 .route(
-                    "/api/v1/admin/users/{user_id}/sessions/revoke",
+                    "/v1/admin/users/{user_id}/sessions/revoke",
                     post(users::revoke_user_sessions::revoke_user_sessions),
                 )
                 .route(
-                    "/api/v1/admin/users/{user_id}/access-tokens",
+                    "/v1/admin/users/{user_id}/access-tokens",
                     get(users::access_tokens::list_admin_access_tokens)
                         .delete(users::access_tokens::delete_admin_access_tokens),
                 )
                 .route(
-                    "/api/v1/admin/users/{user_id}/access-tokens/{access_token_id}",
+                    "/v1/admin/users/{user_id}/access-tokens/{access_token_id}",
                     delete(users::access_tokens::delete_admin_access_token),
                 )
                 .with_state(users),
@@ -1180,11 +1162,11 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/me/watchlist",
+                    "/v1/me/watchlist",
                     get(watchlist::list::list_watchlist).post(watchlist::create::post_watchlist),
                 )
                 .route(
-                    "/api/v1/me/watchlist/{product_listing_id}",
+                    "/v1/me/watchlist/{product_listing_id}",
                     patch(watchlist::update::patch_watchlist)
                         .delete(watchlist::delete::delete_watchlist),
                 )
@@ -1203,9 +1185,9 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(billing) = state.billing {
         routes = routes.merge(
             Router::new()
-                .route("/api/v1/me/billing/checkout", post(billing::checkout))
-                .route("/api/v1/me/billing/portal", post(billing::portal))
-                .route("/api/v1/me/billing/manage", post(billing::manage))
+                .route("/v1/me/billing/checkout", post(billing::checkout))
+                .route("/v1/me/billing/portal", post(billing::portal))
+                .route("/v1/me/billing/manage", post(billing::manage))
                 .with_state(billing),
         );
     }
@@ -1214,11 +1196,11 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/newsletter-subscriptions",
+                    "/v1/newsletter-subscriptions",
                     axum::routing::put(newsletter::put::put_newsletter_subscription),
                 )
                 .route(
-                    "/api/v1/newsletter-subscriptions/confirm",
+                    "/v1/newsletter-subscriptions/confirm",
                     post(newsletter::confirm::confirm_newsletter_subscription),
                 )
                 .with_state(newsletter),
@@ -1330,17 +1312,17 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 
 pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
     let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
-    let pool = postgres_pool_from_env().await?;
-    lambda_app_from_config_and_pool(&config, pool).await
+    let runtime = Runtime::from_env().await?;
+    lambda_app_from_config_and_runtime(&config, &runtime).await
 }
 
 /// Composes a complete Lambda router for one PostgreSQL credential version.
-pub async fn lambda_app_from_config_and_pool(
+pub async fn lambda_app_from_config_and_runtime(
     config: &ApiConfig,
-    pool: PgPool,
+    runtime: &Runtime,
 ) -> Result<Router, ApiStateError> {
     log_product_listing_search_cache_config(config);
-    let state = app_state_from_config_and_pool(config, pool).await?;
+    let state = app_state_from_config_and_runtime(config, runtime).await?;
     Ok(app_with_request_timeout(
         state,
         crate::transport::LAMBDA_REQUEST_TIMEOUT,
@@ -1348,14 +1330,16 @@ pub async fn lambda_app_from_config_and_pool(
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
-    let pool = postgres_pool_from_env().await?;
-    app_state_from_config_and_pool(config, pool).await
+    let runtime = Runtime::from_env().await?;
+    app_state_from_config_and_runtime(config, &runtime).await
 }
 
-async fn app_state_from_config_and_pool(
+async fn app_state_from_config_and_runtime(
     config: &ApiConfig,
-    pool: PgPool,
+    runtime: &Runtime,
 ) -> Result<AppState, ApiStateError> {
+    let pool = runtime.postgres_pool().clone();
+    let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let ingestion_publisher = SqsProductListingIngestionPublisher::new(
         aws_sdk_sqs::Client::new(&aws_client_config),
@@ -1472,14 +1456,6 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxListingSourceSearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
-    );
-    let search_public_listing_sources = SearchPublicListingSourcesHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicListingSourceSearchReaderFactory::new(),
-    );
-    let get_public_listing_source_by_slug = GetPublicListingSourceBySlugHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicListingSourceDetailsReaderFactory::new(),
     );
     let get_own_user =
         GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
@@ -1907,8 +1883,8 @@ async fn app_state_from_config_and_pool(
         ),
     ))
     .with_public_reads(
-        Arc::new(search_public_listing_sources),
-        Arc::new(get_public_listing_source_by_slug),
+        Arc::clone(&public_listing_sources.search),
+        Arc::clone(&public_listing_sources.get_by_slug),
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
@@ -2387,42 +2363,6 @@ async fn app_state_from_config_and_pool(
         .with_readiness(readiness))
 }
 
-async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
-    let host = required_postgres_env(POSTGRES_HOST_ENV)?;
-    let database = required_postgres_env(POSTGRES_DATABASE_ENV)?;
-    let username = required_postgres_env(POSTGRES_USERNAME_ENV)?;
-    let password = required_postgres_env(POSTGRES_PASSWORD_ENV)?;
-    let port = optional_postgres_env(POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
-    let max_connections = optional_postgres_env(
-        POSTGRES_MAX_CONNECTIONS_ENV,
-        DEFAULT_POSTGRES_MAX_CONNECTIONS,
-    )?;
-    let root_certificate = PathBuf::from(required_postgres_env(POSTGRES_TLS_ROOT_CERT_ENV)?);
-    let config = PostgresPoolConfig::lambda(
-        host,
-        port,
-        database,
-        username,
-        password,
-        max_connections,
-        root_certificate,
-    )
-    .map_err(|error| match error {
-        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections
-        | platform_postgres::PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
-            ApiStateError::InvalidPostgresMaxConnections
-        }
-        platform_postgres::PostgresPoolConfigError::EmptyRootCertificate => {
-            ApiStateError::InvalidPostgresTlsRootCertificate
-        }
-    })?;
-
-    Ok(config
-        .connect()
-        .await
-        .map_err(|_| PostgresConnectError::Connect)?)
-}
-
 fn ingestion_queue_url_from_env() -> Result<String, ApiStateError> {
     let url = std::env::var(PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV).map_err(|_| {
         ApiStateError::MissingEnv {
@@ -2446,23 +2386,6 @@ fn valid_ingestion_queue_url(value: &str) -> bool {
                 .and_then(|mut segments| segments.next_back())
                 .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
     })
-}
-
-fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
-    std::env::var(name).map_err(|_| ApiStateError::MissingEnv { name })
-}
-
-fn optional_postgres_env<T>(name: &'static str, default: T) -> Result<T, ApiStateError>
-where
-    T: std::str::FromStr,
-{
-    match std::env::var(name) {
-        Ok(value) => value
-            .parse()
-            .map_err(|_| ApiStateError::InvalidPostgresInteger { name, value }),
-        Err(std::env::VarError::NotPresent) => Ok(default),
-        Err(std::env::VarError::NotUnicode(_)) => Err(ApiStateError::MissingEnv { name }),
-    }
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
@@ -2601,15 +2524,9 @@ pub enum ApiStateError {
     #[error("failed to initialize Stripe billing client")]
     StripeBilling(#[source] billing_stripe::StripeBillingClientInitError),
     #[error(transparent)]
-    Postgres(#[from] PostgresConnectError),
+    Runtime(#[from] aura_historia_runtime::RuntimeError),
     #[error(transparent)]
     Config(#[from] ApiConfigError),
-    #[error("invalid integer in environment variable {name}: {value}")]
-    InvalidPostgresInteger { name: &'static str, value: String },
-    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
-    InvalidPostgresMaxConnections,
-    #[error("POSTGRES_TLS_ROOT_CERT must not be empty")]
-    InvalidPostgresTlsRootCertificate,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]

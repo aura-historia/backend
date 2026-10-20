@@ -122,8 +122,8 @@ checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutove
 
 ## Release and schema-change contract
 
-Host/security/assets/upgrades are manual, separately approved operations; Deploy,
-Migrate and Initialize do not manage OpenSearch. Follow the
+Host/security/assets/upgrades remain manual operations; Release, Migrate and Initialize
+do not administer OpenSearch. Follow the
 [first-time release](infra.md#first-time-stage) and
 [consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff), without
 using compute creation as a readiness probe. Runtime roles must never gain admin rights.
@@ -139,9 +139,27 @@ No automated rebuild tool is implied. Engine upgrades need reconstruction/backup
 verification, pinned-image/adapter review, an outage/restart plan and post-restart
 version/health/security checks. Never downgrade a migrated volume.
 
-The [migration-source guard](infra.md#routine-and-schema-dependent-releases) does not
-cover OpenSearch-only changes. Application rollback or rerunning Migrate cannot undo
-index/security changes; recovery and prod host approval are separate decisions.
+The [Release requirements](infra.md#release-requirements) gate compares all tracked
+`opensearch/**` assets (mapping, pipeline, roles/security, gateway and engine configuration)
+from the stage's completed baseline to the target, including skipped commits. Each exact
+content transition needs an immutable reviewed classification: `NONE` with rationale,
+compatible `MANUAL` preparation, or `UNSUPPORTED`. Application changes needing an external
+action also add a declaration when assets are unchanged; source analysis cannot discover
+all such prerequisites.
+
+For compatible preparation, the Release plan displays the exact asset diff, stage, SHA,
+prerequisite identity, manual action, validation and this runbook link. Complete the action
+while old code runs. The protected approval explicitly confirms completion for that
+stage/release/prerequisite before capture is paused. GitHub reviewer configuration and
+baseline adoption are mandatory; an unprotected environment is rejected. The confirmation
+is an operator attestation, not an automated probe of the private administration endpoint.
+A changed target, requirement, baseline or plan requires a fresh approval.
+
+Incompatible cutovers, writer fencing/draining, destructive rebuilds and engine transitions
+that cannot safely precede routine deployment must declare `UNSUPPORTED` and use their
+dedicated procedure. Never recreate a populated index, discard tombstones, expose the
+administration endpoint, grant runtime admin rights or downgrade a migrated volume.
+Application rollback and rerunning Migrate do not undo host/schema/security changes.
 
 ## Monitoring and recovery
 

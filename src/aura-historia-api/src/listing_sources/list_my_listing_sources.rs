@@ -170,12 +170,12 @@ mod tests {
             Arc::new(Authenticator(user_id)),
         );
         let app = Router::new()
-            .route("/api/v1/me/listing-sources", get(list_my_listing_sources))
+            .route("/v1/me/listing-sources", get(list_my_listing_sources))
             .with_state(state);
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/me/listing-sources")
+                Request::get("/v1/me/listing-sources")
                     .header(header::AUTHORIZATION, "Bearer token")
                     .body(Body::empty())?,
             )

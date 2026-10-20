@@ -8,8 +8,8 @@ Provider, ingestion and protocol workflows retain their owning retry contracts.
 
 | Operation | Owner | Retry policy |
 | --- | --- | --- |
-| `POST /api/v1/me/addresses` | User address book | Ordinary creation; every accepted request assigns a new address ID. |
-| `POST /api/v1/parties/{party_id}/locations` | Party locations | Ordinary creation assigns a new location ID; relocation uses the old location's expected revision. |
+| `POST /v1/me/addresses` | User address book | Ordinary creation; every accepted request assigns a new address ID. |
+| `POST /v1/parties/{party_id}/locations` | Party locations | Ordinary creation assigns a new location ID; relocation uses the old location's expected revision. |
 
 These interactive management operations accept equal content as distinct resources.
 They ignore legacy `Idempotency-Key` headers, including invalid or repeated values,

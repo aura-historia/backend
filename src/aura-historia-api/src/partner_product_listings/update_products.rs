@@ -129,7 +129,7 @@ mod tests {
             .returning(|_, _, _| Ok(updated()));
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"first","availability":"AVAILABLE"},{"sourceListingId":"second","availability":"SOLD_OUT"}]"#, true).await?;
+        let response = request(&app, &format!("/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"first","availability":"AVAILABLE"},{"sourceListingId":"second","availability":"SOLD_OUT"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(json!([]), body_json(response).await?);
@@ -153,7 +153,7 @@ mod tests {
             });
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"present","availability":"AVAILABLE"},{"sourceListingId":"missing","availability":"AVAILABLE"}]"#, true).await?;
+        let response = request(&app, &format!("/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"present","availability":"AVAILABLE"},{"sourceListingId":"missing","availability":"AVAILABLE"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
@@ -180,7 +180,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"missing","availability":"AVAILABLE"}]"#,
             true,
         )
@@ -234,7 +234,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{
                 "sourceListingId":"leaf-fields",
                 "price":{"type":"MONETARY","amount":12000,"currency":"EUR"},
@@ -308,7 +308,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
                 {"sourceListingId":"omitted"},
                 {
@@ -347,7 +347,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"listing","availability":null}]"#,
             true,
         )
@@ -368,7 +368,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             "{",
             true,
         )
@@ -388,7 +388,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                "/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::patch(update_products),
             )
             .with_state(state)

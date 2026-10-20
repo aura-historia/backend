@@ -54,7 +54,9 @@ use crawler::spider::classification::url_classification_service::UrlClassificati
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceError;
-use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
+use crawler::spider::classification::url_pattern_service::{
+    UrlPatternAuthoring, UrlPatternServiceImpl,
+};
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
@@ -143,7 +145,11 @@ async fn main() {
         ));
         let pattern_service = Box::new(UrlPatternServiceImpl::new(
             pattern_repository.clone(),
-            classification_service,
+            UrlPatternAuthoring::Inferred {
+                classification_service,
+                review_repository: None,
+                apply_directly: false,
+            },
         ));
 
         let spider = SpiderServiceImpl::new(

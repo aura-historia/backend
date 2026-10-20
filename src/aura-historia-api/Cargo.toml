@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aura-historia-contracts = { workspace = true }
+aura-historia-runtime = { workspace = true }
 shipping-core = { workspace = true }
 shipping-json = { workspace = true }
 shipping-service = { workspace = true }
@@ -45,7 +47,6 @@ opensearch = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 
 jsonwebtokens = { workspace = true }
 listing-source-core = { workspace = true }

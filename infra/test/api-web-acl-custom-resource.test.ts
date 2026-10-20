@@ -108,6 +108,15 @@ describe("API Web ACL custom resource", () => {
     expect(provider._test.webAclInput(props).Rules).toEqual(rules);
   });
 
+  test.each([false, "false"])("disables MCP request sampling after CloudFormation scalar conversion (%s)", (sampledRequestsEnabled) => {
+    const props = provider._test.normalizedProperties({
+      Name: "mcp-acl", Rules: [], SampledRequestsEnabled: sampledRequestsEnabled,
+    });
+    expect(provider._test.webAclInput(props).VisibilityConfig.SampledRequestsEnabled).toBe(false);
+    const rest = provider._test.normalizedProperties({ Name: "api-acl", Rules: [] });
+    expect(provider._test.webAclInput(rest).VisibilityConfig.SampledRequestsEnabled).toBe(true);
+  });
+
   test("omits custom response bodies when none are configured", () => {
     const props = provider._test.normalizedProperties({ Name: "acl", Rules: [] });
 

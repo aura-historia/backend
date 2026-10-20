@@ -2,6 +2,29 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
+
+- `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.
+- `POST /v1/admin/oauth-clients` now requires a Cognito access JWT because its response contains a new client secret. An administrator's Aura Historia access token receives `403 FORBIDDEN` and no client is registered. OpenAPI no longer lists `AccessTokenAuth` for this operation. Reading, updating and deleting OAuth clients keep accepting administrators' Aura Historia access tokens with the existing scopes.
+
+## 2026-10-20 — REST base path development cutover (#2216)
+
+- **Breaking development change:** all REST operations now use `/v1/...` on `https://api.aura-historia.com` and `https://api.stage.aura-historia.com`, replacing `/api/v1/...`. The old routes are removed without aliases, redirects or a deprecation period. Generated `Location` headers use `/v1/...`; operation IDs, authentication, request/response schemas and operation/retry semantics are unchanged.
+- Update backend callers (including webapp OAuth consent approval), advertised Aura OAuth authorization/token endpoints, and registered WooCommerce/Loops HTTP webhook destinations together. Client callback URLs, webapp-owned `/api/...` routes and third-party provider API URLs are independent and must not be rewritten unless they actually target a renamed backend route. See the [front-door cutover requirements](http-api-front-door.md#rest-client-and-provider-configuration).
+- Earlier entries retain the paths that applied when they were published.
+
+## 2026-10-20 — Scoped personalization for delegated tokens (#2213)
+
+- Aura Historia access tokens now receive each `userState` section only with its read scope: `watchlist` needs `watchlist:read`, `notification` needs `notifications:read`, `searchFilter` needs `search-filters:read`, and `contentVisibility` needs `users:read`. This applies to product-listing detail by ID and slug, search, similar listings, auction catalogues, watchlists and saved-search matches. These tokens previously received every section regardless of scope.
+- Sections without their scope are omitted rather than returned as `false` or empty values. `userState` is omitted when no section applies. `ProductListingUserStateData` therefore no longer requires `watchlist`, `contentVisibility`, `notification` or `searchFilter`; regenerate clients that assumed them. `userState.shipping` keeps its existing `users:read` requirement.
+- `PATCH /api/v1/me/watchlist/{productListingId}` still needs only `watchlist:write` to apply the update, but its response follows the same read scopes: the updated `userState.watchlist` now also requires `watchlist:read`.
+- Undisclosed state still applies to the listing: matches hidden by the saved-search quota remain redacted, and the stored content preference still decides image visibility. Cognito users and anonymous callers are unaffected.
+
+## 2026-10-20 — Delegated access-token management cannot expand authority (#2212)
+
+- `POST /api/v1/me/access-tokens` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write`, receives `403 FORBIDDEN` and no token is created. OpenAPI no longer lists `AccessTokenAuth` for this operation. Integrations that minted tokens with an Aura access token must create them while signed in instead.
+- `PATCH /api/v1/me/access-tokens` called with an Aura Historia access token may still rename a token, narrow its `scopes` to a subset of the current ones (including `[]`) and set `expires` no later than the current expiry, or to any time when the token has none. Adding a scope, extending the expiry, or sending `expires: null` for a token that has an expiry returns `403 FORBIDDEN` and leaves the token unchanged. This includes the bearer token itself. Cognito access JWT callers are unaffected, and `DELETE` keeps its existing rules.
+
 ## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
 
 - CloudFront no longer applies its EC2 metadata SSRF and IPv4 remote-file-inclusion request checks to OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` or `POST /api/v1/oauth/token`. Contract-valid loopback HTTPS redirect URIs, such as `https://localhost:3458/oauth/callback` used by Shopify CLI `--use-localhost` development, therefore reach the API's redirect URI validation. Registering that URI previously failed with an HTML `403` (`Request blocked.`) before authentication or validation. Redirect URI validation is unchanged, and other routes keep these checks.

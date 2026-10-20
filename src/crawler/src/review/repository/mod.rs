@@ -113,6 +113,26 @@ impl CrawlerReviewRepository {
         .transpose()
     }
 
+    /// Whether an operator rejected a product schema review opened for `reason` over `url`.
+    pub async fn has_rejected_schema_review_for_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        reason: &str,
+        url: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM crawler_reviews r \
+             JOIN crawler_review_pages p ON p.review_id = r.review_id \
+             WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
+               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = $3)",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(reason)
+        .bind(url)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn has_pending_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,
@@ -316,14 +336,19 @@ impl CrawlerReviewRepository {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         reason: &str,
-        candidate_pattern: Option<&Regex>,
+        decision: UrlPatternDecision,
         urls: &[String],
         current_pattern: Option<&Regex>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_payload = serde_json::to_value(UrlPatternReviewCandidate::pattern(
-            candidate_pattern,
-            current_pattern,
-        ))?;
+        let candidate_regex = match &decision {
+            UrlPatternDecision::Pattern { value } => Some(
+                Regex::new(value).map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?,
+            ),
+            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
+        };
+        let candidate_pattern = candidate_regex.as_ref();
+        let candidate_payload =
+            serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
             "sample_count": urls.len(),
             "candidate_product_count": candidate_pattern

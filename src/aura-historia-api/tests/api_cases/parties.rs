@@ -14,7 +14,7 @@ async fn should_delete_unused_party_and_return_not_found_when_repeated() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+    let url = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
 
     let response = client
         .delete(&url)
@@ -48,7 +48,7 @@ async fn should_delete_unused_party_and_return_not_found_when_repeated() {
 
     let unrelated = client
         .get(format!(
-            "{}/api/v1/admin/parties/{unrelated_id}",
+            "{}/v1/admin/parties/{unrelated_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -70,7 +70,7 @@ async fn should_return_party_summary_for_admin_with_no_store_cache_control() {
     let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[("name", "Admin Party")])
         .send()
@@ -124,7 +124,7 @@ async fn should_filter_parties_by_name_and_contact_query() {
     let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[("query", "selector")])
         .send()
@@ -150,7 +150,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
     let client = reqwest::Client::new();
 
     let first = client
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .query(&[
             ("name", "Cursor Party"),
@@ -179,7 +179,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
         .to_owned();
 
     let second = client
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[
             ("name", "Cursor Party"),
@@ -209,7 +209,7 @@ async fn should_return_empty_party_collection_when_no_party_matches() {
     let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[("email", "missing-party@example.test")])
         .send()
@@ -229,7 +229,7 @@ async fn should_reject_invalid_party_search_query_values() {
     let client = reqwest::Client::new();
 
     let invalid_sort = client
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .query(&[("sort", "invalid"), ("order", "asc")])
         .send()
@@ -244,7 +244,7 @@ async fn should_reject_invalid_party_search_query_values() {
     );
 
     let invalid_size = client
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .query(&[("size", "not-a-number")])
         .send()
@@ -265,7 +265,7 @@ async fn should_reject_invalid_party_search_query_values() {
         "pty_not-a-typeid".to_owned(),
     ] {
         let invalid_cursor = client
-            .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+            .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .query(&[("searchAfter", invalid_id)])
             .send()
@@ -291,7 +291,7 @@ async fn should_reject_party_collection_for_non_admin() {
     let token = parties_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -306,7 +306,7 @@ async fn should_create_party_with_identity_location_and_contact() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "  Created Party  ",
@@ -335,7 +335,7 @@ async fn should_create_party_with_identity_location_and_contact() {
         .unwrap_or_else(|error| panic!("created response has invalid Party ID: {error}"));
     assert!(party_id.to_string().starts_with("pty_"));
     assert_eq!(reqwest::StatusCode::CREATED, status);
-    assert_eq!(Some(format!("/api/v1/admin/parties/{party_id}")), location);
+    assert_eq!(Some(format!("/v1/admin/parties/{party_id}")), location);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(json!("Created Party"), body["name"]);
     assert_eq!(json!("+49 30 123456"), body["contact"]["phone"]);
@@ -379,7 +379,7 @@ async fn should_create_party_with_each_optional_contact_variant() {
 
     for (request, expected_contact) in cases {
         let response = client
-            .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+            .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
             .bearer_auth(token.clone())
             .json(&request)
             .send()
@@ -404,7 +404,7 @@ async fn should_reject_invalid_party_create_names() {
         "é".repeat(128),
     ] {
         let response = client
-            .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+            .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
             .bearer_auth(token.clone())
             .json(&json!({"name": name}))
             .send()
@@ -424,7 +424,7 @@ async fn should_reject_invalid_party_create_names() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_party_create_without_admin_authorization() {
     let missing = reqwest::Client::new()
-        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .json(&json!({"name": "Unauthenticated Party"}))
         .send()
         .await
@@ -440,7 +440,7 @@ async fn should_reject_party_create_without_admin_authorization() {
     let user_id = seed_user("USER").await;
     let token = parties_token(user_id).await;
     let non_admin = reqwest::Client::new()
-        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&json!({"name": "Non-admin Party"}))
         .send()
@@ -468,7 +468,7 @@ async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/parties/{party_id}",
+            "{}/v1/admin/parties/{party_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -512,7 +512,7 @@ async fn should_reject_noncanonical_party_detail_ids() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/admin/parties/{invalid_id}",
+                "{}/v1/admin/parties/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -538,7 +538,7 @@ async fn should_return_not_found_for_missing_party_detail() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/parties/{}",
+            "{}/v1/admin/parties/{}",
             AURA_API.base_url(),
             PartyId::new()
         ))
@@ -560,7 +560,7 @@ async fn should_return_not_found_for_missing_party_detail() {
 async fn should_require_admin_authentication_for_party_detail() {
     let party_id = seed_party("Protected Detail Party", None, None).await;
     let client = reqwest::Client::new();
-    let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+    let path = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
 
     let missing =
         client.get(&path).send().await.unwrap_or_else(|error| {
@@ -602,7 +602,7 @@ async fn should_update_party_name_and_contact_with_tri_state_patch() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
-    let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+    let path = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
     let original_slug = json!(format!("api-acceptance-party-{}", party_id.as_uuid()));
 
     let renamed = client
@@ -675,7 +675,7 @@ async fn should_reject_invalid_party_update_values() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
-    let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+    let path = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
 
     for request in [
         json!({"name": "  "}),
@@ -721,7 +721,7 @@ async fn should_return_not_found_for_missing_party_update() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/parties/{}",
+            "{}/v1/admin/parties/{}",
             AURA_API.base_url(),
             PartyId::new()
         ))
@@ -743,7 +743,7 @@ async fn should_return_not_found_for_missing_party_update() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_admin_authentication_for_party_update() {
     let party_id = seed_party("Protected Update Party", None, None).await;
-    let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+    let path = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
     let client = reqwest::Client::new();
 
     let missing = client
@@ -785,7 +785,7 @@ async fn should_reject_malformed_party_update_id() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/parties/pty_not-a-typeid",
+            "{}/v1/admin/parties/pty_not-a-typeid",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))

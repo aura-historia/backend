@@ -565,7 +565,7 @@ fn product_listings_write_scope() -> HashSet<Scope> {
 }
 
 fn products_path(listing_source_id: &str) -> String {
-    format!("/api/v1/listing-sources/{listing_source_id}/product-listings")
+    format!("/v1/listing-sources/{listing_source_id}/product-listings")
 }
 
 fn listing_source_type_id(listing_source_id: uuid::Uuid) -> String {
@@ -639,7 +639,7 @@ async fn management_withdrawal_keeps_public_exclusion_and_batch_put_can_restore(
             reqwest::StatusCode::NOT_FOUND,
             send_json(
                 reqwest::Method::GET,
-                format!("/api/v1/product-listings/{id}"),
+                format!("/v1/product-listings/{id}"),
                 None,
                 &Value::Null
             )
@@ -650,7 +650,7 @@ async fn management_withdrawal_keeps_public_exclusion_and_batch_put_can_restore(
             reqwest::StatusCode::FORBIDDEN,
             send_json(
                 reqwest::Method::GET,
-                format!("/api/v1/admin/product-listings/{id}"),
+                format!("/v1/admin/product-listings/{id}"),
                 Some(&auth.token),
                 &Value::Null
             )

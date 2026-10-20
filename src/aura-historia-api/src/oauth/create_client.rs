@@ -108,7 +108,7 @@ pub async fn create_client(
     match state.create_client.execute(&context, command).await {
         Ok(result) => {
             let client_id = result.client.client_id;
-            let location = format!("/api/v1/admin/oauth-clients/{client_id}");
+            let location = format!("/v1/admin/oauth-clients/{client_id}");
             let location = match HeaderValue::from_str(&location) {
                 Ok(value) => value,
                 Err(_) => {

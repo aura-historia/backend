@@ -1,7 +1,8 @@
 # HTTP API front door
 
 This document owns edge routing, authentication, forwarding and cache/security rules.
-[OpenAPI](swagger.yaml) owns request/response contracts. [ProductListing](product-listing.md),
+[OpenAPI](swagger.yaml) owns REST request/response contracts; [MCP](mcp.md) owns
+protocol compatibility and tool admission. [ProductListing](product-listing.md),
 [geography](geography.md) and [marketing consent](marketing-consent.md) own use-case semantics.
 Source/synth do not verify live DNS, certificates, aliases, WAF or forwarding; operators
 must inspect them.
@@ -57,9 +58,10 @@ does not opt an operation into replay; preserve the [keyless creation exceptions
 
 - Public aliases are exactly `api.stage.aura-historia.com` for AWS **`dev`** and
   `api.aura-historia.com` for prod, never `*.stage.aura-historia.com`.
-- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The public
-  `/api/v1` path stays unchanged; the Lambda adapter normalizes a matching Gateway
-  stage prefix. Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
+- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The canonical
+  REST prefix is `/v1`, without a mapping key or origin-path rewrite. The Lambda adapter
+  normalizes a matching Gateway stage prefix; it must not strip arbitrary path segments.
+  Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
 - CloudFront redirects viewers to HTTPS and uses an HTTPS-only regional Gateway
   origin (`attrRegionalDomainName`), **not the public CloudFront-facing DNS record**.
   AllViewer forwards `Host`; origin TLS and custom-domain mapping must accept it.
@@ -114,13 +116,168 @@ The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors, including the exact `/api/v1/overview` path, use
-this policy; generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard
+Only reviewed discovery path behaviors, including the exact `/v1/overview` path, use
+this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
 expansion requires route/cache review and tests. Do not add token-derived keys, cookie
 partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
+
+## MCP front door
+
+MCP uses a separate Gateway, Lambda `live` alias, CloudFront distribution and Web ACL.
+Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serves
+`https://mcp.stage.aura-historia.com/v1`. The existing REST host and route catalog are
+independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
+`/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
+rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
+The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-protected-resource/v1` are reserved for hybrid authentication;
+the foundation shell returns `404`, without fabricated OAuth metadata. No proxy,
+REST handlers, sessions or SSE service are exposed on this host.
+
+The regional custom-domain mapping has no path key or origin rewrite. CloudFront
+forwards all viewer headers, query strings and cookies using AllViewer, including
+`Host`, `Authorization`, `Origin`, `Accept`, `Content-Type`, `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name`, `Mcp-Session-Id` and `X-Correlation-Id`. Preserve response
+status, `WWW-Authenticate`, `Allow`, content type and request/correlation IDs.
+Every MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
+no-store` response policy, including Gateway-generated errors and preflight. No
+headers or status codes are rewritten to hide authentication/protocol errors.
+
+Gateway owns browser preflight; its exact origin list is also passed to the native
+Origin validator. Prod permits `https://aura-historia.com`; dev permits
+`https://stage.aura-historia.com` and `http://localhost:3000`. There are no wildcard
+or opaque `null` origins, cookies/credential-mode CORS is not enabled, and normal
+server clients may omit Origin. A browser uses bearer Authorization explicitly;
+CORS grants no application authority. Requests may use the forwarding headers above;
+responses expose `WWW-Authenticate`, `X-Request-Id`, `X-Correlation-Id` and
+`Content-Type`. Preflight has zero max-age. An unapproved Origin on an actual
+protocol request is rejected by the transport; a denied preflight must not grant
+an allow-origin response.
+
+The dedicated Web ACL keeps IP reputation, common and known-bad-input protections.
+`NoUserAgent_HEADER` is count-only for server clients. The managed 8 KiB body-size
+rule is counted and re-blocked outside **exact `POST /v1`**; no URL-target or other
+managed-body rule is relaxed for MCP. A declared body over 256 KiB receives JSON
+`413` with no-store before managed inspection. WAF inspects only its configured
+prefix and cannot bound undeclared/chunked lengths; the transport's streamed-byte
+limit is authoritative. This exception admits JSON-RPC above the managed threshold,
+without promising that arbitrary payload content bypasses managed rules. WAF request
+sampling and payload logging are disabled for MCP; Gateway logs only request ID,
+route key, status and integration latency. Review metrics without recording bearer
+headers or arguments/results. The [hosting tests](../infra/test/mcp-hosting.test.ts)
+pin these boundaries to the transport budgets.
+
+### MCP deployment and stage verification
+
+Use the [existing Release workflow](infra.md#routine-and-schema-dependent-releases).
+Before first traffic, verify ownership and available aliases, then provision issued
+ACM certificates covering the exact host in `eu-central-1` (regional Gateway) and
+`us-east-1` (CloudFront viewer). Supply their ARNs through these external SSM String
+parameters in the workload region:
+
+- `/certificates/{dev|prod}/mcp-regional-certificate-arn`
+- `/certificates/{dev|prod}/mcp-cloudfront-certificate-arn`
+
+`*.aura-historia.com` does not cover `mcp.stage.aura-historia.com`. Deployment creates
+the custom-domain mapping and distribution, but DNS remains operator-owned. Point
+the exact public hostname's CNAME (or provider alias) to the API stack's
+`McpCloudFrontDistributionDomainName` output, never to the public hostname itself or
+the disabled execute-api endpoint. Keep the previous DNS target/TTL and compatible
+release source for recovery. Inspect regional-origin TLS with the forwarded public
+Host, the MCP `live` alias and API-scoped invoke permission before DNS cutover.
+
+After an approved dev deployment, exercise the **public CloudFront hostname** with a
+generic Streamable HTTP client. For a manual legacy protocol probe:
+
+```sh
+mcp_origin=https://mcp.stage.aura-historia.com
+curl -i "$mcp_origin/ready"
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"stage-smoke","version":"1"}}}'
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+Require readiness `204`, a supported initialization result and successful discovery.
+The foundation registry is deliberately empty: `tools/list` returns `tools: []` and
+`ping` is the bounded public protocol call. After public families are released, also
+call one actual listed public tool with bounded inputs and verify its complete
+result; do not install a synthetic production tool to make the smoke pass. Complete
+these checks before approving traffic:
+
+| Probe | Required result |
+| --- | --- |
+| `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
+| `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
+| Both reserved metadata paths; an unrelated `/v1/me` path | `404`, no REST response or invented metadata |
+| Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
+| Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |
+| Wrong Content-Type, unacceptable Accept, duplicate routing/credential headers | `415`, `406`, or `400`; no dispatch |
+| Valid JSON-RPC body above 16 KiB, below 256 KiB | Reaches protocol handling; not the managed 8 KiB size rejection |
+| Body above 256 KiB with declared and streamed/undeclared lengths | `413`; no truncation or successful dispatch |
+| Repeated success, `404`, `405`, protocol failure, supplied invalid bearer, and preflight | `Cache-Control: no-store`, no shared cache hit; status and challenge/trace headers survive |
+
+Also run the [current revision flow and compatibility matrix](mcp.md#protocol-compatibility)
+through a generic client. Record safe status/timing/header evidence without tokens or
+bodies. Local synth/unit tests do not perform these live checks. If certificate,
+Host/TLS, WAF, CORS or forwarding checks fail, hold traffic. Restore the recorded DNS
+target when necessary; compatible code rollback follows the existing Release mechanism
+and repoints the MCP `live` alias to an immutable version. Review diffs before rolling
+back to a source predating MCP, since that may remove its front door. DNS is never
+rolled back automatically, and rollback does not undo completed tool effects.
+
+## REST client and provider configuration
+
+| Environment | REST base URL |
+| --- | --- |
+| Development (AWS `dev`) | `https://api.stage.aura-historia.com/v1` |
+| Production | `https://api.aura-historia.com/v1` |
+
+Append operation suffixes exactly once, for example `/health` to the REST base URL.
+Clients configured with an origin alone must include `/v1` in their request paths.
+The removed `/api/v1` routes have no compatibility aliases, redirects or deprecation
+period. Historical changelog entries retain their original paths.
+
+Coordinate these externally owned settings with the backend development cutover:
+
+- In [`aura-historia/webapp`](https://github.com/aura-historia/webapp), refresh the checked-in
+  OpenAPI contract and regenerate REST/partner clients. Also update handwritten OAuth
+  approval and broker token-exchange endpoints, similar-listing `Location` validation,
+  partner-spec extraction, examples and test intercepts. Keep `VITE_API_URL` origin-only:
+  generated operation paths already include `/v1`. Verify login, consent metadata,
+  approval and code/token exchange end to end. Webapp-owned `/api/...` routes and client
+  callback URLs are independent; change a callback only if it targets a renamed backend route.
+- Advertise Aura's authorization endpoint at `/v1/oauth/authorize` and token endpoint at
+  `/v1/oauth/token`, using the environment's API origin. Do not change provider OAuth URLs.
+- Update each registered WooCommerce delivery URL to the API origin plus
+  `/v1/webhooks/woocommerce/{listingSourceId}` and the signed Loops preference endpoint to
+  `/v1/webhooks/loops`. Preserve provider authentication, signing secrets, delivery identity
+  and exact raw-body/signature handling; do not redirect deliveries. Loops' external
+  `https://app.loops.so/api` base URL is unrelated and remains unchanged. Shopify/Stripe
+  event ingestion is not part of this HTTP route migration.
+- In [`woocommerce-extension`](https://github.com/aura-historia/woocommerce-extension),
+  update the webhook URL builder, refresh its pinned backend schema/client, and trigger
+  managed webhook synchronization for existing installations; changing code alone does
+  not update registered delivery URLs. Keep its backend base URL origin-only. In
+  [`shopify-app`](https://github.com/aura-historia/shopify-app), update the backend token
+  endpoint and pinned generated client, not webapp consent-page URLs or callbacks.
+- Update other project-owned scripts and test clients from OpenAPI. Preserve existing
+  retry behavior: a prefix change does not make writes safe to replay.
+
+These registrations and webapp changes are not performed by CDK or verified by local
+fixtures. Local changes are not evidence that an external registration has changed.
+Owners must apply them and verify requests against the development edge before
+signing off the cutover; omitted live checks are not passes.
 
 ## Deployment, cutover, and rollback
 
@@ -134,20 +291,25 @@ Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), 
    stage references in configuration; `*.aura-historia.com` or `*.dev.aura-historia.com`
    does not cover `api.stage.aura-historia.com`. Do not infer validity from synth.
 3. Review the actual diff and deployed API version/`live` alias, route catalog,
-   origin Host/TLS, WAF and forwarding. Probe the approved full chain before DNS:
+   origin Host/TLS, WAF and forwarding. Path-derived logical IDs can replace routes,
+   the shared integration and its invoke permission. Check the actual Gateway route
+   inventory and account quota against the create-before-delete peak, not just the
+   final catalog; unmanaged routes consume that headroom too. Retain the `live`-alias
+   proxy integration and API-scoped invoke permission. Probe the approved full chain:
    health/readiness, anonymous and invalid optional bearers, allowed/denied protected
    Cognito/Aura calls, OAuth, CORS, signed bodies, a valid JSON body above 16 KiB
    reaching validation, an oversized `Content-Length` returning JSON `413`, and
    cache/header isolation. Search
    readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
    Keep credentials and signed payloads out of logs; omitted checks are not passes.
-4. With approval and successful probes, move external DNS and affected frontend/provider
-   registrations; repeat probes on the public hostname. Keep the old endpoint until
-   its consumers are migrated and verified. Redirecting authenticated requests or
-   signed webhooks is not a safe default, and old-host retirement is not automatic.
+4. With approval and successful probes, update affected frontend/provider registrations
+   as described [above](#rest-client-and-provider-configuration); change external DNS only
+   if its target changes. Repeat probes on the public hostname, including canonical
+   `/v1` reads, representative writes and signed webhooks, and verify that `/api/v1`
+   operations are rejected without redirecting. Do not retain old routes or mappings.
 
 If alias/certificate/Host/TLS/forwarding checks fail, hold cutover. After cutover,
 restore the recorded DNS target and affected client/provider URLs, accounting for TTL.
 [Code/stack rollback](infra.md#rollback-and-stack-recovery) does not reverse DNS or
-provider effects. Preserve the old front door, WAF and retained state. Lambda timeout
+provider effects. Preserve WAF protections and retained state. Lambda timeout
 is not proof that side effects were canceled; reconcile before retrying writes.

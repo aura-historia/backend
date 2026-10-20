@@ -323,6 +323,7 @@ function renderAutoSchemaEvaluation(review) {
 function renderNonSchemaReview(review, urls) {
     return `<div class="review-card">
       <div class="tab-panel">
+        ${renderUrlPatternEditor(review, urls)}
         ${urls.length ? renderUrls(urls) : ''}
         <h3>Candidate Payload</h3>
         <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
@@ -331,6 +332,60 @@ function renderNonSchemaReview(review, urls) {
         <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
       </div>
     </div>`;
+}
+
+function urlPatternDecision(review) {
+    return review?.candidate_payload?.decision || {type: 'UNDECIDED'};
+}
+
+function renderUrlPatternEditor(review, urls) {
+    if (review.artifact_type !== 'URL_PATTERN' || review.status !== 'PENDING_REVIEW') return '';
+    const decision = urlPatternDecision(review);
+    const value = decision.type === 'PATTERN' ? decision.value : '';
+    return `<h3>URL Pattern</h3>
+      <div class="hint-card">Decision: ${escapeHtml(decision.type)}. ${decision.type === 'UNDECIDED'
+        ? 'Enter a product URL regex or save NO_PATTERN before approving.'
+        : 'Save a new decision to change it.'}</div>
+      <input id="urlPatternInput" value="${escapeHtmlAttr(value)}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
+      <div id="urlPatternPreview" class="muted">${urlPatternPreviewText(value, urls)}</div>
+      <div class="actions">
+        <button onclick="saveUrlPattern()">Save pattern</button>
+        <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
+      </div>`;
+}
+
+function urlPatternPreviewText(pattern, urls) {
+    if (!pattern) return `${urls.length} sample URLs.`;
+    let regex;
+    try {
+        regex = new RegExp(pattern);
+    } catch (error) {
+        return `Invalid pattern: ${escapeHtml(error.message)}`;
+    }
+    const matches = urls.filter(u => regex.test(u.url)).length;
+    return `${matches} of ${urls.length} sample URLs match (browser preview; the server validates the pattern on save).`;
+}
+
+function previewUrlPattern() {
+    const input = document.getElementById('urlPatternInput');
+    const preview = document.getElementById('urlPatternPreview');
+    if (!input || !preview || !selectedDetail) return;
+    preview.innerHTML = urlPatternPreviewText(input.value.trim(), selectedDetail.urls || []);
+}
+
+async function saveUrlPatternDecision(decision) {
+    const currentPattern = selectedDetail.review?.candidate_payload?.current_pattern ?? null;
+    await saveCandidatePayload({decision, current_pattern: currentPattern});
+}
+
+async function saveUrlPattern() {
+    const value = document.getElementById('urlPatternInput').value.trim();
+    if (!value) return;
+    await saveUrlPatternDecision({type: 'PATTERN', value});
+}
+
+async function saveNoUrlPattern() {
+    await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
 function renderUrls(urls) {
@@ -575,7 +630,39 @@ function renderCoverageSummary(matrix) {
       <strong>Coverage</strong>
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
+      ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
     </div>`;
+}
+
+function renderOptionalMissSummary(pagesWithMisses) {
+    if (!pagesWithMisses.length) return '';
+    const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
+    const perPage = pagesWithMisses.map(page => {
+        const fields = optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ');
+        return `${escapeHtml(displayName(page.role))} (${fields})`;
+    }).join('; ');
+    return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
+}
+
+// Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
+// rule (not required, no selector error, not `images`, whose empty-container case is
+// decided by the page-level apply result) whose primary and additional selectors all
+// matched nothing on a page that still applied.
+function optionalFieldMisses(page) {
+    if (!page?.apply_ok) return [];
+    return (page.fields || []).filter(field =>
+        !field.required
+        && !field.error
+        && field.field !== 'images'
+        && field.selector_match_count === 0
+        && (field.additional_selector_match_counts || []).every(count => count === 0)
+    );
+}
+
+function currentCandidatePagesWithOptionalMisses(matrix) {
+    const candidate = selectedCandidate(matrix);
+    if (!candidate) return [];
+    return (candidate.pages || []).filter(page => optionalFieldMisses(page).length > 0);
 }
 
 function pageReferenceKey(reference) {
@@ -609,13 +696,21 @@ function renderCurrentExtractedData(matrix) {
     if (!candidate) return '<div class="muted">No extracted data for this schema.</div>';
     const page = selectedMatrixPage(candidate);
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
+    const misses = optionalFieldMisses(page);
     return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span></td>
-        <td>${page.apply_ok ? rawDataCell(page.extracted) : expandableValue(page.error || 'Schema did not apply.')}</td>
+        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}</td>
+        <td>${page.apply_ok ? rawDataCell(page.extracted) + renderOptionalFieldMisses(misses) : expandableValue(page.error || 'Schema did not apply.')}</td>
       </tr>
     </tbody></table></div>`;
+}
+
+function renderOptionalFieldMisses(misses) {
+    if (!misses.length) return '';
+    return `<div class="muted">Rule matched nothing, field left empty: ${
+        misses.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`).join(', ')
+    }</div>`;
 }
 
 function selectedMatrixPage(candidate) {

@@ -252,11 +252,9 @@ mod tests {
     fn should_document_only_persisted_match_route() {
         let swagger = include_str!("../../../../docs/swagger.yaml");
 
-        assert!(swagger.contains("/api/v1/me/search-filters/{userSearchFilterId}/matches:"));
+        assert!(swagger.contains("/v1/me/search-filters/{userSearchFilterId}/matches:"));
         assert!(swagger.contains("operationId: listSearchFilterMatches"));
-        assert!(
-            !swagger.contains("/api/v1/me/search-filters/{userSearchFilterId}/product-listings:")
-        );
+        assert!(!swagger.contains("/v1/me/search-filters/{userSearchFilterId}/product-listings:"));
         assert!(!swagger.contains("getSearchFilterPreviewProductListings"));
     }
 }

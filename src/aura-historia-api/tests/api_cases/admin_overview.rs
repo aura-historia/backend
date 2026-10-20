@@ -10,7 +10,7 @@ use user_core::{access_token::Scope, tier::UserTier};
 
 async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/overview", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/overview", AURA_API.base_url()))
         .bearer_auth(token)
         .send()
         .await

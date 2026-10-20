@@ -481,7 +481,7 @@ mod tests {
             }),
         );
         Router::new()
-            .route("/api/v1/admin/partnerships", axum::routing::get(list_admin))
+            .route("/v1/admin/partnerships", axum::routing::get(list_admin))
             .with_state(state)
     }
 
@@ -657,7 +657,7 @@ mod tests {
             search_after_cursor.partnership_id
         );
         let request = Request::get(format!(
-            "/api/v1/admin/partnerships?partyId={party_id}&memberUserId={member_user_id}&listingSourceId={listing_source_id}&size=200&searchAfter={search_after}"
+            "/v1/admin/partnerships?partyId={party_id}&memberUserId={member_user_id}&listingSourceId={listing_source_id}&size=200&searchAfter={search_after}"
         ))
         .header("Authorization", "Bearer valid")
         .body(Body::empty())?;
@@ -706,7 +706,7 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(result(None)), Arc::clone(&requests), false)
             .oneshot(
-                Request::get("/api/v1/admin/partnerships")
+                Request::get("/v1/admin/partnerships")
                     .header("Authorization", "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -743,7 +743,7 @@ mod tests {
             false,
         )
         .oneshot(
-            Request::get("/api/v1/admin/partnerships")
+            Request::get("/v1/admin/partnerships")
                 .header("Authorization", "Bearer valid")
                 .body(Body::empty())?,
         )
@@ -766,7 +766,7 @@ mod tests {
             false,
         )
         .oneshot(
-            Request::get("/api/v1/admin/partnerships")
+            Request::get("/v1/admin/partnerships")
                 .header("Authorization", "Bearer valid")
                 .body(Body::empty())?,
         )
@@ -789,7 +789,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(result(None)), Arc::clone(&requests), false)
-            .oneshot(Request::get("/api/v1/admin/partnerships").body(Body::empty())?)
+            .oneshot(Request::get("/v1/admin/partnerships").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::UNAUTHORIZED, response.status());
@@ -811,7 +811,7 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(result(None)), Arc::clone(&requests), true)
             .oneshot(
-                Request::get("/api/v1/admin/partnerships")
+                Request::get("/v1/admin/partnerships")
                     .header("Authorization", "Bearer invalid")
                     .body(Body::empty())?,
             )

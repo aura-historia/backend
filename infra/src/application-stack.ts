@@ -13,6 +13,7 @@ import {
 import { stageConfig } from "./config";
 import { applicationParameters, artifactCommitShaParameter } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
+import { McpHttpApi } from "./constructs/mcp";
 import { Identity } from "./constructs/cognito";
 import { DmsCdc } from "./constructs/dms-cdc";
 import { Eventing, importMaintenanceSchedulerDeadLetterQueue } from "./constructs/eventing";
@@ -377,6 +378,7 @@ export interface ApplicationApiStackProps extends ApplicationStackProps {
 
 export class ApplicationApiStack extends cdk.Stack {
   readonly api: BackendHttpApi;
+  readonly mcp: McpHttpApi;
 
   constructor(scope: Construct, id: string, props: ApplicationApiStackProps) {
     super(scope, id, stackProps(props));
@@ -386,12 +388,16 @@ export class ApplicationApiStack extends cdk.Stack {
 
     this.templateOptions.description = "Aura Historia API stack";
 
+    const functions = importLambdaCatalog(this, "LambdaImports", config);
     this.api = new BackendHttpApi(this, "HttpApi", {
       config,
       stageName,
-      functions: importLambdaCatalog(this, "LambdaImports", config),
+      functions,
     });
 
+    this.mcp = new McpHttpApi(this, "McpHttpApi", { config, function: functions.auraHistoriaMcp });
+    new cdk.CfnOutput(this, "McpEndpointUrl", { value: this.mcp.endpointUrl });
+    new cdk.CfnOutput(this, "McpCloudFrontDistributionDomainName", { value: this.mcp.distribution.attrDomainName });
     new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
     if (this.api.distribution) {
       new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", {

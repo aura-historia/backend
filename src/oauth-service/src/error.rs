@@ -10,6 +10,10 @@ pub enum OAuthServiceError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("delegated credentials cannot approve OAuth authorization requests")]
+    DelegatedAuthorizationForbidden,
+    #[error("delegated credentials cannot register OAuth clients")]
+    DelegatedClientRegistrationForbidden,
     #[error("OAuth client not found")]
     ClientNotFound,
     #[error("concurrent OAuth client update")]

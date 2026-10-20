@@ -1,7 +1,8 @@
 use crate::CrawlerDomainId;
 use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
+    evaluate_schema_matrix_for_inputs, schema_matrix_deterministic_approval_ok,
+    unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
@@ -23,7 +24,7 @@ struct SchemaGenerationAttempt {
 impl SchemaGenerationAttempt {
     fn new(generated: GeneratedProductSchemas, pages: &[SchemaReviewPageInput]) -> Self {
         let matrix = evaluate_schema_matrix_for_inputs(&generated.schemas, pages);
-        let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
+        let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let unused_schema_indices = unused_schema_indices(&matrix);
         Self {
             generated,
@@ -34,7 +35,8 @@ impl SchemaGenerationAttempt {
 }
 
 impl ScraperServiceImpl {
-    /// Generates product CSS selector schemas for `listing_source_id` via the LLM.
+    /// Generates product CSS selector schemas for `listing_source_id` via the LLM, or opens a
+    /// manual schema review over the seed pages when an operator authors schemas.
     /// The caller has already read the schema cache and found it empty.
     ///
     /// The dispatcher gates concurrent scraper work per ListingSource inside one process,
@@ -92,10 +94,6 @@ impl ScraperServiceImpl {
             }
         }
 
-        let seed_html_pages: Vec<String> = seed_pages
-            .iter()
-            .map(|page| page.raw_html.clone())
-            .collect();
         let pages = seed_pages
             .iter()
             .enumerate()
@@ -109,7 +107,16 @@ impl ScraperServiceImpl {
                 raw_html: page.raw_html.clone(),
             })
             .collect::<Vec<_>>();
+        if let Some(review_repository) = self.manual_schema_review_repository() {
+            return Err(self
+                .open_manual_schema_review(review_repository, listing_source_id, url, &[], pages)
+                .await);
+        }
 
+        let seed_html_pages: Vec<String> = seed_pages
+            .iter()
+            .map(|page| page.raw_html.clone())
+            .collect();
         self.consume_llm_budget_or_err(listing_source_id, url)
             .await?;
         let yaml_generated = self

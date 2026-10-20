@@ -27,6 +27,26 @@ These commands do not deploy. Deployment-helper tests run from the repository ro
 node --test ci/*.test.cjs
 ```
 
+## Coordinated releases
+
+**Release (CD)** handles routine forward releases with one protected approval, automatic
+DMS pause, foundation, private migrations, application deployment and verified capture
+recovery. Initial FX, bootstrap, rollback and incompatible cutovers remain dedicated
+operations. See [setup and IAM](../docs/infra.md#release-ownership-setup),
+[requirement declarations](../docs/infra.md#release-requirements), and
+[recovery](../docs/infra.md#release-recovery).
+
+Before adoption, synthesize the independent operational state/monitor stack:
+
+```sh
+npm run cdk -- synth aura-historia-release-operations \
+  --app 'npx ts-node --prefer-ts-exts bin/releases.ts'
+```
+
+Provision it separately under approved setup, configure the bucket/account variables and
+protected reviewers, confirm alarm delivery, then run **Adopt release baseline** for the
+verified deployed source. Local synth/tests do not perform that setup or deploy a release.
+
 ## Container repository setup
 
 See [provisioning and ownership](../docs/infra.md#container-repository-setup).

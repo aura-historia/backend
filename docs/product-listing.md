@@ -122,11 +122,26 @@ Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts
 
 Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
+### Personalized user state
+
+Listing reads may attach `userState`, the caller's private state for each returned listing. Use cases load the complete state for enforcement, then disclose it through one shared policy. Delegated credentials are closed-world, so each section needs its own read scope wherever listings are returned, including public routes:
+
+| Section | Delegated read scope |
+| --- | --- |
+| Watchlist state and settings | `watchlist:read` |
+| Unseen notification IDs | `notifications:read` |
+| Saved-search match, name, feedback and hidden flag | `search-filters:read` |
+| Content preference and browsing-destination shipping | `users:read` |
+
+Undisclosed sections are absent, never defaulted, and an empty `userState` is omitted. Write responses follow the same rule: a write scope authorizes the change, not reading the resulting state. Cognito users, services and the system keep full disclosure.
+
+Disclosure never weakens enforcement. Quota-hidden redaction, entitlement decisions and [image visibility](#content-assessment-and-image-visibility) still use the loaded state when a section is withheld, so a principal is never treated as anonymous to hide personalization. A redacted item therefore still reveals that a quota-hidden match exists. Exact fields remain in [OpenAPI](swagger.yaml).
+
 ## Management inspection and mutation
 
-The `/api/v1/admin/product-listings` directory and detail return authoritative original facts from PostgreSQL, including retained `WITHDRAWN` listings. Administrator authority is checked before reading the target or directory. Delegated credentials additionally require `product-listings:read` for reads and `product-listings:write` for mutations; Cognito users use their persisted role. Partnership/source ingestion grants are not prerequisites. All responses, including errors, are `private, no-store`.
+The `/v1/admin/product-listings` directory and detail return authoritative original facts from PostgreSQL, including retained `WITHDRAWN` listings. Administrator authority is checked before reading the target or directory. Delegated credentials additionally require `product-listings:read` for reads and `product-listings:write` for mutations; Cognito users use their persisted role. Partnership/source ingestion grants are not prerequisites. All responses, including errors, are `private, no-store`.
 
-The complementary `/api/v1/listing-sources/{listingSourceId}/product-listings` management directory/detail and single-listing commands use the same canonical views, field whitelist, lifecycle, concurrency and event contracts below. Each partner use case requires a user principal and an active Partnership source grant before accessing listings; administrator role alone is insufficient. Delegated reads require `product-listings:read` and writes require `product-listings:write`. The immutable ListingSource must match the authorized path for every ID-specific operation; cross-source targets are indistinguishable from missing listings. Directory queries always use the path source and bind cursors to it. All responses/errors are `private, no-store`.
+The complementary `/v1/listing-sources/{listingSourceId}/product-listings` management directory/detail and single-listing commands use the same canonical views, field whitelist, lifecycle, concurrency and event contracts below. Each partner use case requires a user principal and an active Partnership source grant before accessing listings; administrator role alone is insufficient. Delegated reads require `product-listings:read` and writes require `product-listings:write`. The immutable ListingSource must match the authorized path for every ID-specific operation; cross-source targets are indistinguishable from missing listings. Directory queries always use the path source and bind cursors to it. All responses/errors are `private, no-store`.
 
 Collection POST/PATCH/PUT/DELETE and their async variants remain the source-keyed integration API. They require the same Partnership source grant for every entry, checked synchronously or when the async command is applied; administrator role alone is insufficient. Their batch semantics remain independent of versioned management; PUT can still upsert or restore without a management version.
 
@@ -217,7 +232,7 @@ History exposes only committed `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING
 
 History excludes raw evidence, operational receipts, enrichment, storage/core payload wrappers and source image URLs. Public object identities use TypeIDs even where persisted event JSON uses UUID text.
 
-`GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`.
+`GET /v1/product-listings/{productListingId}/history` accepts optional `currency`.
 Omitting it preserves the source-only response. With it, monetary discovery prices
 and estimates, plus both sides of price and estimate changes, receive an optional
 `display` object (`currency`, minor-unit `amount`, `fxRateId`, `capturedAt`) inside

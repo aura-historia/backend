@@ -180,7 +180,7 @@ async fn should_persist_uuid_v7_for_generated_review_page_and_url_ids() {
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            Some(&Regex::new("/product/").unwrap()),
+            UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://generated-ids.example.com/product/1".to_owned()],
             None,
         )
@@ -269,7 +269,7 @@ async fn should_surface_invalid_persisted_v4_review_url_id() {
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            Some(&Regex::new("/product/").unwrap()),
+            UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://corrupt-review-url.example.com/product/1".to_owned()],
             None,
         )
@@ -740,7 +740,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
                     &listing_source_id,
                     &domain_id,
                     "url_pattern_generation",
-                    Some(&pattern),
+                    UrlPatternDecision::inferred(Some(&pattern)),
                     &first_urls,
                     None,
                 )
@@ -753,7 +753,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
                     &listing_source_id,
                     &domain_id,
                     "url_pattern_generation",
-                    Some(&pattern),
+                    UrlPatternDecision::inferred(Some(&pattern)),
                     &second_urls,
                     None,
                 )
@@ -785,7 +785,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            Some(&pattern),
+            UrlPatternDecision::inferred(Some(&pattern)),
             &["https://typed-pattern.example.com/products/1".to_owned()],
             None,
         )
@@ -837,7 +837,7 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            Some(&Regex::new("/new/").unwrap()),
+            UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://atomic-pattern.example.com/new/1".to_owned()],
             Some(&Regex::new("/old/").unwrap()),
         )
@@ -905,7 +905,7 @@ async fn should_allow_only_one_concurrent_review_approval() {
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            Some(&Regex::new("/product/").unwrap()),
+            UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://concurrent-approval.example.com/product/1".to_owned()],
             None,
         )
@@ -952,7 +952,7 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
             &listing_source_id,
             &domain_id,
             "url_pattern_generation",
-            None,
+            UrlPatternDecision::NoPattern,
             &["https://no-pattern.example.com/about".to_owned()],
             Some(&Regex::new("/stale/").unwrap()),
         )
@@ -969,4 +969,56 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     .await
     .unwrap();
     assert_eq!(row, (None, "NO_PATTERN".to_owned()));
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_approve_manual_url_pattern_review_only_after_operator_decides() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "manual-pattern.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &[
+                "https://manual-pattern.example.com/item/1".to_owned(),
+                "https://manual-pattern.example.com/about".to_owned(),
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+
+    let undecided_approval = repository.approve_review(review_id, None).await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "/item/".to_owned(),
+                },
+                current_pattern: None,
+            }),
+        )
+        .await
+        .unwrap();
+    repository.approve_review(review_id, None).await.unwrap();
+
+    assert!(matches!(
+        undecided_approval,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    let (pattern, state): (Option<String>, String) = sqlx::query_as(
+        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pattern.as_deref(), Some("/item/"));
+    assert_eq!(state, "MATCHED");
 }

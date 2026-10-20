@@ -368,10 +368,7 @@ mod tests {
             }),
         );
         Router::new()
-            .route(
-                "/api/v1/admin/overview",
-                axum::routing::get(get_admin_overview),
-            )
+            .route("/v1/admin/overview", axum::routing::get(get_admin_overview))
             .with_state(state)
     }
 
@@ -409,7 +406,7 @@ mod tests {
         let response = test_router(Ok(overview), Arc::clone(&requests), false)
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/admin/overview")
+                    .uri("/v1/admin/overview")
                     .header("authorization", "Bearer valid")
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),
@@ -473,7 +470,7 @@ mod tests {
         let response = test_router(Err(GetAdminOverviewError::Forbidden), requests, false)
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/admin/overview")
+                    .uri("/v1/admin/overview")
                     .header("authorization", "Bearer valid")
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),
@@ -506,7 +503,7 @@ mod tests {
         let response = test_router(Ok(AdminOverview::default()), Arc::clone(&requests), true)
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/admin/overview")
+                    .uri("/v1/admin/overview")
                     .header("authorization", "Bearer invalid")
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),

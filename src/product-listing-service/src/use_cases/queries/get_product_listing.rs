@@ -28,7 +28,9 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
-use crate::user_state::ProductListingUserState;
+use crate::user_state::{
+    ProductListingUserState, ProductListingUserStateDisclosure, ProductListingUserStateView,
+};
 use product_listing_core::description::Description;
 use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -182,7 +184,12 @@ pub struct ProductListingDetailsView {
     pub updated: OffsetDateTime,
 }
 
+/// Details with the requester's disclosed user state.
 pub type PersonalizedProductListingDetailsView =
+    Personalized<ProductListingDetailsView, ProductListingUserStateView>;
+
+/// Details with the complete loaded user state, before disclosure.
+pub type ProductListingDetailsWithUserState =
     Personalized<ProductListingDetailsView, ProductListingUserState>;
 
 #[derive(Debug, thiserror::Error)]
@@ -344,7 +351,7 @@ where
                 valuation_at,
             )
             .await?;
-        Ok(details)
+        Ok(ProductListingUserStateDisclosure::for_principal(&context.principal).disclose(details))
     }
 }
 
@@ -369,7 +376,7 @@ pub fn present_product_details(
     factual_details: PersonalizedProductListingDetailsReadModel,
     snapshot: &FxRateSnapshot,
     currency: Currency,
-) -> Result<PersonalizedProductListingDetailsView, ProductListingPricingPresentationError> {
+) -> Result<ProductListingDetailsWithUserState, ProductListingPricingPresentationError> {
     let Personalized { item, user_state } = factual_details;
     let pricing = present_product_pricing(
         item.pricing,
@@ -561,7 +568,7 @@ mod tests {
 
     use application::{
         error::box_error,
-        operation_context::{CorrelationId, Principal, RequestId},
+        operation_context::{CorrelationId, CredentialCapability, Principal, RequestId},
         transaction::TransactionError,
     };
     use fxrate_core::{
@@ -1103,12 +1110,11 @@ mod tests {
             .await?;
 
         assert_eq!(
-            vec![notification_id],
+            Some(vec![notification_id]),
             result
                 .user_state
-                .unwrap_or_default()
-                .notification
-                .unseen_notification_ids
+                .and_then(|state| state.notification)
+                .map(|notification| notification.unseen_notification_ids)
         );
         assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
@@ -1148,7 +1154,12 @@ mod tests {
             },
             result.item.pricing.display
         );
-        assert!(result.user_state.unwrap_or_default().search_filter.hidden);
+        assert!(
+            result
+                .user_state
+                .and_then(|state| state.search_filter)
+                .is_some_and(|search_filter| search_filter.hidden)
+        );
         Ok(())
     }
 
@@ -1269,8 +1280,107 @@ mod tests {
         assert!(state.fx_rate_id_requests.is_empty());
     }
 
+    #[tokio::test]
+    async fn should_enforce_loaded_state_without_disclosing_it_to_a_delegate_without_read_scopes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let image_url = Url::parse("https://example.test/unassessed.jpg")?;
+        for hidden in [false, true] {
+            let state = state();
+            let user_id = UserId::new();
+            let mut details = factual_details()?;
+            details.item.images = IndexSet::from([ProductListingImage::new(image_url.clone())]);
+            let mut user_state = ProductListingUserState::default();
+            user_state
+                .content_visibility
+                .show_unassessed_or_sensitive_content = true;
+            user_state.watchlist.watching = true;
+            user_state.notification.unseen_notification_ids =
+                vec![notification_core::notification_id::NotificationId::new()];
+            user_state.search_filter.matched = true;
+            user_state.search_filter.hidden = hidden;
+            details.user_state = Some(user_state);
+            lock_state(&state).find_details_result = Some(Ok(Some(details)));
+            prepare_current_snapshot(&state)?;
+
+            let result = handler(&state)
+                .execute(
+                    &context(Principal::DelegatedUser {
+                        user_id,
+                        capabilities: [CredentialCapability::ProductListingsRead].into(),
+                    }),
+                    request(Language::En, Currency::Eur),
+                )
+                .await?;
+
+            assert_eq!(None, result.user_state);
+            assert_eq!(
+                Some(user_id),
+                lock_state(&state)
+                    .find_details_request
+                    .as_ref()
+                    .and_then(|request| request.user_id)
+            );
+            if hidden {
+                assert_eq!(None, result.item.product_listing_title_slug_id);
+                assert!(result.item.images.is_empty());
+            } else {
+                assert_eq!(
+                    vec![ProductListingImageView {
+                        url: Some(image_url.clone()),
+                    }],
+                    result.item.images
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_disclose_only_sections_of_granted_read_scopes_in_details()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let mut details = factual_details()?;
+        let notification_id = notification_core::notification_id::NotificationId::new();
+        let mut user_state = ProductListingUserState::default();
+        user_state.watchlist.watching = true;
+        user_state.notification.unseen_notification_ids = vec![notification_id];
+        user_state.search_filter.matched = true;
+        details.user_state = Some(user_state);
+        lock_state(&state).find_details_result = Some(Ok(Some(details)));
+        prepare_current_snapshot(&state)?;
+
+        let result = handler(&state)
+            .execute(
+                &context(Principal::DelegatedUser {
+                    user_id: UserId::new(),
+                    capabilities: [
+                        CredentialCapability::WatchlistRead,
+                        CredentialCapability::NotificationsRead,
+                    ]
+                    .into(),
+                }),
+                request(Language::En, Currency::Eur),
+            )
+            .await?;
+
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                watchlist: Some(crate::user_state::WatchlistUserState {
+                    watching: true,
+                    notifications: false,
+                }),
+                notification: Some(crate::user_state::NotificationUserState {
+                    unseen_notification_ids: vec![notification_id],
+                }),
+                ..Default::default()
+            }),
+            result.user_state
+        );
+        Ok(())
+    }
+
     #[test]
-    fn should_only_personalize_user_principals() {
+    fn should_load_user_state_for_enforcement_for_user_principals() {
         let user_id = UserId::new();
 
         assert_eq!(None, personalization_user_id(&Principal::Anonymous));
@@ -1278,6 +1388,7 @@ mod tests {
             Some(user_id),
             personalization_user_id(&Principal::User(user_id))
         );
+        // Hidden-item and content policy need the state even when no section is disclosed.
         assert_eq!(
             Some(user_id),
             personalization_user_id(&Principal::DelegatedUser {

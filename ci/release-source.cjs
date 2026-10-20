@@ -42,7 +42,9 @@ function resolveSource(env, git) {
 if (require.main === module) {
   try {
     const result = resolveSource(process.env, (args) => execFileSync('git', ['--no-pager', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
-    appendFileSync(process.env.GITHUB_OUTPUT, `commit_sha=${result.sha}\n`);
+    const protocol = JSON.parse(execFileSync('git', ['--no-pager', 'show', `${result.sha}:releases/protocol.json`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    if (protocol.version !== 1) throw new Error('Unsupported historical release helpers; use a reviewed forward source with release protocol v1.');
+    appendFileSync(process.env.GITHUB_OUTPUT, `commit_sha=${result.sha}\nrelease_ref=${result.ref}\n`);
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Deployment source\n- Stage: ${process.env.STAGE}\n- Ref: ${result.ref}\n- Commit: ${result.sha}\n`);
   } catch (error) {
     console.error(`Release validation failed: ${error.message}`);

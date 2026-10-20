@@ -349,7 +349,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/admin/partnerships/{partnership_id}",
+                "/v1/admin/partnerships/{partnership_id}",
                 axum::routing::get(super::get_admin),
             )
             .with_state(state)
@@ -384,7 +384,7 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(details()), Arc::clone(&requests), false)
             .oneshot(
-                Request::get("/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn")
+                Request::get("/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn")
                     .header("Authorization", "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -428,7 +428,7 @@ mod tests {
             false,
         )
         .oneshot(
-            Request::get("/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn")
+            Request::get("/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn")
                 .header("Authorization", "Bearer valid")
                 .body(Body::empty())?,
         )
@@ -452,7 +452,7 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(details()), Arc::clone(&requests), false)
             .oneshot(
-                Request::get("/api/v1/admin/partnerships/not-an-object-id")
+                Request::get("/v1/admin/partnerships/not-an-object-id")
                     .header("Authorization", "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -481,8 +481,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for (authorization, reject_auth) in [(None, false), (Some("Bearer invalid"), true)] {
             let requests = Arc::new(Mutex::new(Vec::new()));
-            let mut builder =
-                Request::get("/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn");
+            let mut builder = Request::get("/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn");
             if let Some(authorization) = authorization {
                 builder = builder.header("Authorization", authorization);
             }

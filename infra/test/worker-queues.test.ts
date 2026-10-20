@@ -443,12 +443,12 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    // The API's stable HTTP integration, CDC router and cleanup target,
+    // The REST and MCP stable HTTP integrations, CDC router and cleanup target,
     // and all thirteen queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(17);
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(18);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
-    expect(aliases).toHaveLength(1);
-    expect(aliases[0].Properties).toMatchObject({
+    expect(aliases).toHaveLength(2);
+    expect(aliases.find((alias) => alias.Properties.Description === "Stable HTTP API integration target")?.Properties).toMatchObject({
       Description: "Stable HTTP API integration target",
       Name: "live",
     });

@@ -18,7 +18,7 @@ async fn should_create_owned_search_filter() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&search_filter_body())
         .send()
@@ -41,10 +41,7 @@ async fn should_create_owned_search_filter() {
     let filter_id = search_filter_id(&body);
 
     assert_eq!(reqwest::StatusCode::CREATED, status);
-    assert_eq!(
-        Some(format!("/api/v1/me/search-filters/{filter_id}")),
-        location
-    );
+    assert_eq!(Some(format!("/v1/me/search-filters/{filter_id}")), location);
     assert_eq!(Some("en"), content_language.as_deref());
     assert!(has_last_modified);
     assert_saved_filter_response(&body);
@@ -61,7 +58,7 @@ async fn should_list_owned_search_filters() {
     let filter_id = create_search_filter(&client, &token).await;
 
     let response = client
-        .get(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -92,7 +89,7 @@ async fn should_get_owned_search_filter_with_representation_headers() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}",
+            "{}/v1/me/search-filters/{filter_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -131,7 +128,7 @@ async fn should_update_owned_search_filter_without_replacing_unsupplied_search_f
 
     let response = client
         .patch(format!(
-            "{}/api/v1/me/search-filters/{filter_id}",
+            "{}/v1/me/search-filters/{filter_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -167,7 +164,7 @@ async fn should_preserve_saved_filter_and_freshness_for_top_level_null_patches()
     let mut request = search_filter_body();
     request["notifications"] = serde_json::json!(false);
     let response = client
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&request)
         .send()
@@ -177,7 +174,7 @@ async fn should_preserve_saved_filter_and_freshness_for_top_level_null_patches()
     assert_eq!(reqwest::StatusCode::CREATED, status);
     assert_eq!(false, created["notifications"]);
     let url = format!(
-        "{}/api/v1/me/search-filters/{}",
+        "{}/v1/me/search-filters/{}",
         AURA_API.base_url(),
         search_filter_id(&created)
     );
@@ -259,7 +256,7 @@ async fn should_delete_owned_search_filter() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/me/search-filters/{filter_id}",
+            "{}/v1/me/search-filters/{filter_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -280,7 +277,7 @@ async fn should_list_search_filter_matches() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            "{}/v1/me/search-filters/{filter_id}/matches",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -350,7 +347,7 @@ async fn should_accept_json_string_search_after_for_search_filter_matches() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            "{}/v1/me/search-filters/{filter_id}/matches",
             AURA_API.base_url()
         ))
         .query(&[("searchAfter", search_after)])
@@ -380,7 +377,7 @@ async fn should_return_next_match_cursor_for_non_terminal_page() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            "{}/v1/me/search-filters/{filter_id}/matches",
             AURA_API.base_url()
         ))
         .query(&[("size", "1")])
@@ -401,7 +398,7 @@ async fn should_return_next_match_cursor_for_non_terminal_page() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            "{}/v1/me/search-filters/{filter_id}/matches",
             AURA_API.base_url()
         ))
         .query(&[("searchAfter", search_after)])
@@ -429,7 +426,7 @@ async fn should_clamp_search_filter_match_page_size() {
     for (size, expected) in [("0", 1), ("1", 1), ("21", 2), ("100", 2), ("101", 2)] {
         let response = client
             .get(format!(
-                "{}/api/v1/me/search-filters/{filter_id}/matches",
+                "{}/v1/me/search-filters/{filter_id}/matches",
                 AURA_API.base_url()
             ))
             .query(&[("size", size)])
@@ -447,7 +444,7 @@ async fn should_clamp_search_filter_match_page_size() {
     for size in ["not-an-integer", "-1"] {
         let response = client
             .get(format!(
-                "{}/api/v1/me/search-filters/{filter_id}/matches",
+                "{}/v1/me/search-filters/{filter_id}/matches",
                 AURA_API.base_url()
             ))
             .query(&[("size", size)])
@@ -483,7 +480,7 @@ async fn should_reject_invalid_search_filter_match_cursors() {
     ] {
         let response = client
             .get(format!(
-                "{}/api/v1/me/search-filters/{filter_id}/matches",
+                "{}/v1/me/search-filters/{filter_id}/matches",
                 AURA_API.base_url()
             ))
             .query(&[("searchAfter", cursor)])
@@ -507,7 +504,7 @@ async fn should_reject_invalid_search_filter_match_cursors() {
     ] {
         let response = client
             .get(format!(
-                "{}/api/v1/me/search-filters/{filter_id}/matches",
+                "{}/v1/me/search-filters/{filter_id}/matches",
                 AURA_API.base_url()
             ))
             .query(&[(
@@ -538,7 +535,7 @@ async fn should_expose_persisted_matches_only_at_matches_route() {
 
     let matches = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            "{}/v1/me/search-filters/{filter_id}/matches",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token.clone()))
@@ -549,7 +546,7 @@ async fn should_expose_persisted_matches_only_at_matches_route() {
 
     let obsolete = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/product-listings",
+            "{}/v1/me/search-filters/{filter_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -565,12 +562,12 @@ async fn should_serialize_concurrent_search_filter_creates_at_free_quota() {
     let token = search_filters_token(user_id).await;
     let client = reqwest::Client::new();
     let first_request = client
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&search_filter_body())
         .send();
     let second_request = client
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&search_filter_body())
         .send();
@@ -641,7 +638,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
 
     let first_request = client
         .patch(format!(
-            "{}/api/v1/me/search-filters/{first_filter_id}",
+            "{}/v1/me/search-filters/{first_filter_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token.clone()))
@@ -649,7 +646,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
         .send();
     let second_request = client
         .patch(format!(
-            "{}/api/v1/me/search-filters/{second_filter_id}",
+            "{}/v1/me/search-filters/{second_filter_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -694,7 +691,7 @@ async fn should_update_search_filter_match_feedback() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches/{product_listing_id}",
+            "{}/v1/me/search-filters/{filter_id}/matches/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -730,7 +727,7 @@ async fn should_update_search_filter_match_feedback() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_authentication_for_search_filter_routes() {
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list search filters without auth: {error}"));
@@ -750,7 +747,7 @@ async fn should_reject_search_filter_routes_without_required_scope() {
     let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .send()
         .await
@@ -761,7 +758,7 @@ async fn should_reject_search_filter_routes_without_required_scope() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/me/search-filters/{}/matches",
+            "{}/v1/me/search-filters/{}/matches",
             AURA_API.base_url(),
             UserSearchFilterId::new()
         ))
@@ -789,7 +786,7 @@ async fn should_reject_noncanonical_search_filter_identifier() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/me/search-filters/{invalid_id}",
+                "{}/v1/me/search-filters/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -818,7 +815,7 @@ async fn should_accept_typed_object_ids_in_search_filter_body_and_response() {
     body["search"]["excludeProductListingId"] = serde_json::json!([product_listing_id]);
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&body)
         .send()
@@ -865,7 +862,7 @@ async fn should_reject_noncanonical_object_ids_in_search_filter_body() {
         let mut body = search_filter_body();
         body["search"][field] = serde_json::json!([invalid_id]);
         let response = reqwest::Client::new()
-            .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+            .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .json(&body)
             .send()
@@ -892,7 +889,7 @@ async fn search_filters_token(user_id: user_core::user_id::UserId) -> RawAccessT
 
 async fn create_search_filter(client: &reqwest::Client, token: &RawAccessToken) -> String {
     let response = client
-        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&search_filter_body())
         .send()

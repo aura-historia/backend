@@ -183,7 +183,7 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_service::ports::ListingSourceSummary;
-    use product_listing_service::user_state::ProductListingUserState;
+    use product_listing_service::user_state::ProductListingUserStateView;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;
@@ -344,7 +344,11 @@ mod tests {
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
-            user_state: Some(ProductListingUserState::default()),
+            user_state: Some(ProductListingUserStateView {
+                watchlist: Some(Default::default()),
+                notification: Some(Default::default()),
+                ..Default::default()
+            }),
         })
     }
 
@@ -373,7 +377,7 @@ mod tests {
         };
         (
             Router::new()
-                .route("/api/v1/me/watchlist", axum::routing::get(list_watchlist))
+                .route("/v1/me/watchlist", axum::routing::get(list_watchlist))
                 .with_state(state),
             requests,
         )
@@ -393,7 +397,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/me/watchlist?language=de")
+                Request::get("/v1/me/watchlist?language=de")
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -461,7 +465,7 @@ mod tests {
         let (app, requests) = app(user_id, Vec::new(), false);
 
         let response = app
-            .oneshot(Request::get("/api/v1/me/watchlist?language=invalid").body(Body::empty())?)
+            .oneshot(Request::get("/v1/me/watchlist?language=invalid").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -477,7 +481,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/me/watchlist")
+                Request::get("/v1/me/watchlist")
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::empty())?,
             )
