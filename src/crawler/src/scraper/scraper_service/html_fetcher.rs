@@ -38,6 +38,15 @@ pub trait HtmlFetcher: Send + Sync {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError>;
 }
 
+/// Lets one fetcher, with its robots.txt cache and per-domain pacing, serve
+/// several owners such as the scraper and the review server.
+#[async_trait::async_trait]
+impl<T: HtmlFetcher + ?Sized> HtmlFetcher for Arc<T> {
+    async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+        (**self).fetch(url).await
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchedHtml {
     pub html: String,
@@ -75,6 +84,10 @@ pub enum FetchError {
         retry_after: Option<Duration>,
         details: String,
     },
+    /// The URL redirected to `final_url`, which robots.txt disallows; the
+    /// target was not requested.
+    #[error("redirect target is disallowed by robots.txt: final_url={final_url}")]
+    RedirectDisallowed { final_url: Url },
 }
 
 impl FetchError {
@@ -82,12 +95,13 @@ impl FetchError {
         match self {
             FetchError::Network { kind, .. } => *kind,
             FetchError::NetworkWithMetadata { kind, .. } => *kind,
+            FetchError::RedirectDisallowed { .. } => NetworkErrorKind::RobotsDisallowed,
         }
     }
 
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
-            FetchError::Network { .. } => None,
+            FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => None,
             FetchError::NetworkWithMetadata { retry_after, .. } => *retry_after,
         }
     }
@@ -102,7 +116,7 @@ pub struct ReqwestHtmlFetcher {
     retry_policy: RetryPolicy,
     attempt_timeout: Duration,
     total_timeout: Duration,
-    auto_throttle: Arc<ScraperAutoThrottle>,
+    auto_throttle: ScraperAutoThrottle,
     robots: RobotsCache,
     #[cfg(test)]
     allow_private_targets_for_test: bool,
@@ -113,7 +127,11 @@ struct FetchAttemptError {
 }
 
 enum AttemptError {
+    /// May be retried when its kind is retryable.
     Failed(FetchError),
+    /// Loading or applying robots.txt failed; retrying would only fetch
+    /// robots.txt again.
+    Final(FetchError),
     /// The whole fetch ran out of its network-time budget; no retry follows.
     TotalTimeout,
 }
@@ -175,33 +193,11 @@ impl ReqwestHtmlFetcher {
             retry_policy,
             attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
             total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
-            auto_throttle: Arc::new(ScraperAutoThrottle::new(auto_throttle_config)),
+            auto_throttle: ScraperAutoThrottle::new(auto_throttle_config),
             robots: RobotsCache::default(),
             #[cfg(test)]
             allow_private_targets_for_test: false,
         }
-    }
-
-    /// Admits a request to `url` once robots.txt allows it, after the
-    /// domain's pacing delay: the auto-throttle delay, raised to whatever is
-    /// left of the robots `Crawl-delay` since the origin's last request.
-    /// Returns the time spent waiting.
-    async fn admit(&self, url: &Url) -> Result<Duration, FetchAttemptError> {
-        let crawl_delay = self.check_robots(url).await?;
-        let crawl_delay_remaining = crawl_delay.map_or(Duration::ZERO, |delay| {
-            self.robots.crawl_delay_remaining(url, delay)
-        });
-        let delay = self.throttle_delay(url).max(crawl_delay_remaining);
-        self.pace(url, delay).await;
-        Ok(delay)
-    }
-
-    /// Redirect hops run inside the timed attempt, so they take only the
-    /// auto-throttle delay; robots.txt must still allow the target.
-    async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
-        self.check_robots(url).await?;
-        self.pace(url, self.throttle_delay(url)).await;
-        Ok(())
     }
 
     /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.
@@ -213,36 +209,55 @@ impl ReqwestHtmlFetcher {
         Ok(robots.crawl_delay())
     }
 
-    fn throttle_delay(&self, url: &Url) -> Duration {
-        url.host_str().map_or(Duration::ZERO, |domain| {
-            self.auto_throttle.delay_for(domain)
-        })
-    }
-
-    async fn pace(&self, url: &Url, delay: Duration) {
+    /// Waits for the domain's pacing delay before a request and returns the
+    /// time waited: the latency throttle, raised to what is left of the
+    /// robots `Crawl-delay` under [`Pacing::WithCrawlDelay`].
+    async fn pace(&self, url: &Url, crawl_delay: Option<Duration>, pacing: Pacing) -> Duration {
+        let Some(domain) = url.host_str() else {
+            return Duration::ZERO;
+        };
+        self.auto_throttle.set_crawl_delay(domain, crawl_delay);
+        let mut delay = self.auto_throttle.delay_for(domain);
+        if pacing == Pacing::WithCrawlDelay {
+            delay = delay.max(self.auto_throttle.crawl_delay_remaining(domain));
+        }
         if !delay.is_zero() {
             debug!(
-                domain = url.host_str(),
+                domain,
                 delay_ms = delay.as_millis(),
                 "Applying scraper domain pacing delay"
             );
             sleep(delay).await;
         }
-        self.robots.record_request(url);
+        self.auto_throttle.record_request_start(domain);
+        delay
     }
 
-    /// One admitted fetch attempt. The admission wait extends `deadline`, so
-    /// only network work counts against the attempt and total budgets.
+    /// One admitted fetch attempt. Loading robots.txt counts against the
+    /// attempt and total budgets; the pacing wait extends both, so a long
+    /// `Crawl-delay` never turns into a fetch timeout.
     async fn attempt(
         &self,
         url: &Url,
         deadline: &mut tokio::time::Instant,
     ) -> Result<FetchedHtml, AttemptError> {
-        *deadline += self
-            .admit(url)
-            .await
-            .map_err(|error| AttemptError::Failed(error.error))?;
-        let attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
+        let mut attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
+        let crawl_delay =
+            match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.check_robots(url))
+                .await
+            {
+                Ok(result) => result.map_err(|error| AttemptError::Final(error.error))?,
+                Err(_) if attempt_deadline >= *deadline => return Err(AttemptError::TotalTimeout),
+                Err(_) => {
+                    return Err(AttemptError::Final(FetchError::Network {
+                        kind: NetworkErrorKind::Timeout,
+                        details: "robots.txt fetch exceeded the attempt timeout".to_string(),
+                    }));
+                }
+            };
+        let waited = self.pace(url, crawl_delay, Pacing::WithCrawlDelay).await;
+        *deadline += waited;
+        attempt_deadline += waited;
         match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.fetch_once(url)).await {
             Ok(result) => result.map_err(|error| AttemptError::Failed(error.error)),
             Err(_) if attempt_deadline >= *deadline => Err(AttemptError::TotalTimeout),
@@ -251,6 +266,27 @@ impl ReqwestHtmlFetcher {
                 details: "HTML fetch attempt exceeded timeout".to_string(),
             })),
         }
+    }
+
+    /// Redirect hops run inside the timed attempt, so they take only the
+    /// latency throttle. A target robots.txt disallows is reported with its
+    /// URL, so the pipeline can judge where the source URL led.
+    async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
+        let robots = self.robots_policy(url).await?;
+        match robots.check(url) {
+            Ok(()) => {}
+            Err(RobotsRefusal::Disallowed) => {
+                return Err(FetchAttemptError {
+                    error: FetchError::RedirectDisallowed {
+                        final_url: url.clone(),
+                    },
+                });
+            }
+            Err(refusal) => return Err(robots_refusal_error(url, refusal)),
+        }
+        self.pace(url, robots.crawl_delay(), Pacing::ThrottleOnly)
+            .await;
+        Ok(())
     }
 
     async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, FetchAttemptError> {
@@ -382,6 +418,14 @@ fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
     }
 }
 
+/// Whether a request waits out the robots `Crawl-delay` or only the latency
+/// throttle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pacing {
+    WithCrawlDelay,
+    ThrottleOnly,
+}
+
 fn total_timeout_error() -> FetchError {
     FetchError::Network {
         kind: NetworkErrorKind::Timeout,
@@ -473,6 +517,7 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
             let error = match self.attempt(url, &mut deadline).await {
                 Ok(html) => return Ok(html),
                 Err(AttemptError::Failed(error)) => error,
+                Err(AttemptError::Final(error)) => return Err(error),
                 Err(AttemptError::TotalTimeout) => return Err(total_timeout_error()),
             };
             if action_for(error.kind()) != NetworkAction::Retry
@@ -850,5 +895,72 @@ mod tests {
         let _ = fetcher.fetch(&shop.url).await;
 
         assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn should_bound_a_stalled_robots_txt_by_the_attempt_timeout_without_retrying() {
+        // Accepts connections and never answers.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let accepted = Arc::clone(&connections);
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                accepted.fetch_add(1, Ordering::SeqCst);
+                held.push(socket);
+            }
+        });
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+        );
+        let url = Url::parse(&format!("http://{addr}/product")).unwrap();
+
+        let started = Instant::now();
+        let error = fetcher.fetch(&url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::Timeout);
+        assert!(started.elapsed() < Duration::from_millis(400));
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn should_report_a_redirect_target_robots_txt_disallows_with_its_url() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nDisallow: /sold/\n"),
+            vec!["HTTP/1.1 301 Moved Permanently\r\nLocation: /sold/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert!(
+            matches!(
+                &error,
+                FetchError::RedirectDisallowed { final_url } if final_url.path() == "/sold/"
+            ),
+            "{error:?}"
+        );
+        assert_eq!(shop.page_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_fetch_robots_txt_once_for_concurrent_requests_to_one_origin() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nDisallow: /cart\n"),
+            vec![OK_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        let (first, second) = tokio::join!(fetcher.fetch(&shop.url), fetcher.fetch(&shop.url));
+
+        assert!(first.is_ok() && second.is_ok(), "{first:?} {second:?}");
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
     }
 }

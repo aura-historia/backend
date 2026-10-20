@@ -1,6 +1,18 @@
+//! Per-domain scraper pacing. Two rules share one per-domain entry:
+//!
+//! - the latency throttle: a delay before each request, derived from the
+//!   domain's response latency and clamped to the configured minimum and
+//!   maximum;
+//! - the robots.txt `Crawl-delay`: a minimum spacing between request starts.
+//!   It is measured from the previous request rather than slept in full, so a
+//!   domain's first request (a review live inspection, say) is not held back.
+
 use dashmap::DashMap;
+use dashmap::mapref::one::RefMut;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::time::Instant;
 
 const DEFAULT_TARGET_CONCURRENCY: f64 = 2.0;
 const DEFAULT_ALPHA: f64 = 0.15;
@@ -41,6 +53,13 @@ struct DomainLatency {
     ema_us: AtomicU64,
     samples: AtomicU64,
     last_access: AtomicU64,
+    crawl_delay: Mutex<CrawlDelayClock>,
+}
+
+#[derive(Default)]
+struct CrawlDelayClock {
+    crawl_delay: Option<Duration>,
+    last_request_at: Option<Instant>,
 }
 
 impl DomainLatency {
@@ -49,7 +68,14 @@ impl DomainLatency {
             ema_us: AtomicU64::new(0),
             samples: AtomicU64::new(0),
             last_access: AtomicU64::new(access_counter),
+            crawl_delay: Mutex::new(CrawlDelayClock::default()),
         }
+    }
+
+    fn crawl_delay_clock(&self) -> std::sync::MutexGuard<'_, CrawlDelayClock> {
+        self.crawl_delay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn ema_micros(&self) -> f64 {
@@ -122,33 +148,63 @@ impl ScraperAutoThrottle {
     }
 
     fn record_with(&self, raw_domain: &str, latency: Duration, failure: bool) {
-        let domain = crate::network::policy::canonical_crawler_domain(raw_domain);
-        if domain.is_empty() {
-            return;
-        }
-
         let latency_us = latency.as_micros() as f64;
-        let access_counter = self.access_counter.fetch_add(1, Ordering::Relaxed);
         let alpha = self.config.alpha.clamp(0.01, 1.0);
-
-        if let Some(entry) = self.domains.get(&domain) {
-            entry.last_access.store(access_counter, Ordering::Relaxed);
+        if let Some(entry) = self.entry(raw_domain) {
             if failure {
                 entry.record_failure(latency_us, alpha);
             } else {
                 entry.record(latency_us, alpha);
             }
-            return;
         }
+    }
 
-        self.maybe_evict();
-        let entry = DomainLatency::new(access_counter);
-        if failure {
-            entry.record_failure(latency_us, alpha);
-        } else {
-            entry.record(latency_us, alpha);
+    /// The domain's entry, created on first use and marked as accessed.
+    fn entry(&self, raw_domain: &str) -> Option<RefMut<'_, String, DomainLatency>> {
+        let domain = crate::network::policy::canonical_crawler_domain(raw_domain);
+        if domain.is_empty() {
+            return None;
         }
-        self.domains.insert(domain, entry);
+        let access_counter = self.access_counter.fetch_add(1, Ordering::Relaxed);
+        if !self.domains.contains_key(&domain) {
+            self.maybe_evict();
+        }
+        let entry = self
+            .domains
+            .entry(domain)
+            .or_insert_with(|| DomainLatency::new(access_counter));
+        entry.last_access.store(access_counter, Ordering::Relaxed);
+        Some(entry)
+    }
+
+    /// Sets the domain's robots.txt `Crawl-delay`; `None` clears it.
+    pub fn set_crawl_delay(&self, domain: &str, crawl_delay: Option<Duration>) {
+        if let Some(entry) = self.entry(domain) {
+            entry.crawl_delay_clock().crawl_delay = crawl_delay;
+        }
+    }
+
+    /// Marks the start of a request to `domain`; the crawl delay is measured
+    /// from here.
+    pub fn record_request_start(&self, domain: &str) {
+        if let Some(entry) = self.entry(domain) {
+            entry.crawl_delay_clock().last_request_at = Some(Instant::now());
+        }
+    }
+
+    /// The part of the domain's crawl delay that has not yet passed since its
+    /// last request start. Applies even when the latency throttle is
+    /// disabled: robots.txt is not optional.
+    pub fn crawl_delay_remaining(&self, domain: &str) -> Duration {
+        let domain = crate::network::policy::canonical_crawler_domain(domain);
+        let Some(entry) = self.domains.get(&domain) else {
+            return Duration::ZERO;
+        };
+        let clock = entry.crawl_delay_clock();
+        match (clock.crawl_delay, clock.last_request_at) {
+            (Some(delay), Some(last)) => delay.saturating_sub(last.elapsed()),
+            _ => Duration::ZERO,
+        }
     }
 
     pub fn delay_for(&self, domain: &str) -> Duration {
@@ -294,6 +350,32 @@ mod tests {
         throttle.record_failure_latency("example.com", Duration::from_millis(50));
 
         assert!(throttle.delay_for("example.com") >= before_failure);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn crawl_delay_spaces_request_starts_across_bare_and_www_hosts() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            enabled: false,
+            ..Default::default()
+        });
+        throttle.set_crawl_delay("www.example.com", Some(Duration::from_secs(30)));
+
+        assert_eq!(
+            throttle.crawl_delay_remaining("example.com"),
+            Duration::ZERO
+        );
+        throttle.record_request_start("example.com");
+        tokio::time::advance(Duration::from_secs(10)).await;
+
+        assert_eq!(
+            throttle.crawl_delay_remaining("www.example.com"),
+            Duration::from_secs(20)
+        );
+        throttle.set_crawl_delay("example.com", None);
+        assert_eq!(
+            throttle.crawl_delay_remaining("example.com"),
+            Duration::ZERO
+        );
     }
 
     #[test]

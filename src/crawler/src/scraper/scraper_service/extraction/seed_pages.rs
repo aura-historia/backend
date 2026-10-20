@@ -132,14 +132,16 @@ fn record_fetch_transport_error(
     error: &FetchError,
 ) {
     match error {
-        FetchError::Network { kind, .. } => record_transport_failure(
-            url,
-            FetchFailureSource::SchemaSeed,
-            expected_last_captured_raw_input_sha256,
-            *kind,
-            None,
-            None,
-        ),
+        FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => {
+            record_transport_failure(
+                url,
+                FetchFailureSource::SchemaSeed,
+                expected_last_captured_raw_input_sha256,
+                error.kind(),
+                None,
+                None,
+            )
+        }
         FetchError::NetworkWithMetadata {
             kind,
             status,

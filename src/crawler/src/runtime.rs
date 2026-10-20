@@ -183,12 +183,14 @@ where
         ),
     );
 
-    let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
+    // One fetcher for scraper and review server: both requests count against
+    // the same robots.txt cache and per-domain pacing.
+    let fetcher = Arc::new(ReqwestHtmlFetcher::with_auto_throttle_config(
         cron_config.scraper_auto_throttle_config(),
     ));
     let scraper_svc = Box::new(
         ScraperServiceImpl::new_with_schema_seed_pages(
-            fetcher,
+            Box::new(Arc::clone(&fetcher)),
             Box::new(schema_svc),
             Box::new(normalization_svc),
             Arc::new(
@@ -274,12 +276,13 @@ where
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
-    let review_server = ReviewServer::new(
+    let review_server = ReviewServer::new_with_fetcher(
         review_repo,
         Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
         ))),
         review_config,
+        fetcher,
     );
 
     CrawlerRuntime {

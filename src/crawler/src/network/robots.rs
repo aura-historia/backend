@@ -147,8 +147,11 @@ fn truncate_to_limit(body: &str) -> &str {
     &body[..end]
 }
 
-/// Consecutive `User-agent` lines open one group; the first other record
-/// closes the agent list, so the next `User-agent` line starts a new group.
+/// Consecutive `User-agent` lines open one group; the first rule record
+/// (`Allow`, `Disallow`, `Crawl-delay`) closes the agent list, so the next
+/// `User-agent` line starts a new group. Other records, such as `Sitemap`,
+/// belong to no group and leave the agent list open, as in Google's
+/// reference parser.
 fn parse_groups(body: &str) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut collecting_agents = false;
@@ -169,6 +172,9 @@ fn parse_groups(body: &str) -> Vec<Group> {
             if let Some(group) = groups.last_mut() {
                 group.agents.push(product_token(value));
             }
+            continue;
+        }
+        if !matches!(key.as_str(), "allow" | "disallow" | "crawl-delay") {
             continue;
         }
         collecting_agents = false;
@@ -301,6 +307,15 @@ mod tests {
         assert!(rules.allows(&url("/antiek/kast-123")));
         assert!(rules.allows(&url("/cart/")));
         assert_eq!(rules.crawl_delay, Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn should_keep_the_agent_list_open_across_records_outside_any_group() {
+        let rules = RobotsRules::parse(
+            "User-agent: AuraHistoriaBot\nSitemap: https://shop.example/sitemap.xml\nUser-agent: *\nDisallow: /\n",
+        );
+
+        assert!(!rules.allows(&url("/products/1")));
     }
 
     #[test]

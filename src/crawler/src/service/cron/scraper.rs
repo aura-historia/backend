@@ -45,6 +45,7 @@ struct ScrapeDomainContext {
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     schema_pending_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     domain_id: crate::CrawlerDomainId,
+    batch_time_budget: Duration,
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -110,6 +111,9 @@ struct ScrapeCandidateOutcome {
     deferred: bool,
     domain_health: DomainFetchHealth,
     server_failure_status: Option<u16>,
+    /// robots.txt of the URL's origin could not be reached, which disallows
+    /// every URL there until it is fetched again.
+    robots_unreachable: bool,
 }
 
 struct ScrapeDomainOutcome {
@@ -790,6 +794,7 @@ async fn handle_scrape_error(
         errored: true,
         domain_health,
         server_failure_status,
+        robots_unreachable: is_robots_unreachable(&error),
         ..Default::default()
     }
 }
@@ -1094,6 +1099,15 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
     )
 }
 
+fn is_robots_unreachable(error: &ScraperError) -> bool {
+    let kind = match error {
+        ScraperError::HttpError { kind, .. } => *kind,
+        ScraperError::HttpErrorWithMetadata(metadata) => metadata.kind,
+        _ => return false,
+    };
+    kind == NetworkErrorKind::RobotsUnreachable
+}
+
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {
     status_code
         .map(|status_code| format!("HTTP_{status_code}"))
@@ -1131,7 +1145,20 @@ async fn scrape_domain_candidates(
 
     let mut server_failure_urls = HashSet::new();
     let candidate_count = candidates.len();
+    let batch_deadline = tokio::time::Instant::now() + ctx.batch_time_budget;
     for (candidate_index, candidate) in candidates.into_iter().enumerate() {
+        // The first URL always runs, so every pass makes progress.
+        if candidate_index > 0 && tokio::time::Instant::now() >= batch_deadline {
+            let remaining = candidate_count - candidate_index;
+            info!(
+                event = "crawler.scraper.domain_batch_time_budget_reached",
+                domain_id = %ctx.domain_id,
+                deferred_urls = remaining,
+                "Deferring remaining scraper URLs to a later pass"
+            );
+            outcome.deferred_urls += remaining;
+            break;
+        }
         let candidate_url = candidate.url.clone();
         let open_5xx_burst =
             !server_failure_urls.contains(&candidate_url) && server_failure_urls.len() >= 2;
@@ -1203,6 +1230,21 @@ async fn scrape_domain_candidates(
                     "Failed to close scraper domain circuit"
                 ),
             }
+        }
+
+        // One unreachable robots.txt refuses the whole origin: the rest of
+        // the batch waits for a later pass instead of each URL recording the
+        // same refusal.
+        if candidate_outcome.robots_unreachable {
+            let remaining = candidate_count.saturating_sub(candidate_index + 1);
+            info!(
+                event = "crawler.scraper.robots_unreachable_batch_stopped",
+                domain_id = %ctx.domain_id,
+                deferred_urls = remaining,
+                "Deferring remaining scraper URLs while robots.txt is unreachable"
+            );
+            outcome.deferred_urls += remaining;
+            break;
         }
 
         if let DomainFetchHealth::CircuitFailure { .. } = &candidate_outcome.domain_health {
@@ -1355,6 +1397,7 @@ impl CrawlerCronJob {
                         Arc::clone(&budget_exhausted_listing_sources);
                     let schema_pending_listing_sources =
                         Arc::clone(&schema_pending_listing_sources);
+                    let batch_time_budget = self.config.scraper_domain_batch_time_budget;
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain);
                     total += candidates.len();
@@ -1369,6 +1412,7 @@ impl CrawlerCronJob {
                                 budget_exhausted_listing_sources,
                                 schema_pending_listing_sources,
                                 domain_id: domain,
+                                batch_time_budget,
                             };
 
                             ScheduledScrapeDomainOutcome {
@@ -2028,6 +2072,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id: crate::CrawlerDomainId::new(),
+            batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         }
     }
 
@@ -2052,6 +2097,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
+            batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
 
         let deferred = scrape_domain_candidates(vec![candidate], first_context).await;
@@ -2077,6 +2123,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
+            batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
 
         let mut retry_candidate = scraper_candidate(
@@ -2130,6 +2177,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
+            batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -2169,6 +2217,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
+            batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -2875,6 +2924,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
         )
         .await;
@@ -2936,6 +2986,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
         )
         .await;
@@ -2983,6 +3034,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
         )
         .await;
@@ -2991,6 +3043,103 @@ mod tests {
         assert_eq!(outcome.succeeded, 0);
         assert_eq!(outcome.skipped, 2);
         assert_eq!(3, outcome.succeeded + outcome.failed + outcome.skipped);
+    }
+
+    fn domain_batch(host: &str, count: usize) -> (Vec<ScraperCandidate>, crate::CrawlerDomainId) {
+        let candidates: Vec<ScraperCandidate> = (1..=count)
+            .map(|index| {
+                let url = url::Url::parse(&format!("https://{host}/product/{index}")).unwrap();
+                scraper_candidate("ListingSource", url)
+            })
+            .collect();
+        let domain_id = candidates[0].domain_id;
+        (candidates, domain_id)
+    }
+
+    fn domain_context(
+        scraper_candidates: MockScraperCandidateService,
+        scraper_service: MockScraperService,
+        domain_id: crate::CrawlerDomainId,
+        batch_time_budget: Duration,
+    ) -> ScrapeDomainContext {
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        ScrapeDomainContext {
+            scraper: Arc::new(scraper_service),
+            scraper_candidates: Arc::new(scraper_candidates),
+            lock_manager: Arc::new(LocalLockManager::new()),
+            command_tx,
+            budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            domain_id,
+            batch_time_budget,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_defer_the_rest_of_the_batch_after_robots_txt_is_unreachable() {
+        let (candidates, domain_id) = domain_batch("unreachable.example.com", 3);
+        // One failure row for the refused URL, none for the deferred rest.
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(|_, _, error_kind, _, _, _, _| error_kind == "RobotsUnreachable")
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::RobotsUnreachable,
+                    details: "robots.txt is unreachable".to_owned(),
+                }))
+            })
+        });
+
+        let outcome = scrape_domain_candidates(
+            candidates,
+            domain_context(
+                scraper_candidates,
+                scraper_service,
+                domain_id,
+                CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(outcome.deferred_urls, 2);
+    }
+
+    #[tokio::test]
+    async fn should_defer_urls_left_when_the_domain_batch_time_budget_runs_out() {
+        let (candidates, domain_id) = domain_batch("slow.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_as_scraped()
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_| Box::pin(async { scrape_outcome(Ok(None)) }));
+
+        let outcome = scrape_domain_candidates(
+            candidates,
+            domain_context(
+                scraper_candidates,
+                scraper_service,
+                domain_id,
+                Duration::ZERO,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.skipped, 1);
+        assert_eq!(outcome.deferred_urls, 2);
     }
 
     #[tokio::test]

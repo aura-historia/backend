@@ -16,6 +16,10 @@ pub struct CrawlerCronConfig {
     pub scraper_domain_batch_size: Option<usize>,
     /// Maximum URLs fetched per selected scraper domain.
     pub scraper_urls_per_domain: i64,
+    /// Wall-clock budget for one domain batch. URLs left when it runs out
+    /// stay eligible for a later pass, so a slow domain (a long robots.txt
+    /// `Crawl-delay`, say) cannot hold its scraper slot for the whole pass.
+    pub scraper_domain_batch_time_budget: Duration,
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
     /// Maximum product messages buffered between scraper workers and the
@@ -60,6 +64,7 @@ impl Default for CrawlerCronConfig {
             listing_source_sync_interval: Duration::from_secs(10800), // 3 hours
             scraper_domain_batch_size: None,
             scraper_urls_per_domain: 100,
+            scraper_domain_batch_time_budget: Duration::from_secs(5 * 60),
             push_batch_size: 25,
             push_queue_capacity: 100,
             push_max_batch_age: Duration::from_secs(5),

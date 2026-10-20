@@ -1,9 +1,8 @@
-//! robots.txt state for scraper fetches: the policy cached per origin, and the
-//! time of the last request per crawler domain, which `Crawl-delay` is
-//! measured from.
+//! robots.txt policies for scraper fetches, cached per origin. The pacing a
+//! policy's `Crawl-delay` asks for lives in the auto-throttle.
 
 use super::{FetchAttemptError, ReqwestHtmlFetcher};
-use crate::network::policy::{canonical_crawler_domain, is_same_or_www_host, redirect_target};
+use crate::network::policy::{is_same_or_www_host, redirect_target};
 use crate::network::robots::{MAX_ROBOTS_TXT_BYTES, RobotsPolicy, RobotsRules};
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -23,50 +22,53 @@ const ROBOTS_MAX_REDIRECTS: usize = 5;
 
 #[derive(Default)]
 pub(super) struct RobotsCache {
-    policies: DashMap<String, (Arc<RobotsPolicy>, Instant)>,
-    /// Keyed by crawler domain: a shop's bare and `www` hosts share one
-    /// request spacing, as they share one scraper domain.
-    last_requests: DashMap<String, Instant>,
+    origins: DashMap<String, Arc<OriginRobots>>,
 }
 
-impl RobotsCache {
-    fn cached(&self, origin: &str) -> Option<Arc<RobotsPolicy>> {
-        let entry = self.policies.get(origin)?;
-        let (policy, expires_at) = entry.value();
-        (Instant::now() < *expires_at).then(|| Arc::clone(policy))
-    }
+/// One origin's policy. Its lock is held while robots.txt is fetched, so
+/// concurrent requests to the origin wait for one fetch instead of each
+/// starting their own.
+#[derive(Default)]
+struct OriginRobots {
+    cached: tokio::sync::Mutex<Option<CachedPolicy>>,
+}
 
-    fn store(&self, origin: &str, policy: RobotsPolicy) -> Arc<RobotsPolicy> {
+struct CachedPolicy {
+    policy: Arc<RobotsPolicy>,
+    expires_at: Instant,
+}
+
+impl CachedPolicy {
+    fn new(policy: RobotsPolicy) -> Self {
         let ttl = match policy {
             RobotsPolicy::Unreachable => ROBOTS_UNREACHABLE_RETRY,
             RobotsPolicy::Rules(_) | RobotsPolicy::Unavailable => ROBOTS_CACHE_TTL,
         };
-        let policy = Arc::new(policy);
-        self.policies.insert(
-            origin.to_owned(),
-            (Arc::clone(&policy), Instant::now() + ttl),
-        );
-        policy
+        Self {
+            policy: Arc::new(policy),
+            expires_at: Instant::now() + ttl,
+        }
     }
 
-    /// The part of `crawl_delay` that has not yet passed since the last
-    /// request to `url`'s crawler domain.
-    pub(super) fn crawl_delay_remaining(&self, url: &Url, crawl_delay: Duration) -> Duration {
-        self.last_requests
-            .get(&crawler_domain(url))
-            .map_or(Duration::ZERO, |last| {
-                crawl_delay.saturating_sub(last.elapsed())
-            })
-    }
-
-    pub(super) fn record_request(&self, url: &Url) {
-        self.last_requests
-            .insert(crawler_domain(url), Instant::now());
+    fn is_fresh(&self) -> bool {
+        Instant::now() < self.expires_at
     }
 }
 
-fn crawler_domain(url: &Url) -> String {
-    canonical_crawler_domain(url.host_str().unwrap_or_default())
+impl RobotsCache {
+    fn origin(&self, origin: &str) -> Arc<OriginRobots> {
+        Arc::clone(self.origins.entry(origin.to_owned()).or_default().value())
+    }
+
+    /// Drops expired policies no request is currently loading or reading.
+    fn evict_expired(&self) {
+        self.origins.retain(|_, origin| {
+            Arc::strong_count(origin) > 1
+                || origin.cached.try_lock().map_or(true, |cached| {
+                    cached.as_ref().is_some_and(CachedPolicy::is_fresh)
+                })
+        });
+    }
 }
 
 fn origin_key(url: &Url) -> String {
@@ -81,19 +83,26 @@ impl ReqwestHtmlFetcher {
         &self,
         url: &Url,
     ) -> Result<Arc<RobotsPolicy>, FetchAttemptError> {
-        let origin = origin_key(url);
-        if let Some(policy) = self.robots.cached(&origin) {
-            return Ok(policy);
+        let origin_key = origin_key(url);
+        let origin = self.robots.origin(&origin_key);
+        let mut cached = origin.cached.lock().await;
+        if let Some(cached) = cached.as_ref().filter(|cached| cached.is_fresh()) {
+            return Ok(Arc::clone(&cached.policy));
         }
-        let policy = self.load_robots_policy(url).await?;
+        let loaded = CachedPolicy::new(self.load_robots_policy(url).await?);
         info!(
             event = "crawler.scraper.robots_loaded",
-            origin = %origin,
-            policy = robots_policy_label(&policy),
-            crawl_delay_ms = policy.crawl_delay().map(|delay| delay.as_millis() as u64),
+            origin = %origin_key,
+            policy = robots_policy_label(&loaded.policy),
+            crawl_delay_ms = loaded.policy.crawl_delay().map(|delay| delay.as_millis() as u64),
             "Loaded robots.txt for scraper origin"
         );
-        Ok(self.robots.store(&origin, policy))
+        let policy = Arc::clone(&loaded.policy);
+        *cached = Some(loaded);
+        drop(cached);
+        drop(origin);
+        self.robots.evict_expired();
+        Ok(policy)
     }
 
     async fn load_robots_policy(&self, url: &Url) -> Result<RobotsPolicy, FetchAttemptError> {

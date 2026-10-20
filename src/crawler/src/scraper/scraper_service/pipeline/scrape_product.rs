@@ -272,6 +272,34 @@ impl ScraperServiceImpl {
                 record_transport_success();
                 fetched
             }
+            // The shop answered with a redirect, so it is responsive; where
+            // the redirect leads decides the outcome, as for a fetched target.
+            Err(FetchError::RedirectDisallowed { final_url }) => {
+                if is_redirect_to_non_product_page(url, &final_url, product_url_pattern) {
+                    record_transport_success();
+                    return Err(ScraperError::ProductListingRemoved {
+                        url: url.clone(),
+                        details: format!(
+                            "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
+                        ),
+                    });
+                }
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    NetworkErrorKind::RobotsDisallowed,
+                    None,
+                    None,
+                );
+                return Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind: NetworkErrorKind::RobotsDisallowed,
+                    details: format!(
+                        "product URL redirected to a URL robots.txt disallows: final={final_url}"
+                    ),
+                });
+            }
             Err(FetchError::Network {
                 kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
                 details,
