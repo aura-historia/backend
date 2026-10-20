@@ -3,7 +3,7 @@
 //! `server` and `dev` prepare their crawler-local database and pass a [`CrawlerRuntimeProfile`]
 //! carrying only what differs between them. [`CrawlerRuntimeConfig::from_env`] reads the shared
 //! settings, [`CrawlerLlmModels::vertex_ai`] creates the provider models, and [`build`] wires
-//! everything else once — repositories, the schema service, scraper, spider, URL classification,
+//! everything else once â€” repositories, the schema service, scraper, spider, URL classification,
 //! the LLM governor, the review server and the cron job. [`CrawlerRuntime::run`] then runs the
 //! review server and cron loop until either stops.
 //!
@@ -276,7 +276,7 @@ where
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
-    let review_server = ReviewServer::new_with_fetcher(
+    let review_server = ReviewServer::new(
         review_repo,
         Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),

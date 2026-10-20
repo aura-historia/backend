@@ -5,7 +5,7 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::scraper_service::html_fetcher::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
@@ -97,21 +97,9 @@ pub struct ReviewServer {
 }
 
 impl ReviewServer {
+    /// `html_fetcher` serves live inspection; pass the scraper's fetcher so
+    /// both count against the same robots.txt cache and per-domain pacing.
     pub fn new(
-        repository: CrawlerReviewRepository,
-        domain_administration: Arc<dyn CrawlerDomainAdministration>,
-        config: ReviewServerConfig,
-    ) -> Self {
-        Self {
-            repository,
-            domain_administration,
-            config,
-            html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
-            sessions: Arc::new(DashMap::new()),
-        }
-    }
-
-    pub fn new_with_fetcher(
         repository: CrawlerReviewRepository,
         domain_administration: Arc<dyn CrawlerDomainAdministration>,
         config: ReviewServerConfig,
@@ -1074,7 +1062,7 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
+    use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
@@ -1149,6 +1137,7 @@ mod tests {
                 auth_token: auth_token.map(str::to_owned),
                 local_mutations_without_token: false,
             },
+            Arc::new(MockHtmlFetcher::new()),
         ))
     }
 
@@ -1259,7 +1248,7 @@ mod tests {
     async fn should_serve_raw_live_html_as_plain_text() -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1287,7 +1276,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1367,7 +1356,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1459,6 +1448,7 @@ mod tests {
                 local_mutations_without_token: false,
             }
             .allow_local_mutations_without_token(),
+            Arc::new(MockHtmlFetcher::new()),
         ))
     }
 
