@@ -41,6 +41,43 @@ fn agreement<T: JsonSchema + DeserializeOwned>(samples: impl IntoIterator<Item =
     }
 }
 #[test]
+fn should_preserve_optional_search_options_when_values_are_omitted() {
+    agreement::<ProductListingSearchOptionsData>([
+        (json!({}), true),
+        (json!({"order":null}), true),
+        (json!({"sort":"updated"}), true),
+        (json!({"size":100}), true),
+    ]);
+    let options: ProductListingSearchOptionsData = serde_json::from_value(json!({})).unwrap();
+    assert!(options.order.is_none());
+    assert!(options.sort.is_none());
+    assert!(options.size.is_none());
+    assert!(options.search_after.is_none());
+}
+
+#[test]
+fn should_preserve_omitted_bounds_in_each_shared_search_date_range() {
+    for field in [
+        "created",
+        "updated",
+        "lotBiddingOpens",
+        "lotScheduledCloses",
+    ] {
+        for range in [
+            json!({}),
+            json!({"min":"2026-01-01T00:00:00Z"}),
+            json!({"max":"2026-01-01T00:00:00Z"}),
+            json!({"min":null}),
+            json!({"max":null}),
+        ] {
+            let mut input = json!({});
+            input[field] = range;
+            agreement::<ProductListingSearchData>([(input, true)]);
+        }
+    }
+}
+
+#[test]
 fn should_preserve_complete_search_values_through_shared_constructors() {
     let fixture = fixture();
     let data: ProductListingSearchData = serde_json::from_value(fixture.clone()).unwrap();

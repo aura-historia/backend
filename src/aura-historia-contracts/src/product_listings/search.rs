@@ -271,6 +271,7 @@ impl From<ProductListingSearchCursor> for ProductListingSearchCursorData {
 pub struct ProductListingSearchOptionsData {
     #[schemars(with = "Option<SortProductListingFieldData>")]
     pub sort: Option<String>,
+    #[serde(default)]
     #[schemars(schema_with = "sort_order_schema")]
     pub order: Option<String>,
     /// Values are clamped to the existing service-supported range 1..=100.
@@ -413,8 +414,8 @@ pub struct NumberRangeSchema {
 }
 #[derive(JsonSchema)]
 pub struct DateRangeSchema {
-    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    #[schemars(default, schema_with = "crate::wire::schema::optional_datetime")]
     pub min: Option<String>,
-    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
+    #[schemars(default, schema_with = "crate::wire::schema::optional_datetime")]
     pub max: Option<String>,
 }
