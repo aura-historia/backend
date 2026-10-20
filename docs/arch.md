@@ -191,6 +191,15 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 Transport crates authenticate and map requests or jobs to inbound use cases; the composition root constructs concrete adapters and injects them into service-owned handlers. Composition roots MAY depend on every crate needed to assemble the process but MUST NOT contain business behavior or implement service-owned ports. Route and worker handlers MUST NOT construct repositories or clients or own transaction boundaries. Protected endpoint authorization belongs in use cases or service-owned policies, not controllers.
 
+Transports that share application operations MUST reuse narrow, typed service-family composition
+rather than another transport's state, router or controllers. The shared composition root owns
+pool/client configuration and concrete adapter construction; family selection MUST NOT load
+unrelated provider configuration. Extract each family when a transport needs it, preserving
+service-owned transactions and authorization. Warm credential-version compositions reuse pools
+and handles, retain in-flight leases across replacement, and fail closed on refresh failures.
+The [`aura-historia-runtime` composition seam](../src/aura-historia-runtime/README.md) documents
+its bounded ownership and incremental extraction rule.
+
 Scheduled executables SHOULD be run-to-completion callers of service use cases; durable coordination belongs in authoritative storage rather than process-local state. Operational migration tooling is separate from application runtimes and MAY use direct operational SQL, but domain/service crates MUST NOT depend on it. Application startup MUST NOT silently run business migrations. Deployment order, exception details, and migration admission are owned by the [infrastructure guide](infra.md).
 
 ### 3.6 Dependency direction

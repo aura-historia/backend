@@ -45,16 +45,13 @@ use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
 use listing_source_core::ListingSourceId;
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
-    SqlxListingSourceSearchReaderFactory, SqlxPublicListingSourceDetailsReaderFactory,
-    SqlxPublicListingSourceSearchReaderFactory,
+    SqlxListingSourceSearchReaderFactory,
 };
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
-use listing_source_service::use_cases::queries::get_public_listing_source_by_slug::GetPublicListingSourceBySlugHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
-use listing_source_service::use_cases::queries::search_public_listing_sources::SearchPublicListingSourcesHandler;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -1785,6 +1782,8 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let runtime = aura_historia_runtime::Runtime::from_pool(pool.clone());
+    let public_listing_sources = runtime.public_listing_sources();
     let listing_sources_state = ListingSourcesState::new(
         Arc::new(create_listing_source),
         Arc::new(get_listing_source),
@@ -1809,14 +1808,8 @@ async fn test_state(
         ),
     )))
     .with_public_reads(
-        Arc::new(SearchPublicListingSourcesHandler::new(
-            unit_of_work.clone(),
-            SqlxPublicListingSourceSearchReaderFactory::new(),
-        )),
-        Arc::new(GetPublicListingSourceBySlugHandler::new(
-            unit_of_work.clone(),
-            SqlxPublicListingSourceDetailsReaderFactory::new(),
-        )),
+        Arc::clone(&public_listing_sources.search),
+        Arc::clone(&public_listing_sources.get_by_slug),
         PublicListingSourceReadBudget::new(4, std::time::Duration::from_millis(500)),
     );
     let parties_state = PartiesState::new(

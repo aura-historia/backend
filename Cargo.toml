@@ -12,6 +12,7 @@ members = [
     "src/aura-historia-api",
     "src/aura-historia-contracts",
     "src/aura-historia-mcp",
+    "src/aura-historia-runtime",
     "src/aura-historia-jobs",
     "src/aura-historia-cdc-routing",
     "src/cdc-router-lambda",
@@ -122,6 +123,7 @@ members = [
 [workspace.dependencies]
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }
+aura-historia-runtime = { path = "src/aura-historia-runtime" }
 rmcp = { version = "=3.6.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 tokio-util = "0.7.18"
 aura-historia-jobs = { path = "src/aura-historia-jobs" }

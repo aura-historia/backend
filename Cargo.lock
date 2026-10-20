@@ -278,6 +278,7 @@ dependencies = [
  "auction-postgres",
  "auction-service",
  "aura-historia-contracts",
+ "aura-historia-runtime",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-s3",
@@ -328,7 +329,6 @@ dependencies = [
  "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
- "platform-postgres-secretsmanager",
  "product-listing-core",
  "product-listing-ingestion-sqs",
  "product-listing-normalization",
@@ -469,6 +469,26 @@ name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "test-api",
+]
+
+[[package]]
+name = "aura-historia-runtime"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
+ "platform-lambda-bootstrap",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
