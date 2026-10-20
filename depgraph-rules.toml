@@ -1,4 +1,5 @@
 [rules]
+aura-historia-mcp = ["application", "aura-historia-contracts", "platform-lambda-bootstrap", "platform-observability"]
 ci-determinator = []
 application = ["credential-core", "domain-primitives", "user-core"]
 domain-primitives = ["slug"]

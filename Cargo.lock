@@ -439,6 +439,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-mcp"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-contracts",
+ "axum",
+ "base64 0.23.1",
+ "http-body-util",
+ "jsonschema",
+ "lambda_http",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "rmcp",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
@@ -5831,6 +5857,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pastey"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
 name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7320,6 +7352,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmcp"
+version = "3.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ceb42e9e47443cd83a834dea57b5816d35481417bae72ade5dc5615c59122e26"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "indexmap 2.14.2",
+ "libc",
+ "pastey",
+ "pin-project-lite",
+ "rand 0.10.2",
+ "reqwest 0.13.4",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sse-stream",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rstest"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7532,6 +7597,7 @@ version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
+ "chrono",
  "dyn-clone",
  "ref-cast",
  "schemars_derive",
@@ -8621,6 +8687,19 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "sse-stream"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body 1.1.0",
+ "http-body-util",
+ "pin-project-lite",
 ]
 
 [[package]]
