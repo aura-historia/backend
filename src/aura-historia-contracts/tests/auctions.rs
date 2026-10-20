@@ -188,6 +188,51 @@ fn should_preserve_created_and_nullable_scheduled_directory_cursors()
 }
 
 #[test]
+fn should_preserve_omitted_directory_cursor_filters_and_serialized_nulls()
+-> Result<(), Box<dyn std::error::Error>> {
+    let input_schema = input_schema::<DirectoryCursorData>();
+    let output_schema = output_schema::<DirectoryCursorData>();
+    for scope in [
+        json!({"from":null,"to":null}),
+        json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"sort":null,"order":null,"from":null,"to":null}),
+    ] {
+        let input = json!({
+            "created":"1970-01-01T00:00:00Z",
+            "auctionId":AuctionId::new(),
+            "scope":scope,
+        });
+        let data = serde_json::from_value::<DirectoryCursorData>(input.clone())?;
+        assert!(jsonschema::is_valid(&input_schema, &input), "{input}");
+        let output = serde_json::to_value(data)?;
+        assert_eq!(
+            json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"from":null,"to":null}),
+            output["scope"]
+        );
+        assert!(jsonschema::is_valid(&output_schema, &output));
+        let mut missing_null = output.clone();
+        missing_null["scope"]
+            .as_object_mut()
+            .ok_or("missing scope object")?
+            .remove("listingSourceId");
+        assert!(!jsonschema::is_valid(&output_schema, &missing_null));
+        assert_eq!(
+            parse_directory_cursor(input.to_string())?,
+            parse_directory_cursor(output.to_string())?
+        );
+    }
+    for scope in [json!({"from":null}), json!({"to":null})] {
+        let input = json!({
+            "created":"1970-01-01T00:00:00Z",
+            "auctionId":AuctionId::new(),
+            "scope":scope,
+        });
+        assert!(!jsonschema::is_valid(&input_schema, &input));
+        assert!(serde_json::from_value::<DirectoryCursorData>(input).is_err());
+    }
+    Ok(())
+}
+
+#[test]
 fn should_preserve_catalogue_defaults_aliases_and_position_cursor()
 -> Result<(), Box<dyn std::error::Error>> {
     let auction = AuctionId::new();
@@ -212,19 +257,47 @@ fn should_preserve_catalogue_defaults_aliases_and_position_cursor()
         }),
         actual.search_after
     );
-    let default = serde_json::from_value::<CatalogueQuery>(json!({}))?.try_into_request(auction)?;
-    assert_eq!(Language::default(), default.language);
-    assert_eq!(money::Currency::default(), default.currency);
-    assert_eq!(
-        Some(Cursor {
-            size: 21,
-            search_after: None
-        }),
-        default.cursor
-    );
+    for input in [json!({}), json!({"pageSize":null,"searchAfter":null})] {
+        assert!(jsonschema::is_valid(
+            &input_schema::<CatalogueQuery>(),
+            &input
+        ));
+        let default = serde_json::from_value::<CatalogueQuery>(input)?.try_into_request(auction)?;
+        assert_eq!(Language::default(), default.language);
+        assert_eq!(money::Currency::default(), default.currency);
+        assert_eq!(
+            Some(Cursor {
+                size: 21,
+                search_after: None
+            }),
+            default.cursor
+        );
+    }
+    for input in [
+        json!({"auctionId":auction,"productListingId":listing}),
+        json!({"auctionId":auction,"productListingId":listing,"cataloguePosition":null}),
+    ] {
+        assert!(jsonschema::is_valid(
+            &input_schema::<CatalogueCursorData>(),
+            &input
+        ));
+        let data = serde_json::from_value::<CatalogueCursorData>(input)?;
+        assert_eq!(None, data.catalogue_position);
+        let output = serde_json::to_value(data)?;
+        assert_eq!(
+            json!({"auctionId":auction,"productListingId":listing,"cataloguePosition":null}),
+            output
+        );
+        assert!(jsonschema::is_valid(
+            &output_schema::<CatalogueCursorData>(),
+            &output
+        ));
+    }
     for invalid in [
         json!({"language":"unknown"}),
+        json!({"language":null}),
         json!({"currency":"usd"}),
+        json!({"currency":null}),
         json!({"pageSize":-1}),
         json!({"extra":true}),
     ] {
