@@ -461,9 +461,9 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
             ("AWS_SHARED_CREDENTIALS_FILE", "/dev/null"),
         ]);
         let config = unavailable_dependency_api_config()?;
-        let app = aura_historia_api::lambda_app_from_config_and_pool(
+        let app = aura_historia_api::lambda_app_from_config_and_runtime(
             &config,
-            get_postgres_client().await,
+            &aura_historia_runtime::Runtime::from_pool(get_postgres_client().await),
         )
         .await?;
         let response = serialize_http_api_v2_router_response(

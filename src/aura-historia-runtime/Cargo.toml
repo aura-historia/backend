@@ -1,0 +1,22 @@
+[package]
+name = "aura-historia-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+listing-source-postgres = { workspace = true }
+listing-source-service = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+application = { workspace = true }
+async-trait = { workspace = true }
+listing-source-core = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+uuid = { workspace = true, features = ["v7"] }
