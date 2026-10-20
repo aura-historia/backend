@@ -14,10 +14,7 @@ async fn should_create_checkout_and_persist_stripe_customer_for_free_user() {
     let token = users_read_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/me/billing/checkout",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/me/billing/checkout", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&billing_request("PRO", "MONTHLY"))
         .send()
@@ -54,10 +51,7 @@ async fn should_reject_checkout_when_customer_already_exists() {
         .unwrap_or_else(|error| panic!("failed to seed Stripe customer: {error}"));
 
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/me/billing/checkout",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/me/billing/checkout", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&billing_request("PRO", "MONTHLY"))
         .send()
@@ -85,7 +79,7 @@ async fn should_create_portal_for_user_with_stripe_customer() {
         .unwrap_or_else(|error| panic!("failed to seed Stripe customer: {error}"));
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/billing/portal", AURA_API.base_url()))
+        .post(format!("{}/v1/me/billing/portal", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -105,7 +99,7 @@ async fn should_reject_portal_without_stripe_customer() {
     let token = users_read_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/billing/portal", AURA_API.base_url()))
+        .post(format!("{}/v1/me/billing/portal", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -126,7 +120,7 @@ async fn should_create_checkout_when_managing_free_user() {
     let token = users_read_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/billing/manage", AURA_API.base_url()))
+        .post(format!("{}/v1/me/billing/manage", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&billing_request("ULTIMATE", "YEARLY"))
         .send()
@@ -156,7 +150,7 @@ async fn should_create_portal_when_managing_paid_user() {
         .unwrap_or_else(|error| panic!("failed to seed paid Stripe customer: {error}"));
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/billing/manage", AURA_API.base_url()))
+        .post(format!("{}/v1/me/billing/manage", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&billing_request("PRO", "MONTHLY"))
         .send()
@@ -177,7 +171,7 @@ async fn should_reject_billing_when_delegated_token_lacks_users_read() {
     let token = seed_access_token_for(user_id, Default::default()).await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/billing/portal", AURA_API.base_url()))
+        .post(format!("{}/v1/me/billing/portal", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await

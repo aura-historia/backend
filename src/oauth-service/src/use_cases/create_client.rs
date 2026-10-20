@@ -80,6 +80,7 @@ where
         }
         authorize_oauth_admin(context)?;
         authorize_oauth_client_admin(context, &self.check_user_admin).await?;
+        reject_delegated_registration(context)?;
         let redirect_uris = OAuthRedirectUris::try_from(command.redirect_uris)
             .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
@@ -108,4 +109,21 @@ where
             client,
         })
     }
+}
+
+/// Registration returns a new client secret. The operation context does not carry a
+/// delegation's lifetime, so issuing that credential requires first-party authority
+/// (`docs/arch.md` §15.6).
+fn reject_delegated_registration(context: &OperationContext) -> Result<(), OAuthServiceError> {
+    if !context.principal.is_delegated() {
+        return Ok(());
+    }
+    let error = OAuthServiceError::DelegatedClientRegistrationForbidden;
+    tracing::warn!(
+        event = "oauth_client.created",
+        actor_id = %context.principal.label(),
+        error_category = %error,
+        outcome = "failure",
+    );
+    Err(error)
 }

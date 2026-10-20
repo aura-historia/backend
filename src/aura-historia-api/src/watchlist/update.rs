@@ -111,7 +111,7 @@ mod tests {
         ProductListingDetailsView, ProductListingPricingPresentation,
         ProductListingPricingValuation,
     };
-    use product_listing_service::user_state::{ProductListingUserState, WatchlistUserState};
+    use product_listing_service::user_state::{ProductListingUserStateView, WatchlistUserState};
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
@@ -256,8 +256,8 @@ mod tests {
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
-            user_state: Some(ProductListingUserState {
-                watchlist,
+            user_state: Some(ProductListingUserStateView {
+                watchlist: Some(watchlist),
                 ..Default::default()
             }),
         }
@@ -284,7 +284,7 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/me/watchlist/{product_listing_id}",
+                    "/v1/me/watchlist/{product_listing_id}",
                     axum::routing::patch(patch_watchlist),
                 )
                 .with_state(state),
@@ -297,7 +297,7 @@ mod tests {
         query: &str,
         body: &'static str,
     ) -> Request<Body> {
-        Request::patch(format!("/api/v1/me/watchlist/{product_listing_id}{query}"))
+        Request::patch(format!("/v1/me/watchlist/{product_listing_id}{query}"))
             .header(header::AUTHORIZATION, "Bearer valid")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body))
@@ -327,12 +327,10 @@ mod tests {
             body["item"]["title"]
         );
         assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+        // Sections without a matching read scope are omitted, not defaulted.
         assert_eq!(
             json!({
-                "watchlist": {"watching": watchlist.watching, "notifications": watchlist.notifications},
-                "contentVisibility": {"showUnassessedOrSensitiveContent": false},
-                "notification": {"unseenNotificationIds": []},
-                "searchFilter": {"matched": false, "hidden": false}
+                "watchlist": {"watching": watchlist.watching, "notifications": watchlist.notifications}
             }),
             body["userState"]
         );

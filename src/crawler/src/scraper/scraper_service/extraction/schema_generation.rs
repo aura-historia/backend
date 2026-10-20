@@ -1,7 +1,8 @@
 use crate::CrawlerDomainId;
 use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
+    evaluate_schema_matrix_for_inputs, schema_matrix_deterministic_approval_ok,
+    unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
@@ -23,7 +24,7 @@ struct SchemaGenerationAttempt {
 impl SchemaGenerationAttempt {
     fn new(generated: GeneratedProductSchemas, pages: &[SchemaReviewPageInput]) -> Self {
         let matrix = evaluate_schema_matrix_for_inputs(&generated.schemas, pages);
-        let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
+        let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let unused_schema_indices = unused_schema_indices(&matrix);
         Self {
             generated,

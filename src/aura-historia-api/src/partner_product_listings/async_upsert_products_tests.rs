@@ -116,7 +116,7 @@ impl ProductListingIngestionPublisher for Publisher {
 fn app(publisher: Publisher, writer: bool) -> Router {
     Router::new()
         .route(
-            "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+            "/v1/listing-sources/{listing_source_id}/product-listings/async",
             post(crate::partner_product_listings::async_create_products::create_products)
                 .put(upsert_products),
         )
@@ -129,7 +129,7 @@ fn app(publisher: Publisher, writer: bool) -> Router {
         ))
 }
 fn path(id: ListingSourceId) -> String {
-    format!("/api/v1/listing-sources/{id}/product-listings/async")
+    format!("/v1/listing-sources/{id}/product-listings/async")
 }
 async fn request(
     app: &Router,
@@ -431,7 +431,7 @@ async fn authority_envelope_and_body_limit_reject_before_sending() {
     assert_eq!(
         request(
             &app,
-            "/api/v1/listing-sources/invalid/product-listings/async",
+            "/v1/listing-sources/invalid/product-listings/async",
             "[]",
             None,
             Some("token")

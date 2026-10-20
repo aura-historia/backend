@@ -195,7 +195,7 @@ mod tests {
     fn router(authenticator: StaticAuthenticator, use_case: RecordingUseCase) -> axum::Router {
         axum::Router::new()
             .route(
-                "/api/v1/newsletter-subscriptions",
+                "/v1/newsletter-subscriptions",
                 put(put_newsletter_subscription),
             )
             .with_state(NewsletterState::new(
@@ -221,7 +221,7 @@ mod tests {
     fn request(body: impl Into<Body>) -> HttpRequest<Body> {
         HttpRequest::builder()
             .method("PUT")
-            .uri("/api/v1/newsletter-subscriptions")
+            .uri("/v1/newsletter-subscriptions")
             .header(header::CONTENT_TYPE, "application/json")
             .body(body.into())
             .unwrap_or_else(|error| panic!("failed to create request: {error}"))
@@ -271,7 +271,7 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .method("PUT")
-                    .uri("/api/v1/newsletter-subscriptions")
+                    .uri("/v1/newsletter-subscriptions")
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(format!(r#"{{"email":"{email}"}}"#)))
@@ -302,7 +302,7 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .method("PUT")
-                    .uri("/api/v1/newsletter-subscriptions")
+                    .uri("/v1/newsletter-subscriptions")
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::from(r#"{"email":"ada@example.com"}"#))
                     .unwrap_or_else(|error| panic!("failed to create request: {error}")),

@@ -27,6 +27,8 @@ fi
 command -v aws >/dev/null || fail 'AWS CLI is required.'
 command -v node >/dev/null || fail 'Node.js is required for strict JSON validation.'
 
+node "$(dirname "$0")/release.cjs" assert-phase "$operation"
+
 export AWS_PAGER='' AWS_CLI_AUTO_PROMPT=off
 umask 077
 work_dir="$(mktemp -d)"

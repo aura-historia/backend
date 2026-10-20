@@ -107,7 +107,7 @@ mod tests {
         SearchProductListingsUseCase,
     };
     use product_listing_service::user_state::{
-        ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
+        ContentVisibilityUserState, NotificationUserState, ProductListingUserStateView,
         SearchFilterUserState, WatchlistUserState,
     };
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -237,7 +237,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
+                Request::get(format!("/v1/product-listings/{product_listing_id}"))
                     .body(Body::empty())?,
             )
             .await?;
@@ -297,10 +297,8 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/history"
-                ))
-                .body(Body::empty())?,
+                Request::get(format!("/v1/product-listings/{product_listing_id}/history"))
+                    .body(Body::empty())?,
             )
             .await?;
 
@@ -320,11 +318,9 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/history"
-                ))
-                .header(header::AUTHORIZATION, "Bearer valid")
-                .body(Body::empty())?,
+                Request::get(format!("/v1/product-listings/{product_listing_id}/history"))
+                    .header(header::AUTHORIZATION, "Bearer valid")
+                    .body(Body::empty())?,
             )
             .await?;
 
@@ -355,7 +351,7 @@ mod tests {
                     history.clone(),
                 );
                 let mut request = Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/history{query}"
+                    "/v1/product-listings/{product_listing_id}/history{query}"
                 ));
                 if authenticated {
                     request = request.header(header::AUTHORIZATION, "Bearer valid");
@@ -393,7 +389,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/{}/history?currency=XXX",
+                    "/v1/product-listings/{}/history?currency=XXX",
                     ProductListingId::new()
                 ))
                 .body(Body::empty())?,
@@ -422,7 +418,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}?language=de&currency=USD"
+                    "/v1/product-listings/{product_listing_id}?language=de&currency=USD"
                 ))
                 .body(Body::empty())?,
             )
@@ -451,7 +447,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}?language=de&currency=USD"
+                    "/v1/product-listings/by-slug/{product_listing_title_slug_id}?language=de&currency=USD"
                 ))
                 .body(Body::empty())?,
             )
@@ -478,7 +474,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}?language=invalid"
+                    "/v1/product-listings/{product_listing_id}?language=invalid"
                 ))
                 .body(Body::empty())?,
             )
@@ -499,7 +495,7 @@ mod tests {
         let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
-            .oneshot(Request::get("/api/v1/product-listings/not-a-uuid").body(Body::empty())?)
+            .oneshot(Request::get("/v1/product-listings/not-a-uuid").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -515,32 +511,32 @@ mod tests {
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
         let product_listing_id = view.item.product_listing_id;
-        view.user_state = Some(ProductListingUserState {
+        view.user_state = Some(ProductListingUserStateView {
             shipping: None,
-            watchlist: WatchlistUserState {
+            watchlist: Some(WatchlistUserState {
                 watching: true,
                 notifications: false,
-            },
-            content_visibility: ContentVisibilityUserState {
+            }),
+            content_visibility: Some(ContentVisibilityUserState {
                 show_unassessed_or_sensitive_content: false,
-            },
-            notification: NotificationUserState {
+            }),
+            notification: Some(NotificationUserState {
                 unseen_notification_ids: vec![notification_id],
-            },
-            search_filter: SearchFilterUserState {
+            }),
+            search_filter: Some(SearchFilterUserState {
                 matched: true,
                 hidden: false,
                 user_search_filter_id: Some(search_filter_id),
                 user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
                 match_feedback: Some(false),
                 shipping_match_valuation: None,
-            },
+            }),
         });
         let (app, calls) = app(view, false, Some(user_id));
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
+                Request::get(format!("/v1/product-listings/{product_listing_id}"))
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -588,7 +584,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
+                Request::get(format!("/v1/product-listings/{product_listing_id}"))
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::empty())?,
             )
@@ -635,17 +631,17 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/product-listings/{product_listing_id}",
+                    "/v1/product-listings/{product_listing_id}",
                     axum::routing::get(get_product_by_id),
                 )
                 .route(
-                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
+                    "/v1/product-listings/by-slug/{product_listing_title_slug_id}",
                     axum::routing::get(
                         crate::product_listings::get_product_by_title_slug::get_product_by_title_slug,
                     ),
                 )
                 .route(
-                    "/api/v1/product-listings/{product_listing_id}/history",
+                    "/v1/product-listings/{product_listing_id}/history",
                     axum::routing::get(
                         crate::product_listings::get_product_listing_history::get_product_listing_history_by_id,
                     ),

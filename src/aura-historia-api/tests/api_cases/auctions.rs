@@ -32,7 +32,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
     let client = reqwest::Client::new();
 
     let created = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&json!({
             "listingSourceId": source_id,
@@ -59,10 +59,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
         .parse::<AuctionId>()
         .unwrap_or_else(|error| panic!("created response has invalid Auction ID: {error}"));
     assert_eq!(reqwest::StatusCode::CREATED, created_status);
-    assert_eq!(
-        Some(format!("/api/v1/admin/auctions/{auction_id}")),
-        location
-    );
+    assert_eq!(Some(format!("/v1/admin/auctions/{auction_id}")), location);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(
         json!(source_id.to_string()),
@@ -80,7 +77,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
 
     let fetched = client
         .get(format!(
-            "{}/api/v1/admin/auctions/{auction_id}",
+            "{}/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(read_token))
@@ -99,7 +96,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
 
     let updated = client
         .patch(format!(
-            "{}/api/v1/admin/auctions/{auction_id}",
+            "{}/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token.clone()))
@@ -135,7 +132,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
 
     let stale = client
         .patch(format!(
-            "{}/api/v1/admin/auctions/{auction_id}",
+            "{}/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -174,7 +171,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     });
 
     let first = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(admin_token.clone()))
         .json(&body)
         .send()
@@ -183,7 +180,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     assert_eq!(reqwest::StatusCode::CREATED, first.status());
 
     let duplicate = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(admin_token.clone()))
         .json(&body)
         .send()
@@ -204,7 +201,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     ] {
         let response = client
             .get(format!(
-                "{}/api/v1/admin/auctions/{invalid_id}",
+                "{}/v1/admin/auctions/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(admin_read_token.clone()))
@@ -222,7 +219,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
 
     let missing = client
         .get(format!(
-            "{}/api/v1/admin/auctions/{}",
+            "{}/v1/admin/auctions/{}",
             AURA_API.base_url(),
             AuctionId::new()
         ))
@@ -245,7 +242,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     )
     .await;
     let forbidden = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(user_token))
         .json(&json!({
             "listingSourceId": source_id,
@@ -273,7 +270,7 @@ async fn create_admin_search_auction(
     reported_status: Option<&str>,
 ) -> AuctionId {
     let response = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(token)
         .json(&json!({
             "listingSourceId": source_id,
@@ -304,7 +301,7 @@ async fn admin_auction_search(
     parameters: &[(&str, String)],
 ) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
     let response = client
-        .get(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(token)
         .query(parameters)
         .send()
@@ -339,7 +336,7 @@ async fn assert_admin_auction_reads(
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/auctions/{auction_id}",
+            "{}/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -370,7 +367,7 @@ async fn assert_access_token_scope_readback(
 ) {
     let response = client
         .get(format!(
-            "{}/api/v1/me/access-tokens/{access_token_id}",
+            "{}/v1/me/access-tokens/{access_token_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(owner_token)
@@ -390,7 +387,7 @@ async fn issue_auction_test_token(
     scopes: &[&str],
 ) -> (AccessTokenId, String) {
     let response = client
-        .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .post(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(owner_token)
         .json(&json!({"name": "Auction read scope regression", "scopes": scopes}))
         .send()
@@ -467,7 +464,7 @@ async fn should_enforce_auction_read_scope_after_api_issuance_and_updates() {
         (&["auctions:read"][..], reqwest::StatusCode::OK),
     ] {
         let response = client
-            .patch(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .patch(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
             .bearer_auth(&owner_token)
             .json(&json!({"accessTokenId": access_token_id, "scopes": scopes}))
             .send()
@@ -572,7 +569,7 @@ async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_return
     .await;
 
     let duplicate = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(&token)
         .json(&json!({ "listingSourceId": source_id, "sourceAuctionId": " conflict / 42 " }))
         .send()
@@ -587,7 +584,7 @@ async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_return
     );
 
     let update = client
-        .patch(format!("{}/api/v1/admin/auctions/{auction_id}", AURA_API.base_url()))
+        .patch(format!("{}/v1/admin/auctions/{auction_id}", AURA_API.base_url()))
         .bearer_auth(&token)
         .json(&json!({ "expectedVersion": 1, "name": { "language": "en", "text": "Renamed auction" } }))
         .send().await.expect("update Auction fixture");
@@ -915,7 +912,7 @@ async fn should_page_public_scheduled_auctions_with_scoped_json_cursors_and_anon
     }
     let [below, at_from, tie_a, tie_b, at_to, null_a, null_b]: [AuctionId; 7] =
         ids.try_into().expect("seven scheduled Auction fixtures");
-    let url = format!("{}/api/v1/auctions", AURA_API.base_url());
+    let url = format!("{}/v1/auctions", AURA_API.base_url());
     let source = source_id.to_string();
     let mut scope_cursor = None;
     for window in [false, true] {
@@ -1040,7 +1037,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     .await;
     let client = reqwest::Client::new();
     let created = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(admin_token))
         .json(&json!({
             "listingSourceId": source_id,
@@ -1057,10 +1054,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
         .unwrap_or_else(|error| panic!("created response has invalid Auction ID: {error}"));
 
     let directory = client
-        .get(format!(
-            "{}/api/v1/auctions?pageSize=5",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/auctions?pageSize=5", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list public Auctions: {error}"));
@@ -1081,10 +1075,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     );
 
     let detail = client
-        .get(format!(
-            "{}/api/v1/auctions/{auction_id}",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/auctions/{auction_id}", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get public Auction: {error}"));
@@ -1105,7 +1096,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
 
     let catalogue = client
         .get(format!(
-            "{}/api/v1/auctions/{auction_id}/product-listings?pageSize=5",
+            "{}/v1/auctions/{auction_id}/product-listings?pageSize=5",
             AURA_API.base_url()
         ))
         .send()
@@ -1141,7 +1132,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
     let source_auction_id = "f12-typed-membership";
 
     let created_auction = client
-        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .post(format!("{}/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(admin_token.clone()))
         .json(&json!({
             "listingSourceId": source_id,
@@ -1175,7 +1166,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
     let source_listing_id = "f12-catalogue-member";
     let created_product = client
         .post(format!(
-            "{}/api/v1/listing-sources/{source_id}/product-listings",
+            "{}/v1/listing-sources/{source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(partner_token.clone()))
@@ -1221,7 +1212,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
 
     let updated_schedule = client
         .patch(format!(
-            "{}/api/v1/admin/auctions/{auction_id}",
+            "{}/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token.clone()))
@@ -1288,7 +1279,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
     .unwrap_or_else(|error| panic!("failed to seed hidden catalogue match: {error}"));
 
     let catalogue_url = format!(
-        "{}/api/v1/auctions/{auction_id}/product-listings?language=en&currency=EUR&pageSize=5",
+        "{}/v1/auctions/{auction_id}/product-listings?language=en&currency=EUR&pageSize=5",
         AURA_API.base_url()
     );
     let anonymous_catalogue = client
@@ -1343,16 +1334,9 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
         json!(product_listing_id.to_string()),
         hidden_body["items"][0]["item"]["productListingId"]
     );
-    assert_eq!(
-        json!(true),
-        hidden_body["items"][0]["userState"]["searchFilter"]["hidden"]
-    );
+    // The token has no personalization read scope: the item stays redacted, but no state is disclosed.
+    assert!(hidden_body["items"][0].get("userState").is_none());
     assert!(hidden_body["items"][0]["item"]["shipping"].is_null());
-    assert!(
-        hidden_body["items"][0]["userState"]
-            .get("shipping")
-            .is_none()
-    );
     assert!(hidden_body["items"][0]["item"]["auction"].is_null());
     assert!(hidden_body["items"][0]["item"]["lot"].is_null());
     assert!(

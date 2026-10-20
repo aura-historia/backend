@@ -91,10 +91,10 @@ pub use queries::get_auction_catalogue::{
 pub use queries::get_product_listing::{
     DisplayProductListingPricing, GetProductListingError, GetProductListingHandler,
     GetProductListingRequest, GetProductListingUseCase, PersonalizedProductListingDetailsView,
-    ProductListingDetailsView, ProductListingImageView, ProductListingLookup,
-    ProductListingPricingPresentation, ProductListingPricingPresentationError,
-    ProductListingPricingValuation, present_product_details, present_product_pricing,
-    redact_hidden_product,
+    ProductListingDetailsView, ProductListingDetailsWithUserState, ProductListingImageView,
+    ProductListingLookup, ProductListingPricingPresentation,
+    ProductListingPricingPresentationError, ProductListingPricingValuation,
+    present_product_details, present_product_pricing, redact_hidden_product,
 };
 pub use queries::get_product_listing_history::{
     GetProductListingHistoryError, GetProductListingHistoryHandler,
@@ -115,8 +115,9 @@ pub use queries::get_similar_product_listings::{
 pub use queries::search_product_listings::{
     PersonalizedProductListingSummary, ProductListingSearchCursor, ProductListingSearchItem,
     ProductListingSearchReadExecutionPolicy, ProductListingSearchReadResult, ProductListingSummary,
-    ProductListingSummaryPriceValuation, SearchProductListingsError, SearchProductListingsHandler,
-    SearchProductListingsRequest, SearchProductListingsResult, SearchProductListingsUseCase,
+    ProductListingSummaryPriceValuation, ProductListingSummaryWithUserState,
+    SearchProductListingsError, SearchProductListingsHandler, SearchProductListingsRequest,
+    SearchProductListingsResult, SearchProductListingsUseCase,
 };
 
 pub mod partner_product_listing_error;

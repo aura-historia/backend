@@ -57,7 +57,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
 
     let collection_response = client
         .get(format!(
-            "{}/api/v1/listing-sources?query=muller&size=21",
+            "{}/v1/listing-sources?query=muller&size=21",
             AURA_API.base_url()
         ))
         .send()
@@ -88,7 +88,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
 
     let detail_response = client
         .get(format!(
-            "{}/api/v1/listing-sources/by-slug/{slug_id}",
+            "{}/v1/listing-sources/by-slug/{slug_id}",
             AURA_API.base_url()
         ))
         .send()
@@ -110,7 +110,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
 async fn should_reject_invalid_supplied_authentication_for_public_listing_source_collection() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/listing-sources?query=mu",
+            "{}/v1/listing-sources?query=mu",
             AURA_API.base_url()
         ))
         .bearer_auth("invalid-token")
@@ -137,7 +137,7 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
 async fn should_return_terminal_empty_public_collection_for_insufficient_query() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/listing-sources?query=a",
+            "{}/v1/listing-sources?query=a",
             AURA_API.base_url()
         ))
         .send()
@@ -167,7 +167,7 @@ async fn should_reject_malformed_public_listing_source_collection_queries() {
     for query in ["unexpected=x", "query=a&query=b"] {
         let response = client
             .get(format!(
-                "{}/api/v1/listing-sources?{query}",
+                "{}/v1/listing-sources?{query}",
                 AURA_API.base_url()
             ))
             .send()
@@ -208,10 +208,7 @@ async fn should_page_all_public_listing_source_search_results_without_duplicates
     let mut search_after: Option<String> = None;
 
     loop {
-        let mut url = format!(
-            "{}/api/v1/listing-sources?query=mu&size=2",
-            AURA_API.base_url()
-        );
+        let mut url = format!("{}/v1/listing-sources?query=mu&size=2", AURA_API.base_url());
         if let Some(cursor) = &search_after {
             url.push_str("&searchAfter=");
             url.push_str(cursor);
@@ -270,7 +267,7 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
     .await;
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/listing-sources/by-slug/{slug_id}",
+            "{}/v1/listing-sources/by-slug/{slug_id}",
             AURA_API.base_url()
         ))
         .bearer_auth("invalid-token")
@@ -298,7 +295,7 @@ async fn should_return_public_slug_route_errors_with_private_no_store() {
     let client = reqwest::Client::new();
     let missing = client
         .get(format!(
-            "{}/api/v1/listing-sources/by-slug/missing-listing-source",
+            "{}/v1/listing-sources/by-slug/missing-listing-source",
             AURA_API.base_url()
         ))
         .send()
@@ -320,7 +317,7 @@ async fn should_return_public_slug_route_errors_with_private_no_store() {
 
     let unexpected_query = client
         .get(format!(
-            "{}/api/v1/listing-sources/by-slug/missing-listing-source?anything=x",
+            "{}/v1/listing-sources/by-slug/missing-listing-source?anything=x",
             AURA_API.base_url()
         ))
         .send()
@@ -367,7 +364,7 @@ async fn should_delete_unused_listing_source_and_reject_a_repeat() {
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
 
@@ -490,7 +487,7 @@ async fn should_preserve_live_and_withdrawn_product_listing_source_dependencies_
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let delete_path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
 
@@ -555,10 +552,7 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
     let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[("listingSourceId", listing_source_id.to_string())])
         .send()
@@ -636,7 +630,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
 
     for (field, value) in [
         ("query", "Filtered".to_owned()),
@@ -710,7 +704,7 @@ async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
 
     let first = client
         .get(&url)
@@ -772,10 +766,7 @@ async fn should_return_empty_listing_source_collection_when_no_source_matches() 
     let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[("name", "missing-listing-source")])
         .send()
@@ -795,7 +786,7 @@ async fn should_reject_invalid_listing_source_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
 
     let invalid_sort = client
         .get(&url)
@@ -889,10 +880,7 @@ async fn should_reject_listing_source_collection_for_non_admin() {
     let token = listing_sources_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -919,7 +907,7 @@ async fn should_return_listing_source_detail_for_admin_without_provider_secrets(
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            "{}/v1/admin/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -971,7 +959,7 @@ async fn should_reject_noncanonical_listing_source_detail_ids() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/admin/listing-sources/{invalid_id}",
+                "{}/v1/admin/listing-sources/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -1000,7 +988,7 @@ async fn should_return_not_found_for_missing_listing_source_detail() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/listing-sources/{}",
+            "{}/v1/admin/listing-sources/{}",
             AURA_API.base_url(),
             ListingSourceId::new()
         ))
@@ -1023,7 +1011,7 @@ async fn should_require_admin_for_listing_source_detail() {
     let listing_source_id = seed_listing_source().await;
     let client = reqwest::Client::new();
     let path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
 
@@ -1063,7 +1051,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
 
     let response = client
         .post(&url)
@@ -1094,7 +1082,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
     assert!(listing_source_id.starts_with("ls_"));
     assert_eq!(reqwest::StatusCode::CREATED, status);
     assert_eq!(
-        Some(format!("/api/v1/admin/listing-sources/{listing_source_id}")),
+        Some(format!("/v1/admin/listing-sources/{listing_source_id}")),
         location
     );
     assert_eq!(json!(listing_source_id.as_str()), body["listingSourceId"]);
@@ -1135,10 +1123,7 @@ async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
         "pty_not-a-typeid".to_owned(),
     ] {
         let response = reqwest::Client::new()
-            .post(format!(
-                "{}/api/v1/admin/listing-sources",
-                AURA_API.base_url()
-            ))
+            .post(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .json(&json!({
                 "name": "Invalid Existing Operator",
@@ -1168,7 +1153,7 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
 
     let response = client
         .post(&url)
@@ -1204,7 +1189,7 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
         .to_owned();
     assert_eq!(reqwest::StatusCode::CREATED, status);
     assert_eq!(
-        Some(format!("/api/v1/admin/listing-sources/{listing_source_id}")),
+        Some(format!("/v1/admin/listing-sources/{listing_source_id}")),
         location
     );
     assert!(!body.to_string().contains("provider-secret"));
@@ -1235,10 +1220,7 @@ async fn should_require_nested_woocommerce_secret_on_admin_create() {
     let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Missing WooCommerce Secret",
@@ -1265,10 +1247,7 @@ async fn should_reject_listing_source_create_for_non_admin() {
     let token = listing_sources_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Unauthorized Listing Source",
@@ -1292,10 +1271,7 @@ async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_sou
     let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Invalid Secret Listing Source",
@@ -1322,7 +1298,7 @@ async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
     let party_id = seed_party("Shopify Conflict Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
-    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
     let client = reqwest::Client::new();
 
     let response = client
@@ -1371,7 +1347,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
     let original_slug = format!("api-acceptance-source-{}", listing_source_id.as_uuid());
@@ -1520,10 +1496,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     );
 
     let summary = client
-        .get(format!(
-            "{}/api/v1/admin/listing-sources",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/listing-sources", AURA_API.base_url()))
         .bearer_auth(token.clone())
         .query(&[("listingSourceId", listing_source_id.to_string())])
         .send()
@@ -1617,7 +1590,7 @@ async fn should_reject_listing_source_update_when_configuration_is_invalid() {
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
 
@@ -1678,7 +1651,7 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
         .unwrap_or_else(|error| panic!("failed to seed Shopify configuration: {error}"));
     let client = reqwest::Client::new();
     let base = format!(
-        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations",
+        "{}/v1/listing-sources/{listing_source_id}/ingestion-configurations",
         AURA_API.base_url()
     );
 
@@ -1829,7 +1802,7 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     seed_partnership_membership(user_id, second_source.into_uuid()).await;
     seed_operator_partnership_listing_source_grant(second_source.into_uuid()).await;
     let second_base = format!(
-        "{}/api/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
+        "{}/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
         AURA_API.base_url()
     );
     let shopify_created = client
@@ -1865,7 +1838,7 @@ async fn should_reject_invalid_partner_provider_put_payloads() {
     );
     let client = reqwest::Client::new();
     let base = format!(
-        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations",
+        "{}/v1/listing-sources/{listing_source_id}/ingestion-configurations",
         AURA_API.base_url()
     );
     let cases = [
@@ -1940,11 +1913,11 @@ async fn should_reject_duplicate_shopify_domain_on_partner_put() {
     );
     let client = reqwest::Client::new();
     let first_path = format!(
-        "{}/api/v1/listing-sources/{first_source}/ingestion-configurations/shopify",
+        "{}/v1/listing-sources/{first_source}/ingestion-configurations/shopify",
         AURA_API.base_url()
     );
     let second_path = format!(
-        "{}/api/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
+        "{}/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
         AURA_API.base_url()
     );
 
@@ -1982,7 +1955,7 @@ async fn should_serialize_concurrent_identical_provider_puts_idempotently() {
         .await,
     );
     let path = format!(
-        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
+        "{}/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
         AURA_API.base_url()
     );
     let client = reqwest::Client::new();
@@ -2024,7 +1997,7 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
     let user_id = seed_user("USER").await;
     let client = reqwest::Client::new();
     let path = format!(
-        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
+        "{}/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
         AURA_API.base_url()
     );
 
@@ -2059,7 +2032,7 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
 
     let malformed_id = client
         .put(format!(
-            "{}/api/v1/listing-sources/ls_invalid/ingestion-configurations/shopify",
+            "{}/v1/listing-sources/ls_invalid/ingestion-configurations/shopify",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(
@@ -2124,7 +2097,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
-    let create_path = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let create_path = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
     let duplicate_domain = "duplicate-update-shop.example";
 
     let first = client
@@ -2166,7 +2139,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/admin/listing-sources/{second_id}",
+            "{}/v1/admin/listing-sources/{second_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -2193,7 +2166,7 @@ async fn should_return_not_found_for_missing_listing_source_update() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/listing-sources/{}",
+            "{}/v1/admin/listing-sources/{}",
             AURA_API.base_url(),
             ListingSourceId::new()
         ))
@@ -2216,7 +2189,7 @@ async fn should_return_not_found_for_missing_listing_source_update() {
 async fn should_require_admin_for_listing_source_update() {
     let listing_source_id = seed_listing_source().await;
     let path = format!(
-        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        "{}/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
     );
     let client = reqwest::Client::new();
@@ -2260,7 +2233,7 @@ async fn should_remove_legacy_listing_source_update_route() {
     let listing_source_id = seed_listing_source().await;
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}",
+            "{}/v1/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .json(&json!({"name": "Legacy ListingSource"}))
@@ -2276,7 +2249,7 @@ async fn should_remove_legacy_listing_source_update_route() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_legacy_listing_source_create_method() {
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/listing-sources", AURA_API.base_url()))
+        .post(format!("{}/v1/listing-sources", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to call legacy listing-source route: {error}"));

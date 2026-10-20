@@ -207,7 +207,7 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
         queries: handler,
         authenticator: Arc::new(Auth { owner, foreign }),
     }));
-    let base = "/api/v1/me/addresses";
+    let base = "/v1/me/addresses";
     let input = json!({"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Synthetic private home"}});
     assert_eq!(
         StatusCode::UNAUTHORIZED,
@@ -317,7 +317,7 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
         .await
         .0
     );
-    let destination = "/api/v1/me/browsing-destination";
+    let destination = "/v1/me/browsing-destination";
     assert_eq!(
         StatusCode::NOT_FOUND,
         request(

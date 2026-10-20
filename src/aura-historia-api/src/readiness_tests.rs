@@ -149,7 +149,7 @@ async fn readiness_requires_successful_reader_search_and_postgres_query() {
     ] {
         let (opensearch, server) = mock_search(Some(upstream_status), body).await;
         let app = readiness_app(postgres.clone(), opensearch);
-        let response = get_response(app.clone(), "/api/v1/ready").await;
+        let response = get_response(app.clone(), "/v1/ready").await;
         assert_eq!(response.status(), expected);
         if expected == StatusCode::SERVICE_UNAVAILABLE {
             assert!(
@@ -159,7 +159,7 @@ async fn readiness_requires_successful_reader_search_and_postgres_query() {
                     .is_empty()
             );
         }
-        assert_eq!(get_status(app, "/api/v1/health").await, StatusCode::OK);
+        assert_eq!(get_status(app, "/v1/health").await, StatusCode::OK);
         assert_reader_search(&server.await.unwrap());
     }
 
@@ -167,7 +167,7 @@ async fn readiness_requires_successful_reader_search_and_postgres_query() {
     let app = readiness_app(postgres, opensearch);
     let started = tokio::time::Instant::now();
     assert_eq!(
-        get_status(app, "/api/v1/ready").await,
+        get_status(app, "/v1/ready").await,
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert!(started.elapsed() >= READINESS_CHECK_TIMEOUT);
@@ -185,10 +185,10 @@ async fn readiness_fails_when_postgres_query_cannot_run_but_health_stays_live() 
     let (opensearch, server) = mock_search(Some(StatusCode::OK), VALID_SEARCH_RESPONSE).await;
     let app = readiness_app(postgres, opensearch);
     assert_eq!(
-        get_status(app.clone(), "/api/v1/ready").await,
+        get_status(app.clone(), "/v1/ready").await,
         StatusCode::SERVICE_UNAVAILABLE
     );
-    assert_eq!(get_status(app, "/api/v1/health").await, StatusCode::OK);
+    assert_eq!(get_status(app, "/v1/health").await, StatusCode::OK);
     server.abort();
 }
 
@@ -198,7 +198,7 @@ async fn versioned_probe_paths_are_canonical_and_legacy_paths_are_not_routed() {
     let health = app
         .clone()
         .oneshot(
-            Request::get("/api/v1/health")
+            Request::get("/v1/health")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -218,12 +218,23 @@ async fn versioned_probe_paths_are_canonical_and_legacy_paths_are_not_routed() {
         "ok\n"
     );
     assert_eq!(
-        get_status(app.clone(), "/api/v1/ready").await,
+        get_status(app.clone(), "/v1/ready").await,
         StatusCode::NO_CONTENT
     );
-    assert_eq!(
-        get_status(app.clone(), "/health").await,
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(get_status(app, "/ready").await, StatusCode::NOT_FOUND);
+    for path in [
+        "/api/v1/health",
+        "/api/v1/ready",
+        "/api/v1/health/",
+        "/health",
+        "/ready",
+    ] {
+        let response = get_response(app.clone(), path).await;
+        assert_eq!(StatusCode::NOT_FOUND, response.status(), "{path}");
+        assert!(
+            !response
+                .headers()
+                .contains_key(axum::http::header::LOCATION),
+            "{path}"
+        );
+    }
 }

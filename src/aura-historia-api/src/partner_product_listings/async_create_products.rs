@@ -176,7 +176,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+                "/v1/listing-sources/{listing_source_id}/product-listings/async",
                 post(create_products),
             )
             .with_state(state)
@@ -193,9 +193,9 @@ mod tests {
         key: Option<&str>,
         authenticated: bool,
     ) -> Response {
-        let mut request = Request::builder().method("POST").uri(format!(
-            "/api/v1/listing-sources/{id}/product-listings/async"
-        ));
+        let mut request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/listing-sources/{id}/product-listings/async"));
         if authenticated {
             request = request.header(header::AUTHORIZATION, "Bearer token");
         }

@@ -14,17 +14,17 @@ use axum::{
 
 pub(crate) fn router(state: PartnershipsState) -> Router {
     Router::new()
-        .route("/api/v1/admin/partnerships", get(list_admin::list_admin))
+        .route("/v1/admin/partnerships", get(list_admin::list_admin))
         .route(
-            "/api/v1/admin/partnerships/{partnership_id}",
+            "/v1/admin/partnerships/{partnership_id}",
             get(get_admin::get_admin).delete(delete::delete_partnership),
         )
         .route(
-            "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+            "/v1/admin/partnerships/{partnership_id}/members/{user_id}",
             put(put_member::put_member).delete(delete_member::delete_member),
         )
         .route(
-            "/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+            "/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
             put(put_listing_source_grant::put_listing_source_grant)
                 .delete(delete_listing_source_grant::delete_listing_source_grant),
         )

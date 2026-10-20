@@ -172,7 +172,7 @@ fn context(principal: Principal) -> OperationContext {
     }
 }
 
-fn ctx() -> OperationContext {
+fn delegated_admin_context() -> OperationContext {
     context(Principal::DelegatedUser {
         user_id: UserId::new(),
         capabilities: BTreeSet::from([
@@ -181,6 +181,10 @@ fn ctx() -> OperationContext {
             CredentialCapability::ProductListingsWrite,
         ]),
     })
+}
+
+fn first_party_context() -> OperationContext {
+    context(Principal::User(UserId::new()))
 }
 
 fn create_command() -> CreateOAuthClientCommand {
@@ -625,7 +629,10 @@ async fn should_cover_client_crud_use_cases() {
         ports.clone(),
         FakeCheckUserAdmin::allow_all(),
     );
-    let result = create.execute(&ctx(), create_command()).await.unwrap();
+    let result = create
+        .execute(&first_party_context(), create_command())
+        .await
+        .unwrap();
     let client_id = result.client.client_id;
     assert!(
         result.raw_client_secret.check(
@@ -639,7 +646,10 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(
         1,
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), ListOAuthClientsRequest::default())
+            .execute(
+                &delegated_admin_context(),
+                ListOAuthClientsRequest::default()
+            )
             .await
             .unwrap()
             .items
@@ -648,7 +658,7 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(
         client_id,
         GetOAuthClientHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), &client_id)
+            .execute(&delegated_admin_context(), &client_id)
             .await
             .unwrap()
             .client_id
@@ -659,7 +669,7 @@ async fn should_cover_client_crud_use_cases() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client_id,
         UpdateOAuthClientCommand {
             name: Some(OAuthClientName::from("B")),
@@ -679,12 +689,15 @@ async fn should_cover_client_crud_use_cases() {
         ports.clone(),
         FakeCheckUserAdmin::allow_all(),
     )
-    .execute(&ctx(), &client_id)
+    .execute(&delegated_admin_context(), &client_id)
     .await
     .unwrap();
     assert!(
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), ListOAuthClientsRequest::default())
+            .execute(
+                &delegated_admin_context(),
+                ListOAuthClientsRequest::default()
+            )
             .await
             .unwrap()
             .items
@@ -697,7 +710,7 @@ async fn should_cover_client_crud_use_cases() {
 }
 
 #[tokio::test]
-async fn should_require_admin_role_and_delegated_write_for_oauth_client_creation() {
+async fn should_require_first_party_admin_for_oauth_client_creation() {
     let admin_user_id = UserId::new();
     let ports = FakePorts::default();
     let create = CreateOAuthClientHandler::new(
@@ -723,6 +736,29 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_creation
         Err(OAuthServiceError::Forbidden)
     ));
 
+    let delegated_non_admin = context(Principal::DelegatedUser {
+        user_id: UserId::new(),
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(matches!(
+        create.execute(&delegated_non_admin, create_command()).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(matches!(
+        create.execute(&delegated_admin, create_command()).await,
+        Err(OAuthServiceError::DelegatedClientRegistrationForbidden)
+    ));
+    {
+        let state = lock(&ports.0);
+        assert!(state.client.is_none());
+        assert_eq!(0, state.transaction_begins);
+    }
+
     let direct_admin = context(Principal::User(admin_user_id));
     assert!(
         create
@@ -730,19 +766,10 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_creation
             .await
             .is_ok()
     );
-
-    let delegated_admin = context(Principal::DelegatedUser {
-        user_id: admin_user_id,
-        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
-    });
-    assert!(
-        create
-            .execute(&delegated_admin, create_command())
-            .await
-            .is_ok()
-    );
-    assert_eq!(2, lock(&ports.0).transaction_begins);
-    assert_eq!(2, lock(&ports.0).transaction_commits);
+    let state = lock(&ports.0);
+    assert!(state.client.is_some());
+    assert_eq!(1, state.transaction_begins);
+    assert_eq!(1, state.transaction_commits);
 }
 
 #[tokio::test]
@@ -1037,7 +1064,7 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client.client_id(),
         UpdateOAuthClientCommand {
             name: Some(client.name().clone()),
@@ -1065,7 +1092,7 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client.client_id(),
         UpdateOAuthClientCommand {
             name: Some(OAuthClientName::from("Updated Client")),
@@ -1107,7 +1134,7 @@ async fn should_reject_invalid_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &first_party_context(),
         CreateOAuthClientCommand {
             name: OAuthClientName::from("A"),
             redirect_uris: HashSet::new(),
@@ -1133,7 +1160,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone());
     let auth = authorize
         .execute(
-            &ctx(),
+            &first_party_context(),
             AuthorizeRequest {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
@@ -1508,6 +1535,84 @@ async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
 }
 
 #[tokio::test]
+async fn should_reject_delegated_authorize_without_creating_a_code() {
+    for scope in [HashSet::new(), HashSet::from([Scope::ProductListingsWrite])] {
+        let ports = FakePorts::default();
+        let client = client_with_secret(&RawOAuthClientSecret::new());
+        lock(&ports.0).client = Some(client.clone());
+
+        let result =
+            AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+                .execute(
+                    &delegated_admin_context(),
+                    authorize_request(client.client_id(), scope),
+                )
+                .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(OAuthServiceError::DelegatedAuthorizationForbidden)
+            ),
+            "unexpected result: {result:?}"
+        );
+        let state = lock(&ports.0);
+        assert!(state.code.is_none());
+        assert_eq!(0, state.transaction_begins);
+    }
+}
+
+#[tokio::test]
+async fn should_stop_a_delegated_admin_from_registering_and_approving_its_own_client() {
+    let admin_user_id = UserId::new();
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([
+            CredentialCapability::AccessTokensWrite,
+            CredentialCapability::ProductListingsWrite,
+        ]),
+    });
+    let ports = FakePorts::default();
+
+    let registration = CreateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_user(admin_user_id),
+    )
+    .execute(&delegated_admin, create_command())
+    .await;
+    assert!(matches!(
+        registration,
+        Err(OAuthServiceError::DelegatedClientRegistrationForbidden)
+    ));
+    assert!(lock(&ports.0).client.is_none());
+
+    // A client whose secret and redirect URI the delegate controls must not help either.
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    lock(&ports.0).client = Some(client.clone());
+    let approval =
+        AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+            .execute(
+                &delegated_admin,
+                authorize_request(
+                    client.client_id(),
+                    HashSet::from([Scope::ProductListingsWrite]),
+                ),
+            )
+            .await;
+    assert!(matches!(
+        approval,
+        Err(OAuthServiceError::DelegatedAuthorizationForbidden)
+    ));
+
+    let state = lock(&ports.0);
+    assert!(state.code.is_none());
+    assert!(state.issued.is_none());
+    assert!(state.exchange.is_none());
+    assert_eq!(0, state.transaction_begins);
+}
+
+#[tokio::test]
 async fn should_exchange_third_party_code_once() {
     let ports = FakePorts::default();
     let grant = ThirdPartyExchangeCodeGrant::create(RehydratedThirdPartyExchangeCodeGrantState {
@@ -1593,7 +1698,7 @@ async fn should_revoke_and_introspect_tokens() {
     assert_eq!(0, lock(&ports.0).transaction_begins);
     RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
-            &ctx(),
+            &delegated_admin_context(),
             RevokeTokenRequest {
                 token: raw_access_token.clone(),
                 client_id: client.client_id(),
@@ -1643,7 +1748,7 @@ async fn should_reject_revocation_of_another_clients_or_personal_token() {
         let result =
             RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
                 .execute(
-                    &ctx(),
+                    &delegated_admin_context(),
                     RevokeTokenRequest {
                         token: raw_token,
                         client_id: client.client_id(),
@@ -1669,7 +1774,7 @@ async fn should_succeed_when_revoking_an_unknown_token() {
 
     RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
-            &ctx(),
+            &delegated_admin_context(),
             RevokeTokenRequest {
                 token: RawAccessToken::new(),
                 client_id: client.client_id(),

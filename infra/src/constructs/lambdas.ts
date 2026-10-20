@@ -8,28 +8,28 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import type * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
-import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue } from "../config";
+import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
+import {
+  apiEnvironment,
+  marketingConsentSyncEnvironment,
+  mcpEnvironment,
+  notificationDeliveryEnvironment,
+  providerSignupEnvironment,
+  type LambdaEnvironmentContext,
+} from "./lambda-environment";
 
 import type { Network } from "./network";
 import type { QueueCatalog } from "./queues";
 import type { Search } from "./opensearch";
 import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } from "./storage";
 
-interface LambdaEnvironmentContext {
-  readonly config: StageConfig;
-  readonly emailConfigurationSet: ses.IConfigurationSet;
-  readonly commitSha: string;
-  readonly postgres: PostgresConnectionSettings;
-  readonly search: Search;
-  readonly queues: QueueCatalog;
-}
-
 interface LambdaDefinition {
   readonly id: string;
   readonly binaryName: string;
   readonly memorySize: number;
   readonly timeoutSeconds: number;
+  readonly reservedConcurrency?: (config: StageConfig) => number;
   readonly postgres?: boolean;
   readonly maxPostgresConnections?: number;
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
@@ -47,6 +47,16 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 15,
     environment: apiEnvironment,
+  },
+  auraHistoriaMcp: {
+    id: "AuraHistoriaMcpLambda",
+    binaryName: "aura-historia-mcp",
+    reservedConcurrency: (config) => config.mcp.reservedConcurrency,
+    memorySize: 512,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 28,
+    environment: mcpEnvironment,
   },
   cloudWatchLogRetention: {
     id: "CloudWatchLogRetentionLambda",
@@ -127,6 +137,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   productListingIngestion: {
     id: "ProductListingIngestionLambda",
     binaryName: "product-listing-ingestion-lambda",
+    reservedConcurrency: () => 2,
     memorySize: 512,
     postgres: true,
     timeoutSeconds: 45,
@@ -195,6 +206,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   listingGeography: {
     id: "ListingGeographyLambda",
     binaryName: "listing-geography-lambda",
+    reservedConcurrency: () => 2,
     memorySize: 256,
     postgres: true,
     maxPostgresConnections: 1,
@@ -203,6 +215,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   listingShipping: {
     id: "ListingShippingLambda",
     binaryName: "listing-shipping-lambda",
+    reservedConcurrency: () => 2,
     memorySize: 256,
     postgres: true,
     maxPostgresConnections: 1,
@@ -211,6 +224,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   geoResolution: {
     id: "GeoResolutionLambda",
     binaryName: "geo-resolution-lambda",
+    reservedConcurrency: () => 2,
     memorySize: 256,
     postgres: true,
     maxPostgresConnections: 1,
@@ -258,6 +272,7 @@ export interface LambdasProps {
 export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
   readonly apiAlias: lambda.Alias;
+  readonly mcpAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
   readonly productListingIngestionVersion: lambda.Version;
@@ -307,6 +322,17 @@ export class Lambdas extends Construct {
         removalPolicy: consentEvidenceLogGroupRemovalPolicy,
       },
     );
+    const mcpLogGroup = new logs.LogGroup(this, "AuraHistoriaMcpLogGroup", {
+      logGroupName: `/aws/lambda/aura-historia-mcp-${props.config.stage}`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: props.config.removalPolicy,
+    });
+    const logGroups: Partial<Record<LambdaKey, logs.ILogGroup>> = {
+      productListingIngestion: ingestionLogGroup,
+      auraHistoriaApi: apiEvidenceLogGroup,
+      auraHistoriaMcp: mcpLogGroup,
+      postConfirmation: postConfirmationEvidenceLogGroup,
+    };
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       emailConfigurationSet: props.emailConfigurationSet,
@@ -335,19 +361,13 @@ export class Lambdas extends Construct {
           props.artifactBucket,
           `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
         ),
-        currentVersionOptions: key === "auraHistoriaApi"
-          ? { description: `aura-historia-api-${props.parameters.commitSha}` }
+        currentVersionOptions: key === "auraHistoriaApi" || key === "auraHistoriaMcp"
+          ? { description: `${definition.binaryName}-${props.parameters.commitSha}` }
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" || key === "listingShipping" ? 2 : undefined,
-        logGroup: key === "productListingIngestion"
-          ? ingestionLogGroup
-          : key === "auraHistoriaApi"
-            ? apiEvidenceLogGroup
-            : key === "postConfirmation"
-              ? postConfirmationEvidenceLogGroup
-              : undefined,
+        reservedConcurrentExecutions: definition.reservedConcurrency?.(props.config),
+        logGroup: logGroups[key],
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -361,6 +381,11 @@ export class Lambdas extends Construct {
       aliasName: API_LAMBDA_ALIAS_NAME,
       version: this.functions.auraHistoriaApi.currentVersion,
       description: "Stable HTTP API integration target",
+    });
+    this.mcpAlias = new lambda.Alias(this, "AuraHistoriaMcpAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.auraHistoriaMcp.currentVersion,
+      description: "Stable MCP HTTP integration target",
     });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
@@ -693,90 +718,9 @@ export function grantCognitoFederatedLinkingAccess(functions: LambdaFunctions): 
   }));
 }
 
-function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return {
-    COGNITO_PROVIDER_SIGNUP_POLICY: JSON.stringify(
-      context.config.cognitoIdentityProviders.map((provider) => ({
-        providerName: provider.providerName,
-        existingEmailAction: provider.existingEmailAction,
-        ...(provider.existingEmailAction === "LINK_VERIFIED"
-          ? { linkSourceAttributeName: provider.linkSourceAttributeName }
-          : {}),
-      })),
-    ),
-  };
-}
-
-/** Web app origin that emails link to. */
-function frontendOrigin(config: StageConfig): string {
-  return config.isProd ? "https://aura-historia.com" : "https://stage.aura-historia.com";
-}
-
-function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return {
-    COMMIT_SHA: context.commitSha,
-    NOTIFICATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
-    NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
-    NOTIFICATION_EMAIL_FRONTEND_ORIGIN: frontendOrigin(context.config),
-    NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
-    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
-    STAGE: context.config.stage,
-  };
-}
-
-function marketingConsentSyncEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return loopsNewsletterEnvironment(context.config);
-}
-
-function loopsNewsletterEnvironment(config: StageConfig): Record<string, string> {
-  return {
-    LOOPS_API_BASE_URL: "https://app.loops.so/api",
-    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
-    LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
-  };
-}
-
 function consentLogRetentionEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     CONSENT_EVIDENCE_LOG_GROUPS: JSON.stringify(consentEvidenceLogGroupNames(context.config.stage)),
-  };
-}
-
-function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  const { config, search } = context;
-  const environment = {
-    AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
-    COMMIT_SHA: context.commitSha,
-    OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
-    PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
-    NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
-    NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
-    NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
-    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: frontendOrigin(config),
-    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
-    STAGE: config.stage,
-    STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
-    STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,
-    STRIPE_PORTAL_RETURN_URL: config.stripePortalReturnUrl,
-    STRIPE_PRO_MONTHLY_PRICE_ID: config.stripeProMonthlyPriceId,
-    STRIPE_PRO_YEARLY_PRICE_ID: config.stripeProYearlyPriceId,
-    STRIPE_ULTIMATE_MONTHLY_PRICE_ID: config.stripeUltimateMonthlyPriceId,
-    STRIPE_ULTIMATE_YEARLY_PRICE_ID: config.stripeUltimateYearlyPriceId,
-  };
-
-
-  return {
-    ...environment,
-    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
-    OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
-    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(
-      `/secrets/${config.stage}/google-application-credentials`,
-    ),
-    STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
-    VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
-    VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
-    ...loopsNewsletterEnvironment(config),
-    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
   };
 }
 
@@ -785,7 +729,7 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
   const importScope = new Construct(scope, id);
 
   for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-    if (key === "auraHistoriaApi") {
+    if (key === "auraHistoriaApi" || key === "auraHistoriaMcp") {
       catalog[key] = lambda.Function.fromFunctionAttributes(
         importScope,
         `${definition.id}AliasImport`,

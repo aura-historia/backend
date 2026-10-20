@@ -18,23 +18,23 @@ use axum::{
 pub(crate) fn router(state: PartnershipApplicationsState) -> Router {
     Router::new()
         .route(
-            "/api/v1/me/partnership-applications",
+            "/v1/me/partnership-applications",
             get(list_own::list_own).post(submit::submit),
         )
         .route(
-            "/api/v1/me/partnership-applications/{partnership_application_id}",
+            "/v1/me/partnership-applications/{partnership_application_id}",
             get(get_own::get_own).delete(withdraw::withdraw),
         )
         .route(
-            "/api/v1/admin/partnership-applications",
+            "/v1/admin/partnership-applications",
             get(list_admin::list_admin),
         )
         .route(
-            "/api/v1/admin/partnership-applications/{partnership_application_id}",
+            "/v1/admin/partnership-applications/{partnership_application_id}",
             get(get::get).patch(mark_in_review::mark_in_review),
         )
         .route(
-            "/api/v1/admin/partnership-applications/{partnership_application_id}/decision",
+            "/v1/admin/partnership-applications/{partnership_application_id}/decision",
             post(decide::decide),
         )
         .with_state(state)
@@ -241,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn should_serve_the_canonical_owned_list_without_store() {
         let request = Request::builder()
-            .uri("/api/v1/me/partnership-applications")
+            .uri("/v1/me/partnership-applications")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));
@@ -264,7 +264,7 @@ mod tests {
     #[tokio::test]
     async fn should_serve_the_canonical_admin_collection_without_store() {
         let request = Request::builder()
-            .uri("/api/v1/admin/partnership-applications")
+            .uri("/v1/admin/partnership-applications")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));
@@ -294,7 +294,7 @@ mod tests {
     #[tokio::test]
     async fn should_route_admin_detail_to_the_canonical_admin_path() {
         let request = Request::builder()
-            .uri("/api/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
+            .uri("/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));
@@ -318,7 +318,7 @@ mod tests {
     async fn should_route_admin_mark_in_review_to_the_canonical_admin_path() {
         let request = Request::builder()
             .method("PATCH")
-            .uri("/api/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
+            .uri("/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));
@@ -335,7 +335,7 @@ mod tests {
     async fn should_route_admin_decision_to_the_canonical_admin_path() {
         let request = Request::builder()
             .method("POST")
-            .uri("/api/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn/decision")
+            .uri("/v1/admin/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn/decision")
             .header("Authorization", "Bearer test")
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"decision":"APPROVE"}"#))
@@ -360,7 +360,7 @@ mod tests {
     async fn should_remove_the_legacy_admin_decision_route() {
         let request = Request::builder()
             .method("POST")
-            .uri("/api/v1/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn/decision")
+            .uri("/v1/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn/decision")
             .header("Authorization", "Bearer test")
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"decision":"APPROVE"}"#))
@@ -378,7 +378,7 @@ mod tests {
     async fn should_remove_the_legacy_admin_mark_in_review_route() {
         let request = Request::builder()
             .method("PATCH")
-            .uri("/api/v1/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
+            .uri("/v1/partnership-applications/pa_01h455vb4pex5vy7enb1p677vn")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));
@@ -394,7 +394,7 @@ mod tests {
     #[tokio::test]
     async fn should_remove_the_legacy_admin_collection_route() {
         let request = Request::builder()
-            .uri("/api/v1/partnership-applications")
+            .uri("/v1/partnership-applications")
             .header("Authorization", "Bearer test")
             .body(Body::empty())
             .unwrap_or_else(|error| panic!("failed to build request: {error}"));

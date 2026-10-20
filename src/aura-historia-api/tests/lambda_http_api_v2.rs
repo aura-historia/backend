@@ -87,6 +87,89 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
 }
 
 #[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+async fn should_strip_only_the_matching_named_stage_for_canonical_composed_routes() {
+    let app = api_support::aura_api_app().await;
+    let mut event: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/http_api_v2_listing_sources.json"))
+            .expect("listing source event");
+    event["routeKey"] = "GET /v1/listing-sources".into();
+    event["requestContext"]["stage"] = "dev".into();
+    for (path, status) in [
+        ("/v1/listing-sources", StatusCode::OK),
+        ("/dev/v1/listing-sources", StatusCode::OK),
+        ("/api/v1/listing-sources", StatusCode::NOT_FOUND),
+        ("/dev/api/v1/listing-sources", StatusCode::NOT_FOUND),
+        ("/other/v1/listing-sources", StatusCode::NOT_FOUND),
+    ] {
+        event["rawPath"] = path.into();
+        event["requestContext"]["http"]["path"] = path.into();
+        let request = lambda_http::request::from_str(&event.to_string()).expect("request");
+        let response = handle_http_api_v2_request(app.clone(), request)
+            .await
+            .expect("route response");
+        assert_eq!(status, response.status(), "{path}");
+        assert!(
+            !response
+                .headers()
+                .contains_key(axum::http::header::LOCATION),
+            "{path}"
+        );
+    }
+}
+
+#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+async fn should_reject_legacy_routes_without_redirects_through_the_composed_http_api_v2_router() {
+    let app = api_support::aura_api_app().await;
+    for (method, suffix) in [
+        ("GET", "/health"),
+        ("GET", "/ready"),
+        ("GET", "/listing-sources"),
+        ("GET", "/product-listings"),
+        ("GET", "/admin/overview"),
+        ("POST", "/admin/auctions"),
+        ("GET", "/admin/parties"),
+        ("GET", "/admin/oauth-clients"),
+        ("GET", "/admin/partnerships"),
+        ("GET", "/admin/partnership-applications"),
+        ("GET", "/me/account"),
+        ("GET", "/me/notifications"),
+        ("GET", "/me/search-filters"),
+        ("POST", "/me/billing/checkout"),
+        ("POST", "/oauth/token"),
+        ("POST", "/webhooks/woocommerce/ls_test"),
+        ("POST", "/listing-sources/ls_test/product-listings/async"),
+        ("PUT", "/newsletter-subscriptions"),
+        ("POST", "/newsletter-subscriptions/confirm"),
+    ] {
+        let canonical = http_api_v2_json_request(method, &format!("/v1{suffix}"), "invalid", "")
+            .expect("canonical request");
+        let response = handle_http_api_v2_request(app.clone(), canonical)
+            .await
+            .expect("canonical route");
+        assert_ne!(
+            StatusCode::NOT_FOUND,
+            response.status(),
+            "{method} /v1{suffix}"
+        );
+        assert!(!response.status().is_redirection(), "{method} /v1{suffix}");
+
+        let path = format!("/api/v1{suffix}");
+        let legacy =
+            http_api_v2_json_request(method, &path, "invalid", "").expect("legacy request");
+        let response = handle_http_api_v2_request(app.clone(), legacy)
+            .await
+            .expect("legacy route response");
+        assert_eq!(StatusCode::NOT_FOUND, response.status(), "{method} {path}");
+        assert!(
+            !response
+                .headers()
+                .contains_key(axum::http::header::LOCATION),
+            "{method} {path}"
+        );
+    }
+}
+
+#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
 async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -109,7 +192,7 @@ async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
 
         let allowed = handle_http_api_v2_request(
             app.clone(),
-            http_api_v2_json_request("GET", "/api/v1/admin/overview", &admin_token, "")?,
+            http_api_v2_json_request("GET", "/v1/admin/overview", &admin_token, "")?,
         )
         .await?;
         assert_eq!(StatusCode::OK, allowed.status());
@@ -123,7 +206,7 @@ async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
 
         let denied = handle_http_api_v2_request(
             app,
-            http_api_v2_json_request("GET", "/api/v1/admin/overview", &user_token, "")?,
+            http_api_v2_json_request("GET", "/v1/admin/overview", &user_token, "")?,
         )
         .await?;
         assert_eq!(StatusCode::FORBIDDEN, denied.status());
@@ -159,7 +242,7 @@ async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_ht
         let raw_body = br#"{ "id": 901, "name": "Lambda \u00e9 cabinet", "permalink": "https://partner.example/lambda-http-api-v2-901", "price": "42.00", "status": "publish", "stock_status": "instock", "images": [], "futureWooKey": "\u00e9" }"#;
         let signature = woocommerce_signature(raw_body)?;
         let request = http_api_v2_binary_woocommerce_event(
-            &format!("/api/v1/webhooks/woocommerce/{listing_source_id}"),
+            &format!("/v1/webhooks/woocommerce/{listing_source_id}"),
             &token,
             "product.updated",
             &signature,
@@ -214,7 +297,7 @@ async fn should_reject_ambiguous_async_idempotency_keys_through_http_api_v2() {
             )
             .await,
         );
-        let path = format!("/api/v1/listing-sources/{source_id}/product-listings/async");
+        let path = format!("/v1/listing-sources/{source_id}/product-listings/async");
         let cases = [
             (
                 "POST",
@@ -312,7 +395,7 @@ async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_a
         .to_string();
         let request = http_api_v2_json_request(
             "POST",
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             &token,
             &body,
         )?;
@@ -336,7 +419,7 @@ async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_a
 
         let denied = http_api_v2_json_request(
             "POST",
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             "invalid",
             &body,
         )?;
@@ -378,9 +461,9 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
             ("AWS_SHARED_CREDENTIALS_FILE", "/dev/null"),
         ]);
         let config = unavailable_dependency_api_config()?;
-        let app = aura_historia_api::lambda_app_from_config_and_pool(
+        let app = aura_historia_api::lambda_app_from_config_and_runtime(
             &config,
-            get_postgres_client().await,
+            &aura_historia_runtime::Runtime::from_pool(get_postgres_client().await),
         )
         .await?;
         let response = serialize_http_api_v2_router_response(

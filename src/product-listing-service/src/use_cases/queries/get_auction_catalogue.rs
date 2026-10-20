@@ -4,8 +4,10 @@ use crate::{
         AuctionCatalogueReader, AuctionCatalogueReaderFactory,
     },
     use_cases::{
-        PersonalizedProductListingDetailsView, present_product_details, redact_hidden_product,
+        PersonalizedProductListingDetailsView, ProductListingDetailsWithUserState,
+        present_product_details, redact_hidden_product,
     },
+    user_state::ProductListingUserStateDisclosure,
 };
 use application::{
     error::{BoxError, box_error},
@@ -169,8 +171,12 @@ where
                 valuation_at,
             )
             .await?;
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
         Ok(CursoredResult {
-            items,
+            items: items
+                .into_iter()
+                .map(|item| disclosure.disclose(item))
+                .collect(),
             cursor: page.cursor,
             total: page.total,
         })
@@ -185,7 +191,7 @@ async fn present_catalogue_items<Tx, F>(
     valuation_at: OffsetDateTime,
 ) -> Result<
     (
-        Vec<PersonalizedProductListingDetailsView>,
+        Vec<ProductListingDetailsWithUserState>,
         Option<FxRateSnapshot>,
     ),
     GetAuctionCatalogueError,
@@ -330,7 +336,294 @@ impl From<FxRateSnapshotRepositoryError> for GetAuctionCatalogueError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_listing_core::product_listing_id::ProductListingId;
+    use crate::ports::{
+        ListingSourceSummary, PersonalizedProductListingDetailsReadModel,
+        ProductListingDetailsReadModel,
+    };
+    use crate::user_state::{ProductListingUserState, ProductListingUserStateView};
+    use application::{
+        operation_context::{CorrelationId, CredentialCapability, Principal, RequestId},
+        personalized::Personalized,
+        transaction::TransactionError,
+    };
+    use auction_core::AuctionSchedule;
+    use auction_service::ports::{PublicAuctionDetails, PublicAuctionSourceSummary};
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+    };
+    use fxrate_service::ports::FxRateSnapshotInsertOutcome;
+    use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+    use product_listing_core::{
+        listing_lifecycle::ListingLifecycle, product_listing::ProductListingPricing,
+        product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    };
+    use std::sync::Mutex;
+    use strum::IntoEnumIterator;
+    use url::Url;
+
+    struct FakeUnitOfWork;
+    struct FakeTx;
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            Ok(FakeTx)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            Ok(())
+        }
+    }
+
+    struct FakeCatalogue {
+        items: Mutex<Vec<PersonalizedProductListingDetailsReadModel>>,
+        user_ids: Mutex<Vec<Option<user_core::user_id::UserId>>>,
+    }
+
+    struct FakeCatalogueReader<'a>(&'a FakeCatalogue);
+
+    impl AuctionCatalogueReaderFactory<FakeTx> for FakeCatalogue {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl AuctionCatalogueReader + 'tx {
+            FakeCatalogueReader(self)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionCatalogueReader for FakeCatalogueReader<'_> {
+        async fn list(
+            &mut self,
+            request: &AuctionCatalogueReadRequest,
+        ) -> Result<crate::ports::AuctionCataloguePage, AuctionCatalogueReadError> {
+            let mut user_ids = self.0.user_ids.lock().unwrap_or_else(|e| e.into_inner());
+            user_ids.push(request.user_id);
+            let items =
+                std::mem::take(&mut *self.0.items.lock().unwrap_or_else(|e| e.into_inner()));
+            Ok(CursoredResult {
+                items,
+                cursor: Cursor::default(),
+                total: Some(1),
+            })
+        }
+    }
+
+    struct FakeFxRates(FxRateSnapshot);
+    struct FakeFxRateRepository(FxRateSnapshot);
+
+    impl FxRateSnapshotRepositoryFactory<FakeTx> for FakeFxRates {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            FakeFxRateRepository(self.0.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for FakeFxRateRepository {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Some(self.0.clone()))
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Some(self.0.clone()))
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
+            Err(FxRateSnapshotRepositoryError::ReadFailed {
+                source: box_error(std::io::Error::other("not used by catalogue reads")),
+            })
+        }
+    }
+
+    struct FakeAuctions(PublicAuctionDetails);
+
+    #[async_trait::async_trait]
+    impl PublicAuctionDetailsReader for FakeAuctions {
+        async fn find_by_id(
+            &self,
+            _auction_id: AuctionId,
+        ) -> Result<Option<PublicAuctionDetails>, PublicAuctionDetailsReadError> {
+            Ok(Some(self.0.clone()))
+        }
+    }
+
+    fn snapshot() -> Result<FxRateSnapshot, Box<dyn std::error::Error>> {
+        let captured = NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
+        )?;
+        Ok(captured.into_persisted(FxRateGeneration::try_from(1)?))
+    }
+
+    fn catalogue_item(
+        user_state: ProductListingUserState,
+        image_url: &Url,
+    ) -> Result<PersonalizedProductListingDetailsReadModel, Box<dyn std::error::Error>> {
+        let source = ListingSourceSummary {
+            listing_source_id: ListingSourceId::new(),
+            name: ListingSourceName::try_from("Source")?,
+            slug_id: ListingSourceSlugId::raw("source")?,
+        };
+        Ok(Personalized {
+            item: ProductListingDetailsReadModel {
+                product_listing_id: ProductListingId::new(),
+                product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")?,
+                event_id: domain_primitives::event_id::EventId::new(),
+                source,
+                source_listing_id: SourceListingId::try_from("cabinet-1")?,
+                product_title: None,
+                product_description: None,
+                title: None,
+                description: None,
+                pricing: ProductListingPricing::default(),
+                sale_observation: None,
+                availability: None,
+                lifecycle: ListingLifecycle::Active,
+                url: Url::parse("https://shop.example/products/1")?,
+                view_url: Url::parse("https://shop.example/products/1")?,
+                images: IndexSet::from([ProductListingImage::new(image_url.clone())]),
+                content_policy: None,
+                auction: None,
+                lot: None,
+                created: OffsetDateTime::UNIX_EPOCH,
+                updated: OffsetDateTime::UNIX_EPOCH,
+            },
+            user_state: Some(user_state),
+        })
+    }
+
+    fn auction(auction_id: AuctionId) -> Result<PublicAuctionDetails, Box<dyn std::error::Error>> {
+        Ok(PublicAuctionDetails {
+            auction_id,
+            source: PublicAuctionSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                slug_id: ListingSourceSlugId::raw("source")?,
+                name: ListingSourceName::try_from("Source")?,
+                referral_configuration: None,
+            },
+            name: None,
+            catalogue_url: None,
+            format: None,
+            schedule: AuctionSchedule::new(None, None, None, None)?,
+            reported_status: None,
+            reported_lot_count: None,
+            visible_active_assigned_listing_count: 1,
+        })
+    }
+
+    #[tokio::test]
+    async fn should_enforce_loaded_state_and_disclose_only_granted_catalogue_sections()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let image_url = Url::parse("https://example.test/unassessed.jpg")?;
+        let mut user_state = ProductListingUserState::default();
+        user_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content = true;
+        user_state.watchlist.watching = true;
+        user_state.search_filter.matched = true;
+        for (capabilities, hidden, expected) in [
+            (vec![], false, None),
+            (vec![], true, None),
+            (
+                vec![CredentialCapability::WatchlistRead],
+                true,
+                Some(ProductListingUserStateView {
+                    watchlist: Some(user_state.watchlist),
+                    ..Default::default()
+                }),
+            ),
+        ] {
+            let user_id = user_core::user_id::UserId::new();
+            let auction_id = AuctionId::new();
+            let mut state = user_state.clone();
+            state.search_filter.hidden = hidden;
+            let catalogue = FakeCatalogue {
+                items: Mutex::new(vec![catalogue_item(state, &image_url)?]),
+                user_ids: Mutex::new(Vec::new()),
+            };
+            let handler = GetAuctionCatalogueHandler::new(
+                FakeUnitOfWork,
+                catalogue,
+                FakeFxRates(snapshot()?),
+                FakeAuctions(auction(auction_id)?),
+                crate::shipping::ShippingEnrichment::for_tests(),
+            );
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id,
+                    capabilities: capabilities.into_iter().collect(),
+                },
+                request_id: RequestId::new("request"),
+                correlation_id: CorrelationId::new("correlation"),
+            };
+
+            let page = handler
+                .execute(
+                    &context,
+                    GetAuctionCatalogueRequest {
+                        auction_id,
+                        language: Language::En,
+                        currency: Currency::Eur,
+                        cursor: None,
+                    },
+                )
+                .await?;
+
+            assert_eq!(
+                vec![Some(user_id)],
+                *handler
+                    .catalogue
+                    .user_ids
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+            );
+            let item = &page.items[0];
+            assert_eq!(expected, item.user_state);
+            if hidden {
+                assert_eq!(None, item.item.product_listing_title_slug_id);
+                assert!(item.item.images.is_empty());
+            } else {
+                assert_eq!(Some(image_url.clone()), item.item.images[0].url.clone());
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn should_reject_a_catalogue_cursor_for_another_auction() {

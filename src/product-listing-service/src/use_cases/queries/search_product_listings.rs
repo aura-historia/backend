@@ -34,7 +34,9 @@ use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
 
-use crate::user_state::ProductListingUserState;
+use crate::user_state::{
+    ProductListingUserState, ProductListingUserStateDisclosure, ProductListingUserStateView,
+};
 use indexmap::IndexSet;
 
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -121,7 +123,12 @@ pub enum ProductListingSummaryPriceValuation {
     },
 }
 
+/// Summary with the requester's disclosed user state.
 pub type PersonalizedProductListingSummary =
+    Personalized<ProductListingSummary, ProductListingUserStateView>;
+
+/// Summary with the complete loaded user state, before disclosure.
+pub type ProductListingSummaryWithUserState =
     Personalized<ProductListingSummary, ProductListingUserState>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -505,11 +512,16 @@ where
                 read_request.compiled_search.price_filter_plan.snapshot(),
             )
             .await?;
-        for item in &mut items {
-            if let Some(geography) = &mut item.item.geography {
-                geography.set_distance(&read_request.compiled_search.search);
-            }
-        }
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
+        let items = items
+            .into_iter()
+            .map(|mut item| {
+                if let Some(geography) = &mut item.item.geography {
+                    geography.set_distance(&read_request.compiled_search.search);
+                }
+                disclosure.disclose(item)
+            })
+            .collect();
         tracing::info!(
             metric = "product_listing_search_result",
             result_count,
@@ -528,7 +540,7 @@ where
 pub(crate) async fn present_product_summaries<A>(
     products: Vec<PersonalizedProductListingSearchItem>,
     assessments: &A,
-) -> Result<Vec<PersonalizedProductListingSummary>, ProductListingContentAssessmentReadError>
+) -> Result<Vec<ProductListingSummaryWithUserState>, ProductListingContentAssessmentReadError>
 where
     A: ProductListingContentAssessmentReader,
 {
@@ -546,7 +558,7 @@ where
 pub(crate) fn present_product_summaries_from_assessments(
     products: Vec<PersonalizedProductListingSearchItem>,
     assessments: &HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
-) -> Vec<PersonalizedProductListingSummary> {
+) -> Vec<ProductListingSummaryWithUserState> {
     products
         .into_iter()
         .map(|product| {
@@ -766,7 +778,9 @@ mod tests {
 
     use crate::ports::{ProductListingUserStateLookup, ProductListingUserStateReadError};
     use application::error::box_error;
-    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::operation_context::{
+        CorrelationId, CredentialCapability, Principal, RequestId,
+    };
     use domain_primitives::event_id::EventId;
     use embedding::{EmbeddingError, EmbeddingVector};
     use fxrate_core::{
@@ -1782,19 +1796,17 @@ mod tests {
                 as_a.items[0].item.images[0].url.clone()
             );
             assert!(
-                as_a.items[0]
-                    .user_state
-                    .as_ref()
-                    .is_some_and(|state| state.watchlist.watching)
+                as_a.items[0].user_state.as_ref().is_some_and(|state| state
+                    .watchlist
+                    .is_some_and(|watchlist| watchlist.watching))
             );
 
             let as_b = handler.execute(&user_context(user_b), request()).await?;
             assert!(as_b.items[0].item.images[0].url.is_none());
             assert!(
-                as_b.items[0]
-                    .user_state
-                    .as_ref()
-                    .is_some_and(|state| !state.watchlist.watching)
+                as_b.items[0].user_state.as_ref().is_some_and(|state| state
+                    .watchlist
+                    .is_some_and(|watchlist| !watchlist.watching))
             );
             lock_state(&users.state).values.insert(
                 user_b,
@@ -1822,7 +1834,9 @@ mod tests {
                 updated_b.items[0]
                     .user_state
                     .as_ref()
-                    .is_some_and(|state| state.watchlist.watching)
+                    .is_some_and(|state| state
+                        .watchlist
+                        .is_some_and(|watchlist| watchlist.watching))
             );
 
             let hidden = handler
@@ -2760,10 +2774,17 @@ mod tests {
             .user_state
             .as_ref()
             .ok_or("missing user state")?;
-        assert!(user_state.watchlist.watching);
+        assert!(
+            user_state
+                .watchlist
+                .is_some_and(|watchlist| watchlist.watching)
+        );
         assert_eq!(
-            vec![notification_id],
-            user_state.notification.unseen_notification_ids
+            Some(vec![notification_id]),
+            user_state
+                .notification
+                .as_ref()
+                .map(|notification| notification.unseen_notification_ids.clone())
         );
         Ok(())
     }
@@ -2816,7 +2837,97 @@ mod tests {
             result.items[0]
                 .user_state
                 .as_ref()
-                .map(|state| state.search_filter.hidden)
+                .and_then(|state| state.search_filter.as_ref())
+                .map(|search_filter| search_filter.hidden)
+        );
+        Ok(())
+    }
+
+    fn delegated_context(capabilities: &[CredentialCapability]) -> OperationContext {
+        OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: capabilities.iter().copied().collect(),
+            },
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn private_user_state(hidden: bool) -> ProductListingUserState {
+        let mut user_state = ProductListingUserState::default();
+        user_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content = true;
+        user_state.watchlist.watching = true;
+        user_state.notification.unseen_notification_ids =
+            vec![notification_core::notification_id::NotificationId::new()];
+        user_state.search_filter.matched = true;
+        user_state.search_filter.hidden = hidden;
+        user_state
+    }
+
+    #[tokio::test]
+    async fn should_enforce_loaded_state_without_disclosing_it_to_a_delegate_without_read_scopes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let image_url = Url::parse("https://example.test/unassessed.jpg")?;
+        for hidden in [false, true] {
+            let state = state();
+            let mut expected = search_result()?;
+            expected.items[0].images =
+                IndexSet::from([ProductListingImage::new(image_url.clone())]);
+            let product_listing_id = expected.items[0].product_listing_id;
+            lock_state(&state).search_result = Some(Ok(expected));
+            lock_state(&state).user_states_result = Some(Ok(HashMap::from([(
+                product_listing_id,
+                private_user_state(hidden),
+            )])));
+            let context = delegated_context(&[CredentialCapability::ProductListingsRead]);
+
+            let result = handler(&state).execute(&context, request()).await?;
+
+            assert_eq!(None, result.items[0].user_state);
+            assert_eq!(1, lock_state(&state).user_state_lookups.len());
+            if hidden {
+                assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
+                assert_eq!("Hidden", result.items[0].item.source.name.as_ref());
+                assert!(result.items[0].item.images.is_empty());
+            } else {
+                assert_eq!(
+                    Some(image_url.clone()),
+                    result.items[0].item.images[0].url.clone()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_disclose_only_sections_of_granted_read_scopes_in_search()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let expected = search_result()?;
+        let product_listing_id = expected.items[0].product_listing_id;
+        let user_state = private_user_state(false);
+        lock_state(&state).search_result = Some(Ok(expected));
+        lock_state(&state).user_states_result = Some(Ok(HashMap::from([(
+            product_listing_id,
+            user_state.clone(),
+        )])));
+        let context = delegated_context(&[
+            CredentialCapability::SearchFiltersRead,
+            CredentialCapability::UsersRead,
+        ]);
+
+        let result = handler(&state).execute(&context, request()).await?;
+
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                content_visibility: Some(user_state.content_visibility),
+                search_filter: Some(user_state.search_filter),
+                ..Default::default()
+            }),
+            result.items[0].user_state
         );
         Ok(())
     }

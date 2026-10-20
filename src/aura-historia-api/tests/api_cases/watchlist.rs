@@ -37,10 +37,11 @@ fn assert_watchlist_product(
         serde_json::json!({"watching": watching, "notifications": notifications}),
         body["userState"]["watchlist"]
     );
-    for field in ["contentVisibility", "notification", "searchFilter"] {
+    // Watchlist PATCH tokens hold no notification or saved-search read scope.
+    for field in ["notification", "searchFilter"] {
         assert!(
-            body["userState"][field].is_object(),
-            "missing {field}: {body}"
+            body["userState"].get(field).is_none(),
+            "undisclosed {field}: {body}"
         );
     }
 }
@@ -96,7 +97,7 @@ async fn should_add_product_to_watchlist_when_authenticated() {
     let product_listing_id = seed_product().await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "productListingId": product_listing_id.to_string(),
@@ -138,7 +139,7 @@ async fn should_reject_watchlist_create_when_entry_exists() {
     let client = reqwest::Client::new();
 
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -147,7 +148,7 @@ async fn should_reject_watchlist_create_when_entry_exists() {
     assert_eq!(reqwest::StatusCode::CREATED, created.status());
 
     let duplicate = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -168,7 +169,7 @@ async fn should_return_product_listing_not_found_when_watching_missing_product()
     .await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": ProductListingId::new().to_string()}))
         .send()
@@ -196,7 +197,7 @@ async fn should_return_product_listing_unavailable_when_watching_withdrawn_produ
     withdraw_product(product_listing_id).await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -224,7 +225,7 @@ async fn should_leave_existing_watchlist_entry_unchanged_when_watching_duplicate
     let client = reqwest::Client::new();
 
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string(), "notifications": false}))
         .send()
@@ -233,7 +234,7 @@ async fn should_leave_existing_watchlist_entry_unchanged_when_watching_duplicate
     assert_eq!(reqwest::StatusCode::CREATED, created.status());
 
     let duplicate = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string(), "notifications": true}))
         .send()
@@ -266,7 +267,7 @@ async fn should_list_current_user_watchlist() {
     let product_listing_id = seed_product().await;
     let client = reqwest::Client::new();
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -275,7 +276,7 @@ async fn should_list_current_user_watchlist() {
     assert_eq!(reqwest::StatusCode::CREATED, created.status());
 
     let response = client
-        .get(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .get(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .send()
         .await
@@ -296,7 +297,7 @@ async fn should_list_current_user_watchlist() {
     withdraw_product(product_listing_id).await;
 
     let response = client
-        .get(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .get(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -327,13 +328,13 @@ async fn should_update_watchlist_notifications() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_product().await;
     let client = reqwest::Client::new();
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -343,7 +344,7 @@ async fn should_update_watchlist_notifications() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/me/watchlist/{}",
+            "{}/v1/me/watchlist/{}",
             AURA_API.base_url(),
             product_listing_id
         ))
@@ -369,7 +370,7 @@ async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -392,7 +393,7 @@ async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     ] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}",
+                "{}/v1/me/watchlist/{product_listing_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -415,7 +416,11 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::UsersRead]),
+        std::collections::HashSet::from([
+            Scope::WatchlistWrite,
+            Scope::WatchlistRead,
+            Scope::UsersRead,
+        ]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -429,7 +434,7 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{product_listing_id}",
+            "{}/v1/me/watchlist/{product_listing_id}",
             SINGLE_CONNECTION_WATCHLIST_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -447,6 +452,7 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
         "DE",
         body["userState"]["shipping"]["destination"]["country"]
     );
+    assert!(body["userState"]["contentVisibility"].is_object());
     let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
     assert_eq!("ACTIVE", entry["state"]);
     assert_eq!(serde_json::json!(false), entry["notifications"]);
@@ -483,7 +489,7 @@ async fn should_not_commit_watchlist_patch_when_shipping_fails_with_single_conne
     ] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}",
+                "{}/v1/me/watchlist/{product_listing_id}",
                 SINGLE_CONNECTION_WATCHLIST_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -515,7 +521,7 @@ async fn should_return_current_product_for_empty_watchlist_patch_without_changin
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -523,7 +529,7 @@ async fn should_return_current_product_for_empty_watchlist_patch_without_changin
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{product_listing_id}",
+            "{}/v1/me/watchlist/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -546,7 +552,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -573,7 +579,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
     ] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}{query}",
+                "{}/v1/me/watchlist/{product_listing_id}{query}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -625,7 +631,7 @@ async fn should_reject_invalid_watchlist_patch_presentation_without_changing_ent
     for query in ["language=invalid", "currency=XXX"] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}?{query}",
+                "{}/v1/me/watchlist/{product_listing_id}?{query}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -668,7 +674,7 @@ async fn should_reject_null_watchlist_patch_fields_without_changing_entry() {
     ] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}",
+                "{}/v1/me/watchlist/{product_listing_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -704,7 +710,7 @@ async fn should_return_product_listing_unavailable_when_reactivating_withdrawn_p
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{product_listing_id}",
+            "{}/v1/me/watchlist/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -727,13 +733,13 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_product().await;
     let client = reqwest::Client::new();
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -744,7 +750,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
 
     let notifications = client
         .patch(format!(
-            "{}/api/v1/me/watchlist/{product_listing_id}",
+            "{}/v1/me/watchlist/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token.clone()))
@@ -764,7 +770,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
 
     let deactivated = client
         .patch(format!(
-            "{}/api/v1/me/watchlist/{product_listing_id}",
+            "{}/v1/me/watchlist/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -789,7 +795,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -833,7 +839,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
     ] {
         let response = client
             .patch(format!(
-                "{}/api/v1/me/watchlist/{product_listing_id}?language=de&currency=USD",
+                "{}/v1/me/watchlist/{product_listing_id}?language=de&currency=USD",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -846,11 +852,8 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
         let (status, body) = json_response(response).await;
 
         assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        // Redaction still applies although the saved-search state stays undisclosed.
         assert_watchlist_product(&body, product_listing_id, watching, false);
-        assert_eq!(
-            serde_json::json!(true),
-            body["userState"]["searchFilter"]["hidden"]
-        );
         assert!(body["item"].get("productListingTitleSlugId").is_none());
         assert!(body["item"].get("productTitle").is_none());
         assert!(body["item"].get("productDescription").is_none());
@@ -886,7 +889,7 @@ async fn should_delete_watchlist_entry() {
     let product_listing_id = seed_product().await;
     let client = reqwest::Client::new();
     let created = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -896,7 +899,7 @@ async fn should_delete_watchlist_entry() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/me/watchlist/{}",
+            "{}/v1/me/watchlist/{}",
             AURA_API.base_url(),
             product_listing_id
         ))
@@ -925,7 +928,7 @@ async fn should_reject_noncanonical_product_listing_id_in_watchlist_path() {
     ] {
         let response = reqwest::Client::new()
             .patch(format!(
-                "{}/api/v1/me/watchlist/{invalid_id}",
+                "{}/v1/me/watchlist/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -960,7 +963,7 @@ async fn should_reject_noncanonical_product_listing_id_in_watchlist_body() {
         "pl_not-a-typeid".to_owned(),
     ] {
         let response = reqwest::Client::new()
-            .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+            .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .json(&serde_json::json!({ "productListingId": invalid_id }))
             .send()
@@ -988,7 +991,7 @@ async fn should_return_not_found_when_updating_missing_watchlist_entry() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{}",
+            "{}/v1/me/watchlist/{}",
             AURA_API.base_url(),
             ProductListingId::new()
         ))
@@ -1019,7 +1022,7 @@ async fn should_reject_watchlist_create_at_free_tier_quota() {
     let product_listing_id = seed_product().await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -1049,12 +1052,12 @@ async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     let client = reqwest::Client::new();
 
     let first_request = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .json(&serde_json::json!({ "productListingId": first_product_listing_id }))
         .send();
     let second_request = client
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({ "productListingId": second_product_listing_id }))
         .send();
@@ -1100,7 +1103,7 @@ async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     let product_listing_id = seed_product().await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
         .send()
@@ -1123,7 +1126,7 @@ async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{}",
+            "{}/v1/me/watchlist/{}",
             AURA_API.base_url(),
             product_listing_id
         ))
@@ -1157,7 +1160,7 @@ async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
 
     let first_request = client
         .patch(format!(
-            "{}/api/v1/me/watchlist/{first_product_listing_id}",
+            "{}/v1/me/watchlist/{first_product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token.clone()))
@@ -1165,7 +1168,7 @@ async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
         .send();
     let second_request = client
         .patch(format!(
-            "{}/api/v1/me/watchlist/{second_product_listing_id}",
+            "{}/v1/me/watchlist/{second_product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -1206,7 +1209,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     seed_active_watchlist_entries(user_id, 20).await;
@@ -1214,7 +1217,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/me/watchlist/{}",
+            "{}/v1/me/watchlist/{}",
             AURA_API.base_url(),
             product_listing_id
         ))
@@ -1232,7 +1235,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_auth_for_watchlist() {
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .get(format!("{}/v1/me/watchlist", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list watchlist missing auth API: {error}"));

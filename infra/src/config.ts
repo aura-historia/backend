@@ -99,6 +99,14 @@ const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierC
   dev: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
 };
 
+export interface McpConfig {
+  readonly domainName: string;
+  readonly gatewayCertificateArn: string;
+  readonly cloudFrontCertificateArn: string;
+  readonly allowedOrigins: string[];
+  readonly reservedConcurrency: number;
+}
+
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
@@ -114,6 +122,7 @@ export interface StageConfig {
   readonly apiCloudFrontCertificateArn: string | undefined;
   readonly apiCloudFrontAliases: string[];
   readonly apiCorsAllowOrigins: string[];
+  readonly mcp: McpConfig;
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoIdentityProviders: readonly CognitoIdentityProviderConfig[];
@@ -180,6 +189,15 @@ export function stageConfig(stage: StageName): StageConfig {
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
     apiCloudFrontAliases,
     apiCorsAllowOrigins: isProd ? [...PROD_API_CORS_ALLOW_ORIGINS] : ["*"],
+    mcp: {
+      domainName: isProd ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com",
+      gatewayCertificateArn: ssmValue(`/certificates/${stage}/mcp-regional-certificate-arn`),
+      cloudFrontCertificateArn: ssmValue(`/certificates/${stage}/mcp-cloudfront-certificate-arn`),
+      allowedOrigins: isProd
+        ? ["https://aura-historia.com"]
+        : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
+      reservedConcurrency: isProd ? 5 : 2,
+    },
     cognitoCallbackUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
     cognitoLogoutUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
     cognitoIdentityProviders: [

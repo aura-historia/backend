@@ -153,7 +153,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("first"), product("second")),
             true,
         )
@@ -180,7 +180,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{omitted},{explicit_null}]"),
             true,
         )
@@ -207,7 +207,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("created"), product("failed")),
             true,
         )
@@ -238,7 +238,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("duplicate")),
             true,
         )
@@ -266,7 +266,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             body,
             true,
         )
@@ -288,7 +288,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{emoji_only}]", product("created")),
             true,
         )
@@ -309,7 +309,7 @@ mod tests {
 
         let missing_auth = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("created")),
             false,
         )
@@ -318,7 +318,7 @@ mod tests {
 
         let invalid_body = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             "{".to_owned(),
             true,
         )
@@ -337,7 +337,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                "/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::post(create_products),
             )
             .with_state(state)

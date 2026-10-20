@@ -64,7 +64,7 @@ pub async fn create_listing_source(
 
     match state.create.execute(&context, command).await {
         Ok(result) => {
-            let location = format!("/api/v1/admin/listing-sources/{}", result.listing_source_id);
+            let location = format!("/v1/admin/listing-sources/{}", result.listing_source_id);
             let location = match HeaderValue::from_str(&location) {
                 Ok(value) => value,
                 Err(_) => {

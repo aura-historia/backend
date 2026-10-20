@@ -4,6 +4,7 @@ const SAMPLE_LABEL: &str = "YAML";
 const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
 const SELECTOR_GROUNDING_INSTRUCTION: &str = "Only use CSS selectors that can be derived from tags, attrs, text, and tree context visible in the YAML projection. Never invent class names, ids, attributes, or selector paths that are not present in the YAML. Every non-null selector must be product-specific and must apply to every sample covered by that schema. Optional fields must be null unless an exact selector is visible in the YAML and clearly extracts non-empty product-specific content from the page or template. Prefer null over guessed selectors, generic wrappers, layout containers, or whole-page content selectors. For description, use null unless a precise product-description selector is visible; do not use generic selectors such as .description-wrapper or .HTMLPageContent unless those exact classes appear in the YAML on nodes containing product description text.";
 const PRODUCT_SAMPLES_INSTRUCTION: &str = "Every sample was fetched from a URL matching the product-page pattern of this ListingSource and is expected to be a product detail page. Do not classify the samples: this response has no page_kind, removed_schema, or reason field. If a sample looks like a removed, sold-out, not-found, category, search, or other non-product page, exclude that sample from schema coverage, still return schemas for the remaining product samples, and name the excluded sample number in risks. The schemas array must contain at least one schema; when a sample is ambiguous, still cover the samples that are product detail pages and lower the confidence.";
+const PRICE_INSTRUCTION: &str = "Text extraction drops struck-through descendants (del, s, strike). For a sale price shown as a struck-through old amount next to the current amount, select the price element that contains both, not an ins element or the struck-through element, so the same selector also matches regular-price pages.";
 const CONFIDENCE_INSTRUCTION: &str = "Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.";
 
 struct RawAttributeDefinition {
@@ -261,6 +262,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
+         {price_instruction}\n\
          {raw_attributes_instruction}\n\
          Return ONLY ProductListingSchemasGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
          {confidence_instruction}\n\
@@ -269,6 +271,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
         product_samples_instruction = PRODUCT_SAMPLES_INSTRUCTION,
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
         raw_attributes_instruction = raw_attributes_instruction(),
+        price_instruction = PRICE_INSTRUCTION,
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,
         sample_label = SAMPLE_LABEL
@@ -287,6 +290,7 @@ pub(super) fn build_single_schema_instruction(html: &str) -> String {
           For removed, removed_schema must include selector and exactly one of text or regex. Use text for stable exact visible text. Use regex for variable removed messages like \"the table from 2020 is not available anymore\"; regex must be valid Rust regex syntax and match the selected normalized text after trimming, whitespace collapse, and lowercasing.\n\
            For product, generate one new schema for this specific layout and make the selectors resilient.\n\
           {selector_grounding_instruction}\n\
+          {price_instruction}\n\
           {raw_attributes_instruction}\n\
           Return ONLY ProductListingSchemaGenerationResponse JSON.\n\
           {confidence_instruction}\n\
@@ -295,6 +299,7 @@ pub(super) fn build_single_schema_instruction(html: &str) -> String {
           {prompt_page}",
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
         raw_attributes_instruction = raw_attributes_instruction(),
+        price_instruction = PRICE_INSTRUCTION,
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,
         sample_label = SAMPLE_LABEL

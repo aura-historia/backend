@@ -52,7 +52,7 @@ async fn should_reject_submission_that_references_a_missing_listing_source() {
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/me/partnership-applications",
+            "{}/v1/me/partnership-applications",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -88,7 +88,7 @@ async fn should_reject_noncanonical_listing_source_ids_in_submission_body() {
     ] {
         let response = reqwest::Client::new()
             .post(format!(
-                "{}/api/v1/me/partnership-applications",
+                "{}/v1/me/partnership-applications",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -133,7 +133,7 @@ async fn should_get_admin_partnership_application_detail_with_approval_reference
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}",
+            "{}/v1/admin/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -194,7 +194,7 @@ async fn should_reject_noncanonical_admin_partnership_application_detail_ids() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/admin/partnership-applications/{invalid_id}",
+                "{}/v1/admin/partnership-applications/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -229,7 +229,7 @@ async fn should_return_not_found_for_missing_admin_partnership_application_detai
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications/{}",
+            "{}/v1/admin/partnership-applications/{}",
             AURA_API.base_url(),
             PartnershipApplicationId::new()
         ))
@@ -260,7 +260,7 @@ async fn should_reject_non_admin_partnership_application_detail_access() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications/{}",
+            "{}/v1/admin/partnership-applications/{}",
             AURA_API.base_url(),
             PartnershipApplicationId::new()
         ))
@@ -295,7 +295,7 @@ async fn should_mark_submitted_partnership_application_in_review_as_admin() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}",
+            "{}/v1/admin/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -337,7 +337,7 @@ async fn should_return_conflict_when_marking_non_submitted_partnership_applicati
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}",
+            "{}/v1/admin/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -362,7 +362,7 @@ async fn should_return_not_found_when_marking_missing_partnership_application_in
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/partnership-applications/{}",
+            "{}/v1/admin/partnership-applications/{}",
             AURA_API.base_url(),
             PartnershipApplicationId::new()
         ))
@@ -402,7 +402,7 @@ async fn should_reject_non_admin_mark_in_review() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}",
+            "{}/v1/admin/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -436,7 +436,7 @@ async fn should_remove_legacy_mark_in_review_route() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/partnership-applications/{application_id}",
+            "{}/v1/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -464,7 +464,7 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            "{}/v1/admin/partnership-applications/{application_id}/decision",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -491,7 +491,7 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
     )
     .await;
     let listing_sources_response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
+        .get(format!("{}/v1/me/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_listing_sources_token))
         .send()
         .await
@@ -512,7 +512,7 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
     )
     .await;
     let notifications_response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
+        .get(format!("{}/v1/me/notifications", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_notifications_token))
         .query(&[("size", "100")])
         .send()
@@ -556,7 +556,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            "{}/v1/admin/partnership-applications/{application_id}/decision",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -584,7 +584,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     )
     .await;
     let parties_response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(admin_read_token))
         .query(&[("name", party_name)])
         .send()
@@ -601,7 +601,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     )
     .await;
     let listing_sources_response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
+        .get(format!("{}/v1/me/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_listing_sources_token))
         .send()
         .await
@@ -618,7 +618,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     )
     .await;
     let notifications_response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
+        .get(format!("{}/v1/me/notifications", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_notifications_token))
         .query(&[("size", "100")])
         .send()
@@ -642,7 +642,7 @@ async fn should_reject_an_arbitrary_partnership_application_decision_value() {
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{}/decision",
+            "{}/v1/admin/partnership-applications/{}/decision",
             AURA_API.base_url(),
             PartnershipApplicationId::new()
         ))
@@ -683,7 +683,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            "{}/v1/admin/partnership-applications/{application_id}/decision",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -704,7 +704,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
     let verification_token = partnership_applications_token(admin_id).await;
     let detail_response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}",
+            "{}/v1/admin/partnership-applications/{application_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(verification_token))
@@ -724,7 +724,7 @@ async fn should_return_not_found_for_a_missing_admin_partnership_application_dec
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{}/decision",
+            "{}/v1/admin/partnership-applications/{}/decision",
             AURA_API.base_url(),
             PartnershipApplicationId::new()
         ))
@@ -772,7 +772,7 @@ async fn should_reject_non_admin_partnership_application_decision() {
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            "{}/v1/admin/partnership-applications/{application_id}/decision",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -819,7 +819,7 @@ async fn should_list_filtered_admin_partnership_application_summaries_without_se
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications",
+            "{}/v1/admin/partnership-applications",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -915,10 +915,7 @@ async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
     let client = reqwest::Client::new();
-    let path = format!(
-        "{}/api/v1/admin/partnership-applications",
-        AURA_API.base_url()
-    );
+    let path = format!("{}/v1/admin/partnership-applications", AURA_API.base_url());
 
     let first = client
         .get(&path)
@@ -977,7 +974,7 @@ async fn should_return_empty_admin_partnership_application_collection() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnership-applications",
+            "{}/v1/admin/partnership-applications",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -1004,10 +1001,7 @@ async fn should_reject_invalid_queries_and_non_admin_collection_access() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = partnership_applications_token(admin_id).await;
     let client = reqwest::Client::new();
-    let path = format!(
-        "{}/api/v1/admin/partnership-applications",
-        AURA_API.base_url()
-    );
+    let path = format!("{}/v1/admin/partnership-applications", AURA_API.base_url());
     let applicant_user_id = UserId::new();
     let listing_source_id = ListingSourceId::new();
     let application_id = PartnershipApplicationId::new();

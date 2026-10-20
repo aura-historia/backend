@@ -202,19 +202,7 @@ pub(crate) mod currency {
     use super::*;
     use money::Currency;
 
-    pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, Currency::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Currency, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, Currency::from_code, None)
-    }
+    pub(crate) use aura_historia_contracts::wire::currency::{deserialize, serialize};
 
     pub(crate) mod option {
         use super::*;
@@ -251,43 +239,10 @@ pub(crate) mod currency {
 
 pub(crate) mod language {
     use super::*;
+    use aura_historia_contracts::wire::language::parse;
     use localization::Language;
 
-    fn parse(value: &str) -> Option<Language> {
-        match value {
-            "de-DE" | "de-AT" | "de-CH" | "de-LU" | "de-LI" => Some(Language::De),
-            "en-US" | "en-GB" | "en-AU" | "en-CA" | "en-NZ" | "en_IE" => Some(Language::En),
-            "fr-FR" | "fr-CA" | "fr-BE" | "fr-CH" | "fr-LU" => Some(Language::Fr),
-            "es-ES" | "es-MX" | "es-AR" | "es-CO" | "es-CL" | "es-PE" | "es-VE" => {
-                Some(Language::Es)
-            }
-            "it-IT" | "it-CH" => Some(Language::It),
-            "zh-CN" | "zh-Hans" => Some(Language::Zh),
-            "pt-PT" | "pt-BR" => Some(Language::Pt),
-            "pl-PL" => Some(Language::Pl),
-            "tr-TR" => Some(Language::Tr),
-            "nl-NL" | "nl-BE" => Some(Language::Nl),
-            "cs-CZ" => Some(Language::Cs),
-            "ja-JP" => Some(Language::Ja),
-            "ru-RU" => Some(Language::Ru),
-            "ar-SA" | "ar-EG" | "ar-AE" => Some(Language::Ar),
-            _ => Language::from_code(value),
-        }
-    }
-
-    pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, Language::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, parse, None)
-    }
+    pub(crate) use aura_historia_contracts::wire::language::{deserialize, serialize};
 
     pub(crate) mod option {
         use super::*;

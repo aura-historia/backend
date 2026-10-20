@@ -537,7 +537,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings?language=de&currency=USD&productQuery=cabinet&auctionId={auction_id}&sort=updated&order=desc&size=200&searchAfter={encoded_cursor}"
+                    "/v1/product-listings?language=de&currency=USD&productQuery=cabinet&auctionId={auction_id}&sort=updated&order=desc&size=200&searchAfter={encoded_cursor}"
                 ))
                 .body(Body::empty())?,
             )
@@ -584,9 +584,7 @@ mod tests {
         ] {
             let (app, calls) = app();
             let response = app
-                .oneshot(
-                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
-                )
+                .oneshot(Request::get(format!("/v1/product-listings?{query}")).body(Body::empty())?)
                 .await?;
             assert_eq!(StatusCode::OK, response.status());
             assert_eq!(
@@ -627,9 +625,7 @@ mod tests {
         for query in [literal, encoded] {
             let (app, calls) = app();
             let response = app
-                .oneshot(
-                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
-                )
+                .oneshot(Request::get(format!("/v1/product-listings?{query}")).body(Body::empty())?)
                 .await?;
             assert_eq!(StatusCode::OK, response.status(), "{query}");
             assert_eq!(
@@ -654,7 +650,7 @@ mod tests {
         let (app, _) = app();
         let response = app
             .oneshot(
-                Request::get("/api/v1/product-listings")
+                Request::get("/v1/product-listings")
                     .header(header::AUTHORIZATION, "Bearer accepted-as-anonymous")
                     .body(Body::empty())?,
             )
@@ -729,7 +725,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(
-                    "/api/v1/product-listings?availability=IN_STOCK&orderability=ORDERABLE_NOW&includeUnspecifiedAvailability=true",
+                    "/v1/product-listings?availability=IN_STOCK&orderability=ORDERABLE_NOW&includeUnspecifiedAvailability=true",
                 )
                 .body(Body::empty())?,
             )
@@ -757,7 +753,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings?excludeProductListingId={first}&excludeProductListingId={second}"
+                    "/v1/product-listings?excludeProductListingId={first}&excludeProductListingId={second}"
                 ))
                 .body(Body::empty())?,
             )
@@ -780,7 +776,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings?excludeProductListingId={}",
+                    "/v1/product-listings?excludeProductListingId={}",
                     ListingSourceId::new()
                 ))
                 .body(Body::empty())?,
@@ -797,9 +793,7 @@ mod tests {
         let (app, calls) = app();
 
         let response = app
-            .oneshot(
-                Request::get("/api/v1/product-listings?sort=price&order=asc").body(Body::empty())?,
-            )
+            .oneshot(Request::get("/v1/product-listings?sort=price&order=asc").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -818,9 +812,7 @@ mod tests {
             let (app, calls) = app();
 
             let response = app
-                .oneshot(
-                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
-                )
+                .oneshot(Request::get(format!("/v1/product-listings?{query}")).body(Body::empty())?)
                 .await?;
 
             assert_eq!(StatusCode::OK, response.status(), "{query}");
@@ -842,8 +834,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/product-listings?sort=created&order=asc")
-                    .body(Body::empty())?,
+                Request::get("/v1/product-listings?sort=created&order=asc").body(Body::empty())?,
             )
             .await?;
 
@@ -871,9 +862,7 @@ mod tests {
             let (app, calls) = app();
 
             let response = app
-                .oneshot(
-                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
-                )
+                .oneshot(Request::get(format!("/v1/product-listings?{query}")).body(Body::empty())?)
                 .await?;
 
             assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{query}");
@@ -1070,7 +1059,7 @@ mod tests {
                         Duration::from_secs(5),
                         app.clone().oneshot(
                             Request::get(format!(
-                                "/api/v1/product-listings?productQuery=cabinet{sort}&{query}"
+                                "/v1/product-listings?productQuery=cabinet{sort}&{query}"
                             ))
                             .body(Body::empty())?,
                         ),
@@ -1132,7 +1121,7 @@ mod tests {
         );
         (
             Router::new()
-                .route("/api/v1/product-listings", axum::routing::get(get_products))
+                .route("/v1/product-listings", axum::routing::get(get_products))
                 .with_state(state),
             calls,
         )

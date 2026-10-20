@@ -279,7 +279,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+                "/v1/admin/partnerships/{partnership_id}/members/{user_id}",
                 put(super::put_member),
             )
             .with_state(state)
@@ -315,7 +315,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Ok(success(membership_outcome)), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
+                    "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
                     Some("Bearer valid"),
                 ))
                 .await?;
@@ -344,11 +344,11 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for (path, field) in [
             (
-                "/api/v1/admin/partnerships/not-an-object-id/members/usr_01h455vb4pex5vy7enb1p677vn",
+                "/v1/admin/partnerships/not-an-object-id/members/usr_01h455vb4pex5vy7enb1p677vn",
                 "partnershipId",
             ),
             (
-                "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/not-an-object-id",
+                "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/not-an-object-id",
                 "userId",
             ),
         ] {
@@ -390,7 +390,7 @@ mod tests {
                 reject_auth,
             )
             .oneshot(request(
-                "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
+                "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
                 authorization,
             ))
             .await?;
@@ -471,7 +471,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Err(error), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
+                    "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/members/usr_01h455vb4pex5vy7enb1p677vn",
                     Some("Bearer valid"),
                 ))
                 .await?;
