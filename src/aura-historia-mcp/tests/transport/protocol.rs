@@ -183,6 +183,78 @@ async fn should_return_distinct_protocol_errors_for_unknown_method_tool_argument
 }
 
 #[tokio::test]
+async fn should_return_invalid_params_for_non_object_tool_arguments() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = app(calls.clone());
+    for arguments in [
+        json!("private argument"),
+        json!([]),
+        json!(42),
+        json!(false),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(&modern(
+                "tools/call",
+                json!({"name":"testOperation","arguments":arguments}),
+            )))
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("no-store", response.headers()["cache-control"]);
+        let body = json_response(response).await;
+        assert_eq!(-32602, body["error"]["code"], "{body}");
+        assert!(!body.to_string().contains("private argument"));
+    }
+    assert_eq!(0, calls.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn should_return_invalid_params_for_malformed_tool_list_parameters() {
+    let app = app(Arc::new(AtomicUsize::new(0)));
+    for body in [
+        modern("tools/list", json!({"cursor":42})),
+        modern("tools/list", json!({"cursor":false})),
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":[]}),
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":"private parameters"}),
+    ] {
+        let response = app.clone().oneshot(request(&body)).await.unwrap();
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("no-store", response.headers()["cache-control"]);
+        let body = json_response(response).await;
+        assert_eq!(-32602, body["error"]["code"], "{body}");
+        assert!(!body.to_string().contains("private parameters"));
+    }
+}
+
+#[tokio::test]
+async fn should_reject_invalid_request_ids_before_admission() {
+    let admitted = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = router(
+        config(),
+        Registry::new([operation(calls.clone())]).unwrap(),
+        Arc::new(CountingGate(admitted.clone())),
+    )
+    .unwrap();
+    for id in [json!(null), json!(true), json!([]), json!({}), json!(1.5)] {
+        let mut body = modern(
+            "tools/call",
+            json!({"name":"testOperation","arguments":{"value":"private"}}),
+        );
+        body["id"] = id;
+        let response = app.clone().oneshot(request(&body)).await.unwrap();
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!("no-store", response.headers()["cache-control"]);
+        let body = json_response(response).await;
+        assert_eq!(-32600, body["error"]["code"]);
+        assert_eq!(Value::Null, body["id"]);
+    }
+    assert_eq!(0, admitted.load(Ordering::SeqCst));
+    assert_eq!(0, calls.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn should_work_with_official_sdk_clients_over_native_http_in_both_lifecycle_modes() {
     use rmcp::{
         ClientLifecycleMode, ClientServiceExt,

@@ -204,16 +204,20 @@ async fn should_challenge_before_sdk_dispatch_and_preserve_exact_delegated_capab
         "tools/call",
         json!({"name":"testOperation","arguments":{"value":"private"}}),
     );
-    let response = app.clone().oneshot(request(&body)).await.unwrap();
-    assert_eq!(StatusCode::UNAUTHORIZED, response.status());
-    assert!(response.headers().contains_key("www-authenticate"));
-    assert_eq!("no-store", response.headers()["cache-control"]);
-    assert!(
-        to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    let mut malformed = body.clone();
+    malformed["params"]["arguments"] = json!("private malformed arguments");
+    for body in [&body, &malformed] {
+        let response = app.clone().oneshot(request(body)).await.unwrap();
+        assert_eq!(StatusCode::UNAUTHORIZED, response.status());
+        assert!(response.headers().contains_key("www-authenticate"));
+        assert_eq!("no-store", response.headers()["cache-control"]);
+        assert!(
+            to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
     assert_eq!(0, calls.load(Ordering::SeqCst));
     let mut call = request(&body);
     call.headers_mut().insert(
@@ -274,6 +278,64 @@ async fn should_cancel_operation_at_deadline_and_when_request_is_dropped() {
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn should_cancel_operation_when_native_http_connection_is_closed() {
+    use std::io::Write;
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let observed = Arc::new(tokio::sync::Mutex::new(None));
+    let observed_token = observed.clone();
+    let observed_started = started.clone();
+    let op = OperationDefinition::new(
+        "testOperation",
+        "Test",
+        policy(),
+        move |_: Arguments, context| {
+            let observed = observed_token.clone();
+            let started = observed_started.clone();
+            async move {
+                *observed.lock().await = Some(context.cancellation);
+                started.notify_one();
+                std::future::pending::<Result<Value, OperationError>>().await
+            }
+        },
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut config = config();
+    config.allowed_hosts = vec![address.to_string()];
+    let app = router(
+        config,
+        Registry::new([op]).unwrap(),
+        Arc::new(AnonymousGate),
+    )
+    .unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let body = modern(
+        "tools/call",
+        json!({"name":"testOperation","arguments":{"value":"pending"}}),
+    )
+    .to_string();
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    write!(
+        stream,
+        "POST /v1 HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/call\r\nMcp-Name: testOperation\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), started.notified())
+        .await
+        .unwrap();
+    drop(stream);
+    let cancellation: CancellationToken = observed.lock().await.clone().unwrap();
+    let cancelled = tokio::time::timeout(Duration::from_secs(1), cancellation.cancelled()).await;
+    cancellation.cancel();
+    server.abort();
+    let _ = server.await;
+    assert!(cancelled.is_ok(), "native disconnect did not cancel work");
 }
 
 #[tokio::test]

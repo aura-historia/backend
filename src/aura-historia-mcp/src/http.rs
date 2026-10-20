@@ -7,7 +7,9 @@ use response::{finalize_response, protocol_error};
 
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
-    config::normalized_origin, metadata::InvocationDeadline, protocol::ProtocolHandler,
+    config::normalized_origin,
+    metadata::InvocationDeadline,
+    protocol::{ProtocolHandler, valid_tool_parameters},
 };
 use application::operation_context::{CorrelationId, OperationContext, RequestId};
 use axum::{
@@ -178,6 +180,9 @@ async fn admitted_request(
         Ok(context) => context,
         Err(response) => return *response,
     };
+    if body.get("id").is_some() && !valid_tool_parameters(&method, body.get("params")) {
+        return protocol_error(StatusCode::OK, -32602, "Invalid tool parameters", id);
+    }
     let correlation = context.operation.correlation_id.as_str().to_owned();
     parts.extensions.insert(context);
     if Instant::now() >= deadline {
@@ -353,6 +358,16 @@ fn decode_message(bytes: Bytes) -> Result<DecodedMessage, Box<Response>> {
     };
     let method = method.to_owned();
     let id = body.get("id").cloned().unwrap_or(Value::Null);
+    if body.get("id").is_some()
+        && serde_json::from_value::<rmcp::model::RequestId>(id.clone()).is_err()
+    {
+        return Err(Box::new(protocol_error(
+            StatusCode::BAD_REQUEST,
+            -32600,
+            "Invalid JSON-RPC request ID",
+            Value::Null,
+        )));
+    }
     Ok(DecodedMessage {
         bytes,
         body,

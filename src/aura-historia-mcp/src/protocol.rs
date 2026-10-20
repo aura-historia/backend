@@ -16,6 +16,22 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
     ProtocolVersion::V_2025_03_26,
 ];
 
+pub(crate) fn valid_tool_parameters(method: &str, params: Option<&serde_json::Value>) -> bool {
+    // Validate these SDK types directly: its untagged request parser treats
+    // malformed calls as custom methods, and flattened optional list parameters
+    // can silently discard an invalid cursor. Envelope/metadata parsing stays
+    // with the SDK; HTTP admission must run before this parameter validation.
+    match method {
+        "tools/call" => params.is_some_and(|params| {
+            serde_json::from_value::<CallToolRequestParams>(params.clone()).is_ok()
+        }),
+        "tools/list" => params.is_none_or(|params| {
+            serde_json::from_value::<PaginatedRequestParams>(params.clone()).is_ok()
+        }),
+        _ => true,
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ProtocolHandler {
     pub registry: Registry,

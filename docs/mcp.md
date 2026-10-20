@@ -36,9 +36,10 @@ The version allowlist rejects unsupported non-initialize revisions with HTTP
 `400`, JSON-RPC `-32022` and the supported revisions. Unknown methods return
 `-32601` (HTTP `404` for current requests, `200` for legacy requests). Unknown
 tools, malformed arguments and invalid catalogue cursors return `-32602`.
-Malformed JSON receives `400`/`-32700`; identity-header disagreement receives
-`400`/`-32020`. Wrong content type and unacceptable response types receive
-`415` and `406` respectively.
+Malformed JSON receives `400`/`-32700`. An invalid JSON-RPC version, method type
+or request ID receives `400`/`-32600` with a null response ID. Identity-header
+disagreement receives `400`/`-32020`. Wrong content type and unacceptable response
+types receive `415` and `406` respectively.
 
 The normative contracts are the [current Streamable HTTP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
 [current versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
