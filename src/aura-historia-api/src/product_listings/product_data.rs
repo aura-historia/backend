@@ -29,7 +29,7 @@ use product_listing_service::use_cases::{
     ProductListingSummaryPriceValuation,
 };
 use product_listing_service::user_state::{
-    ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
+    ContentVisibilityUserState, NotificationUserState, ProductListingUserStateView,
     SearchFilterUserState, WatchlistUserState,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -88,10 +88,14 @@ pub(crate) struct ProductListingDetailsData {
 pub(crate) struct ProductListingUserStateData {
     #[serde(skip_serializing_if = "Option::is_none")]
     shipping: Option<crate::shipping::listing::PersonalizedShippingData>,
-    watchlist: WatchlistUserStateData,
-    content_visibility: ContentVisibilityUserStateData,
-    notification: NotificationUserStateData,
-    search_filter: SearchFilterUserStateData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    watchlist: Option<WatchlistUserStateData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_visibility: Option<ContentVisibilityUserStateData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notification: Option<NotificationUserStateData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search_filter: Option<SearchFilterUserStateData>,
 }
 
 #[derive(Debug, Serialize)]
@@ -474,16 +478,16 @@ impl From<ProductListingPricingValuation> for ProductListingPricingValuationData
     }
 }
 
-impl From<ProductListingUserState> for ProductListingUserStateData {
-    fn from(state: ProductListingUserState) -> Self {
+impl From<ProductListingUserStateView> for ProductListingUserStateData {
+    fn from(state: ProductListingUserStateView) -> Self {
         Self {
             shipping: state
                 .shipping
                 .map(crate::shipping::listing::PersonalizedShippingData),
-            watchlist: state.watchlist.into(),
-            content_visibility: state.content_visibility.into(),
-            notification: state.notification.into(),
-            search_filter: state.search_filter.into(),
+            watchlist: state.watchlist.map(Into::into),
+            content_visibility: state.content_visibility.map(Into::into),
+            notification: state.notification.map(Into::into),
+            search_filter: state.search_filter.map(Into::into),
         }
     }
 }
@@ -676,6 +680,22 @@ mod tests {
         );
         assert!(value.get("sourceAuctionId").is_none());
         assert!(value.get("version").is_none());
+    }
+
+    #[test]
+    fn should_omit_undisclosed_user_state_sections() -> Result<(), serde_json::Error> {
+        let data = ProductListingUserStateData::from(ProductListingUserStateView {
+            notification: Some(NotificationUserState {
+                unseen_notification_ids: Vec::new(),
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            serde_json::json!({"notification": {"unseenNotificationIds": []}}),
+            serde_json::to_value(data)?
+        );
+        Ok(())
     }
 
     #[test]
