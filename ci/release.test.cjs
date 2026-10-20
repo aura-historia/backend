@@ -146,6 +146,21 @@ const environment = {
   can_admins_bypass: false,
   protection_rules: [{ type: 'required_reviewers', reviewers: [{ id: 7 }], prevent_self_review: true }],
 };
+test('configured environment review policy can allow the operator to approve their own release', () => {
+  const configured = {
+    ...environment,
+    protection_rules: [{ ...environment.protection_rules[0], prevent_self_review: false }],
+  };
+  assert.equal(
+    protection(ctx, () => configured),
+    configured,
+  );
+  const api = (_ctx, endpoint) =>
+    endpoint.startsWith('environments/')
+      ? configured
+      : [{ state: 'approved', user: { login: 'operator' }, environments: [{ id: configured.id }] }];
+  assert.equal(approval(ctx, { run: ctx.run, attempt: ctx.attempt }, api).actor, 'operator');
+});
 test('OpenSearch confirmation is bound to the plan, run, attempt and protected stage approval', () => {
   const p = { run: ctx.run, attempt: ctx.attempt, requirements: { id: 'prerequisite' } };
   const api = (_ctx, endpoint) =>

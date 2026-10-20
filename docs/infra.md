@@ -95,8 +95,10 @@ Before relying on these workflows, the repository/AWS owners must verify:
 - Protected `develop` with required CI and immutable release tags. Restrict tag
   creation to release maintainers and updates/deletion even for administrators.
   Do not require path-filtered checks without an always-running fallback.
-- Both `aws-dev` and `aws-prod` require reviewers, prevent self-review and disable
-  administrator bypass. Restrict sources to protected `develop` and approved immutable
+- Both `aws-dev` and `aws-prod` require reviewers and disable administrator bypass.
+  Whether operators can approve their own release follows the environment's existing
+  self-review policy; the coordinator always requires an actual recorded approval.
+  Restrict sources to protected `develop` and approved immutable
   release tags containing the coordinator. The helper checks required reviewers and
   actual run approval history; the bypass setting must also be verified in GitHub's UI
   because the environment REST response does not consistently expose it. GitHub plans

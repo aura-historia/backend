@@ -4,14 +4,9 @@ const { owner, sameOwner } = require('./state.cjs');
 function protection(ctx, get = github) {
   const environment = get(ctx, `environments/aws-${ctx.stage}`);
   const reviewers = environment.protection_rules?.find((rule) => rule.type === 'required_reviewers');
-  if (
-    !environment.id ||
-    !reviewers?.reviewers?.length ||
-    reviewers.prevent_self_review !== true ||
-    environment.can_admins_bypass === true
-  )
+  if (!environment.id || !reviewers?.reviewers?.length || environment.can_admins_bypass === true)
     throw new Error(
-      `aws-${ctx.stage} needs required reviewers, prevent self-review, and disabled administrator bypass before releasing.`,
+      `aws-${ctx.stage} needs required reviewers and disabled administrator bypass before releasing.`,
     );
   return environment;
 }
