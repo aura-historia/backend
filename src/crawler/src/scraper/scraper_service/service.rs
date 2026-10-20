@@ -1,3 +1,4 @@
+use crate::authoring::CrawlerAuthoringMode;
 #[cfg(test)]
 use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
@@ -463,51 +464,10 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_seed_pages: usize,
     /// Hard limit for total LLM calls per ListingSource across the whole scrape.
     pub(crate) max_llm_calls_per_listing_source: i64,
+    /// Review gate for generated or operator-authored schemas; `None` persists generated
+    /// schemas directly, which only tests use.
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
-    pub(crate) review_required: bool,
-    pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SchemaLlmReviewMode {
-    HumanOnly,
-    ReportOnly,
-    AutoApproveHighConfidence,
-}
-
-impl SchemaLlmReviewMode {
-    pub fn from_env(review_required: bool) -> Self {
-        let fallback = if review_required {
-            Self::AutoApproveHighConfidence
-        } else {
-            Self::HumanOnly
-        };
-        std::env::var("CRAWLER_SCHEMA_LLM_REVIEW_MODE")
-            .ok()
-            .and_then(|raw| Self::parse(&raw))
-            .unwrap_or(fallback)
-    }
-
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "human_only" => Some(Self::HumanOnly),
-            "report_only" => Some(Self::ReportOnly),
-            "auto_approve_high_confidence" => Some(Self::AutoApproveHighConfidence),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn allows_auto_approval(self) -> bool {
-        matches!(self, Self::AutoApproveHighConfidence)
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::HumanOnly => "human_only",
-            Self::ReportOnly => "report_only",
-            Self::AutoApproveHighConfidence => "auto_approve_high_confidence",
-        }
-    }
+    pub(crate) authoring: CrawlerAuthoringMode,
 }
 
 impl ScraperServiceImpl {
@@ -545,25 +505,28 @@ impl ScraperServiceImpl {
             schema_seed_pages: schema_seed_pages.max(1),
             max_llm_calls_per_listing_source,
             review_repository: None,
-            review_required: false,
-            schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
+            authoring: CrawlerAuthoringMode::default(),
         }
     }
 
+    /// Attaches the review gate that `authoring` needs: every mode records generated or
+    /// operator-authored schemas as reviews before they become active.
     pub fn with_review_gate(
         mut self,
         review_repository: CrawlerReviewRepository,
-        review_required: bool,
+        authoring: CrawlerAuthoringMode,
     ) -> Self {
         self.review_repository = Some(review_repository);
-        self.review_required = review_required;
-        self.schema_llm_review_mode = SchemaLlmReviewMode::from_env(review_required);
+        self.authoring = authoring;
         self
     }
 
-    pub fn with_schema_llm_review_mode(mut self, mode: SchemaLlmReviewMode) -> Self {
-        self.schema_llm_review_mode = mode;
-        self
+    /// The repository for manual schema reviews, when an operator authors schemas.
+    pub(crate) fn manual_schema_review_repository(&self) -> Option<&CrawlerReviewRepository> {
+        match self.authoring {
+            CrawlerAuthoringMode::Manual => self.review_repository.as_ref(),
+            CrawlerAuthoringMode::Auto | CrawlerAuthoringMode::Review => None,
+        }
     }
 
     pub fn with_removed_page_schema_repository(
@@ -578,10 +541,6 @@ impl ScraperServiceImpl {
         &self,
         listing_source_id: &listing_source_core::ListingSourceId,
     ) -> Result<Option<crate::CrawlerReviewId>, ProductListingSchemaServiceError> {
-        if !self.review_required {
-            return Ok(None);
-        }
-
         let Some(review_repository) = &self.review_repository else {
             return Ok(None);
         };
@@ -595,7 +554,7 @@ impl ScraperServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode};
+    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
     use crate::network::policy::{NetworkErrorKind, RetryPolicy};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
     use std::time::{Duration, Instant};
@@ -662,29 +621,6 @@ mod tests {
             alpha: 0.15,
             enabled: true,
         }
-    }
-
-    #[test]
-    fn parses_schema_llm_review_modes() {
-        assert_eq!(
-            SchemaLlmReviewMode::parse("human_only"),
-            Some(SchemaLlmReviewMode::HumanOnly)
-        );
-        assert_eq!(
-            SchemaLlmReviewMode::parse("report_only"),
-            Some(SchemaLlmReviewMode::ReportOnly)
-        );
-        assert_eq!(
-            SchemaLlmReviewMode::parse("auto_approve_high_confidence"),
-            Some(SchemaLlmReviewMode::AutoApproveHighConfidence)
-        );
-        assert_eq!(SchemaLlmReviewMode::parse("unknown"), None);
-    }
-
-    #[test]
-    fn auto_approval_is_only_allowed_for_high_confidence_mode() {
-        assert!(!SchemaLlmReviewMode::ReportOnly.allows_auto_approval());
-        assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 
     #[tokio::test]

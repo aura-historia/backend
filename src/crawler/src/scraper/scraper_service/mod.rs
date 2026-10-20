@@ -25,5 +25,5 @@ pub use domain::product::{
 };
 pub use service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, DEFAULT_SCHEMA_SEED_PAGES, FetchError, FetchedHtml,
-    HtmlFetcher, MockHtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode, ScraperServiceImpl,
+    HtmlFetcher, MockHtmlFetcher, ReqwestHtmlFetcher, ScraperServiceImpl,
 };

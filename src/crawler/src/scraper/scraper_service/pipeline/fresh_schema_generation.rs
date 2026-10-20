@@ -41,6 +41,18 @@ impl ScraperServiceImpl {
         &self,
         ctx: FreshSchemaGenerationContext<'_>,
     ) -> Result<PreparedSchemaSelection, ScraperError> {
+        if let Some(review_repository) = self.manual_schema_review_repository() {
+            return Err(self
+                .open_manual_schema_review(
+                    review_repository,
+                    ctx.listing_source_id,
+                    ctx.url,
+                    ctx.existing_schemas,
+                    vec![triggering_page(&ctx)],
+                )
+                .await);
+        }
+
         let (generated_schema, reapplied, evaluation) = self
             .generate_single_schema_for_page(
                 ctx.listing_source_id,
@@ -89,11 +101,7 @@ impl ScraperServiceImpl {
                     .await?;
                 let mut persisted_schemas = ctx.existing_schemas.to_vec();
                 persisted_schemas.push(generated_schema.clone());
-                let pages = vec![SchemaReviewPageInput {
-                    url: ctx.url.to_string(),
-                    role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),
-                    raw_html: ctx.html.to_string(),
-                }];
+                let pages = vec![triggering_page(&ctx)];
                 match self
                     .handle_generated_schema_review(
                         ctx.listing_source_id,
@@ -140,5 +148,14 @@ impl ScraperServiceImpl {
                 Err(ScraperError::NormalizationError(norm_err))
             }
         }
+    }
+}
+
+/// The page whose cached schemas were exhausted, as review evidence.
+fn triggering_page(ctx: &FreshSchemaGenerationContext<'_>) -> SchemaReviewPageInput {
+    SchemaReviewPageInput {
+        url: ctx.url.to_string(),
+        role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),
+        raw_html: ctx.html.to_string(),
     }
 }

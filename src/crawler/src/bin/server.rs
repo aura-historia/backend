@@ -50,9 +50,7 @@ use crawler::logging::{
     ensure_cloudwatch_log_destination,
 };
 use crawler::review::server::ReviewServerConfig;
-use crawler::runtime::{
-    CrawlerLlmModels, CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations,
-};
+use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
@@ -340,7 +338,7 @@ async fn main() {
         let review_config =
             ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
         let runtime_config = CrawlerRuntimeConfig::from_env()
-            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+            .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
 
         // 4. Sync crawler scope from authoritative WebCrawl sources.
         let listing_source_source = Box::new(PostgresWebCrawlSource::new(Box::new(
@@ -358,7 +356,6 @@ async fn main() {
         ));
 
         // 6. Wire the shared crawler pipeline and run forever.
-        let models = CrawlerLlmModels::vertex_ai(&runtime_config);
         crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
@@ -368,7 +365,6 @@ async fn main() {
                 raw_capture,
             },
             runtime_config,
-            models,
         )
         .run()
         .await;
