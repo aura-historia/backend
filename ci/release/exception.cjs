@@ -64,6 +64,7 @@ async function exceptional(ctx, kind, store, selectedPlan) {
       throw new Error(
         'Adoption cannot discard an incomplete operation. Continue its recorded release or operation first.',
       );
+    console.log(`Adoption for ${ctx.stage}: checking existing stacks and deployed SHA ${ctx.sha}.`);
     const live = stacks.inspect(ctx);
     for (const name of ['initialize', 'compute'])
       if (stacks.parameters(live[name].stack).CommitSHA !== ctx.sha)
@@ -84,6 +85,9 @@ async function exceptional(ctx, kind, store, selectedPlan) {
         new Date(Date.now() - 300000).toISOString(),
         live,
       );
+    console.log(
+      `Adoption for ${ctx.stage}: checking capture configuration and workload activation, then recording the verified baseline.`,
+    );
     store.write(current, {
       ...current.state,
       completed: {

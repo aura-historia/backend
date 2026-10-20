@@ -104,8 +104,31 @@ test('unexplained lifecycle transitions and topology changes block admission', (
   );
   dms.admission(task('stopped'), { phase: 'PAUSING', dms: dms.evidence(task()) });
 });
-function healthApi({ idle = false, missing = false, errors = false, lag = 0, checkpoint = true } = {}) {
+function healthApi({
+  idle = false,
+  missing = false,
+  errors = false,
+  lag = 0,
+  checkpoint = true,
+  noWriteMetric = false,
+  readerAge = 0,
+  readRecords = 0,
+  successfulReads = 30,
+  staleReads = false,
+  mappingState = 'Enabled',
+  foreignMapping = false,
+} = {}) {
   return (_ctx, service, operation, args) => {
+    if (operation === 'get-event-source-mapping') {
+      assert.equal(service, 'lambda');
+      assert.deepEqual(args, ['--uuid', 'stage-router-mapping']);
+      return {
+        UUID: 'stage-router-mapping',
+        State: mappingState,
+        FunctionArn: `arn:aws:lambda:${ctx.region}:${ctx.account}:function:cdc-router-lambda-${ctx.stage}:20`,
+        EventSourceArn: `arn:aws:kinesis:${ctx.region}:${ctx.account}:stream/${foreignMapping ? 'foreign-stream' : 'stage-stream'}`,
+      };
+    }
     if (operation === 'describe-replication-instances')
       return {
         ReplicationInstances: [
@@ -128,6 +151,24 @@ function healthApi({ idle = false, missing = false, errors = false, lag = 0, che
     const name = args[args.indexOf('--metric-name') + 1],
       statistic = args[args.indexOf('--statistics') + 1];
     if (name === 'IteratorAge' && idle && lag === 0) return { Datapoints: [] };
+    if (name === 'IncomingRecords' && noWriteMetric) return { Datapoints: [] };
+    const reads = {
+      'GetRecords.IteratorAgeMilliseconds': readerAge,
+      'GetRecords.Records': readRecords,
+      'GetRecords.Success': successfulReads,
+    };
+    if (Object.hasOwn(reads, name))
+      return {
+        Datapoints:
+          reads[name] === null
+            ? []
+            : [
+                {
+                  Timestamp: new Date(Date.now() - (staleReads ? 600000 : 0)).toISOString(),
+                  [statistic]: reads[name],
+                },
+              ],
+      };
     return {
       Datapoints: missing
         ? []
@@ -147,6 +188,19 @@ function healthApi({ idle = false, missing = false, errors = false, lag = 0, che
 }
 const streamStacks = {
   data: { resources: [{ ResourceType: 'AWS::Kinesis::Stream', PhysicalResourceId: 'stage-stream' }] },
+  compute: {
+    stack: {
+      Outputs: [
+        {
+          ExportName: `aura-historia-cdc-router-event-source-mapping-id-${ctx.stage}`,
+          OutputValue: 'stage-router-mapping',
+        },
+      ],
+    },
+    resources: [
+      { ResourceType: 'AWS::Lambda::EventSourceMapping', PhysicalResourceId: 'stage-router-mapping' },
+    ],
+  },
 };
 for (const idle of [false, true])
   test(`bounded CDC verification handles ${idle ? 'idle source with no router invocations' : 'checkpoint progress'}`, async () => {
@@ -188,6 +242,90 @@ test('disabled router is preserved and exempt only from router lag, not capture 
     new Date(Date.now() - 10000).toISOString(),
     streamStacks,
     { api: healthApi({ lag: 999999 }), attempts: 1 },
+  );
+});
+test('idle adoption completes with fresh caught-up empty polls when write and invocation metrics are absent', async () => {
+  const messages = [];
+  const result = await dms.health(
+    ctx,
+    dms.evidence(task()),
+    'true',
+    new Date(Date.now() - 300000).toISOString(),
+    streamStacks,
+    {
+      api: healthApi({ idle: true, checkpoint: false, noWriteMetric: true }),
+      delay: async () => assert.fail('Healthy idle stream must not wait'),
+      attempts: 1,
+      report: (message) => messages.push(message),
+    },
+  );
+  assert.equal(result.idleSource, true);
+  assert.equal(result.idleStream, true);
+  assert.equal(result.routerAgeMs, null);
+  assert.equal(result.streamReadAgeMs, 0);
+  assert.equal(result.streamReadRecords, 0);
+  assert.equal(result.streamSuccessfulReads, 30);
+  assert.ok(messages.some((message) => message.includes('Healthy') && message.includes('router=missing')));
+});
+for (const scenario of [
+  { readerAge: 1 },
+  { readRecords: 1 },
+  { successfulReads: 0 },
+  { readerAge: null },
+  { readRecords: null },
+  { successfulReads: null },
+  { staleReads: true },
+])
+  test(`idle fallback rejects missing, stale or nonempty read evidence ${JSON.stringify(scenario)}`, async () => {
+    const messages = [];
+    await assert.rejects(
+      dms.health(
+        ctx,
+        dms.evidence(task()),
+        'true',
+        new Date(Date.now() - 300000).toISOString(),
+        streamStacks,
+        {
+          api: healthApi({ idle: true, checkpoint: false, noWriteMetric: true, ...scenario }),
+          delay: async () => {},
+          attempts: 1,
+          report: (message) => messages.push(message),
+        },
+      ),
+      /exceeded.*fresh router age or verified idle stream reads/,
+    );
+    assert.ok(
+      messages.some((message) => message.includes('Waiting for') && message.includes('idleStream=missing')),
+    );
+  });
+for (const scenario of [{ mappingState: 'Disabled' }, { foreignMapping: true }])
+  test(`health verification rejects a disabled or foreign CDC router ${JSON.stringify(scenario)}`, async () => {
+    await assert.rejects(
+      dms.health(
+        ctx,
+        dms.evidence(task()),
+        'true',
+        new Date(Date.now() - 300000).toISOString(),
+        streamStacks,
+        {
+          api: healthApi({ idle: true, noWriteMetric: true, ...scenario }),
+          attempts: 1,
+          report: () => {},
+        },
+      ),
+      /router mapping/,
+    );
+  });
+test('health verification requires the router mapping export to be owned by the compute stack', async () => {
+  const live = clone(streamStacks);
+  live.compute.resources = [];
+  await assert.rejects(
+    dms.health(ctx, dms.evidence(task()), 'true', new Date(Date.now() - 300000).toISOString(), live, {
+      api: healthApi({ idle: true, noWriteMetric: true }),
+      attempts: 1,
+      report: () => {},
+    }),
+    /stage-owned CDC router mapping/,
   );
 });
 test('runner-independent monitor alerts on overdue pauses without any DMS capability', () => {
