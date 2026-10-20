@@ -101,7 +101,7 @@ async fn get_partnerships(
     query: &[(&str, &str)],
 ) -> (reqwest::StatusCode, Value, Option<String>) {
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/partnerships", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/partnerships", AURA_API.base_url()))
         .bearer_auth(token)
         .query(query)
         .send()
@@ -122,7 +122,7 @@ async fn get_partnership_detail(
 ) -> (reqwest::StatusCode, Value, Option<String>) {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}",
+            "{}/v1/admin/partnerships/{partnership_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -145,7 +145,7 @@ async fn put_partnership_member(
 ) -> reqwest::Response {
     reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+            "{}/v1/admin/partnerships/{partnership_id}/members/{user_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -161,7 +161,7 @@ async fn put_partnership_listing_source_grant(
 ) -> reqwest::Response {
     reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+            "{}/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -177,13 +177,15 @@ async fn delete_partnership_listing_source_grant(
 ) -> reqwest::Response {
     reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+            "{}/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to revoke Partnership ListingSource access: {error}"))
+        .unwrap_or_else(|error| {
+            panic!("failed to revoke Partnership ListingSource access: {error}")
+        })
 }
 
 async fn delete_partnership_member(
@@ -193,7 +195,7 @@ async fn delete_partnership_member(
 ) -> reqwest::Response {
     reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+            "{}/v1/admin/partnerships/{partnership_id}/members/{user_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -205,7 +207,7 @@ async fn delete_partnership_member(
 async fn delete_partnership(token: &str, partnership_id: &str) -> reqwest::Response {
     reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/partnerships/{partnership_id}",
+            "{}/v1/admin/partnerships/{partnership_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)
@@ -800,7 +802,7 @@ async fn should_revoke_admin_partnership_membership_idempotently_and_preserve_re
 
     let before_revoke = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -839,7 +841,7 @@ async fn should_revoke_admin_partnership_membership_idempotently_and_preserve_re
 
     let after_revoke = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -962,7 +964,7 @@ async fn should_grant_admin_partnership_listing_source_idempotently_and_enable_p
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -1009,7 +1011,7 @@ async fn should_revoke_admin_partnership_listing_source_idempotently_and_preserv
 
     let before_revoke = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -1048,7 +1050,7 @@ async fn should_revoke_admin_partnership_listing_source_idempotently_and_preserv
 
     let after_revoke = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -1570,7 +1572,7 @@ async fn should_dissolve_partnership_idempotently_revoke_access_and_preserve_his
 
     let before_dissolve = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)
@@ -1602,7 +1604,7 @@ async fn should_dissolve_partnership_idempotently_revoke_access_and_preserve_his
 
     let after_dissolve = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings",
             AURA_API.base_url()
         ))
         .bearer_auth(&partner_token)

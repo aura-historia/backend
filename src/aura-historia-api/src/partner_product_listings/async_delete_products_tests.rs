@@ -121,7 +121,7 @@ impl ProductListingIngestionPublisher for Publisher {
 fn app(publisher: Publisher, writer: bool) -> Router {
     Router::new()
         .route(
-            "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+            "/v1/listing-sources/{listing_source_id}/product-listings/async",
             delete(delete_products),
         )
         .with_state(AsyncPartnerProductListingsState::new(
@@ -133,7 +133,7 @@ fn app(publisher: Publisher, writer: bool) -> Router {
         ))
 }
 fn path(id: ListingSourceId) -> String {
-    format!("/api/v1/listing-sources/{id}/product-listings/async")
+    format!("/v1/listing-sources/{id}/product-listings/async")
 }
 async fn request(
     app: &Router,
@@ -337,7 +337,7 @@ async fn request_wide_errors_never_publish() {
     assert_eq!(
         request(
             &app,
-            "/api/v1/listing-sources/bad/product-listings/async",
+            "/v1/listing-sources/bad/product-listings/async",
             "[]",
             None,
             Some("token")

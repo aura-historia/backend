@@ -153,10 +153,7 @@ mod tests {
         };
         (
             Router::new()
-                .route(
-                    "/api/v1/admin/users/{user_id}/sessions/revoke",
-                    post(endpoint),
-                )
+                .route("/v1/admin/users/{user_id}/sessions/revoke", post(endpoint))
                 .with_state(state),
             commands,
         )
@@ -167,7 +164,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/v1/admin/users/{user_id}/sessions/revoke"))
+                    .uri(format!("/v1/admin/users/{user_id}/sessions/revoke"))
                     .header(header::AUTHORIZATION, "Bearer test-token")
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),

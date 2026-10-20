@@ -458,12 +458,9 @@ mod tests {
             PublicListingSourceReadBudget::new(2, Duration::from_secs(1)),
         );
         Router::new()
+            .route("/v1/listing-sources", get(search_public_listing_sources))
             .route(
-                "/api/v1/listing-sources",
-                get(search_public_listing_sources),
-            )
-            .route(
-                "/api/v1/listing-sources/by-slug/{listing_source_slug_id}",
+                "/v1/listing-sources/by-slug/{listing_source_slug_id}",
                 get(crate::listing_sources::get_listing_source_by_slug::get_listing_source_by_slug),
             )
             .with_state(state)
@@ -495,7 +492,7 @@ mod tests {
     async fn should_cache_anonymous_listing_source_search_for_three_hundred_seconds()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app()
-            .oneshot(Request::get("/api/v1/listing-sources?query=source").body(Body::empty())?)
+            .oneshot(Request::get("/v1/listing-sources?query=source").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
@@ -521,7 +518,7 @@ mod tests {
             let response = app
                 .clone()
                 .oneshot(
-                    Request::get("/api/v1/listing-sources?query=source")
+                    Request::get("/v1/listing-sources?query=source")
                         .header(header::ORIGIN, origin)
                         .body(Body::empty())?,
                 )
@@ -554,7 +551,7 @@ mod tests {
     async fn should_cache_anonymous_listing_source_slug_for_three_hundred_seconds()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app()
-            .oneshot(Request::get("/api/v1/listing-sources/by-slug/source").body(Body::empty())?)
+            .oneshot(Request::get("/v1/listing-sources/by-slug/source").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
@@ -572,7 +569,7 @@ mod tests {
 
         let search_response = app_with_auth(authenticator)
             .oneshot(
-                Request::get("/api/v1/listing-sources?query=source")
+                Request::get("/v1/listing-sources?query=source")
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -585,7 +582,7 @@ mod tests {
 
         let detail_response = app_with_auth(authenticator)
             .oneshot(
-                Request::get("/api/v1/listing-sources/by-slug/source")
+                Request::get("/v1/listing-sources/by-slug/source")
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -603,7 +600,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app()
             .oneshot(
-                Request::get("/api/v1/listing-sources?query=source")
+                Request::get("/v1/listing-sources?query=source")
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::empty())?,
             )

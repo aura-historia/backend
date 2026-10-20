@@ -107,7 +107,7 @@ struct Fixture {
 }
 impl Fixture {
     fn collection(&self) -> String {
-        format!("/api/v1/listing-sources/{}/product-listings", self.source)
+        format!("/v1/listing-sources/{}/product-listings", self.source)
     }
     fn detail(&self) -> String {
         format!("{}/{}", self.collection(), self.id)
@@ -366,10 +366,7 @@ async fn every_endpoint_requires_source_grant_and_matching_delegated_capability(
             }
         }
     }
-    let other = format!(
-        "/api/v1/listing-sources/{}/product-listings",
-        f.other_source
-    );
+    let other = format!("/v1/listing-sources/{}/product-listings", f.other_source);
     for (method, directory) in [
         ("GET", true),
         ("GET", false),
@@ -644,10 +641,7 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
     }
     // Give access to another source so a cursor-scope failure is tested after authorization.
     sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id,listing_source_id) SELECT partnership_id,$1 FROM partnership_members WHERE user_id=$2").bind(f.other_source.as_uuid()).bind(f.authenticator.user.as_uuid()).execute(&f.pool).await.unwrap();
-    let other = format!(
-        "/api/v1/listing-sources/{}/product-listings",
-        f.other_source
-    );
+    let other = format!("/v1/listing-sources/{}/product-listings", f.other_source);
     assert_eq!(
         StatusCode::BAD_REQUEST,
         request(
@@ -676,7 +670,7 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
     let empty_source = ListingSourceId::new();
     sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id) SELECT $1,$2,'Empty source',operator_party_id FROM listing_sources WHERE listing_source_id=$3").bind(empty_source.as_uuid()).bind(format!("empty-{}",empty_source.as_uuid())).bind(f.source.as_uuid()).execute(&f.pool).await.unwrap();
     sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id,listing_source_id) SELECT partnership_id,$1 FROM partnership_members WHERE user_id=$2").bind(empty_source.as_uuid()).bind(f.authenticator.user.as_uuid()).execute(&f.pool).await.unwrap();
-    let other = format!("/api/v1/listing-sources/{empty_source}/product-listings");
+    let other = format!("/v1/listing-sources/{empty_source}/product-listings");
     let (status, page) = request(&f.app, "GET", &other, Some("partner"), Value::Null).await;
     assert_eq!(StatusCode::OK, status);
     assert_eq!(json!([]), page["items"]);
@@ -993,7 +987,7 @@ async fn rejects_malformed_ids_versions_fields_and_directory_input() {
             request(
                 &f.app,
                 "GET",
-                &format!("/api/v1/listing-sources/{id}/product-listings"),
+                &format!("/v1/listing-sources/{id}/product-listings"),
                 Some("partner"),
                 Value::Null
             )

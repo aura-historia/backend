@@ -235,7 +235,7 @@ fn router(
 }
 
 fn request(remaining: Duration) -> lambda_http::Request {
-    let path = format!("/api/v1/webhooks/woocommerce/{SOURCE_ID}");
+    let path = format!("/v1/webhooks/woocommerce/{SOURCE_ID}");
     let event = json!({
         "version": "2.0", "routeKey": "$default", "rawPath": path, "rawQueryString": "",
         "headers": {

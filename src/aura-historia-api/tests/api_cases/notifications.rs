@@ -764,7 +764,7 @@ async fn should_preserve_source_currency_for_opposite_user_preferences() {
 }
 
 fn notifications_path() -> String {
-    format!("{}/api/v1/me/notifications", AURA_API.base_url())
+    format!("{}/v1/me/notifications", AURA_API.base_url())
 }
 
 fn notification_path(notification_id: NotificationId) -> String {

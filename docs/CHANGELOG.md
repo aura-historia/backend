@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+
+## 2026-10-20 — REST base path development cutover (#2216)
+
+- **Breaking development change:** all REST operations now use `/v1/...` on `https://api.aura-historia.com` and `https://api.stage.aura-historia.com`, replacing `/api/v1/...`. The old routes are removed without aliases, redirects or a deprecation period. Generated `Location` headers use `/v1/...`; operation IDs, authentication, request/response schemas and operation/retry semantics are unchanged.
+- Update backend callers (including webapp OAuth consent approval), advertised Aura OAuth authorization/token endpoints, and registered WooCommerce/Loops HTTP webhook destinations together. Client callback URLs, webapp-owned `/api/...` routes and third-party provider API URLs are independent and must not be rewritten unless they actually target a renamed backend route. See the [front-door cutover requirements](http-api-front-door.md#rest-client-and-provider-configuration).
+- Earlier entries retain the paths that applied when they were published.
+
 ## 2026-10-20 — Delegated access-token management cannot expand authority (#2212)
 
 - `POST /api/v1/me/access-tokens` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write`, receives `403 FORBIDDEN` and no token is created. OpenAPI no longer lists `AccessTokenAuth` for this operation. Integrations that minted tokens with an Aura access token must create them while signed in instead.

@@ -461,7 +461,7 @@ async fn select_country(book: &Book, owner: UserId, postal: Option<&str>, versio
 #[aura_integration_test(services=[SCHEMA])]
 async fn listings_return_generic_terms_and_selected_destination_personalization() {
     let (_, router, book, owner, _, id) = fixture().await;
-    let path = format!("/api/v1/product-listings/{id}");
+    let path = format!("/v1/product-listings/{id}");
     let (status, anon) = request(&router, &path, None).await;
     assert_eq!(StatusCode::OK, status, "{anon}");
     let shipping = &anon["item"]["shipping"];
@@ -531,7 +531,7 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
         .unwrap();
     let (status, by_slug) = request(
         &router,
-        &format!("/api/v1/product-listings/by-slug/{slug}"),
+        &format!("/v1/product-listings/by-slug/{slug}"),
         Some("owner"),
     )
     .await;
@@ -551,7 +551,7 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
 async fn current_profile_changes_overrides_observation_age_and_suspension_are_reflected() {
     let (p, router, book, owner, profile, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
-    let path = format!("/api/v1/product-listings/{id}");
+    let path = format!("/v1/product-listings/{id}");
     let (_, first) = request(&router, &path, Some("owner")).await;
     let source: ListingSourceId = first["item"]["source"]["listingSourceId"]
         .as_str()
@@ -642,8 +642,8 @@ async fn current_profile_changes_overrides_observation_age_and_suspension_are_re
     );
     assert_eq!(StatusCode::OK, request(&router, &path, None).await.0);
     for path in [
-        format!("/api/v1/product-listings/{id}/delivery-assessment"),
-        "/api/v1/product-listings/delivery-assessments".into(),
+        format!("/v1/product-listings/{id}/delivery-assessment"),
+        "/v1/product-listings/delivery-assessments".into(),
     ] {
         let response = router
             .clone()
@@ -663,7 +663,7 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
     };
     let (p, router, book, user, profile, id) = fixture().await;
     select_country(&book, user, None, 1).await;
-    let path = format!("/api/v1/product-listings/{id}");
+    let path = format!("/v1/product-listings/{id}");
     let(source,owner):(uuid::Uuid,uuid::Uuid)=sqlx::query_as("SELECT s.listing_source_id,s.operator_party_id FROM listing_sources s JOIN product_listings l USING(listing_source_id) WHERE l.product_listing_id=$1").bind(id.into_uuid()).fetch_one(&p).await.unwrap();
     let source = ListingSourceId::try_from(source).unwrap();
     let site = party_core::party_location_id::PartyLocationId::new();
@@ -931,7 +931,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         1,
         old_rate_membership(&client).await["hits"]["total"]["value"]
     );
-    let (status, before) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    let (status, before) = request(&router, "/v1/product-listings", Some("owner")).await;
     assert_eq!(StatusCode::OK, status, "{before}");
     let source_id: ListingSourceId = sqlx::query_scalar::<_, uuid::Uuid>(
         "SELECT listing_source_id FROM product_listings WHERE product_listing_id=$1",
@@ -964,7 +964,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     )
     .await
     .unwrap();
-    let (status, current) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    let (status, current) = request(&router, "/v1/product-listings", Some("owner")).await;
     assert_eq!(StatusCode::OK, status, "{current}");
     assert_eq!(1, current["size"]);
     assert_eq!(1, current["total"]);
@@ -999,7 +999,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         0,
         old_rate_membership(&client).await["hits"]["total"]["value"]
     );
-    let (_, caught_up) = request(&router, "/api/v1/product-listings", Some("owner")).await;
+    let (_, caught_up) = request(&router, "/v1/product-listings", Some("owner")).await;
     assert_eq!(current["total"], caught_up["total"]);
     assert_eq!(current["size"], caught_up["size"]);
     assert_eq!(
@@ -1011,7 +1011,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
 #[aura_integration_test(services=[SCHEMA])]
 async fn search_country_is_independent_of_browsing_and_current_shipping_during_projection_lag() {
     let ((p, router, book, owner, profile, _), indexed) = fixture_with_projection().await;
-    let path = "/api/v1/product-listings?shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=EUR";
+    let path = "/v1/product-listings?shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=EUR";
     let (status, before) = request(&router, path, None).await;
     assert_eq!(StatusCode::OK, status, "{before}");
     assert_eq!(1, before["total"]);
@@ -1069,7 +1069,7 @@ async fn search_country_is_independent_of_browsing_and_current_shipping_during_p
     assert!(converged["items"].as_array().unwrap().is_empty());
     let (_, collection) = request(
         &router,
-        "/api/v1/product-listings?shipping[collectionOffered]=true",
+        "/v1/product-listings?shipping[collectionOffered]=true",
         None,
     )
     .await;
@@ -1441,7 +1441,7 @@ async fn capture_shipping_fx(pool: &PgPool, usd_units: i64) -> fxrate_core::FxRa
 async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_continuation() {
     let (pool, router, book, owner, _, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
-    let query = "/api/v1/product-listings?currency=USD&shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[interpretation]=WHOLE_COUNTRY_PER_ITEM_FX_V1&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=USD";
+    let query = "/v1/product-listings?currency=USD&shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[interpretation]=WHOLE_COUNTRY_PER_ITEM_FX_V1&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=USD";
     let (status, first) = request(&router, query, None).await;
     assert_eq!(StatusCode::OK, status, "{first}");
     assert_eq!(1, first["total"]);
@@ -1493,13 +1493,13 @@ async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_co
     assert_eq!(0, native["total"]);
     let (_, eur) = request(
         &router,
-        &format!("/api/v1/product-listings/{id}?currency=EUR"),
+        &format!("/v1/product-listings/{id}?currency=EUR"),
         None,
     )
     .await;
     let (_, usd) = request(
         &router,
-        &format!("/api/v1/product-listings/{id}?currency=USD"),
+        &format!("/v1/product-listings/{id}?currency=USD"),
         None,
     )
     .await;
@@ -1522,7 +1522,7 @@ async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_co
         .bind(id.into_uuid()).bind(old_fx).execute(&pool).await.unwrap();
     let (status, sold) = request(
         &router,
-        &format!("/api/v1/product-listings/{id}?currency=USD"),
+        &format!("/v1/product-listings/{id}?currency=USD"),
         None,
     )
     .await;

@@ -112,16 +112,15 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
     let async_ingestion = matches!(
         request.method(),
         &Method::POST | &Method::PATCH | &Method::PUT | &Method::DELETE
-    ) && path.starts_with("/api/v1/listing-sources/")
+    ) && path.starts_with("/v1/listing-sources/")
         && path.ends_with("/product-listings/async");
     let woocommerce_webhook = request.method() == Method::POST
         && path
-            .strip_prefix("/api/v1/webhooks/woocommerce/")
+            .strip_prefix("/v1/webhooks/woocommerce/")
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
-    let loops_webhook = request.method() == Method::POST && path == "/api/v1/webhooks/loops";
-    let newsletter = (request.method() == Method::PUT
-        && path == "/api/v1/newsletter-subscriptions")
-        || (request.method() == Method::POST && path == "/api/v1/newsletter-subscriptions/confirm");
+    let loops_webhook = request.method() == Method::POST && path == "/v1/webhooks/loops";
+    let newsletter = (request.method() == Method::PUT && path == "/v1/newsletter-subscriptions")
+        || (request.method() == Method::POST && path == "/v1/newsletter-subscriptions/confirm");
     let response = next.run(request).await;
     if (async_ingestion || woocommerce_webhook || loops_webhook || newsletter)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
@@ -154,9 +153,16 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
 }
 
 fn safe_request_path(path: &str) -> &str {
-    path.strip_prefix("/api/v1/listing-sources/by-slug/")
-        .map(|_| "/api/v1/listing-sources/by-slug/{listingSourceSlugId}")
-        .unwrap_or(path)
+    match path {
+        path if path.starts_with("/v1/listing-sources/by-slug/") => {
+            "/v1/listing-sources/by-slug/{listingSourceSlugId}"
+        }
+        // Rejected legacy requests still pass through tracing; this is not a route alias.
+        path if path.starts_with("/api/v1/listing-sources/by-slug/") => {
+            "/api/v1/listing-sources/by-slug/{listingSourceSlugId}"
+        }
+        _ => path,
+    }
 }
 
 async fn request_metadata(mut request: Request, next: Next) -> Response {
@@ -202,7 +208,7 @@ mod tests {
     use super::*;
     use axum::body::{Body, Bytes, to_bytes};
     use axum::http::{Request, StatusCode};
-    use axum::routing::{get, post};
+    use axum::routing::get;
     use tower::ServiceExt;
 
     fn app() -> Router {
@@ -390,42 +396,119 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case(
+        Method::POST,
+        "/v1/webhooks/woocommerce/ls_test",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::POST,
+        "/v1/webhooks/loops",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::POST,
+        "/v1/listing-sources/ls_test/product-listings/async",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::PATCH,
+        "/v1/listing-sources/ls_test/product-listings/async",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::PUT,
+        "/v1/listing-sources/ls_test/product-listings/async",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::DELETE,
+        "/v1/listing-sources/ls_test/product-listings/async",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::PUT,
+        "/v1/newsletter-subscriptions",
+        StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+        "no-store"
+    )]
+    #[case(
+        Method::POST,
+        "/v1/newsletter-subscriptions/confirm",
+        StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+        "no-store"
+    )]
     #[tokio::test]
-    async fn should_return_api_error_for_oversized_woocommerce_body() {
+    async fn should_preserve_path_specific_errors_for_oversized_canonical_requests(
+        #[case] method: Method,
+        #[case] path: &str,
+        #[case] status: StatusCode,
+        #[case] error: &str,
+        #[case] cache_control: &str,
+    ) {
         let app = with_transport_middleware(
             Router::new().route(
-                "/api/v1/webhooks/woocommerce/{source}",
-                post(|_: Bytes| async { StatusCode::NO_CONTENT }),
+                path,
+                axum::routing::on(
+                    axum::routing::MethodFilter::try_from(method.clone()).unwrap(),
+                    |_: Bytes| async { StatusCode::NO_CONTENT },
+                ),
             ),
             NATIVE_REQUEST_TIMEOUT,
         );
         let response = app
             .oneshot(
                 Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/v1/webhooks/woocommerce/ls_test")
+                    .method(method)
+                    .uri(path)
                     .body(Body::from(vec![b'a'; MAX_REQUEST_BODY_BYTES + 1]))
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, response.status());
-        assert_eq!(
-            "private, no-store",
-            response.headers()[header::CACHE_CONTROL]
-        );
+        assert_eq!(status, response.status());
+        assert_eq!(cache_control, response.headers()[header::CACHE_CONTROL]);
         assert_eq!(
             "application/problem+json",
             response.headers()[header::CONTENT_TYPE]
         );
+        assert!(!response.headers().contains_key(header::LOCATION));
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert_eq!("BAD_BODY_VALUE", body["error"]);
+        assert_eq!(error, body["error"]);
     }
 
     #[test]
     fn should_redact_public_listing_source_slug_from_request_trace_path() {
+        assert_eq!(
+            "/v1/listing-sources/by-slug/{listingSourceSlugId}",
+            safe_request_path("/v1/listing-sources/by-slug/private-source-slug"),
+        );
+        assert_eq!("/v1/health", safe_request_path("/v1/health"));
+        assert_eq!(
+            "/v1/listing-sources/by-slugged/private-source-slug",
+            safe_request_path("/v1/listing-sources/by-slugged/private-source-slug"),
+        );
+    }
+
+    #[test]
+    fn should_redact_public_listing_source_slug_when_legacy_request_is_rejected() {
         assert_eq!(
             "/api/v1/listing-sources/by-slug/{listingSourceSlugId}",
             safe_request_path("/api/v1/listing-sources/by-slug/private-source-slug"),

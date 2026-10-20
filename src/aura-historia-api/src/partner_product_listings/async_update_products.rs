@@ -163,7 +163,7 @@ mod tests {
     fn app(publisher: Publisher, writer: bool) -> Router {
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+                "/v1/listing-sources/{listing_source_id}/product-listings/async",
                 post(crate::partner_product_listings::async_create_products::create_products)
                     .patch(update_products),
             )
@@ -198,7 +198,7 @@ mod tests {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
     }
     fn path(id: ListingSourceId) -> String {
-        format!("/api/v1/listing-sources/{id}/product-listings/async")
+        format!("/v1/listing-sources/{id}/product-listings/async")
     }
 
     #[tokio::test]
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(
             request(
                 &app,
-                "/api/v1/listing-sources/bad/product-listings/async",
+                "/v1/listing-sources/bad/product-listings/async",
                 "[]",
                 None,
                 true

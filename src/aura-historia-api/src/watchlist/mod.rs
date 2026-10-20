@@ -127,12 +127,12 @@ mod tests {
     async fn should_map_watch_product_listing_unavailable_from_controller()
     -> Result<(), Box<dyn std::error::Error>> {
         let app = Router::new()
-            .route("/api/v1/me/watchlist", axum::routing::post(post_watchlist))
+            .route("/v1/me/watchlist", axum::routing::post(post_watchlist))
             .with_state(state(UserId::new()));
 
         let response = app
             .oneshot(
-                Request::post("/api/v1/me/watchlist")
+                Request::post("/v1/me/watchlist")
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(format!(
@@ -156,14 +156,14 @@ mod tests {
         let product_listing_id = ProductListingId::new();
         let app = Router::new()
             .route(
-                "/api/v1/me/watchlist/{product_listing_id}",
+                "/v1/me/watchlist/{product_listing_id}",
                 axum::routing::patch(patch_watchlist),
             )
             .with_state(state(UserId::new()));
 
         let response = app
             .oneshot(
-                Request::patch(format!("/api/v1/me/watchlist/{product_listing_id}"))
+                Request::patch(format!("/v1/me/watchlist/{product_listing_id}"))
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(r#"{"state":"ACTIVE"}"#))?,

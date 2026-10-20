@@ -467,7 +467,7 @@ async fn should_verify_webhooks_against_rotated_secret_using_exact_raw_body() {
         );
         let rotation = reqwest::Client::new()
             .put(format!(
-                "{}/api/v1/listing-sources/{source}/ingestion-configurations/woocommerce",
+                "{}/v1/listing-sources/{source}/ingestion-configurations/woocommerce",
                 AURA_API.base_url()
             ))
             .bearer_auth(partner_token)
@@ -522,10 +522,7 @@ async fn should_reject_missing_invalid_or_tampered_signatures_before_publication
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
         let body = json!({"id": 23}).to_string();
-        let url = format!(
-            "{}/api/v1/webhooks/woocommerce/{source}",
-            AURA_API.base_url()
-        );
+        let url = format!("{}/v1/webhooks/woocommerce/{source}", AURA_API.base_url());
         let client = reqwest::Client::new();
         for signature_header in [
             None,
@@ -966,7 +963,7 @@ async fn send_signed(
 ) -> Result<reqwest::Response, reqwest::Error> {
     let request = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/webhooks/woocommerce/{source}",
+            "{}/v1/webhooks/woocommerce/{source}",
             AURA_API.base_url()
         ))
         .bearer_auth(token)

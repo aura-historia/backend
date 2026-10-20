@@ -9,7 +9,7 @@ use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 async fn should_request_newsletter_confirmation_anonymously() {
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/newsletter-subscriptions",
+            "{}/v1/newsletter-subscriptions",
             AURA_API.base_url()
         ))
         .json(&serde_json::json!({
@@ -47,7 +47,7 @@ async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
     for email in [account_email.as_str(), "alternate@example.com"] {
         let response = reqwest::Client::new()
             .put(format!(
-                "{}/api/v1/newsletter-subscriptions",
+                "{}/v1/newsletter-subscriptions",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -71,7 +71,7 @@ async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
 async fn should_route_anonymous_newsletter_confirmation_without_authentication() {
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/newsletter-subscriptions/confirm",
+            "{}/v1/newsletter-subscriptions/confirm",
             AURA_API.base_url()
         ))
         .json(&serde_json::json!({ "token": "opaque-confirmation-token" }))
@@ -94,7 +94,7 @@ async fn should_route_anonymous_newsletter_confirmation_without_authentication()
 async fn should_reject_invalid_newsletter_request_body() {
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/newsletter-subscriptions",
+            "{}/v1/newsletter-subscriptions",
             AURA_API.base_url()
         ))
         .body("not-json")
@@ -118,10 +118,10 @@ async fn should_reject_invalid_newsletter_request_body() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_map_transport_oversized_newsletter_body_to_bad_body_value() {
     for (method, path) in [
-        (reqwest::Method::PUT, "/api/v1/newsletter-subscriptions"),
+        (reqwest::Method::PUT, "/v1/newsletter-subscriptions"),
         (
             reqwest::Method::POST,
-            "/api/v1/newsletter-subscriptions/confirm",
+            "/v1/newsletter-subscriptions/confirm",
         ),
     ] {
         let response = reqwest::Client::new()
@@ -348,7 +348,7 @@ async fn should_roll_back_newsletter_consent_and_intent_when_proof_completion_fa
 async fn request_real_confirmation(email: &str) -> String {
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/newsletter-subscriptions",
+            "{}/v1/newsletter-subscriptions",
             NEWSLETTER_C09_API.base_url()
         ))
         .json(&serde_json::json!({ "email": email }))
@@ -362,7 +362,7 @@ async fn request_real_confirmation(email: &str) -> String {
 async fn post_real_confirmation(token: &str) -> reqwest::Response {
     reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/newsletter-subscriptions/confirm",
+            "{}/v1/newsletter-subscriptions/confirm",
             NEWSLETTER_C09_API.base_url()
         ))
         .json(&serde_json::json!({ "token": token }))
@@ -375,7 +375,7 @@ async fn post_real_confirmation(token: &str) -> reqwest::Response {
 async fn should_reject_invalid_supplied_newsletter_bearer_token() {
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/newsletter-subscriptions",
+            "{}/v1/newsletter-subscriptions",
             AURA_API.base_url()
         ))
         .bearer_auth("invalid-token")

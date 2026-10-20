@@ -63,7 +63,7 @@ static AURA_API_WITH_ASSESSMENT_SEARCH_CACHES: AuraHistoriaApi =
 async fn should_get_product_details_by_id() {
     let product_listing_id = seed_product().await;
 
-    let response = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let response = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let cache_control = response
         .0
         .headers()
@@ -141,7 +141,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
     candidate["url"] = json!(raw_url);
     index_existing_listing_source_document(candidate).await;
 
-    let path = "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Cached%20source%20freshness%20candidate";
+    let path = "/v1/product-listings?language=en&currency=USD&productQuery[0]=Cached%20source%20freshness%20candidate";
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(
         seed_access_token_for(
@@ -182,7 +182,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
     let client = reqwest::Client::new();
     let update = client
         .patch(format!(
-            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            "{}/v1/admin/listing-sources/{listing_source_id}",
             AURA_API_WITH_SEARCH_CACHES.base_url()
         ))
         .bearer_auth(&token)
@@ -201,7 +201,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
 
     let admin_read = client
         .get(format!(
-            "{}/api/v1/admin/listing-sources?listingSourceId={listing_source_id}",
+            "{}/v1/admin/listing-sources?listingSourceId={listing_source_id}",
             AURA_API_WITH_SEARCH_CACHES.base_url()
         ))
         .bearer_auth(&token)
@@ -290,7 +290,7 @@ async fn should_apply_same_content_source_assessment_corrections_with_warm_searc
     .await
     .unwrap_or_else(|error| panic!("failed to seed allowed assessment: {error}"));
 
-    let path = "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Cached%20assessment%20correction%20cabinet";
+    let path = "/v1/product-listings?language=en&currency=USD&productQuery[0]=Cached%20assessment%20correction%20cabinet";
     let (response, _) =
         get_json_from(AURA_API_WITH_ASSESSMENT_SEARCH_CACHES.base_url(), path).await;
     let (status, body) = json_response(response).await;
@@ -377,8 +377,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     candidate = with_embedding(candidate, vec![1.0; embedding::EMBEDDING_DIMENSIONS]);
     index_existing_listing_source_document(candidate).await;
 
-    let (before_response, _) =
-        get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (before_response, _) = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let (before_status, before_body) = json_response(before_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
@@ -397,7 +396,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     );
     let update_response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            "{}/v1/admin/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(&token)
@@ -418,7 +417,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
     assert_eq!(projection_version, projection_version_after);
 
-    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_response, _) = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let (id_status, id_body) = json_response(id_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
@@ -427,8 +426,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     );
     assert_product_view_urls(&id_body["item"], raw_url, partnerize_url);
 
-    let (slug_response, _) =
-        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
     let (slug_status, slug_body) = json_response(slug_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
@@ -438,7 +436,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     assert_product_view_urls(&slug_body["item"], raw_url, partnerize_url);
 
     let (search_response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
     )
     .await;
     let (search_status, search_body) = json_response(search_response).await;
@@ -450,7 +448,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     assert_product_view_urls(&search_body["items"][0]["item"], raw_url, partnerize_url);
 
     let (similar_response, _) = get_json(format!(
-        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
+        "/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
     ))
     .await;
     let (similar_status, similar_body) = json_response(similar_response).await;
@@ -463,7 +461,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
 
     let clear_response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            "{}/v1/admin/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(&token)
@@ -482,21 +480,20 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
     assert_eq!(projection_version, projection_version_after_clear);
 
-    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_response, _) = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let (_, id_body) = json_response(id_response).await;
     assert_product_view_urls(&id_body["item"], raw_url, aura_url);
-    let (slug_response, _) =
-        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
     let (_, slug_body) = json_response(slug_response).await;
     assert_product_view_urls(&slug_body["item"], raw_url, aura_url);
     let (search_response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
     )
     .await;
     let (_, search_body) = json_response(search_response).await;
     assert_product_view_urls(&search_body["items"][0]["item"], raw_url, aura_url);
     let (similar_response, _) = get_json(format!(
-        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
+        "/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
     ))
     .await;
     let (_, similar_body) = json_response(similar_response).await;
@@ -507,7 +504,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
 async fn should_get_product_details_by_title_slug_equivalently_to_id() {
     let product_listing_id = seed_product().await;
 
-    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_response, _) = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let id_cache_control = id_response
         .headers()
         .get(reqwest::header::CACHE_CONTROL)
@@ -523,8 +520,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .as_str()
         .unwrap_or_else(|| panic!("product detail has no title slug: {id_body}"));
 
-    let (slug_response, _) =
-        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
     let slug_cache_control = slug_response
         .headers()
         .get(reqwest::header::CACHE_CONTROL)
@@ -569,8 +565,7 @@ async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_
             &uuid::Uuid::from(product_listing_id).simple().to_string()[26..],
         )
         .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
-        let (response, _) =
-            get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+        let (response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
         let (status, body) = json_response(response).await;
 
         assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
@@ -583,8 +578,7 @@ async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_title_slug() {
-    let (response, _) =
-        get_json("/api/v1/product-listings/by-slug/listing--abcdef".to_owned()).await;
+    let (response, _) = get_json("/v1/product-listings/by-slug/listing--abcdef".to_owned()).await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -598,7 +592,7 @@ async fn should_reject_invalid_product_title_slug() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_product_title_slug() {
     let (response, _) =
-        get_json("/api/v1/product-listings/by-slug/missing-listing-a1b2c3".to_owned()).await;
+        get_json("/v1/product-listings/by-slug/missing-listing-a1b2c3".to_owned()).await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -627,8 +621,8 @@ async fn should_return_not_found_for_withdrawn_product_by_id_or_title_slug() {
     .unwrap_or_else(|error| panic!("failed to withdraw product fixture: {error}"));
 
     for path in [
-        format!("/api/v1/product-listings/{product_listing_id}"),
-        format!("/api/v1/product-listings/by-slug/{title_slug}"),
+        format!("/v1/product-listings/{product_listing_id}"),
+        format!("/v1/product-listings/by-slug/{title_slug}"),
     ] {
         let (response, _) = get_json(path).await;
         let (status, body) = json_response(response).await;
@@ -692,8 +686,8 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
     let client = reqwest::Client::new();
 
     for path in [
-        format!("/api/v1/product-listings/{product_listing_id}"),
-        format!("/api/v1/product-listings/by-slug/{title_slug}"),
+        format!("/v1/product-listings/{product_listing_id}"),
+        format!("/v1/product-listings/by-slug/{title_slug}"),
     ] {
         let response = client
             .get(format!("{}{}", AURA_API.base_url(), path))
@@ -740,7 +734,7 @@ async fn should_keep_source_scoped_product_management_details_private() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
+            "{}/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
             AURA_API.base_url()
         ))
         .send()
@@ -758,10 +752,8 @@ async fn should_keep_source_scoped_product_management_details_private() {
 async fn should_get_product_listing_history_by_id() {
     let product_listing_id = seed_product().await;
 
-    let (response, _) = get_json(format!(
-        "/api/v1/product-listings/{product_listing_id}/history"
-    ))
-    .await;
+    let (response, _) =
+        get_json(format!("/v1/product-listings/{product_listing_id}/history")).await;
     let cache_control = response
         .headers()
         .get(reqwest::header::CACHE_CONTROL)
@@ -816,7 +808,7 @@ async fn should_project_history_using_persisted_historical_snapshot() {
     .unwrap();
     // A newer capture must not change the history entry's projection.
     seed_current_fx_snapshot(&pool).await;
-    let path = format!("/api/v1/product-listings/{product_listing_id}/history");
+    let path = format!("/v1/product-listings/{product_listing_id}/history");
     let (response, _) = get_json(path.clone()).await;
     let (status, baseline) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
@@ -1001,10 +993,8 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
         .await
         .unwrap_or_else(|error| panic!("commit product history transaction: {error}"));
 
-    let (response, _) = get_json(format!(
-        "/api/v1/product-listings/{product_listing_id}/history"
-    ))
-    .await;
+    let (response, _) =
+        get_json(format!("/v1/product-listings/{product_listing_id}/history")).await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
@@ -1050,16 +1040,12 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
 async fn should_return_pending_similar_products_by_id() {
     let product_listing_id = seed_product().await;
 
-    let (response, _) = get_json(format!(
-        "/api/v1/product-listings/{product_listing_id}/similar"
-    ))
-    .await;
+    let (response, _) =
+        get_json(format!("/v1/product-listings/{product_listing_id}/similar")).await;
 
     assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
     assert_eq!(
-        Some(format!(
-            "/api/v1/product-listings/{product_listing_id}/similar"
-        )),
+        Some(format!("/v1/product-listings/{product_listing_id}/similar")),
         response
             .headers()
             .get(reqwest::header::LOCATION)
@@ -1110,7 +1096,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
 
     let (first_response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2".to_owned(),
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2".to_owned(),
     )
     .await;
     let cache_control = first_response
@@ -1142,7 +1128,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let search_after = serde_json::to_string(&first_body["searchAfter"])
         .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
     let (second_response, _) = get_json(format!(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2&searchAfter={}",
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2&searchAfter={}",
         url_encode(&search_after)
     ))
     .await;
@@ -1193,7 +1179,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
 
     let captured_at = OffsetDateTime::now_utc();
     let original_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
-    let first_page_path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
+    let first_page_path = "/v1/product-listings?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
     let (first_response, _) = get_json(first_page_path.clone()).await;
     let (first_status, first_body) = json_response(first_response).await;
 
@@ -1267,7 +1253,7 @@ async fn should_keep_search_cursor_fx_pinned_after_cached_latest_selection_refre
         ),
     ];
     index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
-    let first_page_path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Cached%20FX%20rollover%20cabinet&sort=created&order=asc&size=1";
+    let first_page_path = "/v1/product-listings?language=en&currency=EUR&productQuery[0]=Cached%20FX%20rollover%20cabinet&sort=created&order=asc&size=1";
     let snapshot_a = capture_fx_snapshot(OffsetDateTime::now_utc(), 2_000_000).await;
 
     let mut first_page = None;
@@ -1362,7 +1348,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     document["saleObservedAt"] = json!("2025-01-01T00:00:00Z");
     index_search_documents([document]).await;
 
-    let path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
+    let path = "/v1/product-listings?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
     let (before_response, _) = get_json(path.clone()).await;
     let (before_status, before_body) = json_response(before_response).await;
 
@@ -1411,7 +1397,7 @@ async fn should_return_matching_product_search_summary() {
     index_search_documents([target.1.clone(), unrelated.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Renaissance%20walnut"
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Renaissance%20walnut"
             .to_owned(),
     )
     .await;
@@ -1465,7 +1451,7 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     .await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=vintage%20brass%20lamp"
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=vintage%20brass%20lamp"
             .to_owned(),
     )
     .await;
@@ -1489,7 +1475,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
 
     let (response, _) = get_json_from(
         AURA_API_WITH_FAILED_EMBEDDING.base_url(),
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Vintage%20brass%20lamp",
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Vintage%20brass%20lamp",
     )
     .await;
     let (status, body) = json_response(response).await;
@@ -1543,7 +1529,7 @@ async fn should_intersect_product_search_filters() {
 
     let (response, _) = get_json(
         format!(
-            "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&listingSourceId[0]={}&availability[0]=AVAILABLE&price[min]=500&price[max]=600",
+            "/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&listingSourceId[0]={}&availability[0]=AVAILABLE&price[min]=500&price[max]=600",
             target.1["listingSourceId"]
                 .as_str()
                 .unwrap_or_else(|| panic!("target listing source ID is not a string"))
@@ -1576,7 +1562,7 @@ async fn should_return_projected_product_listings_from_default_search() {
     index_search_documents([active.1.clone()]).await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture"
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture"
             .to_owned(),
     )
     .await;
@@ -1605,7 +1591,7 @@ async fn should_filter_product_search_by_availability() {
     index_search_documents([available.1, sold_out.1.clone()]).await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Availability%20fixture&availability[0]=SOLD_OUT".to_owned(),
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Availability%20fixture&availability[0]=SOLD_OUT".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
@@ -1634,7 +1620,7 @@ async fn should_filter_product_search_by_created_date_range() {
     index_search_documents([january.1.clone(), june.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Date%20fixture&created[min]=2025-01-01T00%3A00%3A00Z&created[max]=2025-01-31T23%3A59%3A59Z".to_owned(),
+        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Date%20fixture&created[min]=2025-01-01T00%3A00%3A00Z&created[max]=2025-01-31T23%3A59%3A59Z".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
@@ -1651,7 +1637,7 @@ async fn should_reject_noncanonical_product_listing_ids() {
         product_listing_id.as_uuid().to_string(),
         "pl_not-a-typeid".to_owned(),
     ] {
-        let (response, _) = get_json(format!("/api/v1/product-listings/{invalid_id}")).await;
+        let (response, _) = get_json(format!("/v1/product-listings/{invalid_id}")).await;
         let (status, body) = json_response(response).await;
 
         assert_problem(
@@ -1672,7 +1658,7 @@ async fn should_reject_noncanonical_object_ids_in_product_search_query_and_curso
         "ls_not-a-typeid".to_owned(),
     ] {
         let (response, _) = get_json(format!(
-            "/api/v1/product-listings?listingSourceId[0]={invalid_id}"
+            "/v1/product-listings?listingSourceId[0]={invalid_id}"
         ))
         .await;
         let (status, body) = json_response(response).await;
@@ -1692,7 +1678,7 @@ async fn should_reject_noncanonical_object_ids_in_product_search_query_and_curso
     ] {
         let cursor = json!({ "fxRateId": invalid_id, "searchAfter": ["next"] }).to_string();
         let (response, _) = get_json(format!(
-            "/api/v1/product-listings?searchAfter={}",
+            "/v1/product-listings?searchAfter={}",
             url_encode(&cursor)
         ))
         .await;
@@ -1710,7 +1696,7 @@ async fn should_reject_noncanonical_object_ids_in_product_search_query_and_curso
 async fn should_reject_invalid_optional_product_authentication() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/product-listings/{}",
+            "{}/v1/product-listings/{}",
             AURA_API.base_url(),
             product_listing_core::product_listing_id::ProductListingId::new()
         ))
@@ -1736,10 +1722,9 @@ async fn should_reject_invalid_optional_product_authentication() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_search_sort() {
-    let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&sort=invalid&order=asc".to_owned(),
-    )
-    .await;
+    let (response, _) =
+        get_json("/v1/product-listings?language=en&currency=USD&sort=invalid&order=asc".to_owned())
+            .await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -2126,17 +2111,17 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
     .await;
 
     let paths = [
-        (format!("/api/v1/product-listings/{id}"), ""),
-        (format!("/api/v1/product-listings/by-slug/{slug}"), ""),
-        ("/api/v1/product-listings?size=100".to_owned(), "/items/0"),
-        (format!("/api/v1/product-listings/{seed}/similar"), "/0"),
-        ("/api/v1/me/watchlist".to_owned(), "/items/0"),
+        (format!("/v1/product-listings/{id}"), ""),
+        (format!("/v1/product-listings/by-slug/{slug}"), ""),
+        ("/v1/product-listings?size=100".to_owned(), "/items/0"),
+        (format!("/v1/product-listings/{seed}/similar"), "/0"),
+        ("/v1/me/watchlist".to_owned(), "/items/0"),
         (
-            format!("/api/v1/auctions/{auction}/product-listings"),
+            format!("/v1/auctions/{auction}/product-listings"),
             "/items/0",
         ),
         (
-            format!("/api/v1/me/search-filters/{filter}/matches"),
+            format!("/v1/me/search-filters/{filter}/matches"),
             "/items/0",
         ),
     ];
@@ -2177,7 +2162,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
             listing["userState"]["shipping"]["options"][0]["charge"].is_null(),
             "{path}"
         );
-        if !path.starts_with("/api/v1/me/") {
+        if !path.starts_with("/v1/me/") {
             let response = client
                 .get(format!("{}{path}", AURA_API.base_url()))
                 .send()
@@ -2204,7 +2189,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
             .unwrap();
         let (status, body) = json_response(response).await;
         assert_eq!(reqwest::StatusCode::OK, status, "{path}: {body}");
-        if path.starts_with("/api/v1/auctions/") {
+        if path.starts_with("/v1/auctions/") {
             assert_eq!(json!([]), body["items"]);
             continue;
         }

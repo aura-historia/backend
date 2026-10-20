@@ -123,7 +123,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"first"},{"sourceListingId":"second"}]"#,
             true,
         )
@@ -153,7 +153,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"present"},{"sourceListingId":"missing"}]"#,
             true,
         )
@@ -184,7 +184,7 @@ mod tests {
 
         let missing = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"missing"}]"#,
             true,
         )
@@ -197,7 +197,7 @@ mod tests {
 
         let old_route = request(
             &app,
-            &format!("/api/v1/shops/{listing_source_id}/product-listings"),
+            &format!("/v1/shops/{listing_source_id}/product-listings"),
             "",
             true,
         )
@@ -216,7 +216,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                "/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::delete(delete_products),
             )
             .with_state(state)

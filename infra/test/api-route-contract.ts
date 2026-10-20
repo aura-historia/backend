@@ -9,12 +9,13 @@ const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/partnerships/mod.rs",
 ] as const;
 
-function normalizePath(value: string): string {
-  return value.replace(/\{[^}]+}/g, "{}");
-}
-
 export function routeKey(method: string, routePath: string): string {
-  return `${method.toUpperCase()} ${normalizePath(routePath)}`;
+  const normalizedPath = routePath.replace(/\{([^}]+)}/g, (_match, parameter: string) => {
+    if (parameter.startsWith("*")) return "{*}";
+    if (parameter.endsWith("+")) return "{+}";
+    return "{}";
+  });
+  return `${method.toUpperCase()} ${normalizedPath}`;
 }
 
 export function swaggerRouteKeys(): string[] {
@@ -28,7 +29,7 @@ export function swaggerRouteKeys(): string[] {
       currentPath = routeMatch[1];
       continue;
     }
-    const methodMatch = line.match(/^    (get|post|put|patch|delete):\s*$/);
+    const methodMatch = line.match(/^    (get|post|put|patch|delete|head|options|trace):\s*$/);
     if (methodMatch && currentPath) {
       routes.push(routeKey(methodMatch[1], currentPath));
     }
@@ -38,29 +39,41 @@ export function swaggerRouteKeys(): string[] {
 }
 
 export function axumRouteKeys(): string[] {
-  const routes = new Set<string>();
+  return RUST_ROUTE_FILES.flatMap((fileName) =>
+    parseAxumRouteKeys(fs.readFileSync(path.join(__dirname, fileName), "utf8")),
+  ).sort();
+}
 
-  for (const fileName of RUST_ROUTE_FILES) {
-    const source = fs.readFileSync(path.join(__dirname, fileName), "utf8");
-    const routeStart = /\.route\(\s*"([^"]+)"\s*,/g;
-    let match: RegExpExecArray | null;
-    while ((match = routeStart.exec(source))) {
-      const routePath = match[1];
-      if (!routePath.startsWith("/api/v1/")) {
-        continue;
-      }
-      const nextRoute = source.indexOf(".route(", routeStart.lastIndex);
-      const stateBoundary = source.indexOf(".with_state", routeStart.lastIndex);
-      const handlerEnd = [nextRoute, stateBoundary].filter((index) => index !== -1).reduce(
-        (end, index) => Math.min(end, index),
-        source.length,
-      );
-      const handlers = source.slice(routeStart.lastIndex, handlerEnd);
-      for (const method of handlers.matchAll(/\b(get|post|put|patch|delete)\s*\(/g)) {
-        routes.add(routeKey(method[1], routePath));
-      }
+export function parseAxumRouteKeys(source: string): string[] {
+  const routes: string[] = [];
+  const routeStart = /\.route\s*\(\s*"([^"]+)"\s*,/g;
+  let match: RegExpExecArray | null;
+  while ((match = routeStart.exec(source))) {
+    const routePath = match[1];
+    const handlers = routeHandlers(source, routeStart.lastIndex);
+    const methods = [...handlers.matchAll(/\b(get|post|put|patch|delete|head|options|trace|connect|any)\s*\(/g)];
+    if (methods.length === 0) {
+      throw new Error(`Cannot extract explicit HTTP methods for ${routePath}`);
+    }
+    for (const method of methods) {
+      routes.push(routeKey(method[1], routePath));
     }
   }
 
-  return [...routes].sort();
+  return routes.sort();
+}
+
+function routeHandlers(source: string, start: number): string {
+  // Balance the route call itself, not the surrounding router chain. Parentheses in
+  // ordinary Rust strings and comments do not delimit the method-router expression.
+  const tokens = /"(?:\\.|[^"\\])*"|\/\/[^\n]*|\/\*[\s\S]*?\*\/|[()]/g;
+  tokens.lastIndex = start;
+  let depth = 1;
+  let token: RegExpExecArray | null;
+  while ((token = tokens.exec(source))) {
+    if (token[0] === "(") depth += 1;
+    if (token[0] === ")") depth -= 1;
+    if (depth === 0) return source.slice(start, token.index);
+  }
+  throw new Error("Unterminated Axum route call");
 }

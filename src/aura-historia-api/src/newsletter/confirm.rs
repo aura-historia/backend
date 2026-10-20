@@ -128,7 +128,7 @@ mod tests {
     fn router(use_case: RecordingUseCase) -> axum::Router {
         axum::Router::new()
             .route(
-                "/api/v1/newsletter-subscriptions/confirm",
+                "/v1/newsletter-subscriptions/confirm",
                 post(confirm_newsletter_subscription),
             )
             .with_state(NewsletterState::new(
@@ -141,7 +141,7 @@ mod tests {
     fn request(body: impl Into<Body>) -> HttpRequest<Body> {
         HttpRequest::builder()
             .method("POST")
-            .uri("/api/v1/newsletter-subscriptions/confirm")
+            .uri("/v1/newsletter-subscriptions/confirm")
             .header(header::CONTENT_TYPE, "application/json")
             .body(body.into())
             .unwrap_or_else(|error| panic!("failed to create request: {error}"))
@@ -252,7 +252,7 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .method("GET")
-                    .uri("/api/v1/newsletter-subscriptions/confirm")
+                    .uri("/v1/newsletter-subscriptions/confirm")
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to create request: {error}")),
             )

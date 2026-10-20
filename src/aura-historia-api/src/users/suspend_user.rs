@@ -222,7 +222,7 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/admin/users/{user_id}/suspension",
+                    "/v1/admin/users/{user_id}/suspension",
                     put(test_suspend_user),
                 )
                 .with_state(state),
@@ -235,7 +235,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/v1/admin/users/{user_id}/suspension"))
+                    .uri(format!("/v1/admin/users/{user_id}/suspension"))
                     .header(header::AUTHORIZATION, "Bearer test-token")
                     .body(Body::from(body))
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),

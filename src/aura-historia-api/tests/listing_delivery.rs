@@ -155,7 +155,7 @@ async fn api_sync_and_async_share_typed_semantics_retry_ids_and_protected_errors
     };
     let body = encode_command(&command).unwrap();
     let path =
-        format!("/api/v1/listing-sources/{source}/product-listings/by-source-id/painting/delivery");
+        format!("/v1/listing-sources/{source}/product-listings/by-source-id/painting/delivery");
     let (status, view) = request(&router, "GET", &path, Some("synthetic-read"), Value::Null).await;
     assert_eq!(StatusCode::OK, status);
     assert_eq!(Value::Null, view["delivery"]);
@@ -297,7 +297,7 @@ async fn async_failures_retain_admission_reports_and_bound_echoed_listing_identi
         let (actual_status, report) = request(
             &router,
             "POST",
-            &format!("/api/v1/listing-sources/{source}/product-listings/by-source-id/{listing}/delivery/async"),
+            &format!("/v1/listing-sources/{source}/product-listings/by-source-id/{listing}/delivery/async"),
             Some("synthetic-write"),
             encode_command(&command).unwrap(),
         ).await;

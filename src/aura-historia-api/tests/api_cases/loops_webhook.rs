@@ -35,7 +35,7 @@ use user_service::{
 const SECRET: &str = "whsec_bG9vcHMta2V5LWN1cnJlbnQ=";
 const SIGNING_KEY: &[u8] = b"loops-key-current";
 const TARGET_LIST: &str = "marketing-list-id";
-const PATH: &str = "/api/v1/webhooks/loops";
+const PATH: &str = "/v1/webhooks/loops";
 
 struct Provider {
     state: Result<MarketingEmailSubscriptionState, MarketingEmailConsentError>,
@@ -354,7 +354,7 @@ async fn lambda_base64_event_preserves_signed_bytes_and_commits_the_receipt() {
     let mut event: Value =
         serde_json::from_str(include_str!("../fixtures/http_api_v2_health.json"))
             .expect("HTTP API v2 fixture");
-    event["routeKey"] = "POST /api/v1/webhooks/loops".into();
+    event["routeKey"] = "POST /v1/webhooks/loops".into();
     event["rawPath"] = PATH.into();
     event["requestContext"]["http"]["method"] = "POST".into();
     event["requestContext"]["http"]["path"] = PATH.into();

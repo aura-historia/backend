@@ -136,8 +136,8 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
         )),
         authenticator: Arc::new(Auth(admin)),
     }));
-    let path = format!("/api/v1/listing-sources/{source}/shipping-profiles");
-    let default_path = format!("/api/v1/listing-sources/{source}/shipping-default");
+    let path = format!("/v1/listing-sources/{source}/shipping-profiles");
+    let default_path = format!("/v1/listing-sources/{source}/shipping-default");
     let body = json!({"creationKey":"gallery-profile","content":advertised_content(8000),"evidence":[{"reference":"https://example.test/protected-evidence","assertion":"ADVERTISED_TERMS"}]});
     assert_eq!(
         StatusCode::UNAUTHORIZED,
@@ -281,7 +281,7 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
         .0
     );
     let raw_path = format!(
-        "/api/v1/listing-sources/{}/shipping-profiles",
+        "/v1/listing-sources/{}/shipping-profiles",
         source.into_uuid()
     );
     assert_eq!(

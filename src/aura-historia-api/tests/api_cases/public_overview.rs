@@ -46,7 +46,7 @@ async fn refresh() -> PublicCatalogueOverview {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
-    let (status, body, cache_control) = get_overview("/api/v1/overview", None).await;
+    let (status, body, cache_control) = get_overview("/v1/overview", None).await;
 
     assert_eq!(reqwest::StatusCode::SERVICE_UNAVAILABLE, status);
     assert_eq!(Some("private, no-store".to_owned()), cache_control);
@@ -65,8 +65,8 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
 
     let mut representations = Vec::new();
     for path_and_query in [
-        "/api/v1/overview",
-        "/api/v1/overview?utm_source=landing&language=de",
+        "/v1/overview",
+        "/v1/overview?utm_source=landing&language=de",
     ] {
         let (status, mut body, cache_control) = get_overview(path_and_query, None).await;
 
@@ -104,8 +104,7 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
 async fn should_keep_authorization_bearing_overview_requests_private() {
     refresh().await;
 
-    let (status, body, cache_control) =
-        get_overview("/api/v1/overview", Some("Bearer invalid")).await;
+    let (status, body, cache_control) = get_overview("/v1/overview", Some("Bearer invalid")).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("private, no-store".to_owned()), cache_control);

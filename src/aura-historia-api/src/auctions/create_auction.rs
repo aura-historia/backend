@@ -28,17 +28,17 @@ pub async fn create_auction(
     match state.create.execute(&context, command).await {
         Ok(result) => {
             let auction_id = result.auction_id;
-            let location =
-                match HeaderValue::from_str(&format!("/api/v1/admin/auctions/{auction_id}")) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        return no_store(
-                            ApiError::internal_server_error(AUCTION_INTERNAL_ERROR)
-                                .with_detail("Auction location failed internally.")
-                                .into_response(),
-                        );
-                    }
-                };
+            let location = match HeaderValue::from_str(&format!("/v1/admin/auctions/{auction_id}"))
+            {
+                Ok(value) => value,
+                Err(_) => {
+                    return no_store(
+                        ApiError::internal_server_error(AUCTION_INTERNAL_ERROR)
+                            .with_detail("Auction location failed internally.")
+                            .into_response(),
+                    );
+                }
+            };
             let mut response = (
                 StatusCode::CREATED,
                 axum::Json(AuctionAdminData::from(result)),
