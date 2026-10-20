@@ -388,3 +388,80 @@ async fn should_apply_request_deadline_to_authentication_before_dispatch() {
     let token = cancellation.lock().await.clone().unwrap();
     assert!(token.is_cancelled());
 }
+
+#[tokio::test]
+async fn should_reject_origin_values_that_a_forgiving_url_parser_would_repair() {
+    let mut config = config();
+    config.allowed_origins = vec!["https://app.example.test".into()];
+    let app = router(config, Registry::default(), Arc::new(AnonymousGate)).unwrap();
+    for origin in [
+        "https://app.example.test/.",
+        "https://app.example.test/%2e",
+        r"https:\\app.example.test",
+        r"https://app.example.test\",
+        "https:///app.example.test",
+        "https:app.example.test",
+    ] {
+        let mut call = request(&modern("tools/list", json!({})));
+        call.headers_mut().insert("origin", origin.parse().unwrap());
+        assert_eq!(
+            StatusCode::FORBIDDEN,
+            app.clone().oneshot(call).await.unwrap().status(),
+            "{origin}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn should_reject_invalid_accept_quality_values_before_business_work() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = app(calls.clone());
+    for quality in [
+        "NaN",
+        "bogus",
+        "1.5",
+        "-1",
+        "0e0",
+        "0.0001",
+        "1.001",
+        "0.5;q=1",
+        "0.5;q=bogus",
+    ] {
+        let mut call = request(&modern(
+            "tools/call",
+            json!({"name":"testOperation","arguments":{"value":"private"}}),
+        ));
+        call.headers_mut().insert(
+            "accept",
+            format!("application/json;q={quality},text/event-stream")
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(
+            StatusCode::NOT_ACCEPTABLE,
+            app.clone().oneshot(call).await.unwrap().status(),
+            "{quality}"
+        );
+    }
+    assert_eq!(0, calls.load(Ordering::SeqCst));
+    let mut call = request(&modern("tools/list", json!({})));
+    call.headers_mut().insert(
+        "accept",
+        HeaderValue::from_static("application/json;q=0,text/event-stream,*/*;q=1"),
+    );
+    assert_eq!(
+        StatusCode::NOT_ACCEPTABLE,
+        app.clone().oneshot(call).await.unwrap().status()
+    );
+    for accept in [
+        "application/json;q=0.5,text/event-stream;Q=1.000",
+        "Application/JSON,Text/Event-Stream",
+    ] {
+        let mut call = request(&modern("tools/list", json!({})));
+        call.headers_mut().insert("accept", accept.parse().unwrap());
+        assert_eq!(
+            StatusCode::OK,
+            app.clone().oneshot(call).await.unwrap().status()
+        );
+    }
+}

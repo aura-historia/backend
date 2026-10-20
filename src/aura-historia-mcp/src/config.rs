@@ -75,7 +75,10 @@ impl TransportConfig {
 }
 
 pub(crate) fn normalized_origin(value: &str) -> Option<String> {
-    if value.chars().any(char::is_whitespace) {
+    let (_, authority) = value.split_once("://")?;
+    // URL parsing repairs backslashes, absent slashes and dot paths. An Origin
+    // must already be a serialized scheme/authority without a path.
+    if value.chars().any(char::is_whitespace) || authority.contains(['/', '\\', '?', '#']) {
         return None;
     }
     let url = Url::parse(value).ok()?;

@@ -140,20 +140,43 @@ pub(super) fn valid_accept(headers: &HeaderMap) -> bool {
         headers
             .get_all(header::ACCEPT)
             .iter()
-            .filter_map(|v| v.to_str().ok())
-            .flat_map(|v| v.split(','))
-            .any(|part| {
-                let mut fields = part.trim().split(';');
-                fields
-                    .next()
-                    .is_some_and(|v| v.trim().eq_ignore_ascii_case(expected))
-                    && !fields.any(|v| {
-                        v.trim()
-                            .strip_prefix("q=")
-                            .and_then(|q| q.parse::<f32>().ok())
-                            .is_some_and(|q| q <= 0.0)
-                    })
-            })
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|range| accepts_range(range, expected))
     };
     accepted("application/json") && accepted("text/event-stream")
+}
+
+fn accepts_range(range: &str, expected: &str) -> bool {
+    let mut fields = range.trim().split(';');
+    if !fields
+        .next()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case(expected))
+    {
+        return false;
+    }
+    let mut quality_seen = false;
+    fields.all(|field| match field.trim().split_once('=') {
+        Some((name, value)) if name.trim().eq_ignore_ascii_case("q") => {
+            let duplicate = std::mem::replace(&mut quality_seen, true);
+            !duplicate && positive_quality(value.trim())
+        }
+        None if field.trim().eq_ignore_ascii_case("q") => false,
+        _ => true,
+    })
+}
+
+fn positive_quality(value: &str) -> bool {
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    if fraction.len() > 3 {
+        return false;
+    }
+    match whole {
+        "1" => fraction.bytes().all(|value| value == b'0'),
+        "0" => {
+            fraction.bytes().all(|value| value.is_ascii_digit())
+                && fraction.bytes().any(|value| value != b'0')
+        }
+        _ => false,
+    }
 }
