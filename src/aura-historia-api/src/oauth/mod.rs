@@ -12,11 +12,11 @@ pub mod token;
 pub mod token_by_third_party_code;
 pub mod update_client;
 
-use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE};
+use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_CREDENTIALS};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use std::collections::{HashMap, HashSet};
-use user_core::access_token::Scope;
+use user_core::access_token::{RawAccessToken, RawOAuthClientSecret, Scope};
 
 pub(crate) fn no_store(mut response: Response) -> Response {
     response
@@ -134,9 +134,142 @@ pub(crate) fn required_form<'a>(
         })
 }
 
+// Credential parse failures must not echo the submitted value, which may be a
+// real secret sent in the wrong field.
+pub(crate) fn required_form_access_token(
+    form: &HashMap<String, String>,
+) -> Result<RawAccessToken, Response> {
+    RawAccessToken::try_from(required_form(form, "token")?.to_owned()).map_err(|_| {
+        ApiError::bad_request(BAD_BODY_VALUE)
+            .with_body_field("token")
+            .with_detail("Form field 'token' is not a valid access token.")
+            .into_response()
+    })
+}
+
+pub(crate) fn required_form_client_secret(
+    form: &HashMap<String, String>,
+) -> Result<RawOAuthClientSecret, Response> {
+    RawOAuthClientSecret::try_from(required_form(form, "client_secret")?.to_owned()).map_err(|_| {
+        ApiError::unauthorized(INVALID_CREDENTIALS)
+            .with_body_field("client_secret")
+            .with_detail("Form field 'client_secret' is not a valid OAuth client secret.")
+            .into_response()
+    })
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use axum::response::Response;
+
+    pub(crate) const SECRET_MARKER: &str = "qa-synthetic-credential-marker-not-real";
+
+    pub(crate) fn form(fields: &[(&str, String)]) -> std::collections::HashMap<String, String> {
+        fields
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), value.clone()))
+            .collect()
+    }
+
+    /// Returns the status and parsed problem body after asserting that no
+    /// part of the response reflects `secret`.
+    pub(crate) async fn secret_free_problem(
+        response: Response,
+        secret: &str,
+    ) -> (u16, serde_json::Value) {
+        let status = response.status().as_u16();
+        for (name, value) in response.headers() {
+            assert!(
+                !value
+                    .as_bytes()
+                    .windows(secret.len())
+                    .any(|w| w == secret.as_bytes()),
+                "header {name} reflects the submitted credential"
+            );
+        }
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read OAuth error body: {error}"));
+        let text = String::from_utf8(body.to_vec())
+            .unwrap_or_else(|error| panic!("OAuth error body is not UTF-8: {error}"));
+        assert!(!text.contains(secret), "{text}");
+        let body = serde_json::from_str(&text)
+            .unwrap_or_else(|error| panic!("failed to parse OAuth error body: {error}"));
+        (status, body)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::{SECRET_MARKER, form, secret_free_problem};
     use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn should_reject_malformed_token_without_reflecting_it() {
+        for token in [
+            SECRET_MARKER.to_owned(),
+            format!("aurahistoria_accesstoken_{SECRET_MARKER}"),
+            String::from(RawOAuthClientSecret::new()),
+        ] {
+            let response = required_form_access_token(&form(&[("token", token.clone())]))
+                .err()
+                .unwrap_or_else(|| panic!("malformed token must be rejected"));
+            let (status, body) = secret_free_problem(response, &token).await;
+
+            assert_eq!(400, status);
+            assert_eq!(
+                json!({
+                    "status": 400,
+                    "title": "Bad Request",
+                    "error": "BAD_BODY_VALUE",
+                    "source": {"field": "token", "type": "BODY"},
+                    "detail": "Form field 'token' is not a valid access token."
+                }),
+                body
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_reject_malformed_client_secret_without_reflecting_it() {
+        for client_secret in [
+            SECRET_MARKER.to_owned(),
+            format!("aurahistoria_oauth_client_secret_{SECRET_MARKER}"),
+            String::from(RawAccessToken::new()),
+        ] {
+            let response =
+                required_form_client_secret(&form(&[("client_secret", client_secret.clone())]))
+                    .err()
+                    .unwrap_or_else(|| panic!("malformed client secret must be rejected"));
+            let (status, body) = secret_free_problem(response, &client_secret).await;
+
+            assert_eq!(401, status);
+            assert_eq!(
+                json!({
+                    "status": 401,
+                    "title": "Unauthorized",
+                    "error": "INVALID_CREDENTIALS",
+                    "source": {"field": "client_secret", "type": "BODY"},
+                    "detail": "Form field 'client_secret' is not a valid OAuth client secret."
+                }),
+                body
+            );
+        }
+    }
+
+    #[test]
+    fn should_accept_well_formed_credentials() {
+        let token = RawAccessToken::new();
+        let client_secret = RawOAuthClientSecret::new();
+        let form = form(&[
+            ("token", String::from(token.clone())),
+            ("client_secret", String::from(client_secret.clone())),
+        ]);
+
+        assert!(matches!(required_form_access_token(&form), Ok(value) if value == token));
+        assert!(matches!(required_form_client_secret(&form), Ok(value) if value == client_secret));
+    }
 
     #[test]
     fn should_parse_canonical_auction_read_for_oauth_scopes() {

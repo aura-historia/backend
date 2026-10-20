@@ -10753,6 +10753,16 @@ paths:
                     title: Unauthorized
                     error: INVALID_OAUTH_CLIENT_SECRET
                     detail: Invalid OAuth client secret.
+                malformed_client_secret:
+                  summary: Malformed client secret (the submitted value is never echoed)
+                  value:
+                    status: 401
+                    title: Unauthorized
+                    error: INVALID_CREDENTIALS
+                    source:
+                      field: client_secret
+                      type: BODY
+                    detail: Form field 'client_secret' is not a valid OAuth client secret.
                 client_not_found:
                   summary: OAuth client not found
                   value:
@@ -10949,6 +10959,16 @@ paths:
                       field: token
                       type: BODY
                     detail: Missing form field token
+                malformed_token:
+                  summary: Malformed access token (the submitted value is never echoed)
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    source:
+                      field: token
+                      type: BODY
+                    detail: Form field 'token' is not a valid access token.
                 invalid_client_id:
                   summary: Invalid OAuth client identifier
                   value:
@@ -10973,6 +10993,16 @@ paths:
                     title: Unauthorized
                     error: INVALID_OAUTH_CLIENT_SECRET
                     detail: Invalid OAuth client secret.
+                malformed_client_secret:
+                  summary: Malformed client secret (the submitted value is never echoed)
+                  value:
+                    status: 401
+                    title: Unauthorized
+                    error: INVALID_CREDENTIALS
+                    source:
+                      field: client_secret
+                      type: BODY
+                    detail: Form field 'client_secret' is not a valid OAuth client secret.
                 client_not_found:
                   summary: OAuth client not found
                   value:
@@ -11090,6 +11120,16 @@ paths:
                       field: token
                       type: BODY
                     detail: Missing form field token
+                malformed_token:
+                  summary: Malformed access token (the submitted value is never echoed)
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    source:
+                      field: token
+                      type: BODY
+                    detail: Form field 'token' is not a valid access token.
                 invalid_client_id:
                   summary: Invalid OAuth client identifier
                   value:
@@ -11114,6 +11154,16 @@ paths:
                     title: Unauthorized
                     error: INVALID_OAUTH_CLIENT_SECRET
                     detail: Invalid OAuth client secret.
+                malformed_client_secret:
+                  summary: Malformed client secret (the submitted value is never echoed)
+                  value:
+                    status: 401
+                    title: Unauthorized
+                    error: INVALID_CREDENTIALS
+                    source:
+                      field: client_secret
+                      type: BODY
+                    detail: Form field 'client_secret' is not a valid OAuth client secret.
                 client_not_found:
                   summary: OAuth client not found
                   value:
