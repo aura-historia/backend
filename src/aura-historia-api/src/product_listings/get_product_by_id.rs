@@ -189,6 +189,76 @@ mod tests {
         }
     }
 
+    struct CompleteHistory(Vec<product_listing_service::use_cases::ProductListingHistoryEntry>);
+
+    #[async_trait::async_trait]
+    impl GetProductListingHistoryUseCase for CompleteHistory {
+        async fn execute(
+            &self,
+            context: &OperationContext,
+            _request: GetProductListingHistoryRequest,
+        ) -> Result<
+            Vec<product_listing_service::use_cases::ProductListingHistoryEntry>,
+            GetProductListingHistoryError,
+        > {
+            assert!(matches!(
+                context.principal,
+                application::operation_context::Principal::Anonymous
+            ));
+            Ok(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn should_preserve_the_complete_unpaginated_rest_history_array()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use aura_historia_contracts::product_listings::history::ProductListingHistoryEntryData;
+        use product_listing_service::use_cases::{
+            ProductListingHistoryChange, ProductListingHistoryEntry, ProductListingHistoryEntryKind,
+        };
+
+        let product_listing_id = ProductListingId::new();
+        for count in [0, 24, 125] {
+            let entries = (0..count)
+                .map(|_| ProductListingHistoryEntry {
+                    product_listing_id,
+                    event_id: EventId::new(),
+                    occurred_at: OffsetDateTime::UNIX_EPOCH,
+                    kind: ProductListingHistoryEntryKind::Changed(
+                        vec![ProductListingHistoryChange::Restored]
+                            .try_into()
+                            .unwrap(),
+                    ),
+                })
+                .collect::<Vec<_>>();
+            let expected = serde_json::to_value(
+                entries
+                    .clone()
+                    .into_iter()
+                    .map(ProductListingHistoryEntryData::from)
+                    .collect::<Vec<_>>(),
+            )?;
+            let (app, _) = app_with_history(
+                product_details_view()?,
+                false,
+                None,
+                Arc::new(CompleteHistory(entries)),
+            );
+            let response = app
+                .oneshot(
+                    Request::get(format!("/v1/product-listings/{product_listing_id}/history"))
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(StatusCode::OK, response.status());
+            let value = body_json(response).await?;
+            assert!(value.is_array());
+            assert_eq!(count, value.as_array().unwrap().len());
+            assert_eq!(expected, value);
+        }
+        Ok(())
+    }
+
     struct FakeAuthenticator {
         reject: bool,
         user_id: Option<UserId>,

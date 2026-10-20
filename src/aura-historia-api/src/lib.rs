@@ -178,7 +178,7 @@ use product_listing_postgres::{
 use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, GetProductListingHistoryHandler, GetPublicCatalogueOverviewHandler,
+    GetAuctionCatalogueHandler, GetPublicCatalogueOverviewHandler,
     ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
     UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
@@ -1343,11 +1343,7 @@ async fn app_state_from_config_and_runtime(
         config.cognito_user_pool_id(),
     );
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let get_product_listing_history = GetProductListingHistoryHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingHistoryReaderFactory::new(),
-        SqlxFxRateSnapshotReader::new(pool.clone()),
-    );
+    let product_listing_history = runtime.public_product_listing_history();
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
     let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(LazyVertexAiEmbeddingGenerator::new(
@@ -2297,7 +2293,7 @@ async fn app_state_from_config_and_runtime(
                 Arc::clone(&public_product_listings.search),
                 Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
             )
-            .with_product_listing_history(Arc::new(get_product_listing_history)),
+            .with_product_listing_history(product_listing_history.get.clone()),
         )
         .with_partner_product_listings(partner_product_listings_state)
         .with_partner_product_listing_management(partner_product_listing_management_state)

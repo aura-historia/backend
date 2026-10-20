@@ -19,5 +19,6 @@ pub use metadata::InvocationContext;
 pub use protocol::SUPPORTED_PROTOCOL_VERSIONS;
 pub use registry::{AccessClass, OperationDefinition, OperationPolicy, Registry, RegistryError};
 
+pub mod product_listing_history;
 pub mod product_listings;
 mod shipping_error;

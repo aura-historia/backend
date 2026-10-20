@@ -120,6 +120,25 @@ mappings as REST, preserving localization/fallback, source-local identifiers, ou
 shipping disclosure, content policy and withdrawn-listing handling. Listing input schemas and
 output schemas derive from those shared types, including explicit custom-codec annotations.
 
+## Public listing history
+
+The listing-history family registers `getProductListingHistory` as a public, read-only,
+idempotent operation with no required scopes. Its arguments are `productListingId` and
+optional `currency`; omission or null leaves source prices unchanged. It calls the existing
+complete-history use case with the request's anonymous context. Release composition selects
+this module alongside the other public families.
+
+REST keeps its full JSON array. MCP uses the same shared history entries inside
+`{ "result": [...] }`, including discovery and change details, event IDs, timestamps, source
+amounts and optional historical display prices. Events retain their original order, including
+distinct events with matching timestamps. Each priced event retains its own historical FX
+snapshot and provenance; missing historical snapshots or quotes omit the display projection
+without substituting a later or current rate. Existing empty histories succeed; unknown
+listings return `NOT_FOUND`.
+
+History has no paging arguments, item limit or continuation. The complete result must fit the
+transport's byte bound; an oversized result fails explicitly and returns no partial history.
+
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON

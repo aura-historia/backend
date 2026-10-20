@@ -1,4 +1,4 @@
-use crate::product_listings::product_data::ProductListingAuctionData;
+use super::product_data::ProductListingAuctionData;
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
@@ -12,53 +12,70 @@ use product_listing_service::use_cases::{
     ProductListingHistoryEntryKind, ProductListingHistoryPrice, ProductListingHistoryPriceDisplay,
     ProductListingHistoryPricing,
 };
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Serialize)]
+/// Existing optional REST history presentation query, reused by MCP arguments.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductListingHistoryEntryData {
+pub struct ProductListingHistoryQueryData {
+    #[serde(default, with = "crate::wire::currency::option")]
+    #[schemars(schema_with = "crate::wire::currency::option::schema")]
+    pub currency: Option<money::Currency>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductListingHistoryEntryData {
     event_type: &'static str,
+    #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
+    #[schemars(schema_with = "crate::wire::schema::event_id")]
     event_id: EventId,
     payload: ProductListingHistoryPayloadData,
     #[serde(with = "time::serde::rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
     timestamp: OffsetDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(untagged)]
 enum ProductListingHistoryPayloadData {
     Discovered(Box<ProductListingDiscoveryHistoryData>),
     Changed(ProductListingChangedHistoryData),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingDiscoveryHistoryData {
+    #[schemars(schema_with = "crate::wire::schema::listing_source_id")]
     listing_source_id: ListingSourceId,
     #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
+    #[schemars(with = "String")]
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     pricing: ProductListingPricingData,
-    #[serde(with = "crate::wire::listing_availability::option")]
+    #[serde(with = "crate::wire::listing::availability_option")]
+    #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
     availability: Option<ListingAvailability>,
+    #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
     image_count: u64,
     auction: Option<ProductListingAuctionData>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingChangedHistoryData {
     changes: Vec<ProductListingHistoryChangeData>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(
     tag = "type",
     rename_all = "SCREAMING_SNAKE_CASE",
@@ -79,13 +96,17 @@ enum ProductListingHistoryChangeData {
         current: Option<ProductListingHistoryPriceData<PriceData>>,
     },
     AvailabilityChanged {
-        #[serde(with = "crate::wire::listing_availability::option")]
+        #[serde(with = "crate::wire::listing::availability_option")]
+        #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         previous: Option<ListingAvailability>,
-        #[serde(with = "crate::wire::listing_availability::option")]
+        #[serde(with = "crate::wire::listing::availability_option")]
+        #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         current: Option<ListingAvailability>,
     },
     UrlChanged {
+        #[schemars(schema_with = "crate::wire::schema::url")]
         previous: Url,
+        #[schemars(schema_with = "crate::wire::schema::url")]
         current: Url,
     },
     ImagesChanged {
@@ -97,7 +118,8 @@ enum ProductListingHistoryChangeData {
         current: Option<ProductListingAuctionData>,
     },
     Withdrawn {
-        #[serde(with = "crate::wire::listing_availability::option")]
+        #[serde(with = "crate::wire::listing::availability_option")]
+        #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         previous_availability: Option<ListingAvailability>,
     },
     Restored,
@@ -109,7 +131,7 @@ enum ProductListingHistoryChangeData {
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingPricingData {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,7 +142,7 @@ struct ProductListingPricingData {
     price_estimate_max: Option<ProductListingHistoryPriceData<PriceData>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 struct ProductListingHistoryPriceData<T> {
     #[serde(flatten)]
     source: T,
@@ -128,13 +150,15 @@ struct ProductListingHistoryPriceData<T> {
     display: Option<ProductListingHistoryPriceDisplayData>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingHistoryPriceDisplayData {
     #[serde(flatten)]
     price: PriceData,
+    #[schemars(schema_with = "crate::wire::schema::fx_rate_id")]
     fx_rate_id: FxRateId,
     #[serde(with = "time::serde::rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
     captured_at: OffsetDateTime,
 }
 
@@ -157,11 +181,13 @@ impl From<ProductListingHistoryPriceDisplay> for ProductListingHistoryPriceDispl
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ListingSaleObservationHistoryData {
     #[serde(with = "time::serde::rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
     observed_at: OffsetDateTime,
+    #[schemars(schema_with = "crate::wire::schema::fx_rate_id")]
     fx_rate_id: FxRateId,
 }
 

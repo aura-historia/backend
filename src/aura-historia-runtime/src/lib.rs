@@ -6,11 +6,13 @@
 
 mod postgres;
 mod public_listing_sources;
+mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
 
 pub use postgres::PostgresConfigError;
 pub use public_listing_sources::PublicListingSources;
+pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
 
@@ -21,6 +23,7 @@ use std::sync::OnceLock;
 pub struct Runtime {
     postgres: PgPool,
     public_listing_sources: OnceLock<PublicListingSources>,
+    public_product_listing_history: OnceLock<PublicProductListingHistory>,
     public_product_listings: OnceLock<PublicProductListings>,
     listing_shipping: OnceLock<product_listing_service::shipping::ShippingEnrichment>,
 }
@@ -30,6 +33,7 @@ impl Runtime {
         Self {
             postgres,
             public_listing_sources: OnceLock::new(),
+            public_product_listing_history: OnceLock::new(),
             public_product_listings: OnceLock::new(),
             listing_shipping: OnceLock::new(),
         }
@@ -64,6 +68,11 @@ impl Runtime {
     pub fn listing_shipping(&self) -> &product_listing_service::shipping::ShippingEnrichment {
         self.listing_shipping
             .get_or_init(|| public_product_listings::shipping(&self.postgres))
+    }
+
+    pub fn public_product_listing_history(&self) -> &PublicProductListingHistory {
+        self.public_product_listing_history
+            .get_or_init(|| PublicProductListingHistory::compose(&self.postgres))
     }
 
     pub fn public_listing_sources(&self) -> &PublicListingSources {
