@@ -256,29 +256,43 @@ const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"]
 /// Elements whose text a shop has superseded. Sale prices keep the old amount in a
 /// struck-through element next to the current one as a bare text node, which no CSS
 /// selector can target, so the old amount is dropped from the containing element's text.
-/// A rule that selects such an element itself still extracts its text.
+///
+/// The skip applies to every text rule, not only to prices: a rule does not know which
+/// product field it extracts, so struck-through words inside description or title prose
+/// are dropped too. When nothing but struck-through text remains, such as a sold item
+/// whose whole title is struck through, the full text is kept instead.
 const STRUCK_THROUGH_ELEMENTS: [&str; 3] = ["del", "s", "strike"];
 
-/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] and
+/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees and
 /// descendant [`STRUCK_THROUGH_ELEMENTS`] subtrees.
 fn visible_text(element: &scraper::ElementRef<'_>) -> String {
-    let mut text = String::new();
-    if !NON_TEXT_ELEMENTS.contains(&element.value().name()) {
-        push_visible_text(element, &mut text);
+    // Only descendants are struck-through candidates: a rule that selects `del` itself
+    // still extracts its text, while a selected non-text element never does.
+    if NON_TEXT_ELEMENTS.contains(&element.value().name()) {
+        return String::new();
     }
-    text
+    let mut text = VisibleText::default();
+    push_visible_text(element, false, &mut text);
+    text.into_value()
 }
 
-fn push_visible_text(element: &scraper::ElementRef<'_>, text: &mut String) {
+fn push_visible_text(
+    element: &scraper::ElementRef<'_>,
+    inside_struck_through: bool,
+    text: &mut VisibleText,
+) {
     for child in element.children() {
         match child.value() {
-            scraper::Node::Text(value) => text.push_str(value),
+            scraper::Node::Text(value) => text.push(value, inside_struck_through),
             scraper::Node::Element(child_element) => {
-                if is_excluded_descendant(child_element.name()) {
+                let name = child_element.name();
+                if NON_TEXT_ELEMENTS.contains(&name) {
                     continue;
                 }
                 if let Some(child_element) = scraper::ElementRef::wrap(child) {
-                    push_visible_text(&child_element, text);
+                    let inside_struck_through =
+                        inside_struck_through || STRUCK_THROUGH_ELEMENTS.contains(&name);
+                    push_visible_text(&child_element, inside_struck_through, text);
                 }
             }
             _ => {}
@@ -286,8 +300,42 @@ fn push_visible_text(element: &scraper::ElementRef<'_>, text: &mut String) {
     }
 }
 
-fn is_excluded_descendant(name: &str) -> bool {
-    NON_TEXT_ELEMENTS.contains(&name) || STRUCK_THROUGH_ELEMENTS.contains(&name)
+/// Joined text of an element, kept with and without its struck-through descendants.
+#[derive(Default)]
+struct VisibleText {
+    without_struck_through: String,
+    with_struck_through: String,
+    after_dropped_text: bool,
+}
+
+impl VisibleText {
+    fn push(&mut self, value: &str, struck_through: bool) {
+        self.with_struck_through.push_str(value);
+        if struck_through {
+            self.after_dropped_text = true;
+            return;
+        }
+        // `$25 <del>$50</del> ARS` must not leave the double space of the dropped amount.
+        let value = if self.after_dropped_text
+            && self.without_struck_through.ends_with(char::is_whitespace)
+        {
+            value.trim_start()
+        } else {
+            value
+        };
+        if !value.is_empty() {
+            self.after_dropped_text = false;
+        }
+        self.without_struck_through.push_str(value);
+    }
+
+    fn into_value(self) -> String {
+        if self.without_struck_through.trim().is_empty() {
+            self.with_struck_through
+        } else {
+            self.without_struck_through
+        }
+    }
 }
 
 fn extract_image_url_from_element(
@@ -688,6 +736,41 @@ mod tests {
             ExtractionCardinality::First,
         );
         assert_eq!(r.apply(&doc).unwrap(), vec!["$25.200,00 ARS"]);
+    }
+
+    #[rstest]
+    #[case::sold_title("<h1><s>Victorian chair</s></h1>", "h1", "Victorian chair")]
+    #[case::sold_state(
+        "<span id=\"state\"> <del>Available</del> </span>",
+        "#state",
+        "Available"
+    )]
+    fn should_keep_struck_through_text_when_it_is_the_whole_value(
+        #[case] markup: &str,
+        #[case] selector: &str,
+        #[case] expected: &str,
+    ) {
+        let r = rule(selector, text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&html(markup)).unwrap(), vec![expected]);
+    }
+
+    #[test]
+    fn should_close_gap_left_by_dropped_price_when_text_continues_after_it() {
+        let doc = html("<span class=\"price\">$25 <del>$50</del> ARS</span>");
+        let r = rule("span.price", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$25 ARS"]);
+    }
+
+    #[test]
+    fn should_drop_struck_through_words_from_description_prose() {
+        let doc = html(
+            "<div class=\"desc\"><p>Provenance: <s>unknown</s> Château</p><p>Oak,  two drawers</p></div>",
+        );
+        let r = rule(".desc p", text_kind(), ExtractionCardinality::All);
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["Provenance: Château", "Oak,  two drawers"]
+        );
     }
 
     #[test]
