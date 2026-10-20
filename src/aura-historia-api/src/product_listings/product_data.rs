@@ -1,10 +1,6 @@
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
-use application::operation_context::Principal;
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule};
 
-use axum::Json;
-use axum::http::{HeaderMap, HeaderValue, header};
-use axum::response::{IntoResponse, Response};
 use domain_primitives::event_id::EventId;
 
 use fxrate_core::FxRateId;
@@ -596,31 +592,6 @@ pub(crate) fn personalized_product_summary_data(
         item: ProductListingSummaryData::from_view(personalized.item),
         user_state: personalized.user_state.map(Into::into),
     }
-}
-
-pub(crate) fn product_response(
-    view: PersonalizedProductListingDetailsView,
-    principal: &Principal,
-    request_headers: &HeaderMap,
-) -> Response {
-    let ttl = crate::shipping::listing::cache_ttl([view.item.shipping.as_ref()], 120);
-    let content_language = view
-        .item
-        .title
-        .as_ref()
-        .map(|title| title.localization.as_str());
-    let response = Json(personalized_product_details_data(view)).into_response();
-    let mut response = crate::transport::cache::anonymous_shared_success(
-        response,
-        request_headers,
-        matches!(principal, Principal::Anonymous),
-        ttl,
-    );
-    let headers = response.headers_mut();
-    if let Some(language) = content_language {
-        headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
-    }
-    response
 }
 
 #[cfg(test)]

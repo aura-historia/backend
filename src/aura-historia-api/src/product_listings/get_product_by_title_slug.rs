@@ -1,6 +1,6 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
-use crate::product_listings::product_data::product_response;
+use crate::product_listings::response::product_response;
 use crate::state::ProductListingsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
