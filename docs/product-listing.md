@@ -135,7 +135,7 @@ Listing reads may attach `userState`, the caller's private state for each return
 
 Undisclosed sections are absent, never defaulted, and an empty `userState` is omitted. Write responses follow the same rule: a write scope authorizes the change, not reading the resulting state. Cognito users, services and the system keep full disclosure.
 
-Disclosure never weakens enforcement. Quota-hidden redaction, entitlement decisions and [image visibility](#content-assessment-and-image-visibility) still use the loaded state when a section is withheld, so a principal is never treated as anonymous to hide personalization. Exact fields remain in [OpenAPI](swagger.yaml).
+Disclosure never weakens enforcement. Quota-hidden redaction, entitlement decisions and [image visibility](#content-assessment-and-image-visibility) still use the loaded state when a section is withheld, so a principal is never treated as anonymous to hide personalization. A redacted item therefore still reveals that a quota-hidden match exists. Exact fields remain in [OpenAPI](swagger.yaml).
 
 ## Management inspection and mutation
 

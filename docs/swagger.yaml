@@ -5060,7 +5060,9 @@ paths:
       description:
         "Retrieves all product-listings in the authenticated user's watchlist in watchlist creation order.
 
-        Each result contains current product data and complete user-specific state.
+        Each result contains current product data and user-specific state. Cognito users receive every section;
+
+        an access token receives only the sections its read scopes permit (see `ProductListingUserStateData`).
 
         Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
 

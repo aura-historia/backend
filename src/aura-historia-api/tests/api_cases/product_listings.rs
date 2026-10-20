@@ -646,6 +646,11 @@ async fn should_return_not_found_for_withdrawn_product_by_id_or_title_slug() {
 async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id() {
     let user_id = api_support::seed_user_with_tier("USER", user_core::tier::UserTier::Free).await;
     let token = api_support::seed_access_token_for(user_id, HashSet::new()).await;
+    let search_filters_token = api_support::seed_access_token_for(
+        user_id,
+        HashSet::from([user_core::access_token::Scope::SearchFiltersRead]),
+    )
+    .await;
     let filter_id = UserSearchFilterId::new();
     let pool = get_postgres_client().await;
     sqlx::query(
@@ -721,6 +726,24 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
         // A token without read scopes still gets the redaction, but no private state.
         assert!(body.get("userState").is_none());
         assert!(body["item"]["shipping"].is_null());
+
+        let response = client
+            .get(format!("{}{}", AURA_API.base_url(), path))
+            .bearer_auth(String::from(search_filters_token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to get scoped hidden product: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert!(body["item"].get("productListingTitleSlugId").is_none());
+        assert_eq!(json!(true), body["userState"]["searchFilter"]["hidden"]);
+        for undisclosed in ["watchlist", "notification", "contentVisibility", "shipping"] {
+            assert!(
+                body["userState"].get(undisclosed).is_none(),
+                "{undisclosed}: {body}"
+            );
+        }
     }
 }
 

@@ -90,7 +90,7 @@ impl ProductListingUserStateDisclosure {
         }
     }
 
-    /// Returns `None` when no section may be disclosed, so the response matches public data.
+    /// Returns `None` when no section may be disclosed, so no empty `userState` is serialized.
     pub fn disclose_state(
         self,
         state: ProductListingUserState,
