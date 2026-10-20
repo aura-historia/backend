@@ -253,7 +253,14 @@ fn extract_from_element(
 /// would leak CSS rules and script source into extracted values.
 const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"];
 
-/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees.
+/// Elements whose text a shop has superseded. Sale prices keep the old amount in a
+/// struck-through element next to the current one as a bare text node, which no CSS
+/// selector can target, so the old amount is dropped from the containing element's text.
+/// A rule that selects such an element itself still extracts its text.
+const STRUCK_THROUGH_ELEMENTS: [&str; 3] = ["del", "s", "strike"];
+
+/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] and
+/// descendant [`STRUCK_THROUGH_ELEMENTS`] subtrees.
 fn visible_text(element: &scraper::ElementRef<'_>) -> String {
     let mut text = String::new();
     if !NON_TEXT_ELEMENTS.contains(&element.value().name()) {
@@ -267,7 +274,7 @@ fn push_visible_text(element: &scraper::ElementRef<'_>, text: &mut String) {
         match child.value() {
             scraper::Node::Text(value) => text.push_str(value),
             scraper::Node::Element(child_element) => {
-                if NON_TEXT_ELEMENTS.contains(&child_element.name()) {
+                if is_excluded_descendant(child_element.name()) {
                     continue;
                 }
                 if let Some(child_element) = scraper::ElementRef::wrap(child) {
@@ -277,6 +284,10 @@ fn push_visible_text(element: &scraper::ElementRef<'_>, text: &mut String) {
             _ => {}
         }
     }
+}
+
+fn is_excluded_descendant(name: &str) -> bool {
+    NON_TEXT_ELEMENTS.contains(&name) || STRUCK_THROUGH_ELEMENTS.contains(&name)
 }
 
 fn extract_image_url_from_element(
@@ -650,6 +661,40 @@ mod tests {
         let doc = html("<div><script>window.a = 1;</script><p>Visible</p></div>");
         let r = rule("script", text_kind(), ExtractionCardinality::All);
         assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+    }
+
+    #[rstest]
+    #[case::del("del")]
+    #[case::s("s")]
+    #[case::strike("strike")]
+    fn should_extract_current_price_when_old_price_is_struck_through(#[case] tag: &str) {
+        let doc = html(&format!(
+            "<span class=\"product-vip__price-value\"> <{tag}>$50.400,00</{tag}> $25.200,00 </span>"
+        ));
+        let r = rule(
+            "span.product-vip__price-value",
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$25.200,00"]);
+    }
+
+    #[test]
+    fn should_extract_price_unchanged_when_nothing_is_struck_through() {
+        let doc = html("<span class=\"product-vip__price-value\"> <b>$25.200,00</b> ARS </span>");
+        let r = rule(
+            "span.product-vip__price-value",
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$25.200,00 ARS"]);
+    }
+
+    #[test]
+    fn should_extract_struck_through_text_when_rule_selects_struck_through_element() {
+        let doc = html("<span><del>$50.400,00</del> $25.200,00</span>");
+        let r = rule("del", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$50.400,00"]);
     }
 
     // ─── Text / All ────────────────────────────────────────────────────
