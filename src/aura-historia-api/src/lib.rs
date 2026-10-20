@@ -54,7 +54,17 @@ use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
     queries::{get_auction::GetAuctionHandler, search_admin_auctions::SearchAdminAuctionsHandler},
 };
-use aura_historia_runtime::Runtime;
+pub use aura_historia_runtime::product_listing_config::{
+    PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV,
+    PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV,
+    PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV, VERTEX_AI_LOCATION_ENV,
+    VERTEX_AI_PROJECT_ID_ENV,
+};
+use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -62,13 +72,8 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use embedding::{
-    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
-    VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
-};
+use embedding::VertexAiEmbeddingConfig;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use fxrate_service::readers::FxSearchCacheConfig;
-use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -94,11 +99,7 @@ use oauth_service::use_cases::{
     RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
     UpdateOAuthClientHandler,
 };
-use opensearch::{
-    OpenSearch, SearchParts,
-    auth::Credentials,
-    http::transport::{SingleNodeConnectionPool, TransportBuilder},
-};
+use opensearch::{OpenSearch, SearchParts};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
@@ -170,7 +171,6 @@ use product_listing_postgres::{
     SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
-use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
@@ -192,7 +192,6 @@ use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
 use user_email_aws::{NewsletterConfirmationEmailConfig, SesNewsletterConfirmationEmailSender};
@@ -238,8 +237,6 @@ use watchlist_service::use_cases::{
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
-pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
-pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
@@ -267,55 +264,28 @@ pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
-pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS";
-pub const PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED";
-pub const PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES";
-pub const PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS";
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT: u64 = 4;
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS: u64 = 500;
-const DEFAULT_PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES: u64 = 512;
-const DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS: u64 = 30;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES: u64 = 4_096;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS: u64 = 60;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
-const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
-const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
-const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
     cognito_user_pool_id: String,
-    vertex_ai_embedding: VertexAiEmbeddingConfig,
+    product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
-    product_listing_search_parallel_enrichment_enabled: bool,
-    product_listing_search_fx_cache: FxSearchCacheConfig,
-    product_listing_search_source_cache: SourceSearchCacheConfig,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -351,11 +321,6 @@ impl ApiConfig {
             return Err(ApiConfigError::EmptyCognitoAppClientIds);
         }
         let cognito_user_pool_id = required_config(&mut get, COGNITO_USER_POOL_ID_ENV)?;
-        let vertex_ai_embedding = VertexAiEmbeddingConfig::new(
-            get(VERTEX_AI_PROJECT_ID_ENV)
-                .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
-            get(VERTEX_AI_LOCATION_ENV).unwrap_or_else(|| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
-        );
         let stripe_billing = StripeBillingConfig {
             api_key: required_config(&mut get, STRIPE_API_KEY_ENV)?,
             checkout_success_url: required_url_config(&mut get, STRIPE_CHECKOUT_SUCCESS_URL_ENV)?,
@@ -369,15 +334,7 @@ impl ApiConfig {
             ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
         };
 
-        let product_listing_search_parallel_enrichment_enabled = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        )?;
-        let product_listing_search_fx_cache =
-            parse_product_listing_search_fx_cache_config(&mut get)?;
-        let product_listing_search_source_cache =
-            parse_product_listing_search_source_cache_config(&mut get)?;
+        let product_listings = ProductListingConfig::from_getter(&mut get)?;
         let public_listing_source_read_max_in_flight = optional_bounded_usize_config(
             &mut get,
             PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV,
@@ -423,15 +380,12 @@ impl ApiConfig {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             cognito_user_pool_id,
-            vertex_ai_embedding,
+            product_listings,
             stripe_billing,
             billing_prices,
             loops,
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
-            product_listing_search_parallel_enrichment_enabled,
-            product_listing_search_fx_cache,
-            product_listing_search_source_cache,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -450,7 +404,7 @@ impl ApiConfig {
     }
 
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
-        &self.vertex_ai_embedding
+        self.product_listings.vertex_ai_embedding()
     }
 
     fn stripe_billing(&self) -> &StripeBillingConfig {
@@ -473,30 +427,12 @@ impl ApiConfig {
         &self.loops_webhook_signing_secret
     }
 
-    fn product_listing_search_fx_cache_config(&self) -> FxSearchCacheConfig {
-        self.product_listing_search_fx_cache.clone()
-    }
-
-    fn product_listing_search_source_cache_config(&self) -> SourceSearchCacheConfig {
-        self.product_listing_search_source_cache.clone()
-    }
-
     /// Shared, non-queuing public ListingSource read budget for this API process.
     fn public_listing_source_read_budget(&self) -> PublicListingSourceReadBudget {
         PublicListingSourceReadBudget::new(
             self.public_listing_source_read_max_in_flight,
             self.public_listing_source_read_request_timeout,
         )
-    }
-
-    fn product_listing_search_read_execution_policy(
-        &self,
-    ) -> ProductListingSearchReadExecutionPolicy {
-        if self.product_listing_search_parallel_enrichment_enabled {
-            ProductListingSearchReadExecutionPolicy::Concurrent
-        } else {
-            ProductListingSearchReadExecutionPolicy::Sequential
-        }
     }
 }
 
@@ -515,22 +451,6 @@ where
 {
     let value = required_config(get, name)?;
     url::Url::parse(&value).map_err(|source| ApiConfigError::InvalidUrlConfig { name, source })
-}
-
-fn optional_bool_config<F>(
-    get: &mut F,
-    name: &'static str,
-    default: bool,
-) -> Result<bool, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    match get(name) {
-        Some(value) => value
-            .parse()
-            .map_err(|_| ApiConfigError::InvalidBooleanConfig { name, value }),
-        None => Ok(default),
-    }
 }
 
 fn optional_bounded_u64_config<F>(
@@ -582,74 +502,6 @@ where
     })
 }
 
-fn parse_product_listing_search_fx_cache_config<F>(
-    get: &mut F,
-) -> Result<FxSearchCacheConfig, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    let enabled = optional_bool_config(get, PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, true)?;
-    let max_entries = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES,
-        1,
-        8_192,
-    )?;
-    let latest_ttl_seconds = optional_bounded_u64_config(
-        get,
-        PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS,
-        0,
-        300,
-    )?;
-
-    FxSearchCacheConfig::new(
-        enabled,
-        max_entries,
-        Duration::from_secs(latest_ttl_seconds),
-    )
-    .map_err(ApiConfigError::FxSearchCacheConfig)
-}
-
-fn parse_product_listing_search_source_cache_config<F>(
-    get: &mut F,
-) -> Result<SourceSearchCacheConfig, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    let enabled = optional_bool_config(get, PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV, true)?;
-    let max_entries = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES,
-        1,
-        65_536,
-    )?;
-    let max_accounted_bytes = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES,
-        1,
-        536_870_912,
-    )?;
-    let ttl_seconds = optional_bounded_u64_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS,
-        1,
-        300,
-    )?;
-
-    SourceSearchCacheConfig::new(
-        enabled,
-        max_entries,
-        max_accounted_bytes,
-        Duration::from_secs(ttl_seconds),
-    )
-    .map_err(ApiConfigError::SourceSearchCacheConfig)
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ApiConfigError {
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
@@ -667,8 +519,6 @@ pub enum ApiConfigError {
     },
     #[error("{COGNITO_APP_CLIENT_IDS_ENV} must contain at least one client id")]
     EmptyCognitoAppClientIds,
-    #[error("invalid boolean configuration {name}: {value}")]
-    InvalidBooleanConfig { name: &'static str, value: String },
     #[error("invalid integer configuration {name}: {value}")]
     InvalidIntegerConfig { name: &'static str, value: String },
     #[error("integer configuration {name} must be between {min} and {max}: {value}")]
@@ -678,11 +528,9 @@ pub enum ApiConfigError {
         min: u64,
         max: u64,
     },
-    #[error("invalid product listing search FX cache configuration")]
-    FxSearchCacheConfig(#[source] fxrate_service::readers::FxSearchCacheConfigError),
-    #[error("invalid product listing search source cache configuration")]
-    SourceSearchCacheConfig(
-        #[source] product_listing_service::readers::SourceSearchCacheConfigError,
+    #[error(transparent)]
+    ProductListings(
+        #[from] aura_historia_runtime::product_listing_config::ProductListingConfigError,
     ),
     #[error("invalid Loops newsletter configuration")]
     LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
@@ -1339,10 +1187,9 @@ async fn app_state_from_config_and_runtime(
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listing_history = runtime.public_product_listing_history();
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
-    let opensearch_client = opensearch_client_from_env()?;
-    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(LazyVertexAiEmbeddingGenerator::new(
-        config.vertex_ai_embedding().clone(),
-    ));
+    let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
+    let opensearch_client = listing_dependencies.opensearch.clone();
+    let embeddings = Arc::clone(&listing_dependencies.embeddings);
 
     let get_admin_overview = GetAdminOverviewHandler::new(
         unit_of_work.clone(),
@@ -1646,14 +1493,7 @@ async fn app_state_from_config_and_runtime(
             SqlxNotificationDeliveryIntentRepositoryFactory::new(),
         ),
     );
-    let public_product_listings =
-        runtime.public_product_listings(aura_historia_runtime::ProductListingDependencies {
-            opensearch: opensearch_client.clone(),
-            embeddings: Arc::clone(&embeddings),
-            fx_cache: config.product_listing_search_fx_cache_config(),
-            source_cache: config.product_listing_search_source_cache_config(),
-            read_execution_policy: config.product_listing_search_read_execution_policy(),
-        });
+    let public_product_listings = runtime.public_product_listings(listing_dependencies);
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
@@ -2322,113 +2162,6 @@ fn valid_ingestion_queue_url(value: &str) -> bool {
     })
 }
 
-fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
-    let endpoint =
-        std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
-            name: "OPENSEARCH_ENDPOINT_URL",
-        })?;
-    let endpoint = url::Url::parse(&endpoint).map_err(|error| ApiStateError::OpenSearch {
-        detail: error.to_string(),
-    })?;
-    let stage = std::env::var("STAGE").unwrap_or_else(|_| "prod".to_owned());
-    let transport = if stage == "ephemeral" {
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
-    } else {
-        let username =
-            std::env::var("OPENSEARCH_USERNAME").map_err(|_| ApiStateError::MissingEnv {
-                name: "OPENSEARCH_USERNAME",
-            })?;
-        let password =
-            std::env::var("OPENSEARCH_PASSWORD").map_err(|_| ApiStateError::MissingEnv {
-                name: "OPENSEARCH_PASSWORD",
-            })?;
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
-            .auth(Credentials::Basic(username, password))
-            .build()
-    }
-    .map_err(|error| ApiStateError::OpenSearch {
-        detail: error.to_string(),
-    })?;
-    Ok(OpenSearch::new(transport))
-}
-
-trait GoogleAdcProvider: Send + Sync {
-    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError>;
-}
-
-struct DefaultGoogleAdcProvider;
-
-impl GoogleAdcProvider for DefaultGoogleAdcProvider {
-    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
-        google_application_default_credentials()
-    }
-}
-
-struct LazyVertexAiEmbeddingGenerator {
-    config: VertexAiEmbeddingConfig,
-    adc_provider: Arc<dyn GoogleAdcProvider>,
-    generator: OnceCell<VertexAiEmbeddingGenerator>,
-}
-
-impl LazyVertexAiEmbeddingGenerator {
-    fn new(config: VertexAiEmbeddingConfig) -> Self {
-        Self::with_adc_provider(config, Arc::new(DefaultGoogleAdcProvider))
-    }
-
-    fn with_adc_provider(
-        config: VertexAiEmbeddingConfig,
-        adc_provider: Arc<dyn GoogleAdcProvider>,
-    ) -> Self {
-        Self {
-            config,
-            adc_provider,
-            generator: OnceCell::new(),
-        }
-    }
-
-    async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
-        self.generator
-            .get_or_try_init(|| async {
-                Ok(VertexAiEmbeddingGenerator::new(
-                    self.config.clone(),
-                    self.adc_provider.credentials()?,
-                ))
-            })
-            .await
-    }
-}
-
-#[async_trait]
-impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
-    async fn embed_product(
-        &self,
-        title: &EmbeddingText,
-        additional_text: Option<&EmbeddingText>,
-        image_url: Option<&EmbeddingImageUrl>,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        self.generator()
-            .await?
-            .embed_product(title, additional_text, image_url)
-            .await
-    }
-
-    async fn embed_search_query(
-        &self,
-        query: &EmbeddingText,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        self.generator().await?.embed_search_query(query).await
-    }
-}
-
-fn google_application_default_credentials() -> Result<AccessTokenCredentials, EmbeddingError> {
-    GoogleCredentialsBuilder::default()
-        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
-        .build_access_token_credentials()
-        .map_err(|source| EmbeddingError::AuthenticationFailed {
-            source: Box::new(source),
-        })
-}
-
 fn compose_authenticator<P, R, A, U>(
     config: &ApiConfig,
     jwks_provider: P,
@@ -2465,8 +2198,8 @@ pub enum ApiStateError {
     MissingEnv { name: &'static str },
     #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]
     InvalidIngestionQueueUrl,
-    #[error("failed to configure OpenSearch: {detail}")]
-    OpenSearch { detail: String },
+    #[error(transparent)]
+    ListingProviders(#[from] aura_historia_runtime::ProductListingProviderError),
     #[error("failed to configure Cognito JWT authentication: {0}")]
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
@@ -2478,8 +2211,8 @@ pub enum ApiStateError {
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
-    let fx = config.product_listing_search_fx_cache_config();
-    let source = config.product_listing_search_source_cache_config();
+    let fx = config.product_listings.fx_cache();
+    let source = config.product_listings.source_cache();
     info!(
         fx_cache_enabled = fx.enabled(),
         fx_cache_max_entries = fx.max_entries(),
@@ -2488,7 +2221,8 @@ fn log_product_listing_search_cache_config(config: &ApiConfig) {
         source_cache_max_entries = source.max_entries(),
         source_cache_max_accounted_bytes = source.max_accounted_bytes(),
         source_cache_ttl_seconds = source.ttl().as_secs(),
-        parallel_enrichment_enabled = config.product_listing_search_parallel_enrichment_enabled,
+        parallel_enrichment_enabled = config.product_listings.read_execution_policy()
+            == ProductListingSearchReadExecutionPolicy::Concurrent,
         "configured public product-listing search cache policy"
     );
 }
@@ -2531,7 +2265,6 @@ mod readiness_tests;
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn valid_api_config_values() -> HashMap<&'static str, String> {
         HashMap::from([
@@ -2813,42 +2546,6 @@ mod tests {
         );
     }
 
-    struct UnavailableGoogleAdcProvider {
-        calls: AtomicUsize,
-    }
-
-    impl GoogleAdcProvider for UnavailableGoogleAdcProvider {
-        fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            Err(EmbeddingError::AuthenticationFailed {
-                source: Box::new(std::io::Error::other("test Google ADC is unavailable")),
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn should_initialize_vertex_adapter_and_adc_only_when_embedding_needs_it() {
-        let adc_provider = Arc::new(UnavailableGoogleAdcProvider {
-            calls: AtomicUsize::new(0),
-        });
-        let embeddings = LazyVertexAiEmbeddingGenerator::with_adc_provider(
-            VertexAiEmbeddingConfig::new("test-project", "eu"),
-            Arc::clone(&adc_provider) as Arc<dyn GoogleAdcProvider>,
-        );
-
-        assert!(embeddings.generator.get().is_none());
-        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 0);
-
-        let result = embeddings.generator().await;
-
-        assert!(matches!(
-            result,
-            Err(EmbeddingError::AuthenticationFailed { .. })
-        ));
-        assert!(embeddings.generator.get().is_none());
-        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 1);
-    }
-
     #[test]
     fn should_default_and_apply_bounded_public_listing_source_read_configuration() {
         let mut absent = |_| None;
@@ -2929,143 +2626,6 @@ mod tests {
                 64,
             ),
             Err(ApiConfigError::InvalidIntegerConfig { .. })
-        ));
-    }
-
-    #[test]
-    fn should_default_parallel_product_listing_enrichment_to_disabled() {
-        let mut get = |_| None;
-
-        let enabled = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        );
-
-        assert!(matches!(enabled, Ok(false)));
-    }
-
-    #[test]
-    fn should_default_product_listing_search_cache_policies_to_enabled() {
-        let mut get = |_| None;
-
-        let fx = parse_product_listing_search_fx_cache_config(&mut get);
-        let source = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            fx,
-            Ok(ref config)
-                if config.enabled()
-                    && config.max_entries() == 512
-                    && config.latest_selection_ttl() == Duration::from_secs(30)
-        ));
-        assert!(matches!(
-            source,
-            Ok(ref config)
-                if config.enabled()
-                    && config.max_entries() == 4_096
-                    && config.max_accounted_bytes() == 8 * 1024 * 1024
-                    && config.ttl() == Duration::from_secs(60)
-        ));
-    }
-
-    #[test]
-    fn should_apply_explicit_product_listing_search_cache_policy() {
-        let mut get = |name| match name {
-            PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV => Some("false".to_owned()),
-            PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV => Some("128".to_owned()),
-            PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV => Some("0".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV => Some("false".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV => Some("256".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV => Some("65536".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV => Some("5".to_owned()),
-            _ => None,
-        };
-
-        let fx = parse_product_listing_search_fx_cache_config(&mut get);
-        let source = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            fx,
-            Ok(ref config)
-                if !config.enabled()
-                    && config.max_entries() == 128
-                    && config.latest_selection_ttl().is_zero()
-        ));
-        assert!(matches!(
-            source,
-            Ok(ref config)
-                if !config.enabled()
-                    && config.max_entries() == 256
-                    && config.max_accounted_bytes() == 65_536
-                    && config.ttl() == Duration::from_secs(5)
-        ));
-    }
-
-    #[test]
-    fn should_reject_out_of_range_product_listing_search_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV)
-                .then(|| "536870913".to_owned())
-        };
-
-        let result = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::OutOfRangeIntegerConfig { name, value, min: 1, max: 536_870_912 })
-                if name == PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV && value == "536870913"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_integer_product_listing_search_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV).then(|| "many".to_owned())
-        };
-
-        let result = parse_product_listing_search_fx_cache_config(&mut get);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidIntegerConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV && value == "many"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_boolean_product_listing_search_fx_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV).then(|| "enabled".to_owned())
-        };
-
-        let result =
-            optional_bool_config(&mut get, PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, false);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidBooleanConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV && value == "enabled"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_boolean_parallel_product_listing_enrichment_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV)
-                .then(|| "enabled".to_owned())
-        };
-
-        let result = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        );
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidBooleanConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV && value == "enabled"
         ));
     }
 }

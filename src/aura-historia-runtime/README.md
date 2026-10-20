@@ -9,7 +9,11 @@ construct public source, location and catalogue aggregate handles once for the w
 without loading unrelated provider configuration. Listing discovery selects
 `Runtime::public_product_listings(ProductListingDependencies)` with explicit OpenSearch and
 embedding-provider handles and the existing cache/read policies. Its detail, similarity and search
-handles are reused for the warm pool. `Runtime::listing_shipping()` shares the existing shipping
+handles are reused for the warm pool. `ProductListingConfig` parses the existing listing-only
+Vertex, cache and read-policy settings; `ProductListingDependencies::from_env()` constructs
+OpenSearch and the lazy embedding adapter for REST and MCP. ADC is resolved only when an
+embedding is requested. Lambda entry points reuse the synchronous ADC setup in
+`platform-lambda-bootstrap` before starting worker threads. `Runtime::listing_shipping()` shares the existing shipping
 assessment/address-resolution composition with catalogue readers. Constructing these handles
 performs no provider request. Shared DTOs and pure mappings belong to `aura-historia-contracts`.
 Add further explicit families only with the task exposing their operations; keep configuration

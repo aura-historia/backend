@@ -2,6 +2,7 @@ use super::*;
 use axum::http::{Request, StatusCode};
 use base64::Engine;
 use opensearch::http::transport::TransportBuilder;
+use opensearch::{auth::Credentials, http::transport::SingleNodeConnectionPool};
 use sqlx::postgres::PgPoolOptions;
 use test_api::IntegrationTestService;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
