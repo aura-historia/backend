@@ -1,7 +1,8 @@
 # HTTP API front door
 
 This document owns edge routing, authentication, forwarding and cache/security rules.
-[OpenAPI](swagger.yaml) owns request/response contracts. [ProductListing](product-listing.md),
+[OpenAPI](swagger.yaml) owns REST request/response contracts; [MCP](mcp.md) owns
+protocol compatibility and tool admission. [ProductListing](product-listing.md),
 [geography](geography.md) and [marketing consent](marketing-consent.md) own use-case semantics.
 Source/synth do not verify live DNS, certificates, aliases, WAF or forwarding; operators
 must inspect them.
@@ -122,6 +123,118 @@ partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
+
+## MCP front door
+
+MCP uses a separate Gateway, Lambda `live` alias, CloudFront distribution and Web ACL.
+Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serves
+`https://mcp.stage.aura-historia.com/v1`. The existing REST host and route catalog are
+independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
+`/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
+rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
+The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-protected-resource/v1` are reserved for hybrid authentication;
+the foundation shell returns `404`, without fabricated OAuth metadata. No proxy,
+REST handlers, sessions or SSE service are exposed on this host.
+
+The regional custom-domain mapping has no path key or origin rewrite. CloudFront
+forwards all viewer headers, query strings and cookies using AllViewer, including
+`Host`, `Authorization`, `Origin`, `Accept`, `Content-Type`, `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name`, `Mcp-Session-Id` and `X-Correlation-Id`. Preserve response
+status, `WWW-Authenticate`, `Allow`, content type and request/correlation IDs.
+Every MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
+no-store` response policy, including Gateway-generated errors and preflight. No
+headers or status codes are rewritten to hide authentication/protocol errors.
+
+Gateway owns browser preflight; its exact origin list is also passed to the native
+Origin validator. Prod permits `https://aura-historia.com`; dev permits
+`https://stage.aura-historia.com` and `http://localhost:3000`. There are no wildcard
+or opaque `null` origins, cookies/credential-mode CORS is not enabled, and normal
+server clients may omit Origin. A browser uses bearer Authorization explicitly;
+CORS grants no application authority. Requests may use the forwarding headers above;
+responses expose `WWW-Authenticate`, `X-Request-Id`, `X-Correlation-Id` and
+`Content-Type`. Preflight has zero max-age. An unapproved Origin on an actual
+protocol request is rejected by the transport; a denied preflight must not grant
+an allow-origin response.
+
+The dedicated Web ACL keeps IP reputation, common and known-bad-input protections.
+`NoUserAgent_HEADER` is count-only for server clients. The managed 8 KiB body-size
+rule is counted and re-blocked outside **exact `POST /v1`**; no URL-target or other
+managed-body rule is relaxed for MCP. A declared body over 256 KiB receives JSON
+`413` with no-store before managed inspection. WAF inspects only its configured
+prefix and cannot bound undeclared/chunked lengths; the transport's streamed-byte
+limit is authoritative. This exception admits JSON-RPC above the managed threshold,
+without promising that arbitrary payload content bypasses managed rules. WAF request
+sampling and payload logging are disabled for MCP; Gateway logs only request ID,
+route key, status and integration latency. Review metrics without recording bearer
+headers or arguments/results. The [hosting tests](../infra/test/mcp-hosting.test.ts)
+pin these boundaries to the transport budgets.
+
+### MCP deployment and stage verification
+
+Use the [existing Release workflow](infra.md#routine-and-schema-dependent-releases).
+Before first traffic, verify ownership and available aliases, then provision issued
+ACM certificates covering the exact host in `eu-central-1` (regional Gateway) and
+`us-east-1` (CloudFront viewer). Supply their ARNs through these external SSM String
+parameters in the workload region:
+
+- `/certificates/{dev|prod}/mcp-regional-certificate-arn`
+- `/certificates/{dev|prod}/mcp-cloudfront-certificate-arn`
+
+`*.aura-historia.com` does not cover `mcp.stage.aura-historia.com`. Deployment creates
+the custom-domain mapping and distribution, but DNS remains operator-owned. Point
+the exact public hostname's CNAME (or provider alias) to the API stack's
+`McpCloudFrontDistributionDomainName` output, never to the public hostname itself or
+the disabled execute-api endpoint. Keep the previous DNS target/TTL and compatible
+release source for recovery. Inspect regional-origin TLS with the forwarded public
+Host, the MCP `live` alias and API-scoped invoke permission before DNS cutover.
+
+After an approved dev deployment, exercise the **public CloudFront hostname** with a
+generic Streamable HTTP client. For a manual legacy protocol probe:
+
+```sh
+mcp_origin=https://mcp.stage.aura-historia.com
+curl -i "$mcp_origin/ready"
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"stage-smoke","version":"1"}}}'
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+curl -i "$mcp_origin/v1" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+Require readiness `204`, a supported initialization result and successful discovery.
+The foundation registry is deliberately empty: `tools/list` returns `tools: []` and
+`ping` is the bounded public protocol call. After public families are released, also
+call one actual listed public tool with bounded inputs and verify its complete
+result; do not install a synthetic production tool to make the smoke pass. Complete
+these checks before approving traffic:
+
+| Probe | Required result |
+| --- | --- |
+| `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
+| `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
+| Both reserved metadata paths; an unrelated `/v1/me` path | `404`, no REST response or invented metadata |
+| Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
+| Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |
+| Wrong Content-Type, unacceptable Accept, duplicate routing/credential headers | `415`, `406`, or `400`; no dispatch |
+| Valid JSON-RPC body above 16 KiB, below 256 KiB | Reaches protocol handling; not the managed 8 KiB size rejection |
+| Body above 256 KiB with declared and streamed/undeclared lengths | `413`; no truncation or successful dispatch |
+| Repeated success, `404`, `405`, protocol failure, supplied invalid bearer, and preflight | `Cache-Control: no-store`, no shared cache hit; status and challenge/trace headers survive |
+
+Also run the [current revision flow and compatibility matrix](mcp.md#protocol-compatibility)
+through a generic client. Record safe status/timing/header evidence without tokens or
+bodies. Local synth/unit tests do not perform these live checks. If certificate,
+Host/TLS, WAF, CORS or forwarding checks fail, hold traffic. Restore the recorded DNS
+target when necessary; compatible code rollback follows the existing Release mechanism
+and repoints the MCP `live` alias to an immutable version. Review diffs before rolling
+back to a source predating MCP, since that may remove its front door. DNS is never
+rolled back automatically, and rollback does not undo completed tool effects.
 
 ## REST client and provider configuration
 

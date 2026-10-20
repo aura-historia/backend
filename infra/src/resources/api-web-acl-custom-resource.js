@@ -43,6 +43,7 @@ function normalizedProperties(props) {
         region: props.Region || "us-east-1",
         rules: normalizeWebAclRules(props.Rules || []),
         scope: props.Scope || "CLOUDFRONT",
+        sampledRequestsEnabled: normalizeWebAclValue("SampledRequestsEnabled", props.SampledRequestsEnabled ?? true),
     };
 }
 
@@ -157,7 +158,7 @@ function webAclInput(props) {
         VisibilityConfig: {
             CloudWatchMetricsEnabled: true,
             MetricName: props.metricName,
-            SampledRequestsEnabled: true,
+            SampledRequestsEnabled: props.sampledRequestsEnabled,
         },
     };
 }

@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { API_ROUTE_CATALOG } from "../src/constructs/api";
+import { MCP_ROUTE_CATALOG } from "../src/constructs/mcp";
 import { STAGES, isStageName, stageConfig, type StageName } from "../src/config";
 
 function createStacks(stage: StageName) {
@@ -23,8 +24,8 @@ describe("Application stacks", () => {
     const stacks = createStacks(stage);
 
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::Cognito::UserPool"))).toHaveLength(1);
-    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(1);
-    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(API_ROUTE_CATALOG.length);
+    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(2);
+    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(API_ROUTE_CATALOG.length + MCP_ROUTE_CATALOG.length);
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::StepFunctions::StateMachine"))).toHaveLength(0);
     expect(stacks.compute.dependencies).toContain(stacks.initialization);
     expect(stacks.initialization.dependencies).not.toContain(stacks.compute);

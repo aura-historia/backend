@@ -1,16 +1,12 @@
-import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 
 import type { LambdaCatalog, LambdaKey } from "./lambdas";
+import { createCloudFrontWebAcl } from "./cloudfront-web-acl";
 
 export enum RouteAuthPolicy {
   Anonymous = "ANONYMOUS",
@@ -458,40 +454,15 @@ export class BackendHttpApi extends Construct {
   }
 
   private configureCloudFrontWebAcl(props: HttpApiProps): string {
-    const provider = new lambda.Function(this, "ApiWebAclCustomResourceFunction", {
-      functionName: `api-cloudfront-web-acl-provider-${props.stageName}`,
-      runtime: lambda.Runtime.NODEJS_24_X,
-      handler: "index.handler",
-      timeout: cdk.Duration.minutes(2),
-      code: lambda.Code.fromInline(cloudFrontWebAclCustomResourceCode()),
+    return createCloudFrontWebAcl(this, {
+      id: "ApiWebAcl",
+      providerFunctionName: `api-cloudfront-web-acl-provider-${props.stageName}`,
+      description: `Aura Historia ${props.stageName} API CloudFront Web ACL`,
+      metricName: `api-cloudfront-${props.stageName}`,
+      name: `application-${props.stageName}-api-cloudfront-web-acl`,
+      customResponseBodies: cloudFrontWebAclCustomResponseBodies(),
+      rules: cloudFrontFreePlanWebAclRules(),
     });
-
-    provider.addToRolePolicy(new iam.PolicyStatement({
-      actions: [
-        "wafv2:CreateWebACL",
-        "wafv2:DeleteWebACL",
-        "wafv2:GetWebACL",
-        "wafv2:ListWebACLs",
-        "wafv2:TagResource",
-        "wafv2:UpdateWebACL",
-      ],
-      resources: ["*"],
-    }));
-
-    const webAcl = new cdk.CustomResource(this, "ApiWebAcl", {
-      serviceToken: provider.functionArn,
-      properties: {
-        Description: `Aura Historia ${props.stageName} API CloudFront Web ACL`,
-        MetricName: `api-cloudfront-${props.stageName}`,
-        Name: `application-${props.stageName}-api-cloudfront-web-acl`,
-        CustomResponseBodies: cloudFrontWebAclCustomResponseBodies(),
-        Region: "us-east-1",
-        Rules: cloudFrontFreePlanWebAclRules(),
-        Scope: "CLOUDFRONT",
-      },
-    });
-
-    return webAcl.getAttString("WebAclArn");
   }
 }
 
@@ -648,15 +619,6 @@ function cloudFrontManagedRule(name: string, priority: number, ruleActionOverrid
       SampledRequestsEnabled: true,
     },
   };
-}
-
-function cloudFrontWebAclCustomResourceCode(): string {
-  return resourceCode("api-web-acl-custom-resource.js");
-}
-
-
-function resourceCode(fileName: string): string {
-  return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
 }
 
 function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): ApplicationRouteAuthPolicy {

@@ -27,7 +27,8 @@ function apiFunction(template: Template, stage: StageName): CloudFormationResour
 }
 
 function apiAliasVersion(template: Template): { alias: CloudFormationResource; version: CloudFormationResource; versionId: string } {
-  const aliases = Object.values(template.findResources("AWS::Lambda::Alias")) as CloudFormationResource[];
+  const aliases = (Object.values(template.findResources("AWS::Lambda::Alias")) as CloudFormationResource[])
+    .filter((alias) => JSON.stringify(alias.Properties.FunctionName).includes("AuraHistoriaApiLambda"));
   expect(aliases).toHaveLength(1);
   const alias = aliases[0];
   const versionRef = alias.Properties.FunctionVersion as { "Fn::GetAtt": [string, string] };
@@ -313,7 +314,8 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       ([, resource]) => (resource as CloudFormationResource).Properties.FunctionName === `aura-historia-api-${stage}`,
     )?.[0];
     const eventSourceMappings = Object.values(template.findResources("AWS::Lambda::EventSourceMapping"));
-    const aliases = Object.values(template.findResources("AWS::Lambda::Alias"));
+    const aliases = Object.values(template.findResources("AWS::Lambda::Alias"))
+      .filter((alias) => JSON.stringify(alias.Properties.FunctionName).includes("AuraHistoriaApiLambda"));
 
     expect(apiFunctionLogicalId).toBeDefined();
     expect(functionResource.Properties.VpcConfig).toBeDefined();

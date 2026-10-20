@@ -1,5 +1,6 @@
 [
   "aura-historia-api",
+  "aura-historia-mcp",
   "shopify-lambda",
   "cognito-post-confirmation",
   "cognito-pre-sign-up",
