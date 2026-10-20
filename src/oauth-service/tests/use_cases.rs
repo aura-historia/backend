@@ -172,7 +172,7 @@ fn context(principal: Principal) -> OperationContext {
     }
 }
 
-fn ctx() -> OperationContext {
+fn delegated_admin_context() -> OperationContext {
     context(Principal::DelegatedUser {
         user_id: UserId::new(),
         capabilities: BTreeSet::from([
@@ -625,7 +625,10 @@ async fn should_cover_client_crud_use_cases() {
         ports.clone(),
         FakeCheckUserAdmin::allow_all(),
     );
-    let result = create.execute(&ctx(), create_command()).await.unwrap();
+    let result = create
+        .execute(&delegated_admin_context(), create_command())
+        .await
+        .unwrap();
     let client_id = result.client.client_id;
     assert!(
         result.raw_client_secret.check(
@@ -639,7 +642,10 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(
         1,
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), ListOAuthClientsRequest::default())
+            .execute(
+                &delegated_admin_context(),
+                ListOAuthClientsRequest::default()
+            )
             .await
             .unwrap()
             .items
@@ -648,7 +654,7 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(
         client_id,
         GetOAuthClientHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), &client_id)
+            .execute(&delegated_admin_context(), &client_id)
             .await
             .unwrap()
             .client_id
@@ -659,7 +665,7 @@ async fn should_cover_client_crud_use_cases() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client_id,
         UpdateOAuthClientCommand {
             name: Some(OAuthClientName::from("B")),
@@ -679,12 +685,15 @@ async fn should_cover_client_crud_use_cases() {
         ports.clone(),
         FakeCheckUserAdmin::allow_all(),
     )
-    .execute(&ctx(), &client_id)
+    .execute(&delegated_admin_context(), &client_id)
     .await
     .unwrap();
     assert!(
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
-            .execute(&ctx(), ListOAuthClientsRequest::default())
+            .execute(
+                &delegated_admin_context(),
+                ListOAuthClientsRequest::default()
+            )
             .await
             .unwrap()
             .items
@@ -1037,7 +1046,7 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client.client_id(),
         UpdateOAuthClientCommand {
             name: Some(client.name().clone()),
@@ -1065,7 +1074,7 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         &client.client_id(),
         UpdateOAuthClientCommand {
             name: Some(OAuthClientName::from("Updated Client")),
@@ -1107,7 +1116,7 @@ async fn should_reject_invalid_client_metadata() {
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
-        &ctx(),
+        &delegated_admin_context(),
         CreateOAuthClientCommand {
             name: OAuthClientName::from("A"),
             redirect_uris: HashSet::new(),
@@ -1133,7 +1142,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone());
     let auth = authorize
         .execute(
-            &ctx(),
+            &delegated_admin_context(),
             AuthorizeRequest {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
@@ -1593,7 +1602,7 @@ async fn should_revoke_and_introspect_tokens() {
     assert_eq!(0, lock(&ports.0).transaction_begins);
     RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
-            &ctx(),
+            &delegated_admin_context(),
             RevokeTokenRequest {
                 token: raw_access_token.clone(),
                 client_id: client.client_id(),
@@ -1643,7 +1652,7 @@ async fn should_reject_revocation_of_another_clients_or_personal_token() {
         let result =
             RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
                 .execute(
-                    &ctx(),
+                    &delegated_admin_context(),
                     RevokeTokenRequest {
                         token: raw_token,
                         client_id: client.client_id(),
@@ -1669,7 +1678,7 @@ async fn should_succeed_when_revoking_an_unknown_token() {
 
     RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
-            &ctx(),
+            &delegated_admin_context(),
             RevokeTokenRequest {
                 token: RawAccessToken::new(),
                 client_id: client.client_id(),
