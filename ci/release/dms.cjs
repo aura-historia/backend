@@ -1,5 +1,6 @@
 'use strict';
 const { aws, sleep, hash } = require('./io.cjs');
+const cdcMetrics = require('./cdc-metrics.cjs');
 function read(ctx, arn, api = aws) {
   const response = api(ctx, 'dms', 'describe-replication-tasks', [
     '--filters',
@@ -155,28 +156,6 @@ async function resume(ctx, recorded, options = {}) {
     throw new Error(`Cannot resume DMS from ${task.Status}.`);
   return evidence(await wait(ctx, recorded, 'running', ['stopped', 'starting'], options));
 }
-function metric(ctx, namespace, name, dimensions, since, statistic, api) {
-  const result = api(ctx, 'cloudwatch', 'get-metric-statistics', [
-    '--namespace',
-    namespace,
-    '--metric-name',
-    name,
-    '--dimensions',
-    ...Object.entries(dimensions).map(([key, value]) => `Name=${key},Value=${value}`),
-    '--start-time',
-    since,
-    '--end-time',
-    new Date().toISOString(),
-    '--period',
-    '60',
-    '--statistics',
-    statistic,
-  ]);
-  const points = result.Datapoints?.filter(
-    (p) => Date.parse(p.Timestamp) >= Date.parse(since) && Number.isFinite(p[statistic]),
-  );
-  return points?.length ? Math.max(...points.map((p) => p[statistic])) : null;
-}
 async function health(
   ctx,
   recorded,
@@ -218,41 +197,10 @@ async function health(
       );
     // Ignore old and delayed points. Idle capture is healthy only with fresh latency
     // and throughput evidence; an absent metric is never interpreted as zero.
-    const window = new Date(Math.max(Date.parse(since), Date.now() - 300000)).toISOString();
-    const source = metric(ctx, 'AWS/DMS', 'CDCLatencySource', dimensions, window, 'Maximum', api);
-    const target = metric(ctx, 'AWS/DMS', 'CDCLatencyTarget', dimensions, window, 'Maximum', api);
-    const rows = metric(ctx, 'AWS/DMS', 'CDCThroughputRowsSource', dimensions, window, 'Maximum', api);
-    let router = null,
-      idleStream = null;
-    if (enabled === 'true') {
-      router = metric(
-        ctx,
-        'AWS/Lambda',
-        'IteratorAge',
-        { FunctionName: `cdc-router-lambda-${ctx.stage}` },
-        window,
-        'Maximum',
-        api,
-      );
-      idleStream = metric(
-        ctx,
-        'AWS/Kinesis',
-        'IncomingRecords',
-        { StreamName: stream[0].PhysicalResourceId },
-        window,
-        'Sum',
-        api,
-      );
-    }
+    const metrics = cdcMetrics.observe(ctx, dimensions, enabled, since, stream[0].PhysicalResourceId, api);
+    const { source, target, rows, router, idleStream } = metrics;
     const progress = task.RecoveryCheckpoint !== recorded.checkpoint;
-    if (
-      source !== null &&
-      target !== null &&
-      source <= 300 &&
-      target <= 300 &&
-      (progress || rows === 0) &&
-      (enabled === 'false' || (router !== null && router <= 60000) || (router === null && idleStream === 0))
-    )
+    if (cdcMetrics.ready(metrics, enabled, progress))
       return {
         verifiedAt: new Date().toISOString(),
         checkpointHash: hash(task.RecoveryCheckpoint),
@@ -280,5 +228,5 @@ module.exports = {
   resume,
   wait,
   health,
-  metric,
+  metric: cdcMetrics.metric,
 };
