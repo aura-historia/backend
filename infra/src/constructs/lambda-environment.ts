@@ -58,6 +58,7 @@ function loopsNewsletterEnvironment(config: StageConfig): Record<string, string>
 
 export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
+    ...listingProviderEnvironment(context),
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
     MCP_ALLOWED_HOSTS: context.config.mcp.domainName,

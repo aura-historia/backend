@@ -12,7 +12,15 @@ fn should_keep_protocol_payloads_out_of_binary_logs_even_with_verbose_environmen
     let address = listener.local_addr().unwrap();
     drop(listener);
     let mut child = Command::new(env!("CARGO_BIN_EXE_aura-historia-mcp"))
-        .env_remove("AWS_LAMBDA_RUNTIME_API")
+        .env_clear()
+        .env("POSTGRES_HOST", "127.0.0.1")
+        .env("POSTGRES_PORT", "9")
+        .env("POSTGRES_DATABASE", "fixture")
+        .env("POSTGRES_USERNAME", "fixture")
+        .env("POSTGRES_PASSWORD", "fixture-password")
+        .env("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem")
+        .env("STAGE", "ephemeral")
+        .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
         .env("MCP_BIND_ADDR", address.to_string())
         .env("MCP_ALLOWED_HOSTS", address.to_string())
         .env_remove("MCP_ALLOWED_ORIGINS")

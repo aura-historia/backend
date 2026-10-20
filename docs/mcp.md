@@ -3,9 +3,10 @@
 The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
 `aura-historia-mcp` crate serves the same `/v1` router natively and through
 Lambda HTTP API v2. The [front-door contract](http-api-front-door.md#mcp-front-door)
-owns hosting,
-certificates, Origin/CORS and stage verification. Its production registry is empty;
-public business-tool releases supply their selected operation families.
+owns hosting, certificates, Origin/CORS and stage verification. Native and Lambda entry
+points register the same twelve anonymous catalogue and discovery operations. Configure a
+generic remote MCP client with this URL, Streamable HTTP transport and no authentication;
+no account, REST API URL, access-token argument or connector-specific alias is required.
 
 ## Protocol compatibility
 
@@ -52,8 +53,11 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
-four mutation/retry/open-world annotations. Release composition assembles the
-allowlist. A closure captures narrow service handles and calls the shared
+four mutation/retry/open-world annotations. The
+[selected-operation manifest](../src/aura-historia-mcp/public-operations.json) records
+the exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
+publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
+captures narrow service handles and calls the shared
 inbound application use case directly. Use shared `aura-historia-contracts`
 DTOs and constructors; transport wrappers may assemble path/query/body inputs
 but must not duplicate business fields or business behavior.
@@ -80,7 +84,7 @@ body's method and selected registered operation only after supplied routing
 headers agree. The future authentication gate must validate supplied tokens
 through application services on every request and preserve the exact
 `DelegatedUser` capabilities. Services remain the authorization authority.
-The foundation gate accepts anonymous requests, rejects supplied credentials,
+The public gate accepts anonymous requests, rejects supplied credentials,
 and rejects protected calls with HTTP `401`. A gate can return actual HTTP
 `401`/`403` and `WWW-Authenticate` before tool-result wrapping. It must not
 infer argument authorization from unvalidated `Mcp-Param-*` headers.
@@ -93,118 +97,97 @@ messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
 
-## Public listing family
+## Public catalogue
 
-The module-local [listing registrations](../src/aura-historia-mcp/src/product_listings/mod.rs)
-provide these public read operations for release composition; the production registry remains
-empty until the public release selects its families.
+All selected operations use `Anonymous`, require no scopes, and advertise read-only,
+idempotent, nondestructive behavior against Aura's catalogue. These hints describe behavior;
+services remain the authorization authority. Private reads, writes and administrator operations
+have no registration in this catalogue. Newsletter opt-in/confirmation, health/readiness,
+webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded.
 
-| Tool / source operation ID | Arguments | Result |
-| --- | --- | --- |
-| `simpleSearchProductListings` | Complete existing filters plus `sort`, `order`, `size` and `searchAfter` | Existing cursored summary response, including totals when supplied by the service |
-| `getProductListing` | `productListingId`, language and currency | Existing personalized detail envelope; anonymous results omit `userState` |
-| `getProductListingByTitleSlug` | `productListingTitleSlugId`, language and currency | The same detail envelope |
-| `getSimilarProductListings` | `productListingId`, language and currency | `{ "status": "EMBEDDING_PENDING" }` or `{ "status": "READY", "items": [...] }` |
-
-Search preserves geography, shipping, all identifier inclusion/exclusion sets, price and date
-ranges, availability, orderability and unspecified-availability predicates. Presentation defaults,
-size clamping and FX-bound continuation follow the shared contract. `searchAfter` is the existing
-cursor object supplied directly as JSON; REST alone encodes that object into its query string.
-Unsigned amounts, revisions and opaque integer sort values remain exact JSON integers.
-
-The similarity envelope represents REST's bodyless pending HTTP outcome. Pending means the
-embedding is unavailable and callers may retry the same operation later; `READY` with an empty
-array is a completed result. The service owns the fixed neighbor limit, so no `size` argument
-is offered. All four tools use native inbound use cases and the same shared DTOs and pure
-mappings as REST, preserving localization/fallback, source-local identifiers, outbound URLs,
-shipping disclosure, content policy and withdrawn-listing handling. Listing input schemas and
-output schemas derive from those shared types, including explicit custom-codec annotations.
-
-## Public listing history
-
-The listing-history family registers `getProductListingHistory` as a public, read-only,
-idempotent operation with no required scopes. Its arguments are `productListingId` and
-optional `currency`; omission or null leaves source prices unchanged. It calls the existing
-complete-history use case with the request's anonymous context. Release composition selects
-this module alongside the other public families.
-
-REST keeps its full JSON array. MCP uses the same shared history entries inside
-`{ "result": [...] }`, including discovery and change details, event IDs, timestamps, source
-amounts and optional historical display prices. Events retain their original order, including
-distinct events with matching timestamps. Each priced event retains its own historical FX
-snapshot and provenance; missing historical snapshots or quotes omit the display projection
-without substituting a later or current rate. Existing empty histories succeed; unknown
-listings return `NOT_FOUND`.
-
-History has no paging arguments, item limit or continuation. The complete result must fit the
-transport's byte bound; an oversized result fails explicitly and returns no partial history.
-
-## Public source, location and overview family
-
-The `public_discovery` family registers four anonymous, read-only, idempotent operations.
-Release composition selects the production allowlist.
-
-| Stable operation ID | Arguments and result |
+| Tool / source operation ID | Arguments and result |
 | --- | --- |
-| `searchPublicListingSources` | `query`, `size` (default 21, 1–50) and opaque `searchAfter`; returns the existing public source collection. Absent/blank text browses; insufficient text returns the service's empty result. Continuations are bound to the canonical query and page size. |
-| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, including operator name and optional URL/image. |
-| `discoverPartyLocations` | Complete `geography` (`countries`, `subdivisions`, numeric `origin`, `radius`, `mode`, `distanceOrder`), `size` (default 21, 1–100) and `searchAfter` (`locationId`, optional `distanceKm`); retains IDs, basis, geographic context, point, precision and distance. |
+| `simpleSearchProductListings` | Complete existing filters, language/currency, `sort`, `order`, `size`, `searchAfter`; returns the cursored personalized summary collection and service-supplied totals. |
+| `getProductListing` | `productListingId`, language/currency; returns the complete public detail envelope. |
+| `getProductListingByTitleSlug` | `productListingTitleSlugId`, language/currency; returns the same detail envelope. |
+| `getSimilarProductListings` | `productListingId`, language/currency; returns `EMBEDDING_PENDING` or `READY` with `items`. |
+| `getProductListingHistory` | `productListingId`, optional `currency`; returns every shared history entry inside `{ "result": [...] }`. |
+| `listAuctions` | Source, format, reported status, schedule range, `timeRole`, sort/order, `pageSize`, `searchAfter`; returns the public auction directory. |
+| `getAuction` | `auctionId`; returns source metadata, schedule, reported status/counts, visible count and catalogue/outbound links. |
+| `getAuctionCatalogue` | `auctionId`, language/currency, `pageSize`, `searchAfter`; returns public lots with existing listing presentation. |
+| `searchPublicListingSources` | `query`, `size` (default 21, 1–50), `searchAfter`; absent/blank text browses and insufficient text returns no matches. |
+| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL/image. |
+| `discoverPartyLocations` | Complete `geography`, `size` (default 21, 1–100), `searchAfter`; returns public location IDs, basis, geographic context, point, precision and distance. |
 | `getPublicOverview` | Empty object; returns `asOf` and every stored public catalogue aggregate. An uncalculated overview is temporarily unavailable. |
 
-The family reuses shared contracts and pure converters with REST and calls the existing inbound
-services directly. Source cursors retain their 4 KiB encoded/3 KiB decoded bounds for JSON tool
-arguments. REST alone handles raw URL-query bytes. Location geography and cursor validation remain
-with the existing constructors and service; no address/profile origin is inferred. Public results
-exclude management evidence, grants, contacts and provider configuration.
+Search retains geography, shipping, all identifier inclusion/exclusion sets, price/date ranges,
+availability, orderability and unspecified-availability predicates. Geography includes countries,
+subdivisions, numeric origin, radius/unit, mode and distance order. Shared contracts preserve
+presentation defaults, size clamping, localization/fallback, source-local identifiers, full image
+collections and long URLs, content policy, shipping disclosure and withdrawn-listing handling.
+Anonymous results omit `userState`; public source/location/auction output excludes management,
+contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
+exact JSON integers.
 
-Source search and slug detail share the runtime's non-queuing read budget. Capacity exhaustion,
-source timeout, invocation cancellation/deadline and temporary service failure produce retryable
-`TEMPORARILY_UNAVAILABLE` tool errors; active work is dropped and permits released. Invalid semantic
-inputs/cursors receive `-32602`, missing sources receive `NOT_FOUND`, and invalid stored results
-receive a safe `-32603`. The outer HTTP deadline keeps its documented `408` admission behavior.
+Similarity uses the service's fixed neighbor limit. `EMBEDDING_PENDING` means retry the same
+operation later; `READY` with an empty array is a completed result. The envelope represents REST's
+bodyless pending outcome and introduces no neighbor-count argument.
 
+### Continuations and complete history
 
-## Anonymous auction family
+| Operation | Continuation contract |
+| --- | --- |
+| Listing search | Supply the returned `searchAfter` object directly as JSON. Its immutable FX snapshot and complete opaque sort values are retained. REST alone query-encodes that object. |
+| Auction directory/catalogue | Serialize the returned `searchAfter` object as the next argument's JSON string, as on REST. Directory scope includes all filters/sort and nullable schedule instants; catalogue scope includes auction, position and listing identity. |
+| Source search | Return the opaque cursor unchanged with the same canonical query and page size. Encoded/decoded cursor bounds remain 4 KiB/3 KiB. |
+| Location discovery | Supply the returned object containing `locationId` and optional `distanceKm`; preserve the geographic scope. |
+| History and similarity | No paging or continuation arguments. |
 
-The module-local [auction registrations](../src/aura-historia-mcp/src/auctions/mod.rs)
-provide `listAuctions`, `getAuction` and `getAuctionCatalogue` for release composition.
-They call the existing inbound auction and catalogue use cases with `Anonymous`.
-The [shared auction contracts](../src/aura-historia-contracts/src/auctions/mod.rs)
-own both REST wire DTOs and generated MCP schemas, including the schedule used by
-administrator auction output. Production admission and registration belong to the
-public release composition.
+Auction scheduled sorting requires `timeRole`; a schedule range requires both bounds. Catalogue
+pricing retains the use case's current/sale-observation FX selection. Source search and slug
+detail share a non-queuing budget of four active reads with a 500 ms source-read timeout, also
+bounded by the invocation deadline. Location validation uses the existing constructors/service;
+no address or profile origin is inferred.
 
-`listAuctions` retains source, format, reported status, schedule range, sort/order and
-pagination inputs. A scheduled sort requires `timeRole`; a time range requires both
-bounds. Directory cursors bind the complete filter and sort scope, including nullable
-schedule instants. `getAuction` retains source metadata, schedule, reported status/counts,
-visible count and catalogue/outbound links without administrator keys or audit state.
-`getAuctionCatalogue` combines `auctionId` with the existing language, currency,
-`pageSize` and `searchAfter` inputs and reuses listing localization, image redaction,
-shipping presentation and user-state omission.
+History deliberately preserves the full REST array and the existing webapp timeline contract.
+Every event retains its original order, including distinct events sharing a timestamp, discovery
+and change payloads, IDs, timestamps, source prices and optional historical display prices.
+Omitted/null currency leaves source prices unchanged. Each priced event uses its own historical
+FX snapshot and provenance; missing historical snapshots or quotes omit the display projection
+without substituting a later/current rate. Existing empty histories succeed; unknown listings
+return `NOT_FOUND`. There is no event cap, clipped tail or invented cursor. An oversized complete
+history fails explicitly with no partial result.
 
-For directory and catalogue continuation, serialize the returned `searchAfter` object
-as the next input's JSON string, as on REST. Catalogue cursors retain auction identity,
-catalogue position and listing identity; the use case retains its current/sale-observation
-FX selection. Malformed or wrong-scope cursors are invalid arguments, missing auctions
-are `NOT_FOUND`, and pricing or storage outages are explicit temporary failures.
-The [contract tests](../src/aura-historia-contracts/tests/auctions.rs) and
-[operation tests](../src/aura-historia-mcp/src/auctions/tests.rs) cover these mappings.
+The [combined public acceptance suite](../src/aura-historia-mcp/src/public/tests/mod.rs) uses
+fake inbound services and official SDK clients through the same registry as production. Family
+contract/operation suites retain detailed input, mapping, validation and error parity coverage.
+Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
+continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
+local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON
-response and 64 concurrent requests per process. Library composition may lower
-these bounds. Body admission counts streamed bytes regardless of
+response and 64 concurrent requests per process. The complete response includes structured
+content, duplicate JSON text for generic clients and protocol framing. A 32–64 KiB ordinary
+response target is not a hard result limit, and client limits can differ. Library composition
+may lower these bounds. Body admission counts streamed bytes regardless of
 `Content-Length`; oversized input receives `413`. Output serialization stops
 at the limit and returns an explicit failure. With a 2 MiB JSON body, escaping
 that text inside the Lambda response envelope remains below the 6 MiB Lambda
 synchronous response limit. The actual Lambda adapter is exercised with escaped
 output in [`lambda.rs`](../src/aura-historia-mcp/tests/lambda.rs).
 
-The request deadline is 25 seconds at most, including body admission and the
-authentication gate. Lambda caps this by its remaining invocation time with
-one second reserved for response handling. Exhausted budgets receive HTTP
+With the pinned SDK, the local public fixtures preserve these complete responses above 64 KiB:
+
+| Local fixture | Complete JSON body | Lambda envelope |
+| --- | ---: | ---: |
+| Detail with 175 long image URLs | 201,666 bytes | 204,409 bytes |
+| Unpaginated history with 128 events | 114,848 bytes | 135,921 bytes |
+
+The request deadline is 25 seconds at most, including credential refresh/router composition on
+Lambda, body admission and the authentication gate. Lambda caps this by its remaining invocation
+time with one second reserved for response handling. Exhausted budgets receive HTTP
 `408`; work gets a cancellation token and an absolute deadline through
 `InvocationContext`. Native HTTP disconnects cancel active work; Lambda cannot
 observe a gateway client disconnect, so its deadline bounds that work. Separate
@@ -235,5 +218,17 @@ The binary suppresses all SDK logging with `rmcp=off`: SDK trace events include
 private protocol payloads. Library embedders must retain that directive or an
 equivalent filter even when enabling debug/trace logs elsewhere. Never log
 Authorization values, protocol bodies, private arguments/results or technical
-error causes containing provider data. The empty production catalogue needs no
-business-service credentials; families inject their own runtime handles.
+error causes containing provider data.
+
+Native startup uses the shared explicit PostgreSQL configuration; Lambda refreshes PostgreSQL
+credentials before every invocation and caches the public composition by credential version.
+Refresh failures reject the invocation instead of reusing stale credentials; in-flight routers
+retain their handles across replacement. Listing startup additionally requires
+`OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`.
+`VERTEX_AI_PROJECT_ID`/`VERTEX_AI_LOCATION` and the existing `PRODUCT_LISTING_SEARCH_*` cache/read
+settings use the [shared runtime configuration](../src/aura-historia-runtime/src/product_listing_config.rs).
+ADC construction remains lazy until an embedding is requested. Lambda prepares injected
+`AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON` privately before starting threads; native execution
+uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
+configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
+REST while retaining only the MCP runtime's existing PostgreSQL secret-read IAM permission.

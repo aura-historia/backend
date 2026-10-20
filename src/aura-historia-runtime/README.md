@@ -13,8 +13,8 @@ handles are reused for the warm pool. `ProductListingConfig` parses the existing
 Vertex, cache and read-policy settings; `ProductListingDependencies::from_env()` constructs
 OpenSearch and the lazy embedding adapter for REST and MCP. ADC is resolved only when an
 embedding is requested. Lambda entry points reuse the synchronous ADC setup in
-`platform-lambda-bootstrap` before starting worker threads. `Runtime::listing_shipping()` shares the existing shipping
-assessment/address-resolution composition with catalogue readers. Constructing these handles
+`platform-lambda-bootstrap` before starting worker threads. `Runtime::listing_shipping()` shares
+the existing shipping assessment/address-resolution composition with catalogue readers. Constructing these handles
 performs no provider request. Shared DTOs and pure mappings belong to `aura-historia-contracts`.
 Add further explicit families only with the task exposing their operations; keep configuration
 requirements confined to the selected family.
