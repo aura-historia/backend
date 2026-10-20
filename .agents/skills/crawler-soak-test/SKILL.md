@@ -29,9 +29,9 @@ each check must answer.
   Credentials are valid (`gcloud auth application-default login`). Never print `.env` values.
 - No `dev.exe` running. While it runs, cargo cannot rebuild crawler bins; for tests in parallel use
   `--target-dir target/scratch` from PowerShell.
-- Check `CRAWLER_SCHEMA_LLM_REVIEW_MODE` and `CRAWLER_REVIEW_REQUIRED` in `.env` before the
-  round: an invalid review mode silently falls back to auto-approve (#2126). Note the effective
-  mode in the findings; do not fix it mid-round.
+- Check `CRAWLER_AUTHORING_MODE` in `.env` before the round (`auto`, `review` (default) or
+  `manual`; an invalid value or any of the removed `CRAWLER_REVIEW_*`/`CRAWLER_SCHEMA_LLM_REVIEW_MODE`
+  variables fails startup, #2126). Note the effective mode in the findings; do not fix it mid-round.
 
 ## Procedure
 

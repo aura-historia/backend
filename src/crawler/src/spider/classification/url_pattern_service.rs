@@ -383,26 +383,122 @@ mod tests {
         assert!(pattern.is_none());
     }
 
-    #[tokio::test]
-    async fn should_open_undecided_review_without_llm_call_when_authoring_is_manual() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+    /// Inserts a ListingSource with one `manual.example.com` domain.
+    async fn insert_source_with_domain(pool: &sqlx::PgPool) -> (ListingSourceId, CrawlerDomainId) {
         let listing_source_id = ListingSourceId::new();
         let domain_id = CrawlerDomainId::new();
         sqlx::query(
-            "INSERT INTO listing_sources              (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated)              VALUES ($1, 'Manual source', 'manual-source', TRUE, NOW(), NOW())",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+             VALUES ($1, 'Manual source', 'manual-source', TRUE, NOW(), NOW())",
         )
         .bind(listing_source_id.as_uuid())
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("insert listing source: {error}"));
         sqlx::query(
-            "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host)              VALUES ($1, $2, 'manual.example.com', 'manual.example.com')",
+            "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+             VALUES ($1, $2, 'manual.example.com', 'manual.example.com')",
         )
         .bind(domain_id.as_uuid())
         .bind(listing_source_id.as_uuid())
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("insert domain: {error}"));
+        (listing_source_id, domain_id)
+    }
+
+    fn auto_service(
+        pool: &sqlx::PgPool,
+        review_repository: &CrawlerReviewRepository,
+        classification_service: MockUrlClassificationService,
+    ) -> UrlPatternServiceImpl {
+        UrlPatternServiceImpl::new(
+            Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
+            UrlPatternAuthoring::Inferred {
+                classification_service: Box::new(classification_service),
+                review_repository: Some(review_repository.clone()),
+                apply_directly: true,
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn should_apply_inferred_pattern_through_approved_review_when_authoring_is_auto() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let mut classification = MockUrlClassificationService::new();
+        classification
+            .expect_find_product_url_pattern()
+            .once()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new("/item/").unwrap())) }));
+        let service = auto_service(&pool, &review_repository, classification);
+        let urls = ["https://manual.example.com/item/1".to_owned()];
+
+        let pattern = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                &urls,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("auto authoring must apply the pattern: {error}"));
+
+        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        let (live_pattern, review_status): (Option<String>, String) = sqlx::query_as(
+            "SELECT d.url_pattern, r.status FROM listing_source_domains d \
+             JOIN crawler_reviews r ON r.domain_id = d.domain_id \
+             WHERE d.domain_id = $1 AND r.artifact_type = 'URL_PATTERN'",
+        )
+        .bind(domain_id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read applied pattern and its review: {error}"));
+        assert_eq!(live_pattern.as_deref(), Some("/item/"));
+        assert_eq!(review_status, "APPROVED");
+    }
+
+    #[tokio::test]
+    async fn should_not_infer_pattern_while_a_review_is_pending_when_authoring_is_auto() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let urls = ["https://manual.example.com/item/1".to_owned()];
+        let pending = review_repository
+            .create_url_pattern_review(
+                &listing_source_id,
+                &domain_id,
+                MANUAL_URL_PATTERN_REASON,
+                UrlPatternDecision::Undecided,
+                &urls,
+                None,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("open operator review: {error}"));
+        let mut classification = MockUrlClassificationService::new();
+        classification.expect_find_product_url_pattern().never();
+        let service = auto_service(&pool, &review_repository, classification);
+
+        let result = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                &urls,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UrlPatternServiceError::PendingReview { review_id, .. }) if review_id == pending
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_open_undecided_review_without_llm_call_when_authoring_is_manual() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let service = UrlPatternServiceImpl::new(
             Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),

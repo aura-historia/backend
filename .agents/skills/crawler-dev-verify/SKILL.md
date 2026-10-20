@@ -75,7 +75,7 @@ it to the user as a ticket or a separate decision.
      the spider stays quiet unless the change is a spider change.
 4. **Build and start.** `cargo build --locked -p crawler --bin dev`, then run
    `target/debug/dev.exe` from the worktree root with `CRAWLER_LOG_LEVEL=debug`
-   (the per-URL and per-field diagnostics are debug level), `CRAWLER_REVIEW_REQUIRED=true` and
+   (the per-URL and per-field diagnostics are debug level), `CRAWLER_AUTHORING_MODE=review` and
    `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`; stdout to
    `target/soak/<date>/verify-<n>.jsonl`, stderr to a separate file. Note the UTC start time.
    The scraper runs 50 URLs per domain per pass and the pass is a barrier, so a 360-URL sample

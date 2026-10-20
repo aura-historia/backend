@@ -48,12 +48,13 @@ fn schema_service_without_generation(
 fn manual_scraper(
     schema_svc: MockProductListingSchemaService,
     review_repository: CrawlerReviewRepository,
+    candidates: MockScraperCandidateService,
 ) -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_returning_sample_page()),
         Box::new(schema_svc),
         Box::new(MockProductListingNormalizationService::new()),
-        Arc::new(MockScraperCandidateService::new()),
+        Arc::new(candidates),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
@@ -76,7 +77,11 @@ async fn should_open_manual_schema_review_instead_of_generating_initial_schema()
     let id = insert_listing_source(&pool).await;
     let url = product_url();
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let service = manual_scraper(schema_service_without_generation(None), repository.clone());
+    let service = manual_scraper(
+        schema_service_without_generation(None),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+    );
 
     let result = service.scrape(primary_only_request(&id, &url)).await.result;
 
@@ -113,6 +118,7 @@ async fn should_keep_cached_schemas_in_manual_review_when_they_stop_matching() {
     let service = manual_scraper(
         schema_service_without_generation(Some(cached)),
         repository.clone(),
+        MockScraperCandidateService::new(),
     );
 
     let result = service.scrape(primary_only_request(&id, &url)).await.result;
@@ -128,4 +134,51 @@ async fn should_keep_cached_schemas_in_manual_review_when_they_stop_matching() {
     assert_eq!(schemas.len(), 2);
     assert_eq!(schemas[0], stale_schema);
     assert_eq!(review.pages[0].role, PAGE_ROLE_TRIGGERING_GENERATION_PAGE);
+}
+
+#[tokio::test]
+async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_review() {
+    let (_admin_pool, pool) = migrated_crawler_database().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let opening = manual_scraper(
+        schema_service_without_generation(None),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+    );
+    let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
+    repository
+        .reject_review(rejected, Some("not a product page"), false)
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    let mut candidates = MockScraperCandidateService::new();
+    let expected_url = url.clone();
+    candidates
+        .expect_set_class()
+        .once()
+        .withf(move |_, received_url, url_class, _| {
+            received_url == &expected_url
+                && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
+        })
+        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    let rescraping = manual_scraper(
+        schema_service_without_generation(None),
+        repository.clone(),
+        candidates,
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .result;
+
+    assert!(matches!(result, Err(ScraperError::NotProductPage { .. })));
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
 }

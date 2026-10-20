@@ -313,6 +313,44 @@ mod tests {
         );
     }
 
+    /// A value that is not valid Unicode on the current platform.
+    fn non_unicode_value() -> std::ffi::OsString {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            std::ffi::OsString::from_vec(vec![0xff])
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            std::ffi::OsString::from_wide(&[0xD800])
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn should_reject_non_unicode_removed_review_setting() {
+        for name in RUNTIME_ENV {
+            set_env(name, None);
+        }
+        for (name, value) in VERTEX_ENV {
+            set_env(name, Some(value));
+        }
+        unsafe { std::env::set_var("CRAWLER_REVIEW_REQUIRED", non_unicode_value()) };
+
+        let config = CrawlerRuntimeConfig::from_env();
+        for name in RUNTIME_ENV {
+            set_env(name, None);
+        }
+
+        assert!(matches!(
+            config,
+            Err(CrawlerRuntimeConfigError::RemovedSetting {
+                name: "CRAWLER_REVIEW_REQUIRED"
+            })
+        ));
+    }
+
     #[test]
     #[serial]
     fn should_ignore_empty_removed_review_settings() {
