@@ -60,11 +60,15 @@ if [ "$DEPLOY_SCOPE" = auto ] && [ "$application_exists" = true ]; then
   fi
 fi
 
-bash infra/scripts/ensure-dms-vpc-role.sh
-deploy "${STACK_NAME_PREFIX}-network"
-deploy "${STACK_NAME_PREFIX}-data"
-deploy "${STACK_NAME_PREFIX}-initialize" \
-  --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
+deploy_foundation() {
+  bash infra/scripts/ensure-dms-vpc-role.sh
+  deploy "${STACK_NAME_PREFIX}-network"
+  deploy "${STACK_NAME_PREFIX}-data"
+  deploy "${STACK_NAME_PREFIX}-initialize" \
+    --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
+}
+
+deploy_foundation
 
 if [ "$DEPLOY_SCOPE" = foundation ] || [ "$migration_changed" = true ] || { [ "$DEPLOY_SCOPE" = auto ] && [ "$application_exists" = false ]; }; then
   {
@@ -80,9 +84,13 @@ fi
 
 # scope=all acknowledges schema compatibility and, on first creation, FX/OpenSearch readiness.
 # No migration, FX capture, resource import, or workload activation toggle belongs here.
-deploy "${STACK_NAME_PREFIX}-compute" "${compute_parameters[@]}"
-deploy "${STACK_NAME_PREFIX}-api"
-if [ "$STAGE" = prod ]; then deploy "${STACK_NAME_PREFIX}-observability"; fi
+deploy_application() {
+  deploy "${STACK_NAME_PREFIX}-compute" "${compute_parameters[@]}"
+  deploy "${STACK_NAME_PREFIX}-api"
+  if [ "$STAGE" = prod ]; then deploy "${STACK_NAME_PREFIX}-observability"; fi
+}
+
+deploy_application
 
 if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json > compute-stack.json; then
   echo 'Deployment may have completed; inspect CloudFormation before retrying the failed output lookup.' >&2
