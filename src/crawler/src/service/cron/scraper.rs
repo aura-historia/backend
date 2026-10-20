@@ -2546,6 +2546,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_record_a_robots_disallowed_url_without_opening_the_domain_circuit() {
+        let before = time::OffsetDateTime::now_utc();
+        let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let candidate = scraper_candidate("ListingSource", url.clone());
+
+        // The mock has no domain-circuit expectation: opening one would panic.
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |_, received_url, error_kind, _, status_code, next_retry_at, _| {
+                    received_url == &url
+                        && error_kind == "RobotsDisallowed"
+                        && status_code.is_none()
+                        && *next_retry_at >= before + time::Duration::hours(24)
+                },
+            )
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::RobotsDisallowed,
+                    details: "robots.txt disallows".to_string(),
+                }))
+            })
+        });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert!(!matches!(
+            outcome.domain_health,
+            DomainFetchHealth::CircuitFailure { .. }
+        ));
+    }
+
+    #[tokio::test]
     async fn should_mark_same_domain_429_fetch_failure() {
         let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let candidate = scraper_candidate("ListingSource", url.clone());

@@ -19,9 +19,20 @@ Crawler domain ownership is a local canonical hostname: lowercase, no trailing d
 
 Every crawler request (spider pages and robots.txt, scraper HTML fetches, image probes, and review live inspection) sends the single user agent `AuraHistoriaBot/<version> (+https://aura-historia.com)`, defined once in the crawler's network module.
 
-- The crawler identifies itself honestly instead of posing as a browser. Spider matches robots.txt groups against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
+- The crawler identifies itself honestly instead of posing as a browser. robots.txt groups are matched against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
 - A 401 or 403 from the crawl root is reported as `AccessDenied` (`crawl_root_access_denied`) with the root status and the user agent in the crawl diagnostics, including when robots.txt was refused first. Spider's own reading of the refusal (a JavaScript challenge, a recognised vendor block) keeps precedence. A refused robots.txt on an otherwise reachable root stays `robots_txt_request_denied`.
+
+## robots.txt
+
+Spider and scraper both honour robots.txt. Spider uses its library's built-in handling. The scraper applies RFC 9309 through the crawler's network module, per origin and before every HTML request, redirect hops included:
+
+- The group naming `AuraHistoriaBot` applies, otherwise the `*` groups; the longest matching `Allow`/`Disallow` rule decides and `Allow` wins ties.
+- robots.txt redirects are followed up to five times on the shop's bare or `www` host. A 4xx answer, a redirect elsewhere or too many redirects means robots.txt is unavailable and every URL is allowed. A 5xx answer means robots.txt is unreachable and the whole origin is disallowed for 15 minutes before robots.txt is fetched again. A transport failure fails the request like any other transport failure.
+- A fetched policy is reused for one hour.
+- `Crawl-delay`, capped at 60 seconds like Spider's, is a minimum spacing between request starts on the shop's domain, bare and `www` host together. It only ever raises the scraper's pacing delay, and the wait does not count against the fetch timeouts. Redirect hops take only the regular pacing delay.
+
+A refused URL is not requested. It fails with `RobotsDisallowed` or `RobotsUnreachable` and receives the URL retry cooldown described in [Scheduling and retries](scheduling-and-retries.md#fetch-retries); a refusal never opens a domain circuit.
 
 ## Resource rails
 

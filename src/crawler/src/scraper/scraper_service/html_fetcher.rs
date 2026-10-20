@@ -6,14 +6,18 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error, parse_retry_after, public_http_client,
     redirect_target,
 };
+use crate::network::robots::RobotsRefusal;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
 };
+use robots::RobotsCache;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::debug;
 use url::Url;
+
+mod robots;
 
 /// Maximum time for one fetch attempt, including redirects and body read.
 const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -99,12 +103,19 @@ pub struct ReqwestHtmlFetcher {
     attempt_timeout: Duration,
     total_timeout: Duration,
     auto_throttle: Arc<ScraperAutoThrottle>,
+    robots: RobotsCache,
     #[cfg(test)]
     allow_private_targets_for_test: bool,
 }
 
 struct FetchAttemptError {
     error: FetchError,
+}
+
+enum AttemptError {
+    Failed(FetchError),
+    /// The whole fetch ran out of its network-time budget; no retry follows.
+    TotalTimeout,
 }
 
 impl Default for ReqwestHtmlFetcher {
@@ -165,27 +176,81 @@ impl ReqwestHtmlFetcher {
             attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
             total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
             auto_throttle: Arc::new(ScraperAutoThrottle::new(auto_throttle_config)),
+            robots: RobotsCache::default(),
             #[cfg(test)]
             allow_private_targets_for_test: false,
         }
     }
 
-    async fn wait_for_domain_slot(&self, domain: Option<&str>) {
-        let Some(domain) = domain else {
-            return;
-        };
+    /// Admits a request to `url` once robots.txt allows it, after the
+    /// domain's pacing delay: the auto-throttle delay, raised to whatever is
+    /// left of the robots `Crawl-delay` since the origin's last request.
+    /// Returns the time spent waiting.
+    async fn admit(&self, url: &Url) -> Result<Duration, FetchAttemptError> {
+        let crawl_delay = self.check_robots(url).await?;
+        let crawl_delay_remaining = crawl_delay.map_or(Duration::ZERO, |delay| {
+            self.robots.crawl_delay_remaining(url, delay)
+        });
+        let delay = self.throttle_delay(url).max(crawl_delay_remaining);
+        self.pace(url, delay).await;
+        Ok(delay)
+    }
 
-        let delay = self.auto_throttle.delay_for(domain);
-        if delay.is_zero() {
-            return;
+    /// Redirect hops run inside the timed attempt, so they take only the
+    /// auto-throttle delay; robots.txt must still allow the target.
+    async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
+        self.check_robots(url).await?;
+        self.pace(url, self.throttle_delay(url)).await;
+        Ok(())
+    }
+
+    /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.
+    async fn check_robots(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
+        let robots = self.robots_policy(url).await?;
+        robots
+            .check(url)
+            .map_err(|refusal| robots_refusal_error(url, refusal))?;
+        Ok(robots.crawl_delay())
+    }
+
+    fn throttle_delay(&self, url: &Url) -> Duration {
+        url.host_str().map_or(Duration::ZERO, |domain| {
+            self.auto_throttle.delay_for(domain)
+        })
+    }
+
+    async fn pace(&self, url: &Url, delay: Duration) {
+        if !delay.is_zero() {
+            debug!(
+                domain = url.host_str(),
+                delay_ms = delay.as_millis(),
+                "Applying scraper domain pacing delay"
+            );
+            sleep(delay).await;
         }
+        self.robots.record_request(url);
+    }
 
-        debug!(
-            domain,
-            delay_ms = delay.as_millis(),
-            "Applying scraper auto-throttle delay"
-        );
-        sleep(delay).await;
+    /// One admitted fetch attempt. The admission wait extends `deadline`, so
+    /// only network work counts against the attempt and total budgets.
+    async fn attempt(
+        &self,
+        url: &Url,
+        deadline: &mut tokio::time::Instant,
+    ) -> Result<FetchedHtml, AttemptError> {
+        *deadline += self
+            .admit(url)
+            .await
+            .map_err(|error| AttemptError::Failed(error.error))?;
+        let attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
+        match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.fetch_once(url)).await {
+            Ok(result) => result.map_err(|error| AttemptError::Failed(error.error)),
+            Err(_) if attempt_deadline >= *deadline => Err(AttemptError::TotalTimeout),
+            Err(_) => Err(AttemptError::Failed(FetchError::Network {
+                kind: NetworkErrorKind::Timeout,
+                details: "HTML fetch attempt exceeded timeout".to_string(),
+            })),
+        }
     }
 
     async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, FetchAttemptError> {
@@ -194,7 +259,9 @@ impl ReqwestHtmlFetcher {
 
         for redirect_count in 0..=HTML_MAX_REDIRECTS {
             let domain = current_url.host_str().map(str::to_owned);
-            self.wait_for_domain_slot(domain.as_deref()).await;
+            if redirect_count > 0 {
+                self.admit_redirect(&current_url).await?;
+            }
             let started = Instant::now();
             let client = self.http_client_for(&current_url).await?;
             let response = client
@@ -315,6 +382,29 @@ fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
     }
 }
 
+fn total_timeout_error() -> FetchError {
+    FetchError::Network {
+        kind: NetworkErrorKind::Timeout,
+        details: "HTML fetch exceeded total timeout".to_string(),
+    }
+}
+
+fn robots_refusal_error(url: &Url, refusal: RobotsRefusal) -> FetchAttemptError {
+    let (kind, details) = match refusal {
+        RobotsRefusal::Disallowed => (NetworkErrorKind::RobotsDisallowed, "robots.txt disallows"),
+        RobotsRefusal::Unreachable => (
+            NetworkErrorKind::RobotsUnreachable,
+            "robots.txt is unreachable, which disallows",
+        ),
+    };
+    FetchAttemptError {
+        error: FetchError::Network {
+            kind,
+            details: format!("{details} {url}"),
+        },
+    }
+}
+
 fn unsafe_fetch_error(details: impl Into<String>) -> FetchError {
     FetchError::Network {
         kind: NetworkErrorKind::UnsafeTarget,
@@ -375,58 +465,39 @@ async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, Fe
 
 #[async_trait::async_trait]
 impl HtmlFetcher for ReqwestHtmlFetcher {
+    /// Pacing waits extend the timeout budgets: they bound network work, so a
+    /// long robots `Crawl-delay` never turns into a fetch timeout.
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-        let fetch_with_retries = async {
-            for attempt in 1..=self.retry_policy.max_attempts {
-                match tokio::time::timeout(self.attempt_timeout, self.fetch_once(url)).await {
-                    Err(_) => {
-                        let error = FetchError::Network {
-                            kind: NetworkErrorKind::Timeout,
-                            details: "HTML fetch attempt exceeded timeout".to_string(),
-                        };
-                        if attempt >= self.retry_policy.max_attempts {
-                            return Err(error);
-                        }
-                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
-                        if !backoff.is_zero() {
-                            sleep(backoff).await;
-                        }
-                    }
-                    Ok(Ok(html)) => return Ok(html),
-                    Ok(Err(attempt_error)) => {
-                        let action = action_for(attempt_error.error.kind());
-                        if action != NetworkAction::Retry
-                            || attempt >= self.retry_policy.max_attempts
-                        {
-                            return Err(attempt_error.error);
-                        }
-                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
-                        let retry_after = attempt_error.error.retry_after();
-                        if retry_after.is_some_and(|delay| delay > self.retry_policy.max_delay) {
-                            return Err(attempt_error.error);
-                        }
-                        let backoff = retry_after.map_or(backoff, |delay| delay.max(backoff));
-                        if !backoff.is_zero() {
-                            sleep(backoff).await;
-                        }
-                    }
-                }
+        let mut deadline = tokio::time::Instant::now() + self.total_timeout;
+        for attempt in 1..=self.retry_policy.max_attempts {
+            let error = match self.attempt(url, &mut deadline).await {
+                Ok(html) => return Ok(html),
+                Err(AttemptError::Failed(error)) => error,
+                Err(AttemptError::TotalTimeout) => return Err(total_timeout_error()),
+            };
+            if action_for(error.kind()) != NetworkAction::Retry
+                || attempt >= self.retry_policy.max_attempts
+            {
+                return Err(error);
             }
+            let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+            let retry_after = error.retry_after();
+            if retry_after.is_some_and(|delay| delay > self.retry_policy.max_delay) {
+                return Err(error);
+            }
+            let backoff = retry_after.map_or(backoff, |delay| delay.max(backoff));
+            if tokio::time::Instant::now() + backoff >= deadline {
+                return Err(total_timeout_error());
+            }
+            if !backoff.is_zero() {
+                sleep(backoff).await;
+            }
+        }
 
-            Err(FetchError::Network {
-                kind: NetworkErrorKind::Unknown,
-                details: "retry loop terminated unexpectedly".to_string(),
-            })
-        };
-
-        tokio::time::timeout(self.total_timeout, fetch_with_retries)
-            .await
-            .unwrap_or_else(|_| {
-                Err(FetchError::Network {
-                    kind: NetworkErrorKind::Timeout,
-                    details: "HTML fetch exceeded total timeout".to_string(),
-                })
-            })
+        Err(FetchError::Network {
+            kind: NetworkErrorKind::Unknown,
+            details: "retry loop terminated unexpectedly".to_string(),
+        })
     }
 }
 
@@ -435,44 +506,85 @@ mod tests {
     use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
     use crate::network::policy::{NetworkErrorKind, RetryPolicy};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;
 
-    async fn spawn_http_sequence(responses: Vec<&'static str>) -> Url {
+    const OK_PAGE: &str =
+        "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>";
+
+    fn robots_txt(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn robots_status(status_line: &str) -> String {
+        format!("HTTP/1.1 {status_line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    }
+
+    /// A local shop that answers every `/robots.txt` request with `robots`
+    /// and every other request with the next of `pages`, after `page_delay`.
+    struct TestShop {
+        url: Url,
+        page_requests: Arc<Mutex<Vec<Instant>>>,
+        robots_requests: Arc<AtomicUsize>,
+    }
+
+    impl TestShop {
+        fn page_requests(&self) -> Vec<Instant> {
+            self.page_requests.lock().unwrap().clone()
+        }
+    }
+
+    async fn spawn_shop(
+        robots: String,
+        pages: Vec<&'static str>,
+        page_delay: Duration,
+    ) -> TestShop {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let page_requests = Arc::new(Mutex::new(Vec::new()));
+        let robots_requests = Arc::new(AtomicUsize::new(0));
+        let shop = TestShop {
+            url: Url::parse(&format!("http://{addr}/product")).unwrap(),
+            page_requests: Arc::clone(&page_requests),
+            robots_requests: Arc::clone(&robots_requests),
+        };
 
         tokio::spawn(async move {
-            for response in responses {
+            let mut pages = pages.into_iter();
+            loop {
                 let Ok((mut socket, _)) = listener.accept().await else {
                     return;
                 };
                 let mut buffer = [0_u8; 1024];
-                let _ = socket.read(&mut buffer).await;
-                let _ = socket.write_all(response.as_bytes()).await;
+                let read = socket.read(&mut buffer).await.unwrap_or_default();
+                if buffer[..read].starts_with(b"GET /robots.txt ") {
+                    robots_requests.fetch_add(1, Ordering::SeqCst);
+                    let _ = socket.write_all(robots.as_bytes()).await;
+                    continue;
+                }
+                page_requests.lock().unwrap().push(Instant::now());
+                let Some(page) = pages.next() else {
+                    return;
+                };
+                tokio::time::sleep(page_delay).await;
+                let _ = socket.write_all(page.as_bytes()).await;
             }
         });
 
-        Url::parse(&format!("http://{addr}/product")).unwrap()
+        shop
     }
 
-    async fn spawn_delayed_http_response(response: &'static str, delay: Duration) -> Url {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        tokio::spawn(async move {
-            let Ok((mut socket, _)) = listener.accept().await else {
-                return;
-            };
-            let mut buffer = [0_u8; 1024];
-            let _ = socket.read(&mut buffer).await;
-            tokio::time::sleep(delay).await;
-            let _ = socket.write_all(response.as_bytes()).await;
-        });
-
-        Url::parse(&format!("http://{addr}/product")).unwrap()
+    async fn spawn_shop_without_robots(pages: Vec<&'static str>) -> Url {
+        spawn_shop(robots_status("404 Not Found"), pages, Duration::ZERO)
+            .await
+            .url
     }
 
     fn zero_delay_retry_policy(max_attempts: u32) -> RetryPolicy {
@@ -503,7 +615,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_stops_inline_retries_for_long_retry_after() {
-        let url = spawn_http_sequence(vec![
+        let url = spawn_shop_without_robots(vec![
             "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 300\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
@@ -531,7 +643,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_uses_short_inline_backoff_for_retryable_status() {
-        let url = spawn_http_sequence(vec![
+        let url = spawn_shop_without_robots(vec![
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
@@ -552,11 +664,13 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_reports_attempt_timeout_before_total_timeout() {
-        let url = spawn_delayed_http_response(
-            "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
+        let url = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
             Duration::from_millis(100),
         )
-        .await;
+        .await
+        .url;
         let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
             zero_delay_retry_policy(1),
             throttle_config(Duration::ZERO),
@@ -579,7 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_stops_retries_when_total_timeout_expires() {
-        let url = spawn_http_sequence(vec![
+        let url = spawn_shop_without_robots(vec![
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -609,7 +723,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_applies_throttle_floor_before_fetch() {
-        let url = spawn_http_sequence(vec![
+        let url = spawn_shop_without_robots(vec![
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
         .await;
@@ -624,5 +738,117 @@ mod tests {
         assert_eq!(fetched.html, "<html>ok</html>");
         assert_eq!(fetched.final_url, url);
         assert!(started.elapsed() >= Duration::from_millis(20));
+    }
+
+    fn unthrottled_fetcher() -> ReqwestHtmlFetcher {
+        ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+        )
+    }
+
+    #[tokio::test]
+    async fn should_skip_a_url_robots_txt_disallows_without_requesting_it() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nDisallow: /product\n"),
+            vec![OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsDisallowed);
+        assert!(shop.page_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fetch_a_url_robots_txt_allows() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nDisallow: /cart\n\nUser-agent: AhrefsBot\nDisallow: /\n"),
+            vec![OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let fetched = unthrottled_fetcher().fetch(&shop.url).await.unwrap();
+
+        assert_eq!(fetched.html, "<html>ok</html>");
+        assert_eq!(shop.page_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_space_requests_by_the_crawl_delay_without_timing_out() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nCrawl-delay: 0.3\n"),
+            vec![OK_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        // The crawl-delay exceeds both timeout budgets: pacing must not count.
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(200),
+        );
+
+        fetcher.fetch(&shop.url).await.unwrap();
+        fetcher.fetch(&shop.url).await.unwrap();
+
+        let requests = shop.page_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1] - requests[0] >= Duration::from_millis(300));
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn should_allow_every_url_when_robots_txt_answers_4xx() {
+        for status in ["404 Not Found", "403 Forbidden"] {
+            let shop = spawn_shop(robots_status(status), vec![OK_PAGE], Duration::ZERO).await;
+
+            let fetched = unthrottled_fetcher().fetch(&shop.url).await;
+
+            assert!(
+                fetched.is_ok(),
+                "robots.txt {status} must allow: {fetched:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_disallow_the_origin_while_robots_txt_answers_5xx() {
+        let shop = spawn_shop(
+            robots_status("503 Service Unavailable"),
+            vec![OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        let first = fetcher.fetch(&shop.url).await.unwrap_err();
+        let second = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(first.kind(), NetworkErrorKind::RobotsUnreachable);
+        assert_eq!(second.kind(), NetworkErrorKind::RobotsUnreachable);
+        assert!(shop.page_requests().is_empty());
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_fetch_robots_txt_again_after_the_unreachable_retry_period() {
+        let shop = spawn_shop(
+            robots_status("500 Internal Server Error"),
+            vec![],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        let _ = fetcher.fetch(&shop.url).await;
+        tokio::time::advance(Duration::from_secs(15 * 60 + 1)).await;
+        let _ = fetcher.fetch(&shop.url).await;
+
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 2);
     }
 }

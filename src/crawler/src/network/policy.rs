@@ -214,6 +214,10 @@ pub enum NetworkErrorKind {
     DnsResolution,
     Request,
     HttpStatus(u16),
+    /// robots.txt disallows the URL for the crawler.
+    RobotsDisallowed,
+    /// robots.txt could not be reached, so RFC 9309 disallows the whole origin.
+    RobotsUnreachable,
     Unknown,
 }
 
@@ -374,6 +378,8 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::Request => NetworkAction::Retry,
         NetworkErrorKind::UnsafeTarget
         | NetworkErrorKind::HttpStatus(_)
+        | NetworkErrorKind::RobotsDisallowed
+        | NetworkErrorKind::RobotsUnreachable
         | NetworkErrorKind::Unknown => NetworkAction::Terminal,
     }
 }
@@ -416,7 +422,10 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
 /// for minutes.
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
-        NetworkErrorKind::UnsafeTarget => Duration::from_secs(24 * 60 * 60),
+        NetworkErrorKind::UnsafeTarget | NetworkErrorKind::RobotsDisallowed => {
+            Duration::from_secs(24 * 60 * 60)
+        }
+        NetworkErrorKind::RobotsUnreachable => Duration::from_secs(15 * 60),
         NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10 * 60),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)

@@ -1,0 +1,372 @@
+//! robots.txt rules for crawler requests, following RFC 9309.
+//!
+//! This module only parses and classifies; callers fetch `robots.txt` with
+//! their own client and redirect policy, then ask the resulting
+//! [`RobotsPolicy`] whether a URL may be requested and how far apart requests
+//! must be.
+
+use std::time::Duration;
+use url::Url;
+
+/// Upper bound for an honoured `Crawl-delay`; the Spider library caps the
+/// delay it reads from robots.txt at the same value.
+pub const MAX_CRAWL_DELAY: Duration = Duration::from_secs(60);
+
+/// RFC 9309 requires parsing at least the first 500 KiB of a robots.txt file;
+/// anything beyond the limit is ignored.
+pub const MAX_ROBOTS_TXT_BYTES: usize = 512 * 1024;
+
+/// The product token shops address the crawler by in `User-agent` lines.
+const CRAWLER_PRODUCT_TOKEN: &str = "aurahistoriabot";
+
+/// What robots.txt says about one origin.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RobotsPolicy {
+    /// robots.txt was served; the group that applies to the crawler decides.
+    Rules(RobotsRules),
+    /// robots.txt is unavailable (a 4xx answer or an unusable redirect):
+    /// every URL is allowed.
+    Unavailable,
+    /// robots.txt could not be reached (a 5xx answer or a network failure):
+    /// every URL is disallowed until robots.txt is fetched again.
+    Unreachable,
+}
+
+/// Why robots.txt refuses a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RobotsRefusal {
+    Disallowed,
+    Unreachable,
+}
+
+impl RobotsPolicy {
+    /// Classifies a non-success, non-redirect robots.txt status.
+    pub fn for_failed_status(status: u16) -> Self {
+        if status >= 500 {
+            Self::Unreachable
+        } else {
+            Self::Unavailable
+        }
+    }
+
+    pub fn check(&self, url: &Url) -> Result<(), RobotsRefusal> {
+        match self {
+            Self::Rules(rules) if !rules.allows(url) => Err(RobotsRefusal::Disallowed),
+            Self::Rules(_) | Self::Unavailable => Ok(()),
+            Self::Unreachable => Err(RobotsRefusal::Unreachable),
+        }
+    }
+
+    pub fn crawl_delay(&self) -> Option<Duration> {
+        match self {
+            Self::Rules(rules) => rules.crawl_delay,
+            Self::Unavailable | Self::Unreachable => None,
+        }
+    }
+}
+
+/// The rules of the robots.txt group that applies to the crawler.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RobotsRules {
+    rules: Vec<Rule>,
+    crawl_delay: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Rule {
+    allow: bool,
+    pattern: String,
+}
+
+#[derive(Default)]
+struct Group {
+    agents: Vec<String>,
+    rules: Vec<Rule>,
+    crawl_delay: Option<Duration>,
+}
+
+impl RobotsRules {
+    /// Parses a robots.txt body and keeps the groups that apply to the
+    /// crawler: every group naming its product token, otherwise every `*`
+    /// group (RFC 9309 section 2.2.1).
+    pub fn parse(body: &str) -> Self {
+        let groups = parse_groups(truncate_to_limit(body));
+        let applies = |token: &str| {
+            groups
+                .iter()
+                .filter(|group| group.agents.iter().any(|agent| agent == token))
+                .collect::<Vec<_>>()
+        };
+        let mut selected = applies(CRAWLER_PRODUCT_TOKEN);
+        if selected.is_empty() {
+            selected = applies("*");
+        }
+        Self {
+            rules: selected
+                .iter()
+                .flat_map(|group| group.rules.iter().cloned())
+                .collect(),
+            crawl_delay: selected
+                .iter()
+                .filter_map(|group| group.crawl_delay)
+                .max()
+                .map(|delay| delay.min(MAX_CRAWL_DELAY)),
+        }
+    }
+
+    /// The longest matching rule decides; `Allow` wins a tie and a URL no
+    /// rule matches is allowed (RFC 9309 section 2.2.2).
+    pub fn allows(&self, url: &Url) -> bool {
+        let path = request_path(url);
+        if path == "/robots.txt" {
+            return true;
+        }
+        self.rules
+            .iter()
+            .filter(|rule| pattern_matches(&rule.pattern, &path))
+            .max_by_key(|rule| (rule.pattern.len(), rule.allow))
+            .is_none_or(|rule| rule.allow)
+    }
+}
+
+fn truncate_to_limit(body: &str) -> &str {
+    if body.len() <= MAX_ROBOTS_TXT_BYTES {
+        return body;
+    }
+    let mut end = MAX_ROBOTS_TXT_BYTES;
+    while !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    &body[..end]
+}
+
+/// Consecutive `User-agent` lines open one group; the first other record
+/// closes the agent list, so the next `User-agent` line starts a new group.
+fn parse_groups(body: &str) -> Vec<Group> {
+    let mut groups: Vec<Group> = Vec::new();
+    let mut collecting_agents = false;
+
+    for line in body.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim().to_ascii_lowercase();
+        let value = value.trim();
+
+        if key == "user-agent" {
+            if !collecting_agents {
+                groups.push(Group::default());
+                collecting_agents = true;
+            }
+            if let Some(group) = groups.last_mut() {
+                group.agents.push(product_token(value));
+            }
+            continue;
+        }
+        collecting_agents = false;
+        let Some(group) = groups.last_mut() else {
+            continue;
+        };
+        match key.as_str() {
+            "allow" | "disallow" if !value.is_empty() => group.rules.push(Rule {
+                allow: key == "allow",
+                pattern: normalize_pattern(value),
+            }),
+            "crawl-delay" => {
+                if let Some(delay) = parse_crawl_delay(value) {
+                    group.crawl_delay = Some(delay);
+                }
+            }
+            _ => {}
+        }
+    }
+    groups
+}
+
+/// `User-agent` values are matched on their product token, case-insensitively,
+/// so `AuraHistoriaBot/1.0` addresses the crawler as well.
+fn product_token(value: &str) -> String {
+    value
+        .split(['/', ' '])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn parse_crawl_delay(value: &str) -> Option<Duration> {
+    let seconds = value.parse::<f64>().ok()?;
+    (seconds.is_finite() && seconds >= 0.0)
+        .then(|| Duration::from_secs_f64(seconds.min(MAX_CRAWL_DELAY.as_secs_f64())))
+}
+
+/// URL paths are percent-encoded with upper-case hex; patterns are brought
+/// into the same form so a literal non-ASCII pattern still matches.
+fn normalize_pattern(pattern: &str) -> String {
+    let mut normalized = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            let hex: String = chars.clone().take(2).collect();
+            if hex.len() == 2 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                normalized.push('%');
+                normalized.push_str(&hex.to_ascii_uppercase());
+                chars.nth(1);
+                continue;
+            }
+        }
+        if ch.is_ascii() {
+            normalized.push(ch);
+        } else {
+            let mut buffer = [0; 4];
+            for byte in ch.encode_utf8(&mut buffer).bytes() {
+                normalized.push_str(&format!("%{byte:02X}"));
+            }
+        }
+    }
+    normalized
+}
+
+fn request_path(url: &Url) -> String {
+    match url.query() {
+        Some(query) => format!("{}?{query}", url.path()),
+        None => url.path().to_owned(),
+    }
+}
+
+/// Matches a rule pattern against the start of `path`: `*` matches any
+/// sequence and a trailing `$` anchors the end.
+fn pattern_matches(pattern: &str, path: &str) -> bool {
+    let (pattern, anchored) = match pattern.strip_suffix('$') {
+        Some(pattern) => (pattern, true),
+        None => (pattern, false),
+    };
+    let mut segments = pattern.split('*');
+    let first = segments.next().unwrap_or_default();
+    let Some(mut rest) = path.strip_prefix(first) else {
+        return false;
+    };
+    let segments: Vec<&str> = segments.collect();
+    let Some((last, middle)) = segments.split_last() else {
+        return !anchored || rest.is_empty();
+    };
+    for segment in middle {
+        match rest.find(segment) {
+            Some(index) => rest = &rest[index + segment.len()..],
+            None => return false,
+        }
+    }
+    if anchored {
+        rest.ends_with(last)
+    } else {
+        rest.contains(last)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(path: &str) -> Url {
+        Url::parse(&format!("https://shop.example{path}")).unwrap()
+    }
+
+    /// antieksite.nl's robots.txt as served during the 2026-10-15 soak test.
+    const ANTIEKSITE: &str = "User-agent: *\n\
+        Sitemap: https://www.antieksite.nl/rss/\n\
+        Crawl-delay: 30\n\
+        \n\
+        Content-Signal: ai-train=no, search=yes, ai-input=yes\n\
+        User-agent: OAI-SearchBot\n\
+        User-agent: GPTBot\n\
+        \n\
+        Allow: /\n\
+        Disallow: /cart/\n\
+        \n\
+        User-agent: AhrefsBot\n\
+        User-agent: SemrushBot\n\
+        Disallow: /\n";
+
+    #[test]
+    fn should_apply_only_the_wildcard_group_when_no_group_names_the_crawler() {
+        let rules = RobotsRules::parse(ANTIEKSITE);
+
+        assert!(rules.allows(&url("/antiek/kast-123")));
+        assert!(rules.allows(&url("/cart/")));
+        assert_eq!(rules.crawl_delay, Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn should_prefer_the_group_naming_the_crawler_over_the_wildcard_group() {
+        let rules = RobotsRules::parse(
+            "User-agent: *\nDisallow: /\n\nUser-agent: AuraHistoriaBot/2.0\nDisallow: /private\n",
+        );
+
+        assert!(rules.allows(&url("/products/1")));
+        assert!(!rules.allows(&url("/private/1")));
+    }
+
+    #[test]
+    fn should_let_the_longest_matching_rule_decide_and_allow_win_ties() {
+        let rules = RobotsRules::parse(
+            "User-agent: *\nDisallow: /shop\nAllow: /shop/items\nDisallow: /a\nAllow: /a\n",
+        );
+
+        assert!(!rules.allows(&url("/shop/cart")));
+        assert!(rules.allows(&url("/shop/items/9")));
+        assert!(rules.allows(&url("/a/b")));
+    }
+
+    #[test]
+    fn should_match_rules_as_path_prefixes_with_wildcards_and_end_anchors() {
+        let rules = RobotsRules::parse(
+            "User-agent: *\nDisallow: /cart\nDisallow: /*?sort=\nDisallow: /*.pdf$\n",
+        );
+
+        assert!(rules.allows(&url("/products/cartier-ring")));
+        assert!(!rules.allows(&url("/cart/add")));
+        assert!(!rules.allows(&url("/category?sort=price")));
+        assert!(!rules.allows(&url("/files/catalogue.pdf")));
+        assert!(rules.allows(&url("/files/catalogue.pdf.html")));
+    }
+
+    #[test]
+    fn should_match_percent_encoded_paths_against_literal_patterns() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: /möbel\n");
+
+        assert!(!rules.allows(&url("/möbel/stuhl")));
+    }
+
+    #[test]
+    fn should_always_allow_robots_txt_itself() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: /\n");
+
+        assert!(rules.allows(&url("/robots.txt")));
+        assert!(!rules.allows(&url("/")));
+    }
+
+    #[test]
+    fn should_cap_the_crawl_delay() {
+        let rules = RobotsRules::parse("User-agent: *\nCrawl-delay: 3600\n");
+
+        assert_eq!(rules.crawl_delay, Some(MAX_CRAWL_DELAY));
+    }
+
+    #[test]
+    fn should_allow_everything_when_robots_txt_is_unavailable() {
+        let policy = RobotsPolicy::for_failed_status(404);
+
+        assert_eq!(policy, RobotsPolicy::Unavailable);
+        assert_eq!(policy.check(&url("/products/1")), Ok(()));
+    }
+
+    #[test]
+    fn should_disallow_everything_when_robots_txt_is_unreachable() {
+        let policy = RobotsPolicy::for_failed_status(503);
+
+        assert_eq!(
+            policy.check(&url("/products/1")),
+            Err(RobotsRefusal::Unreachable)
+        );
+    }
+}
