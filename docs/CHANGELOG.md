@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
+
+- CloudFront no longer applies its EC2 metadata SSRF and IPv4 remote-file-inclusion request checks to OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` or `POST /api/v1/oauth/token`. Contract-valid loopback HTTPS redirect URIs, such as `https://localhost:3458/oauth/callback` used by Shopify CLI `--use-localhost` development, therefore reach the API's redirect URI validation. Registering that URI previously failed with an HTML `403` (`Request blocked.`) before authentication or validation. Redirect URI validation is unchanged, and other routes keep these checks.
+
 ## 2026-10-19 — OAuth credential errors no longer echo input (#2207)
 
 - `POST /api/v1/oauth/token`, `/introspect` and `/revoke` no longer include the submitted value in the problem `detail` when `client_secret` or `token` is malformed, for example a mistyped value or an access token sent as `client_secret`. Status and error codes are unchanged: a malformed `client_secret` returns `401 INVALID_CREDENTIALS`, a malformed `token` returns `400 BAD_BODY_VALUE`. Both now identify the form field in `source` and use a fixed `detail`. Clients that parsed the old message should rely on `error` and `source.field` instead.
