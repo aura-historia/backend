@@ -58,6 +58,7 @@ use auction_service::use_cases::{
         list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
     },
 };
+use aura_historia_runtime::Runtime;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -102,7 +103,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
 };
@@ -123,16 +124,13 @@ use woocommerce_service::WoocommerceWebhookIntake;
 
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
-    SqlxListingSourceSearchReaderFactory, SqlxPublicListingSourceDetailsReaderFactory,
-    SqlxPublicListingSourceSearchReaderFactory,
+    SqlxListingSourceSearchReaderFactory,
 };
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
-use listing_source_service::use_cases::queries::get_public_listing_source_by_slug::GetPublicListingSourceBySlugHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
-use listing_source_service::use_cases::queries::search_public_listing_sources::SearchPublicListingSourcesHandler;
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
@@ -204,7 +202,6 @@ use search_filter_service::use_cases::{
 use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -310,15 +307,6 @@ const DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS: u64 = 30;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES: u64 = 4_096;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS: u64 = 60;
-const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
-const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
-const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
-const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
-const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
-const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
-const POSTGRES_TLS_ROOT_CERT_ENV: &str = "POSTGRES_TLS_ROOT_CERT";
-const DEFAULT_POSTGRES_PORT: u16 = 5432;
-const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1324,17 +1312,17 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 
 pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
     let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
-    let pool = postgres_pool_from_env().await?;
-    lambda_app_from_config_and_pool(&config, pool).await
+    let runtime = Runtime::from_env().await?;
+    lambda_app_from_config_and_runtime(&config, &runtime).await
 }
 
 /// Composes a complete Lambda router for one PostgreSQL credential version.
-pub async fn lambda_app_from_config_and_pool(
+pub async fn lambda_app_from_config_and_runtime(
     config: &ApiConfig,
-    pool: PgPool,
+    runtime: &Runtime,
 ) -> Result<Router, ApiStateError> {
     log_product_listing_search_cache_config(config);
-    let state = app_state_from_config_and_pool(config, pool).await?;
+    let state = app_state_from_config_and_runtime(config, runtime).await?;
     Ok(app_with_request_timeout(
         state,
         crate::transport::LAMBDA_REQUEST_TIMEOUT,
@@ -1342,14 +1330,16 @@ pub async fn lambda_app_from_config_and_pool(
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
-    let pool = postgres_pool_from_env().await?;
-    app_state_from_config_and_pool(config, pool).await
+    let runtime = Runtime::from_env().await?;
+    app_state_from_config_and_runtime(config, &runtime).await
 }
 
-async fn app_state_from_config_and_pool(
+async fn app_state_from_config_and_runtime(
     config: &ApiConfig,
-    pool: PgPool,
+    runtime: &Runtime,
 ) -> Result<AppState, ApiStateError> {
+    let pool = runtime.postgres_pool().clone();
+    let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let ingestion_publisher = SqsProductListingIngestionPublisher::new(
         aws_sdk_sqs::Client::new(&aws_client_config),
@@ -1466,14 +1456,6 @@ async fn app_state_from_config_and_pool(
         unit_of_work.clone(),
         SqlxListingSourceSearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
-    );
-    let search_public_listing_sources = SearchPublicListingSourcesHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicListingSourceSearchReaderFactory::new(),
-    );
-    let get_public_listing_source_by_slug = GetPublicListingSourceBySlugHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicListingSourceDetailsReaderFactory::new(),
     );
     let get_own_user =
         GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
@@ -1901,8 +1883,8 @@ async fn app_state_from_config_and_pool(
         ),
     ))
     .with_public_reads(
-        Arc::new(search_public_listing_sources),
-        Arc::new(get_public_listing_source_by_slug),
+        Arc::clone(&public_listing_sources.search),
+        Arc::clone(&public_listing_sources.get_by_slug),
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
@@ -2381,42 +2363,6 @@ async fn app_state_from_config_and_pool(
         .with_readiness(readiness))
 }
 
-async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
-    let host = required_postgres_env(POSTGRES_HOST_ENV)?;
-    let database = required_postgres_env(POSTGRES_DATABASE_ENV)?;
-    let username = required_postgres_env(POSTGRES_USERNAME_ENV)?;
-    let password = required_postgres_env(POSTGRES_PASSWORD_ENV)?;
-    let port = optional_postgres_env(POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
-    let max_connections = optional_postgres_env(
-        POSTGRES_MAX_CONNECTIONS_ENV,
-        DEFAULT_POSTGRES_MAX_CONNECTIONS,
-    )?;
-    let root_certificate = PathBuf::from(required_postgres_env(POSTGRES_TLS_ROOT_CERT_ENV)?);
-    let config = PostgresPoolConfig::lambda(
-        host,
-        port,
-        database,
-        username,
-        password,
-        max_connections,
-        root_certificate,
-    )
-    .map_err(|error| match error {
-        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections
-        | platform_postgres::PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
-            ApiStateError::InvalidPostgresMaxConnections
-        }
-        platform_postgres::PostgresPoolConfigError::EmptyRootCertificate => {
-            ApiStateError::InvalidPostgresTlsRootCertificate
-        }
-    })?;
-
-    Ok(config
-        .connect()
-        .await
-        .map_err(|_| PostgresConnectError::Connect)?)
-}
-
 fn ingestion_queue_url_from_env() -> Result<String, ApiStateError> {
     let url = std::env::var(PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV).map_err(|_| {
         ApiStateError::MissingEnv {
@@ -2440,23 +2386,6 @@ fn valid_ingestion_queue_url(value: &str) -> bool {
                 .and_then(|mut segments| segments.next_back())
                 .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
     })
-}
-
-fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
-    std::env::var(name).map_err(|_| ApiStateError::MissingEnv { name })
-}
-
-fn optional_postgres_env<T>(name: &'static str, default: T) -> Result<T, ApiStateError>
-where
-    T: std::str::FromStr,
-{
-    match std::env::var(name) {
-        Ok(value) => value
-            .parse()
-            .map_err(|_| ApiStateError::InvalidPostgresInteger { name, value }),
-        Err(std::env::VarError::NotPresent) => Ok(default),
-        Err(std::env::VarError::NotUnicode(_)) => Err(ApiStateError::MissingEnv { name }),
-    }
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
@@ -2595,15 +2524,9 @@ pub enum ApiStateError {
     #[error("failed to initialize Stripe billing client")]
     StripeBilling(#[source] billing_stripe::StripeBillingClientInitError),
     #[error(transparent)]
-    Postgres(#[from] PostgresConnectError),
+    Runtime(#[from] aura_historia_runtime::RuntimeError),
     #[error(transparent)]
     Config(#[from] ApiConfigError),
-    #[error("invalid integer in environment variable {name}: {value}")]
-    InvalidPostgresInteger { name: &'static str, value: String },
-    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
-    InvalidPostgresMaxConnections,
-    #[error("POSTGRES_TLS_ROOT_CERT must not be empty")]
-    InvalidPostgresTlsRootCertificate,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]

@@ -1,9 +1,10 @@
 use aura_historia_api::{
-    ApiConfig, ApiConfigError, ApiRunError, lambda_app_from_config_and_pool, run_until_shutdown,
+    ApiConfig, ApiConfigError, ApiRunError, ApiStateError, lambda_app_from_config_and_runtime,
+    run_until_shutdown,
 };
-use platform_lambda_bootstrap::{LambdaPostgresConfig, VersionedCompositionCache, log_cold_start};
+use aura_historia_runtime::RotatingRuntime;
+use platform_lambda_bootstrap::{VersionedCompositionCache, log_cold_start};
 use platform_observability::{LogLevel, LoggingConfig, init};
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -33,37 +34,22 @@ fn main() -> Result<(), MainError> {
         .block_on(async move {
             if is_lambda {
                 let config = ApiConfig::from_env()?;
-                let postgres = LambdaPostgresConfig::from_env()?;
-                let credentials = postgres_credentials_provider_from_env()
-                    .await
-                    .map_err(|_| MainError::PostgresCredentials)?;
+                let runtime = Arc::new(RotatingRuntime::from_env().await?);
                 let routers = Arc::new(VersionedCompositionCache::new());
 
                 log_cold_start(LAMBDA_COMPONENT, initialization_started_at);
                 aura_historia_api::lambda::run(move || {
                     let config = config.clone();
-                    let postgres = postgres.clone();
-                    let credentials = Arc::clone(&credentials);
+                    let runtime = Arc::clone(&runtime);
                     let routers = Arc::clone(&routers);
                     async move {
-                        let credentials = credentials
-                            .current()
-                            .await
-                            .map_err(|_| "PostgreSQL credential refresh unavailable".to_owned())?;
+                        let runtime = runtime.current().await?;
                         let router = routers
-                            .get_or_try_build(credentials.version_id(), || async {
-                                let pool = postgres
-                                    .pool_config(credentials.credentials())
-                                    .map_err(|_| "invalid PostgreSQL configuration".to_owned())?
-                                    .connect()
-                                    .await
-                                    .map_err(|_| "failed to create PostgreSQL pool".to_owned())?;
-                                lambda_app_from_config_and_pool(&config, pool)
-                                    .await
-                                    .map_err(|_| "failed to compose API router".to_owned())
+                            .get_or_try_build(runtime.version_id(), || async {
+                                lambda_app_from_config_and_runtime(&config, runtime.value()).await
                             })
                             .await?;
-                        Ok::<_, String>(router.value().clone())
+                        Ok::<_, MainError>(router.value().clone())
                     }
                 })
                 .await?;
@@ -155,9 +141,9 @@ enum MainError {
     Run(#[from] ApiRunError),
 
     #[error(transparent)]
-    PostgresConfig(#[from] platform_lambda_bootstrap::LambdaBootstrapConfigError),
-    #[error("PostgreSQL credential provider unavailable")]
-    PostgresCredentials,
+    Composition(#[from] aura_historia_runtime::RuntimeError),
+    #[error(transparent)]
+    State(#[from] ApiStateError),
     #[error("failed to build API async runtime")]
     Runtime(#[source] std::io::Error),
     #[error(transparent)]

@@ -15,10 +15,11 @@ const COMPONENT: &str = "aura-historia-api";
 const LAMBDA_RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
 
 /// Refreshes the caller-owned full router composition before each Lambda invocation.
-pub async fn run<F, Fut>(router_for_invocation: F) -> Result<(), lambda_http::Error>
+pub async fn run<F, Fut, E>(router_for_invocation: F) -> Result<(), lambda_http::Error>
 where
     F: Fn() -> Fut + Clone + Send + Sync + 'static,
-    Fut: Future<Output = Result<Router, String>> + Send,
+    Fut: Future<Output = Result<Router, E>> + Send,
+    E: Into<lambda_http::Error> + Send,
 {
     lambda_http::run(lambda_http::service_fn(
         move |request: lambda_http::Request| {
@@ -36,14 +37,15 @@ where
                         budget.as_ref().map(LambdaInvocationBudget::remaining),
                         router_for_invocation,
                     )
-                    .await?
+                    .await
+                    .map_err(Into::into)?
                     {
                         Some(app) => app,
                         None => return Ok(request_timeout_response()),
                     };
                     handle_http_api_v2_request(app, request)
                         .await
-                        .map_err(|error| error.to_string())
+                        .map_err(lambda_http::Error::from)
                 };
                 match budget.as_ref() {
                     Some(budget) => {
@@ -59,13 +61,13 @@ where
 
 /// Returns `None` only when the invocation has no time left for credential refresh and
 /// composition. Provider failures remain failures rather than silently using an old router.
-async fn compose_router_with_budget<F, Fut>(
+async fn compose_router_with_budget<F, Fut, E>(
     budget: Option<Duration>,
     compose: F,
-) -> Result<Option<Router>, String>
+) -> Result<Option<Router>, E>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<Router, String>>,
+    Fut: Future<Output = Result<Router, E>>,
 {
     match budget {
         Some(budget) if budget.is_zero() => Ok(None),
@@ -292,10 +294,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_reserve_the_api_deadline_for_router_refresh_and_composition() {
-        let exhausted = compose_router_with_budget(Some(Duration::ZERO), || async {
-            panic!("exhausted invocation must not compose a router")
-        })
-        .await;
+        let exhausted: Result<Option<Router>, String> =
+            compose_router_with_budget(Some(Duration::ZERO), || async {
+                panic!("exhausted invocation must not compose a router")
+            })
+            .await;
         assert!(matches!(exhausted, Ok(None)));
 
         let timed_out = compose_router_with_budget(Some(Duration::from_millis(1)), || async {
@@ -312,6 +315,26 @@ mod tests {
             provider_failure,
             Err(ref error) if error == "PostgreSQL credential refresh unavailable"
         ));
+    }
+
+    #[tokio::test]
+    async fn should_preserve_typed_composition_failure_before_the_lambda_boundary() {
+        use std::error::Error;
+        let result = compose_router_with_budget(Some(Duration::from_secs(1)), || async {
+            Err::<Router, _>(aura_historia_runtime::RuntimeError::CredentialsRefresh(
+                platform_postgres::PostgresCredentialRefreshError,
+            ))
+        })
+        .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("credential refresh failure must remain an invocation failure"),
+        };
+        assert!(error.source().is_some_and(|source| {
+            source
+                .downcast_ref::<platform_postgres::PostgresCredentialRefreshError>()
+                .is_some()
+        }));
     }
 
     #[derive(Clone, Copy)]

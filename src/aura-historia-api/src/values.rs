@@ -1,190 +1,49 @@
-use localization::{Language, Localized};
-use money::{Currency, MonetaryAmount, Price};
-use product_listing_core::product_listing_price::ProductListingPrice;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LocalizedTextData {
-    pub(crate) text: String,
-    #[serde(with = "crate::wire::language")]
-    pub(crate) language: Language,
-}
-
-impl LocalizedTextData {
-    pub(crate) fn into_localized<T: From<String>>(self) -> Localized<Language, T> {
-        Localized::new(self.language, self.text.into())
-    }
-}
-
-impl<T: Into<String>> From<Localized<Language, T>> for LocalizedTextData {
-    fn from(value: Localized<Language, T>) -> Self {
-        Self {
-            text: value.payload.into(),
-            language: value.localization,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PriceData {
-    #[serde(with = "crate::wire::currency")]
-    pub(crate) currency: Currency,
-    pub(crate) amount: u64,
-}
-
-impl From<PriceData> for Price {
-    fn from(value: PriceData) -> Self {
-        Self::new(MonetaryAmount::from(value.amount), value.currency)
-    }
-}
-
-impl From<Price> for PriceData {
-    fn from(value: Price) -> Self {
-        Self {
-            currency: value.currency,
-            amount: value.monetary_amount.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
-pub(crate) enum ProductListingPriceData {
-    Monetary {
-        #[serde(with = "crate::wire::currency")]
-        currency: Currency,
-        amount: u64,
-    },
-    OnRequest,
-}
-
-impl From<ProductListingPriceData> for ProductListingPrice {
-    fn from(value: ProductListingPriceData) -> Self {
-        match value {
-            ProductListingPriceData::Monetary { currency, amount } => {
-                Self::Monetary(Price::new(MonetaryAmount::from(amount), currency))
-            }
-            ProductListingPriceData::OnRequest => Self::OnRequest,
-        }
-    }
-}
-
-impl From<ProductListingPrice> for ProductListingPriceData {
-    fn from(value: ProductListingPrice) -> Self {
-        match value {
-            ProductListingPrice::Monetary(price) => Self::Monetary {
-                currency: price.currency,
-                amount: price.monetary_amount.into(),
-            },
-            ProductListingPrice::OnRequest => Self::OnRequest,
-        }
-    }
-}
+pub(crate) use aura_historia_contracts::values::{
+    LocalizedTextData, PriceData, ProductListingPriceData,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
+    use application::patch_field::PatchField;
+    use serde::Deserialize;
+    use serde_json::Value;
 
-    #[test]
-    fn should_preserve_currency_and_localized_text_json_contract()
-    -> Result<(), Box<dyn std::error::Error>> {
-        assert_eq!(
-            serde_json::json!({ "currency": "EUR", "amount": 1 }),
-            serde_json::to_value(PriceData {
-                currency: Currency::Eur,
-                amount: 1,
-            })?
-        );
-
-        assert_eq!(
-            Currency::Usd,
-            serde_json::from_str::<PriceData>(r#"{"currency":"USD","amount":1}"#)?.currency
-        );
-        assert_eq!(
-            serde_json::json!({ "type": "ON_REQUEST" }),
-            serde_json::to_value(ProductListingPriceData::OnRequest)?
-        );
-        assert_eq!(
-            Language::De,
-            serde_json::from_str::<LocalizedTextData>(r#"{"text":"x","language":"de-CH"}"#)?
-                .language
-        );
-        assert_eq!(
-            serde_json::json!({ "text": "Cabinet", "language": "en" }),
-            serde_json::to_value(LocalizedTextData {
-                text: "Cabinet".to_owned(),
-                language: Language::En,
-            })?
-        );
-        Ok(())
+    #[derive(Deserialize)]
+    struct PricePatch {
+        #[serde(default)]
+        value: PatchValue<PriceData>,
     }
 
     #[test]
-    fn should_publish_every_supported_currency_in_openapi_currency_enums() {
-        use strum::IntoEnumIterator;
-
-        let swagger = include_str!("../../../docs/swagger.yaml");
-        let supported: Vec<&str> = Currency::iter().map(Currency::as_str).collect();
-        for schema in ["CurrencyData", "ShippingCurrencyCode"] {
-            assert_eq!(supported, openapi_enum(swagger, schema), "{schema}");
+    fn should_consume_shared_value_and_patch_fixture_in_rest() -> Result<(), serde_json::Error> {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../aura-historia-contracts/tests/fixtures/common-values.json"
+        ))?;
+        let price: PriceData = serde_json::from_value(fixture["price"].clone())?;
+        assert_eq!(fixture["price"], serde_json::to_value(price)?);
+        let localized: LocalizedTextData =
+            serde_json::from_value(fixture["localizedTextInput"].clone())?;
+        assert_eq!(
+            fixture["localizedTextOutput"],
+            serde_json::to_value(localized)?
+        );
+        for value in fixture["listingPrices"].as_array().expect("listing prices") {
+            let price: ProductListingPriceData = serde_json::from_value(value.clone())?;
+            assert_eq!(value, &serde_json::to_value(price)?);
         }
-    }
-
-    fn openapi_enum<'a>(swagger: &'a str, schema: &str) -> Vec<&'a str> {
-        let start = swagger
-            .find(&format!("\n    {schema}:\n"))
-            .unwrap_or_else(|| panic!("missing OpenAPI schema: {schema}"));
-        swagger[start + 1..]
-            .lines()
-            .skip(1)
-            .take_while(|line| line.starts_with("      "))
-            .skip_while(|line| line.trim() != "enum:")
-            .skip(1)
-            .map_while(|line| line.trim_start().strip_prefix("- "))
-            .collect()
-    }
-
-    #[test]
-    fn should_map_prices_and_localized_text_at_the_api_boundary() {
-        let price = PriceData {
-            currency: Currency::Eur,
-            amount: 1_200,
-        };
-        assert_eq!(
-            Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur),
-            price.into()
-        );
-
-        let text = LocalizedTextData {
-            text: "Cabinet".to_owned(),
-            language: Language::En,
-        };
-        let localized: Localized<Language, String> = text.into_localized();
-        assert_eq!(
-            Localized::new(Language::En, "Cabinet".to_owned()),
-            localized
-        );
-    }
-    #[test]
-    fn should_round_trip_added_currency_codes_in_api_prices()
-    -> Result<(), Box<dyn std::error::Error>> {
-        for code in [
-            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB", "ARS",
+        for (name, expected) in [
+            ("omitted", PatchField::Unchanged),
+            ("null", PatchField::Clear),
+            ("value", PatchField::Set(price)),
         ] {
-            let currency = Currency::from_code(code).ok_or("supported currency code")?;
-            let json = serde_json::json!({"currency": currency.as_str(), "amount": 123});
-            let price: PriceData = serde_json::from_value(json.clone())?;
-            assert_eq!(currency, price.currency);
-            assert_eq!(json, serde_json::to_value(price)?);
+            let patch: PricePatch = serde_json::from_value(fixture["patches"][name].clone())?;
+            assert_eq!(expected, clearable(patch.value));
         }
-        assert!(
-            serde_json::from_value::<PriceData>(
-                serde_json::json!({"currency":"XXX", "amount":123})
-            )
-            .is_err()
-        );
+        let null: PricePatch = serde_json::from_value(fixture["patches"]["null"].clone())?;
+        let error = non_nullable_patch(null.value, "value").expect_err("REST rejects null");
+        assert_eq!(crate::error::BAD_BODY_VALUE, error.code());
         Ok(())
     }
 }

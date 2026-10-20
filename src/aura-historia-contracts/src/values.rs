@@ -1,0 +1,207 @@
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use product_listing_core::product_listing_price::ProductListingPrice;
+use schemars::{JsonSchema, Schema};
+use serde::{Deserialize, Serialize};
+
+/// Text paired with its public language code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalizedTextData {
+    pub text: String,
+    #[serde(with = "crate::wire::language")]
+    #[schemars(schema_with = "crate::wire::language::schema")]
+    pub language: Language,
+}
+
+impl LocalizedTextData {
+    pub fn into_localized<T: From<String>>(self) -> Localized<Language, T> {
+        Localized::new(self.language, self.text.into())
+    }
+}
+
+impl<T: Into<String>> From<Localized<Language, T>> for LocalizedTextData {
+    fn from(value: Localized<Language, T>) -> Self {
+        Self {
+            text: value.payload.into(),
+            language: value.localization,
+        }
+    }
+}
+
+/// A monetary amount in the currency's minor units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceData {
+    #[serde(with = "crate::wire::currency")]
+    #[schemars(schema_with = "crate::wire::currency::schema")]
+    pub currency: Currency,
+    /// Unsigned amount in the currency's minor units.
+    #[schemars(range(max = u64::MAX))]
+    pub amount: u64,
+}
+
+impl From<PriceData> for Price {
+    fn from(value: PriceData) -> Self {
+        Self::new(MonetaryAmount::from(value.amount), value.currency)
+    }
+}
+
+impl From<Price> for PriceData {
+    fn from(value: Price) -> Self {
+        Self {
+            currency: value.currency,
+            amount: value.monetary_amount.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum ProductListingPriceData {
+    Monetary {
+        #[serde(with = "crate::wire::currency")]
+        #[schemars(schema_with = "crate::wire::currency::schema")]
+        currency: Currency,
+        /// Unsigned amount in the currency's minor units.
+        #[schemars(range(max = u64::MAX))]
+        amount: u64,
+    },
+    #[schemars(transform = allow_unit_variant_unknown_members)]
+    OnRequest,
+}
+
+// Serde consumes internally tagged unit variants without checking unknown members.
+// Preserve that accepted-input contract rather than tightening REST while extracting it.
+fn allow_unit_variant_unknown_members(schema: &mut Schema) {
+    schema.remove("additionalProperties");
+}
+
+impl From<ProductListingPriceData> for ProductListingPrice {
+    fn from(value: ProductListingPriceData) -> Self {
+        match value {
+            ProductListingPriceData::Monetary { currency, amount } => {
+                Self::Monetary(Price::new(MonetaryAmount::from(amount), currency))
+            }
+            ProductListingPriceData::OnRequest => Self::OnRequest,
+        }
+    }
+}
+
+impl From<ProductListingPrice> for ProductListingPriceData {
+    fn from(value: ProductListingPrice) -> Self {
+        match value {
+            ProductListingPrice::Monetary(price) => Self::Monetary {
+                currency: price.currency,
+                amount: price.monetary_amount.into(),
+            },
+            ProductListingPrice::OnRequest => Self::OnRequest,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_currency_and_localized_text_json_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            serde_json::json!({ "currency": "EUR", "amount": 1 }),
+            serde_json::to_value(PriceData {
+                currency: Currency::Eur,
+                amount: 1,
+            })?
+        );
+
+        assert_eq!(
+            Currency::Usd,
+            serde_json::from_str::<PriceData>(r#"{"currency":"USD","amount":1}"#)?.currency
+        );
+        assert_eq!(
+            serde_json::json!({ "type": "ON_REQUEST" }),
+            serde_json::to_value(ProductListingPriceData::OnRequest)?
+        );
+        assert_eq!(
+            Language::De,
+            serde_json::from_str::<LocalizedTextData>(r#"{"text":"x","language":"de-CH"}"#)?
+                .language
+        );
+        assert_eq!(
+            serde_json::json!({ "text": "Cabinet", "language": "en" }),
+            serde_json::to_value(LocalizedTextData {
+                text: "Cabinet".to_owned(),
+                language: Language::En,
+            })?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_publish_every_supported_currency_in_openapi_currency_enums() {
+        use strum::IntoEnumIterator;
+
+        let swagger = include_str!("../../../docs/swagger.yaml");
+        let supported: Vec<&str> = Currency::iter().map(Currency::as_str).collect();
+        for schema in ["CurrencyData", "ShippingCurrencyCode"] {
+            assert_eq!(supported, openapi_enum(swagger, schema), "{schema}");
+        }
+    }
+
+    fn openapi_enum<'a>(swagger: &'a str, schema: &str) -> Vec<&'a str> {
+        let start = swagger
+            .find(&format!("\n    {schema}:\n"))
+            .unwrap_or_else(|| panic!("missing OpenAPI schema: {schema}"));
+        swagger[start + 1..]
+            .lines()
+            .skip(1)
+            .take_while(|line| line.starts_with("      "))
+            .skip_while(|line| line.trim() != "enum:")
+            .skip(1)
+            .map_while(|line| line.trim_start().strip_prefix("- "))
+            .collect()
+    }
+
+    #[test]
+    fn should_map_prices_and_localized_text_at_the_api_boundary() {
+        let price = PriceData {
+            currency: Currency::Eur,
+            amount: 1_200,
+        };
+        assert_eq!(
+            Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur),
+            price.into()
+        );
+
+        let text = LocalizedTextData {
+            text: "Cabinet".to_owned(),
+            language: Language::En,
+        };
+        let localized: Localized<Language, String> = text.into_localized();
+        assert_eq!(
+            Localized::new(Language::En, "Cabinet".to_owned()),
+            localized
+        );
+    }
+    #[test]
+    fn should_round_trip_added_currency_codes_in_api_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for code in [
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB", "ARS",
+        ] {
+            let currency = Currency::from_code(code).ok_or("supported currency code")?;
+            let json = serde_json::json!({"currency": currency.as_str(), "amount": 123});
+            let price: PriceData = serde_json::from_value(json.clone())?;
+            assert_eq!(currency, price.currency);
+            assert_eq!(json, serde_json::to_value(price)?);
+        }
+        assert!(
+            serde_json::from_value::<PriceData>(
+                serde_json::json!({"currency":"XXX", "amount":123})
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+}

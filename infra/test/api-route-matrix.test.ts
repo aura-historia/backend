@@ -12,6 +12,7 @@ import {
 } from "../src/constructs/api";
 import { STAGES, stageConfig, type StageName } from "../src/config";
 import { axumRouteKeys, routeKey, swaggerRouteKeys } from "./api-route-contract";
+import { templateForConstruct } from "./construct-template";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
@@ -50,7 +51,8 @@ function catalogRouteKeys(): string[] {
 
 function apiTemplate(stage: StageName): Template {
   const app = new cdk.App({ analyticsReporting: false });
-  return Template.fromStack(createApplicationStacks(app, { stage }).api);
+  const stacks = createApplicationStacks(app, { stage });
+  return templateForConstruct(stacks.api, stacks.api.api);
 }
 
 function resolveConcreteArn(value: unknown): string {
@@ -558,7 +560,7 @@ describe("HTTP API route policy matrix", () => {
       env: { account: "123456789012", region: "eu-central-1" },
     });
     const compute = Template.fromStack(stacks.compute);
-    const api = Template.fromStack(stacks.api);
+    const api = templateForConstruct(stacks.api, stacks.api.api);
     const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias")) as CloudFormationResource[];
     const functionId = (alias.Properties.FunctionName as { Ref: string }).Ref;
     const functionResource = compute.findResources("AWS::Lambda::Function")[functionId] as CloudFormationResource;
