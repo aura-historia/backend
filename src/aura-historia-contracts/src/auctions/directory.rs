@@ -17,16 +17,22 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DirectoryQuery {
     #[schemars(schema_with = "crate::wire::schema::optional_listing_source_id")]
+    #[serde(default)]
     pub listing_source_id: Option<String>,
     #[schemars(schema_with = "super::format_schema")]
+    #[serde(default)]
     pub format: Option<String>,
     #[schemars(schema_with = "super::status_schema")]
+    #[serde(default)]
     pub reported_status: Option<String>,
     #[schemars(schema_with = "schedule_role_schema")]
+    #[serde(default)]
     pub time_role: Option<String>,
     #[schemars(schema_with = "sort_schema")]
+    #[serde(default)]
     pub sort: Option<String>,
     #[schemars(schema_with = "super::optional_order_schema")]
+    #[serde(default)]
     pub order: Option<String>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]

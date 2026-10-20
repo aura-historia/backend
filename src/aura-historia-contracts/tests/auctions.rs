@@ -34,6 +34,30 @@ fn output_schema<T: JsonSchema>() -> Value {
 }
 
 #[test]
+fn should_preserve_optional_directory_fields_when_query_values_are_omitted()
+-> Result<(), Box<dyn std::error::Error>> {
+    for input in [
+        json!({}),
+        json!({"sort":"created"}),
+        json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"sort":null,"order":null}),
+    ] {
+        assert!(
+            jsonschema::is_valid(&input_schema::<DirectoryQuery>(), &input),
+            "{input}"
+        );
+        let request = serde_json::from_value::<DirectoryQuery>(input)?.try_into_request()?;
+        assert!(request.listing_source_id.is_none());
+        assert!(request.format.is_none());
+        assert!(request.reported_status.is_none());
+        assert!(request.schedule.is_none());
+        assert!(request.sort.is_none());
+        assert!(request.order.is_none());
+        assert_eq!(21, request.cursor.ok_or("missing default cursor")?.size);
+    }
+    Ok(())
+}
+
+#[test]
 fn should_preserve_all_directory_fields_and_validate_schedule_points()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = ListingSourceId::new();
