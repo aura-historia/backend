@@ -38,7 +38,8 @@ fn search(query: Option<&str>) -> Result<SearchPublicListingSourcesRequest, Test
 }
 
 fn run_probe(name: &str) -> Result<(), TestError> {
-    let output = Command::new(std::env::current_exe()?)
+    let mut command = Command::new(std::env::current_exe()?);
+    command
         .args(["--exact", name, "--ignored", "--nocapture"])
         .env_clear()
         .envs([
@@ -48,8 +49,12 @@ fn run_probe(name: &str) -> Result<(), TestError> {
             ("POSTGRES_USERNAME", "fixture"),
             ("POSTGRES_PASSWORD", "fixture-password"),
             ("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem"),
-        ])
-        .output()?;
+        ]);
+    // Keep subprocess coverage in CI's per-process output directory.
+    if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+        command.env("LLVM_PROFILE_FILE", profile);
+    }
+    let output = command.output()?;
     assert!(
         output.status.success(),
         "{}\n{}",
