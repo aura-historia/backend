@@ -23,3 +23,26 @@ impl PublicListingSourceReadBudget {
         self.request_timeout
     }
 }
+
+impl Default for PublicListingSourceReadBudget {
+    fn default() -> Self {
+        Self::new(4, Duration::from_millis(500))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_to_the_existing_public_read_policy() {
+        let budget = PublicListingSourceReadBudget::default();
+        assert_eq!(Duration::from_millis(500), budget.request_timeout());
+        let permits = (0..4)
+            .map(|_| budget.try_acquire().unwrap())
+            .collect::<Vec<_>>();
+        assert!(budget.try_acquire().is_none());
+        drop(permits);
+        assert!(budget.try_acquire().is_some());
+    }
+}

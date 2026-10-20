@@ -15,11 +15,9 @@ use listing_source_service::ports::{
 use listing_source_service::use_cases::commands::{
     create_listing_source::ListingSourceOperator, update_listing_source::RequiredPatch,
 };
-use listing_source_service::use_cases::queries::public_listing_source::PublicListingSourceSummary;
 use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceSearchSummary, SearchListingSourcesResult,
 };
-use listing_source_service::use_cases::queries::search_public_listing_sources::SearchPublicListingSourcesResult;
 use partnership_service::ports::AdministeredListingSource;
 use party_core::{
     party::{NewParty, PartyContact},
@@ -300,62 +298,9 @@ impl TryFrom<ReferralConfigurationData> for ReferralConfiguration {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PublicListingSourceData {
-    listing_source_id: ListingSourceId,
-    listing_source_slug_id: String,
-    name: String,
-    operator: PublicListingSourceOperatorData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<Url>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image: Option<Url>,
-}
-
-impl From<PublicListingSourceSummary> for PublicListingSourceData {
-    fn from(value: PublicListingSourceSummary) -> Self {
-        Self {
-            listing_source_id: value.listing_source_id,
-            listing_source_slug_id: value.listing_source_slug_id.to_string(),
-            name: value.name.to_string(),
-            operator: PublicListingSourceOperatorData {
-                name: value.operator.name.to_string(),
-            },
-            url: value.url,
-            image: value.image,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PublicListingSourceOperatorData {
-    name: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PublicListingSourceSearchCollectionData {
-    items: Vec<PublicListingSourceData>,
-    size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    search_after: Option<String>,
-}
-
-impl PublicListingSourceSearchCollectionData {
-    pub(crate) fn new(
-        result: SearchPublicListingSourcesResult,
-        search_after: Option<String>,
-    ) -> Self {
-        let items = result.items.into_iter().map(Into::into).collect::<Vec<_>>();
-        Self {
-            size: items.len() as u64,
-            items,
-            search_after,
-        }
-    }
-}
+pub(crate) use aura_historia_contracts::listing_sources::{
+    PublicListingSourceData, PublicListingSourceSearchCollectionData,
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -601,21 +546,6 @@ fn invalid_body(field: &str) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn public_listing_source_collection_size_is_zero_when_empty() {
-        let data = PublicListingSourceSearchCollectionData::new(
-            SearchPublicListingSourcesResult {
-                items: Vec::new(),
-                page_size: 21,
-                continuation: None,
-            },
-            None,
-        );
-
-        assert!(data.items.is_empty());
-        assert_eq!(0, data.size);
-    }
 
     #[test]
     fn should_decode_canonical_ingestion_method_values() -> Result<(), serde_json::Error> {

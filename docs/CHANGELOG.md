@@ -6,6 +6,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - OpenAPI now documents the existing `orderability` and `includeUnspecifiedAvailability` query filters on `GET /v1/product-listings`. They retain the same availability-query semantics as saved searches.
 
+## 2026-10-20 — Shared public MCP discovery family (#2238)
+
+- Add the anonymous `searchPublicListingSources`, `getPublicListingSourceBySlug`, `discoverPartyLocations` and `getPublicOverview` operation family with shared REST contracts and direct application service calls. Source search retains query-bound cursors, admission limits and timeouts; location discovery retains complete geography, paging and public context. Registration and argument/error behavior are documented in [MCP transport](mcp.md#public-source-location-and-overview-family).
+
 ## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
 
 - `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.

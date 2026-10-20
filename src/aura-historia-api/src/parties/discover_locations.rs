@@ -1,129 +1,39 @@
-use application::pagination::Cursor;
+use aura_historia_contracts::party_locations::{
+    DiscoverPartyLocationsData, DiscoverPartyLocationsResultData,
+};
 use axum::{
     Json,
     extract::{RawQuery, State},
     response::{IntoResponse, Response},
 };
 use party_service::discovery::*;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct QueryData {
-    geography: crate::geographic_search::GeographicSearchData,
-    #[serde(default = "default_size")]
-    size: u64,
-    #[serde(default)]
-    search_after: Option<CursorData>,
-}
-fn default_size() -> u64 {
-    21
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CursorData {
-    location_id: party_core::party_location_id::PartyLocationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    distance_km: Option<f64>,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LocationData {
-    party_id: party_core::party_id::PartyId,
-    party_name: String,
-    location_id: party_core::party_location_id::PartyLocationId,
-    label: String,
-    basis: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    country: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    subdivision: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    point: Option<PointData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    precision: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    distance_km: Option<f64>,
-}
-#[derive(Serialize)]
-struct PointData {
-    latitude: f64,
-    longitude: f64,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ResultData {
-    items: Vec<LocationData>,
-    size: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    search_after: Option<CursorData>,
-}
 
 pub async fn discover(
     State(use_case): State<Arc<dyn DiscoverPartyLocationsUseCase>>,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    let data = match crate::wire::from_query_str::<QueryData>(raw.as_deref().unwrap_or_default()) {
+    let data = match crate::wire::from_query_str::<DiscoverPartyLocationsData>(
+        raw.as_deref().unwrap_or_default(),
+    ) {
         Ok(data) => data,
         Err(_) => {
             return crate::error::ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
                 .into_response();
         }
     };
-    let geography = match geo::core::discovery::GeographicQuery::try_from(data.geography) {
-        Ok(query) => query,
+    let request = match DiscoverPartyLocationsRequest::try_from(data) {
+        Ok(request) => request,
         Err(detail) => {
             return crate::error::ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
                 .with_detail(detail)
                 .into_response();
         }
     };
-    match use_case
-        .execute(DiscoverPartyLocationsRequest {
-            geography,
-            cursor: Cursor {
-                size: data.size,
-                search_after: data.search_after.map(|c| PartyLocationDiscoveryCursor {
-                    location_id: c.location_id,
-                    distance_km: c.distance_km,
-                }),
-            },
-        })
-        .await
-    {
-        Ok(result) => {
-            let items = result
-                .items
-                .into_iter()
-                .map(|v| LocationData {
-                    party_id: v.party_id,
-                    party_name: v.party_name,
-                    location_id: v.location_id,
-                    label: v.label,
-                    basis: v.basis,
-                    country: v.country.map(|c| c.alpha2()),
-                    subdivision: v.subdivision.map(|s| s.as_str()),
-                    point: v.position.map(|p| PointData {
-                        latitude: p.point().latitude_degrees(),
-                        longitude: p.point().longitude_degrees(),
-                    }),
-                    precision: v.position.map(|p| p.precision().as_str()),
-                    distance_km: v.distance_km,
-                })
-                .collect::<Vec<_>>();
-            crate::transport::cache::private_no_store(
-                Json(ResultData {
-                    size: items.len(),
-                    items,
-                    search_after: result.cursor.search_after.map(|c| CursorData {
-                        location_id: c.location_id,
-                        distance_km: c.distance_km,
-                    }),
-                })
-                .into_response(),
-            )
-        }
+    match use_case.execute(request).await {
+        Ok(result) => crate::transport::cache::private_no_store(
+            Json(DiscoverPartyLocationsResultData::from(result)).into_response(),
+        ),
         Err(DiscoverPartyLocationsError::InvalidInput) => {
             crate::error::ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
                 .into_response()
@@ -138,6 +48,7 @@ pub async fn discover(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::pagination::Cursor;
     use axum::http::{StatusCode, header};
     use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -11,6 +11,8 @@ geo-postgres = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 opensearch = { workspace = true }
+party-postgres = { workspace = true }
+party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }

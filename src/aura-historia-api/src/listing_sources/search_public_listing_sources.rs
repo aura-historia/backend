@@ -2,31 +2,18 @@ use super::types::PublicListingSourceSearchCollectionData;
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, LISTING_SOURCE_INTERNAL_ERROR};
 use crate::state::ListingSourcesState;
-use crate::wire::parse_query_object_id;
+use aura_historia_contracts::listing_sources::{
+    SearchPublicListingSourcesData, SourceSearchInputError,
+    cursor::{SourceCursorError, encode_continuation},
+};
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use listing_source_core::ListingSourceId;
 use listing_source_service::use_cases::queries::search_public_listing_sources::{
-    DEFAULT_PUBLIC_LISTING_SOURCE_SEARCH_PAGE_SIZE, PublicListingSourceSearchContinuation,
-    PublicListingSourceSearchPosition, PublicListingSourceSearchQuery,
-    SearchPublicListingSourcesRequest,
+    DEFAULT_PUBLIC_LISTING_SOURCE_SEARCH_PAGE_SIZE, SearchPublicListingSourcesRequest,
 };
-use serde::{Deserialize, Serialize};
 
 const MAX_RAW_QUERY_BYTES: usize = 8 * 1024;
-const MAX_CURSOR_ENCODED_BYTES: usize = 4 * 1024;
-const MAX_CURSOR_DECODED_BYTES: usize = 3 * 1024;
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PublicListingSourceSearchCursorData {
-    binding: String,
-    match_tier: u8,
-    name_search: String,
-    listing_source_id: String,
-}
 
 pub async fn search_public_listing_sources(
     State(state): State<ListingSourcesState>,
@@ -104,7 +91,11 @@ pub async fn search_public_listing_sources(
                     .continuation
                     .as_ref()
                     .map(encode_continuation)
-                    .transpose();
+                    .transpose()
+                    .map_err(|_| {
+                        ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                            .with_detail("Public listing source continuation failed internally.")
+                    });
                 match search_after {
                     Ok(search_after) => crate::transport::cache::anonymous_shared_success(
                         axum::Json(PublicListingSourceSearchCollectionData::new(
@@ -155,19 +146,26 @@ fn parse_request(raw_query: Option<&str>) -> Result<SearchPublicListingSourcesRe
         }
     }
 
-    let page_size = parse_page_size(size.as_deref())?;
-    let query = PublicListingSourceSearchQuery::new(query)
-        .map_err(|_| bad_query("query", "Query parameter is invalid."))?;
-    let continuation = search_after
-        .as_deref()
-        .map(parse_continuation)
-        .transpose()?;
-    SearchPublicListingSourcesRequest::new(query, page_size, continuation).map_err(|_| {
-        bad_query(
-            "searchAfter",
-            "Search continuation is invalid for this request.",
-        )
+    SearchPublicListingSourcesRequest::try_from(SearchPublicListingSourcesData {
+        query,
+        size: parse_page_size(size.as_deref())?,
+        search_after,
     })
+    .map_err(input_error)
+}
+
+fn input_error(error: SourceSearchInputError) -> ApiError {
+    let code = if matches!(
+        &error,
+        SourceSearchInputError::Cursor(SourceCursorError::InvalidSourceId(_))
+    ) {
+        crate::error::INVALID_OBJECT_ID
+    } else {
+        BAD_QUERY_PARAMETER_VALUE
+    };
+    ApiError::bad_request(code)
+        .with_query_field(error.field())
+        .with_detail(error.to_string())
 }
 
 fn parse_page_size(value: Option<&str>) -> Result<u8, ApiError> {
@@ -181,59 +179,6 @@ fn parse_page_size(value: Option<&str>) -> Result<u8, ApiError> {
         .ok()
         .filter(|value| (1..=50).contains(value))
         .ok_or_else(|| bad_query("size", "Size must be an integer from 1 through 50."))
-}
-
-fn parse_continuation(value: &str) -> Result<PublicListingSourceSearchContinuation, ApiError> {
-    if value.len() > MAX_CURSOR_ENCODED_BYTES {
-        return Err(bad_query(
-            "searchAfter",
-            "Search continuation exceeds the size limit.",
-        ));
-    }
-    let bytes = URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| bad_query("searchAfter", "Search continuation is invalid."))?;
-    if bytes.len() > MAX_CURSOR_DECODED_BYTES {
-        return Err(bad_query(
-            "searchAfter",
-            "Search continuation exceeds the size limit.",
-        ));
-    }
-    let data: PublicListingSourceSearchCursorData = serde_json::from_slice(&bytes)
-        .map_err(|_| bad_query("searchAfter", "Search continuation is invalid."))?;
-    let binding = URL_SAFE_NO_PAD
-        .decode(data.binding)
-        .map_err(|_| bad_query("searchAfter", "Search continuation is invalid."))?
-        .try_into()
-        .map_err(|_: Vec<u8>| bad_query("searchAfter", "Search continuation is invalid."))?;
-    let listing_source_id: ListingSourceId =
-        parse_query_object_id(&data.listing_source_id, "searchAfter", "ListingSource")?;
-    let position = PublicListingSourceSearchPosition::new(
-        data.match_tier,
-        data.name_search,
-        listing_source_id,
-    )
-    .map_err(|_| bad_query("searchAfter", "Search continuation is invalid."))?;
-    Ok(PublicListingSourceSearchContinuation::new(
-        binding, position,
-    ))
-}
-
-fn encode_continuation(
-    continuation: &PublicListingSourceSearchContinuation,
-) -> Result<String, ApiError> {
-    let position = continuation.position();
-    let payload = PublicListingSourceSearchCursorData {
-        binding: URL_SAFE_NO_PAD.encode(continuation.binding()),
-        match_tier: position.match_tier(),
-        name_search: position.name_search().to_owned(),
-        listing_source_id: position.listing_source_id().to_string(),
-    };
-    let bytes = serde_json::to_vec(&payload).map_err(|_| {
-        ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
-            .with_detail("Public listing source continuation failed internally.")
-    })?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn bad_query(field: &'static str, detail: &str) -> ApiError {
@@ -270,13 +215,14 @@ mod tests {
     };
     use crate::state::{ListingSourcesState, PublicListingSourceReadBudget};
     use application::operation_context::OperationContext;
+    use aura_historia_contracts::listing_sources::cursor::MAX_CURSOR_ENCODED_BYTES;
     use axum::{
         Router,
         body::Body,
         http::{Request, StatusCode, header},
         routing::get,
     };
-    use listing_source_core::ListingSourceName;
+    use listing_source_core::{ListingSourceId, ListingSourceName};
     use listing_source_service::use_cases::commands::{
         create_listing_source::{
             CreateListingSourceCommand, CreateListingSourceError, CreateListingSourceResult,

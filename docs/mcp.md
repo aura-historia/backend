@@ -139,6 +139,31 @@ listings return `NOT_FOUND`.
 History has no paging arguments, item limit or continuation. The complete result must fit the
 transport's byte bound; an oversized result fails explicitly and returns no partial history.
 
+## Public source, location and overview family
+
+The `public_discovery` family registers four anonymous, read-only, idempotent operations.
+Release composition selects the production allowlist.
+
+| Stable operation ID | Arguments and result |
+| --- | --- |
+| `searchPublicListingSources` | `query`, `size` (default 21, 1–50) and opaque `searchAfter`; returns the existing public source collection. Absent/blank text browses; insufficient text returns the service's empty result. Continuations are bound to the canonical query and page size. |
+| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, including operator name and optional URL/image. |
+| `discoverPartyLocations` | Complete `geography` (`countries`, `subdivisions`, numeric `origin`, `radius`, `mode`, `distanceOrder`), `size` (default 21, 1–100) and `searchAfter` (`locationId`, optional `distanceKm`); retains IDs, basis, geographic context, point, precision and distance. |
+| `getPublicOverview` | Empty object; returns `asOf` and every stored public catalogue aggregate. An uncalculated overview is temporarily unavailable. |
+
+The family reuses shared contracts and pure converters with REST and calls the existing inbound
+services directly. Source cursors retain their 4 KiB encoded/3 KiB decoded bounds for JSON tool
+arguments. REST alone handles raw URL-query bytes. Location geography and cursor validation remain
+with the existing constructors and service; no address/profile origin is inferred. Public results
+exclude management evidence, grants, contacts and provider configuration.
+
+Source search and slug detail share the runtime's non-queuing read budget. Capacity exhaustion,
+source timeout, invocation cancellation/deadline and temporary service failure produce retryable
+`TEMPORARILY_UNAVAILABLE` tool errors; active work is dropped and permits released. Invalid semantic
+inputs/cursors receive `-32602`, missing sources receive `NOT_FOUND`, and invalid stored results
+receive a safe `-32603`. The outer HTTP deadline keeps its documented `408` admission behavior.
+
+
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON

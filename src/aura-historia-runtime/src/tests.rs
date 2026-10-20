@@ -82,6 +82,14 @@ async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
         let same = runtime.public_listing_sources();
         assert!(Arc::ptr_eq(&family.search, &same.search));
         assert!(Arc::ptr_eq(&family.get_by_slug, &same.get_by_slug));
+        assert!(Arc::ptr_eq(
+            &runtime.public_party_locations().discover,
+            &runtime.public_party_locations().discover,
+        ));
+        assert!(Arc::ptr_eq(
+            &runtime.public_overview().get,
+            &runtime.public_overview().get,
+        ));
         let result = family
             .search
             .execute(&context(), search(Some("a"))?)
