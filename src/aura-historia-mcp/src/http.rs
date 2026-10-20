@@ -1,3 +1,10 @@
+mod headers;
+mod response;
+
+use headers::*;
+pub(crate) use response::deadline_response;
+use response::{finalize_response, protocol_error};
+
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
     config::normalized_origin, metadata::InvocationDeadline, protocol::ProtocolHandler,
@@ -5,13 +12,12 @@ use crate::{
 use application::operation_context::{CorrelationId, OperationContext, RequestId};
 use axum::{
     Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, get},
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
@@ -84,23 +90,6 @@ async fn probe() -> impl IntoResponse {
     StatusCode::NO_CONTENT
 }
 
-async fn finalize_response(response: Response, limit: usize) -> Response {
-    let (parts, body) = response.into_parts();
-    let mut response = match to_bytes(body, limit).await {
-        Ok(bytes) => Response::from_parts(parts, Body::from(bytes)),
-        Err(_) => protocol_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            -32603,
-            "Response exceeds transport limit",
-            Value::Null,
-        ),
-    };
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {
     let now = Instant::now();
     let invocation = request.extensions().get::<InvocationDeadline>();
@@ -148,112 +137,22 @@ async fn admitted_request(
     deadline: Instant,
     cancellation: CancellationToken,
 ) -> Response {
-    if let Err(status) = validate_origin_and_host(request.headers(), &state.config) {
-        return protocol_error(status, -32600, "HTTP admission rejected", Value::Null);
-    }
-    if request.method() != Method::POST {
-        let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
-        response
-            .headers_mut()
-            .insert(header::ALLOW, HeaderValue::from_static("POST"));
-        return response;
-    }
-    if !valid_media_type(request.headers(), header::CONTENT_TYPE, "application/json") {
-        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
-    }
-    if !valid_accept(request.headers()) {
-        return StatusCode::NOT_ACCEPTABLE.into_response();
-    }
-    match optional_header(request.headers(), "content-length") {
-        Ok(Some(value)) => match value.parse::<usize>() {
-            Ok(length) if length <= state.config.max_request_bytes => {}
-            Ok(_) => {
-                return protocol_error(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    -32600,
-                    "Request body exceeds transport limit",
-                    Value::Null,
-                );
-            }
-            Err(_) => {
-                return protocol_error(
-                    StatusCode::BAD_REQUEST,
-                    -32600,
-                    "Invalid content length",
-                    Value::Null,
-                );
-            }
-        },
-        Ok(None) => {}
-        Err(_) => {
-            return protocol_error(
-                StatusCode::BAD_REQUEST,
-                -32600,
-                "Invalid content length",
-                Value::Null,
-            );
-        }
+    if let Err(response) = validate_http_request(&request, &state.config) {
+        return *response;
     }
     let (mut parts, body) = request.into_parts();
-    let bytes = match to_bytes(body, state.config.max_request_bytes).await {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            let exceeded_limit = error
-                .source()
-                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>());
-            return if exceeded_limit {
-                protocol_error(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    -32600,
-                    "Request body exceeds transport limit",
-                    Value::Null,
-                )
-            } else {
-                protocol_error(
-                    StatusCode::BAD_REQUEST,
-                    -32600,
-                    "Unable to read request body",
-                    Value::Null,
-                )
-            };
-        }
+    let message = match read_message(body, state.config.max_request_bytes).await {
+        Ok(message) => message,
+        Err(response) => return *response,
     };
-    let body: Value = match serde_json::from_slice(&bytes) {
-        Ok(body) => body,
-        Err(_) => {
-            return protocol_error(StatusCode::BAD_REQUEST, -32700, "Invalid JSON", Value::Null);
-        }
-    };
-    let Some(method) = body
-        .get("method")
-        .and_then(Value::as_str)
-        .filter(|_| body.get("jsonrpc") == Some(&json!("2.0")))
-    else {
-        return protocol_error(
-            StatusCode::BAD_REQUEST,
-            -32600,
-            "Expected one JSON-RPC request or notification",
-            Value::Null,
-        );
-    };
-    let id = body.get("id").cloned().unwrap_or(Value::Null);
-    if let Err(message) = validate_routing_headers(&parts.headers, &body, method) {
-        return protocol_error(StatusCode::BAD_REQUEST, -32020, message, id);
-    }
-    if method != "initialize"
-        && let Some(version) = parts
-            .headers
-            .get("mcp-protocol-version")
-            .and_then(|value| value.to_str().ok())
-        && !crate::SUPPORTED_PROTOCOL_VERSIONS
-            .iter()
-            .any(|supported| supported.as_str() == version)
-    {
-        return (StatusCode::BAD_REQUEST, axum::Json(json!({
-            "jsonrpc":"2.0", "id":id, "error": {"code":-32022,"message":"Unsupported protocol version", "data":{
-                "requested":version,"supported":crate::SUPPORTED_PROTOCOL_VERSIONS.iter().map(|v|v.as_str()).collect::<Vec<_>>()
-            }}
-        }))).into_response();
+    let DecodedMessage {
+        bytes,
+        body,
+        method,
+        id,
+    } = message;
+    if let Err(response) = validate_message_headers(&parts.headers, &body, &method, &id) {
+        return *response;
     }
     // The SDK owns protocol parsing, metadata requirements, version negotiation and
     // annotated parameter headers. The gate receives only the body identity after
@@ -262,59 +161,47 @@ async fn admitted_request(
         .then(|| body.pointer("/params/name").and_then(Value::as_str))
         .flatten()
         .and_then(|name| state.registry.get(name));
-    let principal = match state
-        .gate
-        .admit(AdmissionRequest {
+    let context = match admit(
+        state,
+        AdmissionRequest {
             headers: &parts.headers,
-            method,
+            method: &method,
             operation,
             deadline,
-            cancellation: cancellation.clone(),
-        })
-        .await
-    {
-        Ok(principal) => principal,
-        Err(rejection) => {
-            let mut response = rejection.status.into_response();
-            response.headers_mut().extend(rejection.headers);
-            return response;
-        }
-    };
-    let correlation = match optional_header(&parts.headers, "x-correlation-id") {
-        Ok(Some(value)) if valid_identifier(value) => value.to_owned(),
-        Ok(None) => request_id.to_owned(),
-        _ => {
-            return protocol_error(
-                StatusCode::BAD_REQUEST,
-                -32600,
-                "Invalid correlation ID",
-                id,
-            );
-        }
-    };
-    parts.extensions.insert(InvocationContext {
-        operation: OperationContext {
-            principal,
-            request_id: RequestId::new(request_id),
-            correlation_id: CorrelationId::new(correlation.clone()),
+            cancellation,
         },
-        deadline,
-        cancellation,
-        max_response_bytes: state.config.max_response_bytes,
-    });
+        request_id,
+        &id,
+    )
+    .await
+    {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
+    let correlation = context.operation.correlation_id.as_str().to_owned();
+    parts.extensions.insert(context);
     if Instant::now() >= deadline {
         return deadline_response();
     }
+    let request = Request::from_parts(parts, Body::from(bytes));
+    invoke_sdk(state, request, id, &correlation).await
+}
+
+async fn invoke_sdk(
+    state: &HttpState,
+    mut request: Request,
+    id: Value,
+    correlation: &str,
+) -> Response {
     // Normalize media headers after HTTP validation for the SDK's literal checks.
-    parts.headers.insert(
+    request.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    parts.headers.insert(
+    request.headers_mut().insert(
         header::ACCEPT,
         HeaderValue::from_static("application/json, text/event-stream"),
     );
-    let request = Request::from_parts(parts, Body::from(bytes));
     let response = match state.sdk.clone().oneshot(request).await {
         Ok(response) => response,
         Err(never) => match never {},
@@ -345,181 +232,199 @@ async fn admitted_request(
             );
         }
     };
-    if let Ok(value) = HeaderValue::from_str(&correlation) {
+    if let Ok(value) = HeaderValue::from_str(correlation) {
         parts.headers.insert("x-correlation-id", value);
     }
     Response::from_parts(parts, Body::from(body))
 }
 
-fn validate_routing_headers(
+fn validate_http_request(request: &Request, config: &TransportConfig) -> Result<(), Box<Response>> {
+    if let Err(status) = validate_origin_and_host(request.headers(), config) {
+        return Err(Box::new(protocol_error(
+            status,
+            -32600,
+            "HTTP admission rejected",
+            Value::Null,
+        )));
+    }
+    if request.method() != Method::POST {
+        let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
+        response
+            .headers_mut()
+            .insert(header::ALLOW, HeaderValue::from_static("POST"));
+        return Err(Box::new(response));
+    }
+    if !valid_media_type(request.headers(), header::CONTENT_TYPE, "application/json") {
+        return Err(Box::new(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()));
+    }
+    if !valid_accept(request.headers()) {
+        return Err(Box::new(StatusCode::NOT_ACCEPTABLE.into_response()));
+    }
+    match optional_header(request.headers(), "content-length") {
+        Ok(Some(value)) => match value.parse::<usize>() {
+            Ok(length) if length <= config.max_request_bytes => {}
+            Ok(_) => {
+                return Err(Box::new(protocol_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    -32600,
+                    "Request body exceeds transport limit",
+                    Value::Null,
+                )));
+            }
+            Err(_) => {
+                return Err(Box::new(protocol_error(
+                    StatusCode::BAD_REQUEST,
+                    -32600,
+                    "Invalid content length",
+                    Value::Null,
+                )));
+            }
+        },
+        Ok(None) => {}
+        Err(_) => {
+            return Err(Box::new(protocol_error(
+                StatusCode::BAD_REQUEST,
+                -32600,
+                "Invalid content length",
+                Value::Null,
+            )));
+        }
+    }
+    Ok(())
+}
+
+struct DecodedMessage {
+    bytes: Bytes,
+    body: Value,
+    method: String,
+    id: Value,
+}
+
+async fn read_message(body: Body, limit: usize) -> Result<DecodedMessage, Box<Response>> {
+    let bytes = match to_bytes(body, limit).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let exceeded_limit = error
+                .source()
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>());
+            return Err(Box::new(if exceeded_limit {
+                protocol_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    -32600,
+                    "Request body exceeds transport limit",
+                    Value::Null,
+                )
+            } else {
+                protocol_error(
+                    StatusCode::BAD_REQUEST,
+                    -32600,
+                    "Unable to read request body",
+                    Value::Null,
+                )
+            }));
+        }
+    };
+    let body: Value = match serde_json::from_slice(&bytes) {
+        Ok(body) => body,
+        Err(_) => {
+            return Err(Box::new(protocol_error(
+                StatusCode::BAD_REQUEST,
+                -32700,
+                "Invalid JSON",
+                Value::Null,
+            )));
+        }
+    };
+    let Some(method) = body
+        .get("method")
+        .and_then(Value::as_str)
+        .filter(|_| body.get("jsonrpc") == Some(&json!("2.0")))
+    else {
+        return Err(Box::new(protocol_error(
+            StatusCode::BAD_REQUEST,
+            -32600,
+            "Expected one JSON-RPC request or notification",
+            Value::Null,
+        )));
+    };
+    let method = method.to_owned();
+    let id = body.get("id").cloned().unwrap_or(Value::Null);
+    Ok(DecodedMessage {
+        bytes,
+        body,
+        method,
+        id,
+    })
+}
+
+async fn admit(
+    state: &HttpState,
+    request: AdmissionRequest<'_>,
+    request_id: &str,
+    id: &Value,
+) -> Result<InvocationContext, Box<Response>> {
+    let headers = request.headers;
+    let deadline = request.deadline;
+    let cancellation = request.cancellation.clone();
+    let principal = match state.gate.admit(request).await {
+        Ok(principal) => principal,
+        Err(rejection) => {
+            let mut response = rejection.status.into_response();
+            response.headers_mut().extend(rejection.headers);
+            return Err(Box::new(response));
+        }
+    };
+    let correlation = match optional_header(headers, "x-correlation-id") {
+        Ok(Some(value)) if valid_identifier(value) => value.to_owned(),
+        Ok(None) => request_id.to_owned(),
+        _ => {
+            return Err(Box::new(protocol_error(
+                StatusCode::BAD_REQUEST,
+                -32600,
+                "Invalid correlation ID",
+                id.clone(),
+            )));
+        }
+    };
+    Ok(InvocationContext {
+        operation: OperationContext {
+            principal,
+            request_id: RequestId::new(request_id),
+            correlation_id: CorrelationId::new(correlation),
+        },
+        deadline,
+        cancellation,
+        max_response_bytes: state.config.max_response_bytes,
+    })
+}
+
+fn validate_message_headers(
     headers: &HeaderMap,
     body: &Value,
     method: &str,
-) -> Result<(), &'static str> {
-    let version = optional_header(headers, "mcp-protocol-version")?;
-    let body_version = if method == "initialize" {
-        body.pointer("/params/protocolVersion")
-    } else {
-        body.pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion")
+    id: &Value,
+) -> Result<(), Box<Response>> {
+    if let Err(message) = validate_routing_headers(headers, body, method) {
+        return Err(Box::new(protocol_error(
+            StatusCode::BAD_REQUEST,
+            -32020,
+            message,
+            id.clone(),
+        )));
     }
-    .and_then(Value::as_str);
-    if method != "initialize" && body_version.is_some() && version.is_none() {
-        return Err("Missing protocol version header");
-    }
-    if matches!((version, body_version), (Some(header), Some(body)) if header != body) {
-        return Err("Protocol version header does not match body");
-    }
-    let modern = version
-        .or(body_version)
-        .is_some_and(|version| version >= "2026-07-28")
-        && method != "initialize";
-    match optional_header(headers, "mcp-method")? {
-        Some(value) if value != method => return Err("Method header does not match body"),
-        None if modern && body.get("id").is_some() => return Err("Missing method header"),
-        _ => {}
-    }
-    let body_name = match method {
-        "tools/call" | "prompts/get" => body.pointer("/params/name"),
-        "resources/read" | "resources/subscribe" | "resources/unsubscribe" => {
-            body.pointer("/params/uri")
-        }
-        "tasks/get" | "tasks/update" | "tasks/cancel" => body.pointer("/params/taskId"),
-        _ => None,
-    }
-    .and_then(Value::as_str);
-    match optional_header(headers, "mcp-name")? {
-        Some(value) if decode_name(value)?.as_deref() != body_name => {
-            return Err("Name header does not match body");
-        }
-        None if modern && body_name.is_some() => return Err("Missing name header"),
-        _ => {}
-    }
-    // Credentials and routing metadata must never have ambiguous multiple values.
-    for name in ["authorization", "origin", "host", "mcp-session-id"] {
-        optional_header(headers, name)?;
+    if method != "initialize"
+        && let Some(version) = headers
+            .get("mcp-protocol-version")
+            .and_then(|value| value.to_str().ok())
+        && !crate::SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .any(|supported| supported.as_str() == version)
+    {
+        return Err(Box::new((StatusCode::BAD_REQUEST, axum::Json(json!({
+            "jsonrpc":"2.0", "id":id, "error": {"code":-32022,"message":"Unsupported protocol version", "data":{
+                "requested":version,"supported":crate::SUPPORTED_PROTOCOL_VERSIONS.iter().map(|v|v.as_str()).collect::<Vec<_>>()
+            }}
+        }))).into_response()));
     }
     Ok(())
-}
-
-fn decode_name(value: &str) -> Result<Option<String>, &'static str> {
-    let decoded = if let Some(encoded) = value
-        .strip_prefix("=?base64?")
-        .and_then(|s| s.strip_suffix("?="))
-    {
-        String::from_utf8(
-            STANDARD
-                .decode(encoded)
-                .map_err(|_| "Malformed name header")?,
-        )
-        .map_err(|_| "Malformed name header")?
-    } else {
-        value.to_owned()
-    };
-    Ok(Some(decoded))
-}
-
-fn optional_header<'a>(
-    headers: &'a HeaderMap,
-    name: &str,
-) -> Result<Option<&'a str>, &'static str> {
-    let mut values = headers.get_all(name).iter();
-    let value = values.next();
-    if values.next().is_some() {
-        return Err("Duplicate routing header");
-    }
-    value
-        .map(|value| value.to_str().map_err(|_| "Malformed routing header"))
-        .transpose()
-}
-
-fn validate_origin_and_host(
-    headers: &HeaderMap,
-    config: &TransportConfig,
-) -> Result<(), StatusCode> {
-    let host = optional_header(headers, "host")
-        .map_err(|_| StatusCode::FORBIDDEN)?
-        .ok_or(StatusCode::FORBIDDEN)?;
-    if !config
-        .allowed_hosts
-        .iter()
-        .any(|allowed| allowed.eq_ignore_ascii_case(host))
-    {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    if let Some(origin) = optional_header(headers, "origin").map_err(|_| StatusCode::FORBIDDEN)? {
-        let origin = normalized_origin(origin).ok_or(StatusCode::FORBIDDEN)?;
-        if !config
-            .allowed_origins
-            .iter()
-            .any(|allowed| normalized_origin(allowed).as_ref() == Some(&origin))
-        {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
-    Ok(())
-}
-
-fn valid_identifier(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
-}
-
-fn valid_media_type(headers: &HeaderMap, name: header::HeaderName, expected: &str) -> bool {
-    let mut values = headers.get_all(name).iter();
-    let Some(value) = values.next().and_then(|v| v.to_str().ok()) else {
-        return false;
-    };
-    values.next().is_none()
-        && value
-            .split(';')
-            .next()
-            .is_some_and(|v| v.trim().eq_ignore_ascii_case(expected))
-}
-
-fn valid_accept(headers: &HeaderMap) -> bool {
-    let accepted = |expected: &str| {
-        headers
-            .get_all(header::ACCEPT)
-            .iter()
-            .filter_map(|v| v.to_str().ok())
-            .flat_map(|v| v.split(','))
-            .any(|part| {
-                let mut fields = part.trim().split(';');
-                fields
-                    .next()
-                    .is_some_and(|v| v.trim().eq_ignore_ascii_case(expected))
-                    && !fields.any(|v| {
-                        v.trim()
-                            .strip_prefix("q=")
-                            .and_then(|q| q.parse::<f32>().ok())
-                            .is_some_and(|q| q <= 0.0)
-                    })
-            })
-    };
-    accepted("application/json") && accepted("text/event-stream")
-}
-
-pub(crate) fn deadline_response() -> Response {
-    let mut response = protocol_error(
-        StatusCode::REQUEST_TIMEOUT,
-        -32603,
-        "Request deadline exceeded",
-        Value::Null,
-    );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-fn protocol_error(status: StatusCode, code: i32, message: &'static str, id: Value) -> Response {
-    (
-        status,
-        axum::Json(
-            json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } }),
-        ),
-    )
-        .into_response()
 }

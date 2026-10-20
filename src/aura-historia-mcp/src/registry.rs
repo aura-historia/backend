@@ -91,32 +91,17 @@ impl OperationDefinition {
             "aura.historia/access": match policy.access { AccessClass::Public => "public", AccessClass::Protected => "protected" },
             "aura.historia/requiredScopes": policy.required_scopes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
         })).map_err(RegistryError::Schema)?));
-        let handler = Arc::new(handler);
         Ok(Self {
             tool,
             policy,
-            handler: Arc::new(move |arguments, context| {
-                let handler = Arc::clone(&handler);
-                Box::pin(async move {
-                    let input = serde_json::from_value(arguments)
-                        .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
-                    let limit = context.max_response_bytes;
-                    let value = handler(input, context).await?;
-                    let bytes = if direct_output {
-                        bounded_json::serialize(&value, limit)
-                    } else {
-                        bounded_json::serialize(&ToolOutput { result: value }, limit)
-                    }
-                    .map_err(bounded_json::SerializationError::into_operation)?;
-                    let value = serde_json::from_slice(&bytes)
-                        .map_err(|error| OperationError::Internal(Box::new(error)))?;
-                    let result = CallToolResult::structured(value);
-                    // Includes both structured data and the legacy text representation.
-                    bounded_json::serialize(&result, limit.saturating_sub(512))
-                        .map_err(bounded_json::SerializationError::into_operation)?;
-                    Ok(result)
-                })
-            }),
+            handler: typed_handler(
+                handler,
+                if direct_output {
+                    OutputEncoding::Direct
+                } else {
+                    OutputEncoding::Wrapped
+                },
+            ),
         })
     }
 
@@ -209,4 +194,42 @@ pub enum RegistryError {
     ObjectInput,
     #[error("failed to generate tool schema")]
     Schema(#[source] serde_json::Error),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutputEncoding {
+    Direct,
+    Wrapped,
+}
+
+fn typed_handler<I, O, F, Fut>(handler: F, encoding: OutputEncoding) -> Arc<Handler>
+where
+    I: DeserializeOwned + Send + 'static,
+    O: Serialize + Send + 'static,
+    F: Fn(I, InvocationContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<O, OperationError>> + Send + 'static,
+{
+    let handler = Arc::new(handler);
+    Arc::new(move |arguments, context| {
+        let handler = Arc::clone(&handler);
+        Box::pin(async move {
+            let input = serde_json::from_value(arguments)
+                .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
+            let limit = context.max_response_bytes;
+            let value = handler(input, context).await?;
+            let bytes = if encoding == OutputEncoding::Direct {
+                bounded_json::serialize(&value, limit)
+            } else {
+                bounded_json::serialize(&ToolOutput { result: value }, limit)
+            }
+            .map_err(bounded_json::SerializationError::into_operation)?;
+            let value = serde_json::from_slice(&bytes)
+                .map_err(|error| OperationError::Internal(Box::new(error)))?;
+            let result = CallToolResult::structured(value);
+            // Includes both structured data and the legacy text representation.
+            bounded_json::serialize(&result, limit.saturating_sub(512))
+                .map_err(bounded_json::SerializationError::into_operation)?;
+            Ok(result)
+        })
+    })
 }
