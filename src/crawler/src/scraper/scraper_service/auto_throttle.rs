@@ -4,8 +4,11 @@
 //!   domain's response latency and clamped to the configured minimum and
 //!   maximum;
 //! - the robots.txt `Crawl-delay`: a minimum spacing between request starts.
-//!   It is measured from the previous request rather than slept in full, so a
-//!   domain's first request (a review live inspection, say) is not held back.
+//!   Each request reserves its start under the domain's lock, so concurrent
+//!   callers (scraper, schema seeds, review live inspection) queue behind one
+//!   another instead of starting together. The spacing is measured from the
+//!   previous start rather than slept in full, so a domain's first request is
+//!   not held back.
 
 use dashmap::DashMap;
 use dashmap::mapref::one::RefMut;
@@ -53,13 +56,8 @@ struct DomainLatency {
     ema_us: AtomicU64,
     samples: AtomicU64,
     last_access: AtomicU64,
-    crawl_delay: Mutex<CrawlDelayClock>,
-}
-
-#[derive(Default)]
-struct CrawlDelayClock {
-    crawl_delay: Option<Duration>,
-    last_request_at: Option<Instant>,
+    /// The latest reserved request start.
+    last_request_start: Mutex<Option<Instant>>,
 }
 
 impl DomainLatency {
@@ -68,14 +66,8 @@ impl DomainLatency {
             ema_us: AtomicU64::new(0),
             samples: AtomicU64::new(0),
             last_access: AtomicU64::new(access_counter),
-            crawl_delay: Mutex::new(CrawlDelayClock::default()),
+            last_request_start: Mutex::new(None),
         }
-    }
-
-    fn crawl_delay_clock(&self) -> std::sync::MutexGuard<'_, CrawlDelayClock> {
-        self.crawl_delay
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn ema_micros(&self) -> f64 {
@@ -177,34 +169,30 @@ impl ScraperAutoThrottle {
         Some(entry)
     }
 
-    /// Sets the domain's robots.txt `Crawl-delay`; `None` clears it.
-    pub fn set_crawl_delay(&self, domain: &str, crawl_delay: Option<Duration>) {
-        if let Some(entry) = self.entry(domain) {
-            entry.crawl_delay_clock().crawl_delay = crawl_delay;
-        }
-    }
-
-    /// Marks the start of a request to `domain`; the crawl delay is measured
-    /// from here.
-    pub fn record_request_start(&self, domain: &str) {
-        if let Some(entry) = self.entry(domain) {
-            entry.crawl_delay_clock().last_request_at = Some(Instant::now());
-        }
-    }
-
-    /// The part of the domain's crawl delay that has not yet passed since its
-    /// last request start. Applies even when the latency throttle is
+    /// Reserves the domain's next request start and returns how long to wait
+    /// for it: at least `min_wait`, and at least `crawl_delay` after the
+    /// previously reserved start. Applies even when the latency throttle is
     /// disabled: robots.txt is not optional.
-    pub fn crawl_delay_remaining(&self, domain: &str) -> Duration {
-        let domain = crate::network::policy::canonical_crawler_domain(domain);
-        let Some(entry) = self.domains.get(&domain) else {
-            return Duration::ZERO;
+    pub fn reserve_request_start(
+        &self,
+        domain: &str,
+        min_wait: Duration,
+        crawl_delay: Option<Duration>,
+    ) -> Duration {
+        let now = Instant::now();
+        let Some(entry) = self.entry(domain) else {
+            return min_wait;
         };
-        let clock = entry.crawl_delay_clock();
-        match (clock.crawl_delay, clock.last_request_at) {
-            (Some(delay), Some(last)) => delay.saturating_sub(last.elapsed()),
-            _ => Duration::ZERO,
+        let mut last_start = entry
+            .last_request_start
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut start = now + min_wait;
+        if let (Some(delay), Some(previous)) = (crawl_delay, *last_start) {
+            start = start.max(previous + delay);
         }
+        *last_start = Some(last_start.map_or(start, |previous| previous.max(start)));
+        start - now
     }
 
     pub fn delay_for(&self, domain: &str) -> Duration {
@@ -353,28 +341,37 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn crawl_delay_spaces_request_starts_across_bare_and_www_hosts() {
+    async fn crawl_delay_queues_request_starts_across_bare_and_www_hosts() {
         let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
             enabled: false,
             ..Default::default()
         });
-        throttle.set_crawl_delay("www.example.com", Some(Duration::from_secs(30)));
+        let crawl_delay = Some(Duration::from_secs(30));
+
+        let first = throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay);
+        let second = throttle.reserve_request_start("www.example.com", Duration::ZERO, crawl_delay);
+        tokio::time::advance(Duration::from_secs(40)).await;
+        let third = throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay);
+
+        assert_eq!(first, Duration::ZERO);
+        // Reserved while the first was still pending: it queues behind it.
+        assert_eq!(second, Duration::from_secs(30));
+        assert_eq!(third, Duration::from_secs(20));
+    }
+
+    #[test]
+    fn reservation_without_crawl_delay_waits_only_the_minimum() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig::default());
+
+        throttle.reserve_request_start(
+            "example.com",
+            Duration::ZERO,
+            Some(Duration::from_secs(30)),
+        );
 
         assert_eq!(
-            throttle.crawl_delay_remaining("example.com"),
-            Duration::ZERO
-        );
-        throttle.record_request_start("example.com");
-        tokio::time::advance(Duration::from_secs(10)).await;
-
-        assert_eq!(
-            throttle.crawl_delay_remaining("www.example.com"),
-            Duration::from_secs(20)
-        );
-        throttle.set_crawl_delay("example.com", None);
-        assert_eq!(
-            throttle.crawl_delay_remaining("example.com"),
-            Duration::ZERO
+            throttle.reserve_request_start("example.com", Duration::from_millis(5), None),
+            Duration::from_millis(5)
         );
     }
 

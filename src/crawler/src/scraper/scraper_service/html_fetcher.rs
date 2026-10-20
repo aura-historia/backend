@@ -210,17 +210,16 @@ impl ReqwestHtmlFetcher {
     }
 
     /// Waits for the domain's pacing delay before a request and returns the
-    /// time waited: the latency throttle, raised to what is left of the
-    /// robots `Crawl-delay` under [`Pacing::WithCrawlDelay`].
-    async fn pace(&self, url: &Url, crawl_delay: Option<Duration>, pacing: Pacing) -> Duration {
+    /// time waited: the latency throttle, raised to the robots `Crawl-delay`
+    /// spacing when one applies.
+    async fn pace(&self, url: &Url, crawl_delay: Option<Duration>) -> Duration {
         let Some(domain) = url.host_str() else {
             return Duration::ZERO;
         };
-        self.auto_throttle.set_crawl_delay(domain, crawl_delay);
-        let mut delay = self.auto_throttle.delay_for(domain);
-        if pacing == Pacing::WithCrawlDelay {
-            delay = delay.max(self.auto_throttle.crawl_delay_remaining(domain));
-        }
+        let throttle = self.auto_throttle.delay_for(domain);
+        let delay = self
+            .auto_throttle
+            .reserve_request_start(domain, throttle, crawl_delay);
         if !delay.is_zero() {
             debug!(
                 domain,
@@ -229,7 +228,6 @@ impl ReqwestHtmlFetcher {
             );
             sleep(delay).await;
         }
-        self.auto_throttle.record_request_start(domain);
         delay
     }
 
@@ -255,7 +253,7 @@ impl ReqwestHtmlFetcher {
                     }));
                 }
             };
-        let waited = self.pace(url, crawl_delay, Pacing::WithCrawlDelay).await;
+        let waited = self.pace(url, crawl_delay).await;
         *deadline += waited;
         attempt_deadline += waited;
         match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.fetch_once(url)).await {
@@ -269,7 +267,7 @@ impl ReqwestHtmlFetcher {
     }
 
     /// Redirect hops run inside the timed attempt, so they take only the
-    /// latency throttle. A target robots.txt disallows is reported with its
+    /// latency throttle, without the `Crawl-delay` spacing. A target robots.txt disallows is reported with its
     /// URL, so the pipeline can judge where the source URL led.
     async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
@@ -284,8 +282,7 @@ impl ReqwestHtmlFetcher {
             }
             Err(refusal) => return Err(robots_refusal_error(url, refusal)),
         }
-        self.pace(url, robots.crawl_delay(), Pacing::ThrottleOnly)
-            .await;
+        self.pace(url, None).await;
         Ok(())
     }
 
@@ -416,14 +413,6 @@ fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
             details: error.to_string(),
         },
     }
-}
-
-/// Whether a request waits out the robots `Crawl-delay` or only the latency
-/// throttle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pacing {
-    WithCrawlDelay,
-    ThrottleOnly,
 }
 
 fn total_timeout_error() -> FetchError {

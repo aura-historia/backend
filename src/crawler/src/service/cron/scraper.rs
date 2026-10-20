@@ -1051,7 +1051,8 @@ async fn record_batch_error_state(
     } else if matches!(
         error,
         ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
-    ) {
+    ) || is_robots_refusal(error)
+    {
         debug!(error = %error, "Scraper run failed");
     } else {
         warn!(error = %error, "Scraper run failed");
@@ -1099,13 +1100,25 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
     )
 }
 
+fn network_error_kind(error: &ScraperError) -> Option<NetworkErrorKind> {
+    match error {
+        ScraperError::HttpError { kind, .. } => Some(*kind),
+        ScraperError::HttpErrorWithMetadata(metadata) => Some(metadata.kind),
+        _ => None,
+    }
+}
+
 fn is_robots_unreachable(error: &ScraperError) -> bool {
-    let kind = match error {
-        ScraperError::HttpError { kind, .. } => *kind,
-        ScraperError::HttpErrorWithMetadata(metadata) => metadata.kind,
-        _ => return false,
-    };
-    kind == NetworkErrorKind::RobotsUnreachable
+    network_error_kind(error) == Some(NetworkErrorKind::RobotsUnreachable)
+}
+
+/// robots.txt refusals are the crawler honouring a shop's policy, not a
+/// failure to report as a warning.
+fn is_robots_refusal(error: &ScraperError) -> bool {
+    matches!(
+        network_error_kind(error),
+        Some(NetworkErrorKind::RobotsDisallowed | NetworkErrorKind::RobotsUnreachable)
+    )
 }
 
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {
