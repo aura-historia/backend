@@ -324,6 +324,10 @@ async fn read_message(body: Body, limit: usize) -> Result<DecodedMessage, Box<Re
             }));
         }
     };
+    decode_message(bytes)
+}
+
+fn decode_message(bytes: Bytes) -> Result<DecodedMessage, Box<Response>> {
     let body: Value = match serde_json::from_slice(&bytes) {
         Ok(body) => body,
         Err(_) => {
