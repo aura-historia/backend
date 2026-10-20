@@ -332,7 +332,7 @@ mod tests {
         use crate::scraper::candidate_service::MockScraperCandidateService;
         use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
         use crate::scraper::normalization::product_normalization_service::MockProductListingNormalizationService;
-        use crate::scraper::scraper_service::service::MockHtmlFetcher;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use std::sync::Arc;
 
         let mut schema_service = MockProductListingSchemaService::new();

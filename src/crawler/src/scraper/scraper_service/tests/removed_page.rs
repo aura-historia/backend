@@ -5,7 +5,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 };
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::service::FetchError;
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use listing_source_core::ListingSourceId;
 
 const SOFT_404_HTML: &str = r#"<html><head><title>Antiques Boutique</title></head><body>

@@ -5,7 +5,7 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
@@ -1074,7 +1074,7 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scraper::scraper_service::service::FetchedHtml;
+    use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };

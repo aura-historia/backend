@@ -4,8 +4,9 @@ use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, Scraper
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
 };
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
-use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
+use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use tracing::warn;

@@ -10,11 +10,12 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
     ExistingSchemaSelection, apply_cached_schemas,
 };
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
-use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
+use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
