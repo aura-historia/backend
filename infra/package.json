@@ -11,7 +11,7 @@
         "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
         "cdk": "cdk",
         "synth": "cdk synth --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices",
-        "synth:all": "npm run synth -- --context stage=dev >/dev/null && npm run synth -- --context stage=prod >/dev/null",
+        "synth:all": "npm run synth -- --context stage=dev >/dev/null && npm run synth -- --context stage=prod >/dev/null && npm run synth -- --app 'npx ts-node --prefer-ts-exts bin/releases.ts' >/dev/null",
         "test": "jest --runInBand"
     },
     "dependencies": {

@@ -95,6 +95,11 @@ function runOperation(t, options = {}) {
   const aws = path.join(bin, 'aws');
   writeFileSync(aws, `#!/usr/bin/env node\n(${fakeAws.toString()})();\n`);
   chmodSync(aws, 0o755);
+  // This suite exercises the private Lambda wire contract after admission. The
+  // real durable guard and rejected bypasses are covered in release.test.cjs.
+  const node = path.join(bin, 'node');
+  writeFileSync(node, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nif (process.argv[2]?.endsWith('/release.cjs')) { if(process.argv[3] !== 'assert-phase') process.exit(99); } else { const r=spawnSync(${JSON.stringify(process.execPath)},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status ?? 99); }\n`);
+  chmodSync(node, 0o755);
   const planFile = path.join(directory, 'plan.json');
   const logFile = path.join(directory, 'aws.jsonl');
   const summaryFile = path.join(directory, 'summary.md');
@@ -158,8 +163,8 @@ for (const operation of ['migrate', 'initialize']) {
     assert.deepEqual([...workflow.matchAll(/\buses: (.+)/g)].map((match) => match[1]), [
       'actions/checkout@v7', 'actions/setup-node@v7', 'aws-actions/configure-aws-credentials@v6.3.0',
     ]);
-    assert.deepEqual([...workflow.matchAll(/^        run: (.+)$/gm)].map((match) => match[1]), [`bash ci/invoke-operation.sh ${operation}`]);
-    assert.doesNotMatch(workflow, /npm|\bcdk\b|resolve-container-images|git rev-parse|fetch-depth/);
+    assert.deepEqual([...workflow.matchAll(/^        run: (.+)$/gm)].map((match) => match[1]), [`node ci/release.cjs operation ${operation}`]);
+    assert.doesNotMatch(workflow, /npm|\bcdk\b|resolve-container-images|git rev-parse/);
     if (operation === 'initialize') {
       assert.match(workflow, /First-time FX bootstrap only, after Migrate; retries reuse the stable event ID \(no deployment\)/);
       assert.doesNotMatch(workflow, /database-migration|invoke-operation\.sh migrate/);

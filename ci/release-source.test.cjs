@@ -256,11 +256,11 @@ function runCli(t, env, plan) {
 
 for (const source of sources) {
   test(`CLI ${source.name} appends only the pinned output and summary`, (t) => {
-    const result = runCli(t, source.env, sourcePlan(source.ref, source.eventSha));
+    const result = runCli(t, source.env, [...sourcePlan(source.ref, source.eventSha), { args: ['show', `${sha}:releases/protocol.json`], stdout: '{"version":1}' }]);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, '');
     assert.equal(result.stderr, '');
-    assert.equal(result.output, `previous=value\ncommit_sha=${sha}\n`);
+    assert.equal(result.output, `previous=value\ncommit_sha=${sha}\nrelease_ref=${source.ref}\n`);
     assert.equal(result.summary, `# Existing summary\n## Deployment source\n- Stage: ${source.env.STAGE}\n- Ref: ${source.ref}\n- Commit: ${sha}\n`);
   });
 }
@@ -281,3 +281,10 @@ for (const failure of ['validation', 'missing tag', 'moved tag', 'ancestry']) {
     assert.equal(result.summary, '# Existing summary\n');
   });
 }
+
+for (const version of [0, 2]) test(`CLI rejects historical protocol ${version}`, t => {
+  const result = runCli(t, devManual, [...sourcePlan(develop), { args: ['show', `${sha}:releases/protocol.json`], stdout: JSON.stringify({ version }) }]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unsupported historical/);
+  assert.equal(result.output, 'previous=value\n');
+});

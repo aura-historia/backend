@@ -87,7 +87,7 @@ function mockTool() {
         : stack === 'initialize' ? { CommitSHA: env.DEPLOY_COMMIT_SHA } : {};
       assert.deepEqual(args.slice(7), [
         ...Object.entries(parameters).flatMap(([key, value]) => ['--parameters', `${prefix}-${stack}:${key}=${value}`]),
-        '--context', `stage=${env.STAGE}`, '--context', `stackNamePrefix=${prefix}`,
+        '--app', env.RELEASE_ASSEMBLY,
         '--require-approval', 'never', '--method', 'change-set', '--exclusively', '--previous-parameters',
         '--no-path-metadata', '--no-asset-metadata', '--no-version-reporting', '--no-notices',
       ]);
@@ -259,6 +259,7 @@ function fixture(t, options = {}) {
     chmodSync(path.join(directory, smoke), 0o755);
   }
   write('ci/container-images.json', JSON.stringify(entries));
+  write('ci/release.cjs', `const fs=require('node:fs');const c=JSON.parse(fs.readFileSync('fixture.json'));if(process.argv[2]!=='assert-phase')throw new Error('Unexpected guard call');fs.appendFileSync(process.env.TEST_LOG,JSON.stringify({tool:'release-guard',args:process.argv.slice(2)})+'\\n');if(c.guardFailure){console.error('Stage ownership blocked');process.exit(1);}`);
   write('infra/scripts/ensure-dms-vpc-role.sh', '#!/usr/bin/env bash\nset -euo pipefail\nensure-dms-vpc-role "$@"\n');
   write('bin/mock', `#!/usr/bin/env node\n(${mockTool.toString()})();\n`);
   chmodSync(path.join(directory, 'bin/mock'), 0o755);
@@ -287,7 +288,8 @@ function fixture(t, options = {}) {
     GITHUB_RUN_ATTEMPT: '1',
     AWS_REGION: 'eu-central-1',
     STAGE: 'dev',
-    DEPLOY_SCOPE: 'auto',
+    DEPLOY_SCOPE: 'all',
+    RELEASE_ASSEMBLY: '/prepared/assembly',
   };
   const read = (file) => readFileSync(path.join(directory, file), 'utf8');
   const events = () => read('commands.log').trim().split('\n').filter(Boolean).map(JSON.parse);
@@ -312,7 +314,7 @@ function assertDeployments(f, expected, stage = 'dev') {
   const events = f.events();
   const deployments = events.filter((event) => event.tool === 'npm');
   assert.deepEqual(deployments.map((event) => event.args[6]), expected.map((stack) => `application-${stage}-${stack}`));
-  assert.equal(events.filter((event) => event.tool === 'ensure-dms-vpc-role').length, 1);
+  assert.equal(events.filter((event) => event.tool === 'ensure-dms-vpc-role').length, expected.includes('network') ? 1 : 0);
   for (const event of deployments) {
     assert.ok(event.args.includes('--previous-parameters'));
     assert.ok(event.args.includes('--exclusively'));
@@ -329,6 +331,7 @@ function assertDeployments(f, expected, stage = 'dev') {
 function assertNoMutation(f, expectedGitDiffs = 0) {
   const events = f.events();
   assert.ok(events.every((event) =>
+    event.tool === 'release-guard' ||
     (event.tool === 'aws' && event.args[0] === 'cloudformation' && event.args[1] === 'describe-stacks') ||
     (event.tool === 'git' && event.args[0] === '--no-pager' && event.args[1] === 'diff')));
   assert.equal(events.filter((event) => event.tool === 'git').length, expectedGitDiffs);
@@ -339,10 +342,11 @@ test('deployment publishers use the release catalogs on every trigger before the
   const workflow = readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8');
   const jobs = Object.fromEntries([...workflow.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|(?![\s\S]))/gm)].map((match) => [match[1], match[2]]));
   const publishers = ['aws-push-container-images', 'aws-push-lambda', 'aws-push-mail-templates'];
-  assert.deepEqual(Object.keys(jobs), ['infra-test', ...publishers, 'aws-cdk-deploy']);
+  assert.deepEqual(Object.keys(jobs), ['infra-test', ...publishers, 'release-plan', 'aws-cdk-deploy']);
   const needs = (job) => job.match(/^    needs:\s*\[([^\]]+)\]/m)?.[1].split(',').map((name) => name.trim()).filter(Boolean);
   for (const name of publishers) assert.deepEqual(needs(jobs[name]), ['infra-test'], `${name} must depend only on infrastructure tests`);
-  assert.deepEqual(new Set(needs(jobs['aws-cdk-deploy'])), new Set(['infra-test', ...publishers]));
+  assert.deepEqual(new Set(needs(jobs['release-plan'])), new Set(['infra-test', ...publishers]));
+  assert.deepEqual(new Set(needs(jobs['aws-cdk-deploy'])), new Set(['infra-test', 'release-plan']));
   assert.deepEqual(Object.entries(jobs).filter(([, job]) => /^    environment:/m.test(job)).map(([name]) => name), ['aws-cdk-deploy']);
   assert.match(jobs['aws-cdk-deploy'], /^    environment:\n      name: aws-\$\{\{ needs\.infra-test\.outputs\.stage \}\}$/m);
   const publisher = jobs['aws-push-container-images'];
@@ -362,8 +366,8 @@ test('deployment publishers use the release catalogs on every trigger before the
     assert.ok(publisher.includes(`IMAGE_${field.toUpperCase()}: \${{ matrix.${field} }}`));
   }
   assert.match(jobs['aws-cdk-deploy'], /^          ref: \$\{\{ env\.DEPLOY_COMMIT_SHA \}\}\n          fetch-depth: 0$/m);
-  assert.match(jobs['aws-cdk-deploy'], /run: bash ci\/deploy-stacks\.sh/);
-  assert.match(jobs['aws-cdk-deploy'], /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);
+  assert.match(jobs['aws-cdk-deploy'], /run: node ci\/release\.cjs execute/);
+  assert.match(jobs['release-plan'], /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);
 });
 
 test('no workflow reconciles, creates, imports, or configures container repositories', () => {
@@ -499,7 +503,7 @@ test('a second catalog image builds, publishes, reuses, resolves, and reaches th
   assert.deepEqual(parameters.sort(), Object.entries({ CommitSHA: sha, ...digests }).map(([key, value]) => `application-dev-compute:${key}=${value}`).sort());
   for (const entry of matrix) {
     assert.ok(f.read('summary').includes(`- Registry digest: ${digests[entry.digestParameter]}`));
-    assert.ok(f.read('summary').includes(`${entry.id}: arn:aws:ecs:eu-central-1:123456789012:task-definition/${entry.id}:1 (${entry.taskDefinitionOutput})`));
+
   }
 });
 
@@ -580,111 +584,31 @@ for (const options of [{ smokeFailure: true }, { badMetadata: 'org.opencontainer
 
 const absentStacks = ['network', 'data', 'initialize', 'compute', 'api'];
 for (const scenario of [
-  { name: 'first-time auto scope deploys foundation only', options: { absentStacks }, env: {}, expected: ['network', 'data', 'initialize'] },
-  { name: 'explicit all scope admits first-time compute and API', options: { absentStacks }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
-  { name: 'foundation scope skips compute and API without comparing migration sources', options: { gitDiffExitCode: 128 }, env: { DEPLOY_SCOPE: 'foundation' }, expected: ['network', 'data', 'initialize'] },
-  { name: 'production application deployment includes observability', options: {}, env: { STAGE: 'prod' }, expected: ['network', 'data', 'initialize', 'compute', 'api', 'observability'] },
-  { name: 'completed resource adoption admits application deployment', options: { stackStatuses: { compute: 'IMPORT_COMPLETE' } }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
-]) {
-  test(scenario.name, (t) => {
-    const f = fixture(t, scenario.options);
-    const result = f.deploy(scenario.env);
-    assert.equal(result.status, 0, result.stderr);
-    assertDeployments(f, scenario.expected, scenario.env.STAGE ?? 'dev');
-    assert.match(f.read('summary'), scenario.expected.includes('compute') ? /Application deployed/ : /Foundation deployed — application not deployed/);
-    const events = f.events();
-    const firstMutation = events.findIndex((event) => event.tool === 'ensure-dms-vpc-role');
-    const preflight = events.slice(0, firstMutation).filter((event) => event.tool === 'aws');
-    assert.equal(preflight.length, scenario.env.STAGE === 'prod' ? 6 : 5, 'All stacks must be preflighted before mutation');
-    const comparesSources = (scenario.env.DEPLOY_SCOPE ?? 'auto') === 'auto' && !scenario.options.absentStacks?.includes('compute');
-    assert.equal(events.filter((event) => event.tool === 'git').length, comparesSources ? 1 : 0);
-    if (!scenario.expected.includes('compute')) assert.doesNotMatch(f.read('summary'), /task-definition\//);
-  });
-}
-
-for (const gitDiffExitCode of [0, 1]) {
-  test(`auto scope ${gitDiffExitCode === 0 ? 'updates the application when migration sources are unchanged' : 'deploys only foundation when migration sources changed'}`, (t) => {
-    const currentSha = 'd'.repeat(40);
-    const f = fixture(t, { computeCommitSha: currentSha, gitDiffExitCode });
-    const result = f.deploy();
-    assert.equal(result.status, 0, result.stderr);
-    assertDeployments(f, gitDiffExitCode === 0 ? ['network', 'data', 'initialize', 'compute', 'api'] : ['network', 'data', 'initialize']);
-    const events = f.events();
-    assert.deepEqual(events.filter((event) => event.tool === 'git').map((event) => event.args), [[
-      '--no-pager', 'diff', '--quiet', currentSha, sha,
-      '--', 'migrations', 'infra/sql', 'src/database-migration-lambda',
-    ]]);
-    const diffIndex = events.findIndex((event) => event.tool === 'git');
-    assert.equal(diffIndex, 5, 'All stacks must be inspected before comparing migration sources');
-    assert.ok(diffIndex < events.findIndex((event) => event.tool === 'ensure-dms-vpc-role'));
-    if (gitDiffExitCode === 1) {
-      assert.match(f.read('summary'), /Foundation deployed — application not deployed/);
-      assert.match(f.read('summary'), /Migration sources changed: true/);
-      assert.match(f.read('summary'), /scope=all/);
-      assert.doesNotMatch(f.read('summary'), /task-definition\//);
-    } else {
-      assert.match(f.read('summary'), /Application deployed/);
-    }
-  });
-}
-
-test('explicit all scope acknowledges migration readiness without comparing sources', (t) => {
-  const f = fixture(t, { gitDiffExitCode: 1 });
-  const result = f.deploy({ DEPLOY_SCOPE: 'all' });
+  { name: 'first-time foundation', options: { absentStacks }, env: { DEPLOY_SCOPE: 'foundation' }, expected: ['network', 'data', 'initialize'] },
+  { name: 'exceptional all', options: { absentStacks }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
+  { name: 'production all', options: {}, env: { STAGE: 'prod' }, expected: ['network', 'data', 'initialize', 'compute', 'api', 'observability'] },
+  ...['network', 'data', 'initialize', 'compute', 'api'].map(name => ({ name: `recorded ${name} phase`, options: {}, env: { DEPLOY_PHASE: name, DEPLOY_SCOPE: ['network', 'data', 'initialize'].includes(name) ? 'foundation' : 'application' }, expected: [name] })),
+]) test(`guarded deployment executes only ${scenario.name}`, t => {
+  const f = fixture(t, scenario.options);
+  const result = f.deploy(scenario.env);
   assert.equal(result.status, 0, result.stderr);
-  assertDeployments(f, ['network', 'data', 'initialize', 'compute', 'api']);
-  assert.equal(f.events().filter((event) => event.tool === 'git').length, 0);
-  assert.match(f.read('summary'), /Application deployed/);
+  assertDeployments(f, scenario.expected, scenario.env.STAGE ?? 'dev');
+  assert.equal(f.events().filter(e => e.tool === 'git').length, 0);
+  assert.equal(f.events().filter(e => e.tool === 'release-guard').length, scenario.expected.length + 1);
 });
-
-test('a Git lookup failure halts auto deployment before any mutation', (t) => {
-  const f = fixture(t, { gitDiffExitCode: 128 });
-  const result = f.deploy();
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Cannot compare migration sources; no stacks were changed/);
-  assertNoMutation(f, 1);
+test('retired auto scope cannot silently invoke the old routine path', t => {
+  const f = fixture(t); const result = f.deploy({ DEPLOY_SCOPE: 'auto' });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /Use Release/); assertNoMutation(f);
 });
-
-for (const computeCommitSha of [null, '', 'a'.repeat(39), 'A'.repeat(40), 'g'.repeat(40)]) {
-  test(`auto scope rejects ${computeCommitSha === null ? 'a missing' : `invalid ${JSON.stringify(computeCommitSha)}`} compute CommitSHA before Git or mutations`, (t) => {
-    const f = fixture(t, { computeCommitSha });
-    const result = f.deploy();
-    assert.notEqual(result.status, 0);
-    if (computeCommitSha !== null) assert.match(result.stderr, /malformed CommitSHA/);
-    assertNoMutation(f);
-  });
-}
-
-test('stack permission errors halt before the DMS role or any deployment is changed', (t) => {
-  const f = fixture(t, { deniedStack: 'api' });
-  const result = f.deploy();
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /AccessDeniedException/);
-  assertNoMutation(f);
+test('an active release blocks direct deployment before any stack or role mutation', t => {
+  const f = fixture(t, { guardFailure: true }); const result = f.deploy();
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /ownership blocked/); assertNoMutation(f);
 });
-
-for (const status of ['CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_FAILED', 'CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS', 'REVIEW_IN_PROGRESS', 'DELETE_IN_PROGRESS', 'IMPORT_IN_PROGRESS', 'IMPORT_ROLLBACK_IN_PROGRESS', 'IMPORT_ROLLBACK_FAILED', 'IMPORT_ROLLBACK_COMPLETE']) {
-  test(`${status} stacks halt before any mutation, including foundation-only deployment`, (t) => {
-    const f = fixture(t, { stackStatuses: { compute: status } });
-    const result = f.deploy({ DEPLOY_SCOPE: 'foundation' });
-    assert.notEqual(result.status, 0);
-    assert.ok(result.stderr.includes(`compute is ${status}; repair it before deployment.`));
-    assertNoMutation(f);
-  });
-}
-
-test('production observability is checked before mutating foundation', (t) => {
-  const f = fixture(t, { stackStatuses: { observability: 'UPDATE_IN_PROGRESS' } });
-  const result = f.deploy({ STAGE: 'prod' });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /observability is UPDATE_IN_PROGRESS/);
-  assertNoMutation(f);
+test('stack permission errors halt before the DMS role or deployment changes', t => {
+  const f = fixture(t, { deniedStack: 'compute' }); const result = f.deploy();
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /Cannot inspect compute/); assertNoMutation(f);
 });
-
-test('an incomplete catalog digest set halts before any mutation', (t) => {
-  const f = fixture(t);
-  const result = f.deploy({ CONTAINER_IMAGE_DIGESTS: JSON.stringify({ [f.entries[0].digestParameter]: firstDigest }) });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Resolved digest map must contain exactly/);
-  assertNoMutation(f);
+test('an incomplete catalog digest set halts before any deployment', t => {
+  const f = fixture(t); const result = f.deploy({ CONTAINER_IMAGE_DIGESTS: JSON.stringify({ [f.entries[0].digestParameter]: firstDigest }) });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /Resolved digest map must contain exactly/); assertNoMutation(f);
 });

@@ -45,3 +45,6 @@ coverage.lcov
 # Output files
 **/scraper_output.json
 **/spider_output.json
+
+# Prepared release plan and CDK assembly
+.release/

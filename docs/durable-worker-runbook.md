@@ -6,6 +6,14 @@ running. [Event flow](events/flow.md) owns routes/completion;
 owns consent-specific recovery. Record the approved stage/account, release SHA, operator,
 checks and omissions. Keep payloads, credentials and personal content out of evidence.
 
+Routine **Release (CD)** owns the complete DMS pause/resume sequence for an initialized
+stage, including retries and runner loss. Its durable record distinguishes an owned pause
+from an intentional prior stop. Do not manually resume a task owned by an incomplete
+release or bypass it with Migrate/Initialize/exceptional deployment. Use
+[release recovery](infra.md#release-recovery) and retain WAL/storage monitoring throughout.
+The coordinator does not drain queues, pause consumers/schedulers, block API writes or
+perform the exceptional handoffs below.
+
 ## Activation and legacy handoff
 
 1. Follow the [release sequence](infra.md#first-time-stage). Verify schema/job
@@ -36,7 +44,7 @@ checks and omissions. Keep payloads, credentials and personal content out of evi
 ## First CDC start on a new stage
 
 CDK configures the source endpoint's slot name and a stopped CDC-only task. Neither
-Deploy nor Migrate creates the PostgreSQL slot or starts capture. Do this once under the
+exceptional deployment nor Migrate creates the PostgreSQL slot or performs first start. Do this once under the
 approved activation plan, not on every deployment.
 
 1. Verify account/stage, deployed release, endpoint connection tests, selected tables,
@@ -185,7 +193,7 @@ rename resources or enable broad auto-import to make deployment pass.
    separate approval prepare an **import-only** change set for the verified ownerless
    resource; reject unrelated imports, creations, changes, replacement or deletion.
 3. Verify completion, ownership, settings and drift. Review full-template reconciliation
-   separately and reach an acceptable normal stack state before Deploy. Import-only
+   separately and reach an acceptable normal stack state before Release. Import-only
    completion is not application readiness and does not replay archived work.
 
 Apply the same narrow ownership procedure to other retained resources; archive adoption

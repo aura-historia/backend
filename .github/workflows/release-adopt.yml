@@ -1,0 +1,52 @@
+name: Adopt release baseline
+run-name: Adopt verified ${{ inputs.stage }} baseline ${{ inputs.commit_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage whose deployed source and OpenSearch state you have verified
+        required: true
+        type: choice
+        options: [dev, prod]
+      commit_sha:
+        description: "Verified deployed compute AND initialization SHA. Approval attests all application/OpenSearch state matches this baseline. Cannot clear an incomplete release."
+        required: true
+        type: string
+
+concurrency:
+  group: aws-deploy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    name: Confirm verified stage baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: aws-${{ inputs.stage }}
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    env:
+      STAGE: ${{ inputs.stage }}
+      DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      RELEASE_STATE_BUCKET: ${{ vars.RELEASE_STATE_BUCKET }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: node ci/release.cjs operation adopt
