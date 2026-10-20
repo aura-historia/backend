@@ -220,7 +220,7 @@ fn should_preserve_omitted_directory_cursor_filters_and_serialized_nulls()
             parse_directory_cursor(output.to_string())?
         );
     }
-    for scope in [json!({"from":null}), json!({"to":null})] {
+    for scope in [json!({}), json!({"from":null}), json!({"to":null})] {
         let input = json!({
             "created":"1970-01-01T00:00:00Z",
             "auctionId":AuctionId::new(),
@@ -229,6 +229,45 @@ fn should_preserve_omitted_directory_cursor_filters_and_serialized_nulls()
         assert!(!jsonschema::is_valid(&input_schema, &input));
         assert!(serde_json::from_value::<DirectoryCursorData>(input).is_err());
     }
+    Ok(())
+}
+
+#[test]
+fn should_round_trip_required_directory_cursor_schedule_bounds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let input = json!({
+        "created":"1970-01-01T00:00:00Z",
+        "auctionId":AuctionId::new(),
+        "scope":{
+            "timeRole":"LIVE_STARTS",
+            "from":"2026-10-01T00:00:00Z",
+            "to":"2026-11-01T00:00:00Z",
+        },
+    });
+    assert!(jsonschema::is_valid(
+        &input_schema::<DirectoryCursorData>(),
+        &input
+    ));
+    let data = serde_json::from_value::<DirectoryCursorData>(input.clone())?;
+    let output = serde_json::to_value(data)?;
+    assert_eq!(input["scope"]["from"], output["scope"]["from"]);
+    assert_eq!(input["scope"]["to"], output["scope"]["to"]);
+    assert!(jsonschema::is_valid(
+        &output_schema::<DirectoryCursorData>(),
+        &output
+    ));
+    let cursor = parse_directory_cursor(input.to_string())?;
+    assert_eq!(cursor, parse_directory_cursor(output.to_string())?);
+    let schedule = cursor.scope.schedule.ok_or("missing schedule")?;
+    assert_eq!(AuctionSchedulePoint::LiveStarts, schedule.role);
+    assert_eq!(
+        Some(time::macros::datetime!(2026-10-01 00:00 UTC)),
+        schedule.range.min
+    );
+    assert_eq!(
+        Some(time::macros::datetime!(2026-11-01 00:00 UTC)),
+        schedule.range.max
+    );
     Ok(())
 }
 
