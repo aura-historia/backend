@@ -184,7 +184,7 @@ mod tests {
         ProductListingSummary, ProductListingSummaryPriceValuation, SearchProductListingsError,
         SearchProductListingsRequest, SearchProductListingsResult, SearchProductListingsUseCase,
     };
-    use product_listing_service::user_state::ProductListingUserState;
+    use product_listing_service::user_state::ProductListingUserStateView;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use time::OffsetDateTime;
@@ -328,7 +328,10 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let product_listing_id = ProductListingId::new();
         let mut product = product_summary()?;
-        product.user_state = Some(ProductListingUserState::default());
+        product.user_state = Some(ProductListingUserStateView {
+            notification: Some(Default::default()),
+            ..Default::default()
+        });
         let app = app(
             FakeSimilarProductListingsResult::Ready(vec![product]),
             TransportPrincipal::User {

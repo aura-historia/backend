@@ -22,9 +22,10 @@ use product_listing_service::ports::{
     ProductListingWatchlistDetailsRequest,
 };
 use product_listing_service::use_cases::{
-    PersonalizedProductListingDetailsView, ProductListingPricingPresentationError,
-    present_product_details, redact_hidden_product,
+    PersonalizedProductListingDetailsView, ProductListingDetailsWithUserState,
+    ProductListingPricingPresentationError, present_product_details, redact_hidden_product,
 };
+use product_listing_service::user_state::ProductListingUserStateDisclosure;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 
@@ -159,26 +160,18 @@ where
             cursor,
             total,
         } = factual_page;
-        let mut page = CursoredResult {
-            items: items
-                .into_iter()
-                .map(|factual_details| {
-                    present_with_pricing_snapshot(
-                        factual_details,
-                        &pricing_snapshots,
-                        request.currency,
-                    )
-                })
-                .collect::<Result<_, _>>()?,
-            cursor,
-            total,
-        };
+        let mut items = items
+            .into_iter()
+            .map(|factual_details| {
+                present_with_pricing_snapshot(factual_details, &pricing_snapshots, request.currency)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         tx.commit()
             .await
             .map_err(|source| ListWatchlistError::CommitTransactionFailed(Box::new(source)))?;
 
-        for product in &mut page.items {
+        for product in &mut items {
             let user_state = product
                 .user_state
                 .as_ref()
@@ -192,13 +185,21 @@ where
         self.shipping
             .details(
                 context,
-                &mut page.items,
+                &mut items,
                 request.currency,
                 pricing_snapshots.current.as_ref(),
                 valuation_at,
             )
             .await?;
-        Ok(page)
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
+        Ok(CursoredResult {
+            items: items
+                .into_iter()
+                .map(|item| disclosure.disclose(item))
+                .collect(),
+            cursor,
+            total,
+        })
     }
 }
 
@@ -264,7 +265,7 @@ fn present_with_pricing_snapshot(
     factual_details: product_listing_service::ports::PersonalizedProductListingDetailsReadModel,
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
-) -> Result<PersonalizedProductListingDetailsView, ListWatchlistError> {
+) -> Result<ProductListingDetailsWithUserState, ListWatchlistError> {
     let snapshot = match factual_details.item.sale_observation.filter(|_| {
         factual_details.item.availability == Some(ListingAvailability::SoldOut)
             || factual_details.item.lifecycle == ListingLifecycle::Withdrawn
@@ -379,7 +380,10 @@ mod tests {
         ProductListingDetailsReadModel,
     };
     use product_listing_service::use_cases::ProductListingPricingValuation;
-    use product_listing_service::user_state::{NotificationUserState, ProductListingUserState};
+    use product_listing_service::user_state::{
+        ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
+        ProductListingUserStateView, SearchFilterUserState, WatchlistUserState,
+    };
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -727,15 +731,22 @@ mod tests {
     async fn should_retain_canonical_notification_user_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let expected_user_state = ProductListingUserState {
+        let user_state = ProductListingUserState {
             shipping: None,
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
             },
             ..Default::default()
         };
+        let expected_user_state = ProductListingUserStateView {
+            shipping: None,
+            watchlist: Some(user_state.watchlist),
+            content_visibility: Some(user_state.content_visibility),
+            notification: Some(user_state.notification.clone()),
+            search_filter: Some(user_state.search_filter.clone()),
+        };
         let mut product = details(ProductListingId::new())?;
-        product.user_state = Some(expected_user_state.clone());
+        product.user_state = Some(user_state);
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![product])));
         lock(&state).latest_snapshot_result = Some(Ok(Some(snapshot(FxRateId::new())?)));
@@ -1000,6 +1011,53 @@ mod tests {
             .await?;
 
         assert_eq!(1, lock(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_disclose_only_watchlist_state_and_still_redact_hidden_items_for_watchlist_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let mut product = details(ProductListingId::new())?;
+        product.user_state = Some(ProductListingUserState {
+            shipping: None,
+            watchlist: WatchlistUserState {
+                watching: true,
+                notifications: true,
+            },
+            content_visibility: ContentVisibilityUserState {
+                show_unassessed_or_sensitive_content: true,
+            },
+            notification: NotificationUserState {
+                unseen_notification_ids: vec![Default::default()],
+            },
+            search_filter: SearchFilterUserState {
+                matched: true,
+                hidden: true,
+                match_feedback: Some(true),
+                ..Default::default()
+            },
+        });
+        let state = state();
+        lock(&state).details_result = Some(Ok(page(vec![product])));
+        lock(&state).latest_snapshot_result = Some(Ok(Some(snapshot(FxRateId::new())?)));
+
+        let result = handler(&state)
+            .execute(&delegated_context(user_id, true), request(user_id))
+            .await?;
+
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                watchlist: Some(WatchlistUserState {
+                    watching: true,
+                    notifications: true,
+                }),
+                ..Default::default()
+            }),
+            result.items[0].user_state
+        );
+        assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
+        assert_eq!("Hidden", result.items[0].item.source.name.as_ref());
         Ok(())
     }
 }

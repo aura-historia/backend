@@ -18,7 +18,7 @@ info:
     \ tokens created via\n  `/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server\n\
     \  ingestion scenarios.\n\nWhen a route lists multiple security schemes, any one of the listed schemes may be accepted.\n\
     Some read endpoints can also be called without authentication, while a valid user token may enrich\nthe response with\
-    \ personalized state such as watchlist, notification, or search-filter metadata.\n\n## Data and response conventions\n\
+    \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## Data and response conventions\n\
     \n- **PATCH:** an omitted request member remains unchanged. A documented nullable PATCH member\n  accepts `null` to clear\
     \ its value; `null` for any other member returns `400 BAD_BODY_VALUE`.\n  Use `[]`, not `null`, to replace a non-null\
     \ collection with an empty collection. Empty HTTP\n  bodies are invalid, `{}` is a valid object-PATCH no-op, and the partner-product\
@@ -3120,7 +3120,9 @@ paths:
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
 
-        adds optional top-level `userState`; credential-bearing responses are not cached.
+        adds optional top-level `userState`, limited to the sections a delegated token's read scopes permit;
+
+        credential-bearing responses are not cached.
 
         "
       operationId: getProductListing
@@ -3402,7 +3404,7 @@ paths:
 
         sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
 
-        `userState`. Ready anonymous 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization uses `private, no-store`. The `202 EmbeddingPending` response and all errors are always `private, no-store`.
+        `userState`, limited to the sections a delegated token's read scopes permit. Ready anonymous 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization uses `private, no-store`. The `202 EmbeddingPending` response and all errors are always `private, no-store`.
 
         "
       operationId: getSimilarProductListings
@@ -5058,7 +5060,9 @@ paths:
       description:
         "Retrieves all product-listings in the authenticated user's watchlist in watchlist creation order.
 
-        Each result contains current product data and complete user-specific state.
+        Each result contains current product data and user-specific state. Cognito users receive every section;
+
+        an access token receives only the sections its read scopes permit (see `ProductListingUserStateData`).
 
         Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
 
@@ -9208,13 +9212,15 @@ paths:
         "Updates settings for a specific watchlist product (e.g., toggle notifications or manually activate/deactivate
         the watchlist entry).
 
-        Returns full personalized product data (`item` and `userState`) after applying the update, including
+        Returns personalized product data (`item` and `userState`) after applying the update, including
         for an empty `{}` no-op. `userState.watchlist.watching` reflects whether the entry is active, and
         `userState.watchlist.notifications` reflects the stored notification setting. Hidden and withdrawn
         listings retain their usual redaction.
 
-        Requires a valid user bearer credential. Delegated credentials require `watchlist:write`; no additional
-        read scope is required for the response. Responses are not cached.
+        Requires a valid user bearer credential. Delegated credentials require `watchlist:write` for the update.
+        Like other listing reads, each `userState` section in the response requires its read scope, so
+        `userState.watchlist` requires `watchlist:read` (see `ProductListingUserStateData`). Responses are not
+        cached.
 
         "
       operationId: patchWatchlistProduct
@@ -20172,7 +20178,9 @@ components:
           allOf:
             - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
-          description: Present only for a valid user or delegated-user bearer token.
+          description:
+            Present only for a valid user or delegated-user bearer token. A delegated token receives only the
+            sections its read scopes permit and no `userState` when none applies.
     PersonalizedProductListingSummaryData:
       type: object
       description: Canonical Product summary with optional user-specific state.
@@ -20185,7 +20193,9 @@ components:
           allOf:
             - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
-          description: Present only for a valid user or delegated-user bearer token.
+          description:
+            Present only for a valid user or delegated-user bearer token. A delegated token receives only the
+            sections its read scopes permit and no `userState` when none applies.
     ProductListingSearchResultData:
       type: object
       description: Cursor-paged canonical Product search response.
@@ -20238,12 +20248,24 @@ components:
 
     ProductListingUserStateData:
       type: object
-      description: User-specific state information for a product
-      required:
-        - watchlist
-        - contentVisibility
-        - notification
-        - searchFilter
+      description:
+        "User-specific state information for a product.
+
+        Cognito users receive every section that applies. An Aura Historia access token receives a section only
+
+        with its read scope, on every route that returns `userState`: `watchlist` requires `watchlist:read`,
+
+        `notification` requires `notifications:read`, `searchFilter` requires `search-filters:read`, and
+
+        `contentVisibility` and `shipping` require `users:read`. Sections without their scope are omitted rather
+
+        than defaulted.
+
+        Undisclosed state still applies: quota-hidden matches stay redacted and stored content preferences still
+
+        decide image visibility.
+
+        "
       properties:
         shipping:
           $ref: '#/components/schemas/PersonalizedListingShippingData'

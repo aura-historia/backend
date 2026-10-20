@@ -2,12 +2,18 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
-
 ## 2026-10-20 — REST base path development cutover (#2216)
 
 - **Breaking development change:** all REST operations now use `/v1/...` on `https://api.aura-historia.com` and `https://api.stage.aura-historia.com`, replacing `/api/v1/...`. The old routes are removed without aliases, redirects or a deprecation period. Generated `Location` headers use `/v1/...`; operation IDs, authentication, request/response schemas and operation/retry semantics are unchanged.
 - Update backend callers (including webapp OAuth consent approval), advertised Aura OAuth authorization/token endpoints, and registered WooCommerce/Loops HTTP webhook destinations together. Client callback URLs, webapp-owned `/api/...` routes and third-party provider API URLs are independent and must not be rewritten unless they actually target a renamed backend route. See the [front-door cutover requirements](http-api-front-door.md#rest-client-and-provider-configuration).
 - Earlier entries retain the paths that applied when they were published.
+
+## 2026-10-20 — Scoped personalization for delegated tokens (#2213)
+
+- Aura Historia access tokens now receive each `userState` section only with its read scope: `watchlist` needs `watchlist:read`, `notification` needs `notifications:read`, `searchFilter` needs `search-filters:read`, and `contentVisibility` needs `users:read`. This applies to product-listing detail by ID and slug, search, similar listings, auction catalogues, watchlists and saved-search matches. These tokens previously received every section regardless of scope.
+- Sections without their scope are omitted rather than returned as `false` or empty values. `userState` is omitted when no section applies. `ProductListingUserStateData` therefore no longer requires `watchlist`, `contentVisibility`, `notification` or `searchFilter`; regenerate clients that assumed them. `userState.shipping` keeps its existing `users:read` requirement.
+- `PATCH /api/v1/me/watchlist/{productListingId}` still needs only `watchlist:write` to apply the update, but its response follows the same read scopes: the updated `userState.watchlist` now also requires `watchlist:read`.
+- Undisclosed state still applies to the listing: matches hidden by the saved-search quota remain redacted, and the stored content preference still decides image visibility. Cognito users and anonymous callers are unaffected.
 
 ## 2026-10-20 — Delegated access-token management cannot expand authority (#2212)
 

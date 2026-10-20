@@ -107,7 +107,7 @@ mod tests {
         SearchProductListingsUseCase,
     };
     use product_listing_service::user_state::{
-        ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
+        ContentVisibilityUserState, NotificationUserState, ProductListingUserStateView,
         SearchFilterUserState, WatchlistUserState,
     };
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -511,26 +511,26 @@ mod tests {
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
         let product_listing_id = view.item.product_listing_id;
-        view.user_state = Some(ProductListingUserState {
+        view.user_state = Some(ProductListingUserStateView {
             shipping: None,
-            watchlist: WatchlistUserState {
+            watchlist: Some(WatchlistUserState {
                 watching: true,
                 notifications: false,
-            },
-            content_visibility: ContentVisibilityUserState {
+            }),
+            content_visibility: Some(ContentVisibilityUserState {
                 show_unassessed_or_sensitive_content: false,
-            },
-            notification: NotificationUserState {
+            }),
+            notification: Some(NotificationUserState {
                 unseen_notification_ids: vec![notification_id],
-            },
-            search_filter: SearchFilterUserState {
+            }),
+            search_filter: Some(SearchFilterUserState {
                 matched: true,
                 hidden: false,
                 user_search_filter_id: Some(search_filter_id),
                 user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
                 match_feedback: Some(false),
                 shipping_match_valuation: None,
-            },
+            }),
         });
         let (app, calls) = app(view, false, Some(user_id));
 

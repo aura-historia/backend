@@ -1334,16 +1334,9 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
         json!(product_listing_id.to_string()),
         hidden_body["items"][0]["item"]["productListingId"]
     );
-    assert_eq!(
-        json!(true),
-        hidden_body["items"][0]["userState"]["searchFilter"]["hidden"]
-    );
+    // The token has no personalization read scope: the item stays redacted, but no state is disclosed.
+    assert!(hidden_body["items"][0].get("userState").is_none());
     assert!(hidden_body["items"][0]["item"]["shipping"].is_null());
-    assert!(
-        hidden_body["items"][0]["userState"]
-            .get("shipping")
-            .is_none()
-    );
     assert!(hidden_body["items"][0]["item"]["auction"].is_null());
     assert!(hidden_body["items"][0]["item"]["lot"].is_null());
     assert!(

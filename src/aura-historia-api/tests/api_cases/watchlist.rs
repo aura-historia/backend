@@ -37,10 +37,11 @@ fn assert_watchlist_product(
         serde_json::json!({"watching": watching, "notifications": notifications}),
         body["userState"]["watchlist"]
     );
-    for field in ["contentVisibility", "notification", "searchFilter"] {
+    // Watchlist PATCH tokens hold no notification or saved-search read scope.
+    for field in ["notification", "searchFilter"] {
         assert!(
-            body["userState"][field].is_object(),
-            "missing {field}: {body}"
+            body["userState"].get(field).is_none(),
+            "undisclosed {field}: {body}"
         );
     }
 }
@@ -327,7 +328,7 @@ async fn should_update_watchlist_notifications() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_product().await;
@@ -369,7 +370,7 @@ async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -415,7 +416,11 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::UsersRead]),
+        std::collections::HashSet::from([
+            Scope::WatchlistWrite,
+            Scope::WatchlistRead,
+            Scope::UsersRead,
+        ]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -447,6 +452,7 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
         "DE",
         body["userState"]["shipping"]["destination"]["country"]
     );
+    assert!(body["userState"]["contentVisibility"].is_object());
     let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
     assert_eq!("ACTIVE", entry["state"]);
     assert_eq!(serde_json::json!(false), entry["notifications"]);
@@ -515,7 +521,7 @@ async fn should_return_current_product_for_empty_watchlist_patch_without_changin
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -546,7 +552,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -727,7 +733,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_product().await;
@@ -789,7 +795,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
@@ -846,11 +852,8 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
         let (status, body) = json_response(response).await;
 
         assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        // Redaction still applies although the saved-search state stays undisclosed.
         assert_watchlist_product(&body, product_listing_id, watching, false);
-        assert_eq!(
-            serde_json::json!(true),
-            body["userState"]["searchFilter"]["hidden"]
-        );
         assert!(body["item"].get("productListingTitleSlugId").is_none());
         assert!(body["item"].get("productTitle").is_none());
         assert!(body["item"].get("productDescription").is_none());
@@ -1206,7 +1209,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistWrite, Scope::WatchlistRead]),
     )
     .await;
     seed_active_watchlist_entries(user_id, 20).await;

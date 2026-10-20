@@ -11,6 +11,7 @@ use crate::use_cases::queries::product_listing_summary_personalization::{
     hydrate_product_search_items,
 };
 use crate::use_cases::queries::search_product_listings::present_product_summaries;
+use crate::user_state::ProductListingUserStateDisclosure;
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
@@ -249,7 +250,13 @@ where
         self.shipping
             .summaries(context, &mut products, request.currency, &snapshot)
             .await?;
-        Ok(GetSimilarProductListingsResult::Ready(products))
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
+        Ok(GetSimilarProductListingsResult::Ready(
+            products
+                .into_iter()
+                .map(|product| disclosure.disclose(product))
+                .collect(),
+        ))
     }
 }
 
@@ -348,7 +355,7 @@ mod tests {
     use crate::use_cases::{ProductListingSearchItem, ProductListingSummaryPriceValuation};
     use application::{
         error::box_error,
-        operation_context::{CorrelationId, Principal, RequestId},
+        operation_context::{CorrelationId, CredentialCapability, Principal, RequestId},
         transaction::TransactionError,
     };
     use domain_primitives::event_id::EventId;
@@ -365,7 +372,7 @@ mod tests {
         source_listing_id::SourceListingId,
     };
 
-    use crate::user_state::ProductListingUserState;
+    use crate::user_state::{ProductListingUserState, ProductListingUserStateView};
     use product_listing_core::title::Title;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -833,52 +840,82 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_hydrate_ready_similar_products_for_authenticated_user()
+    async fn should_hydrate_ready_similar_products_and_disclose_by_principal()
     -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
         let user_id = user_core::user_id::UserId::new();
-        let product_listing_id = ProductListingId::new();
-        let mut user_state = ProductListingUserState::default();
-        user_state.watchlist.watching = true;
-        lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
-            product_listing_id: ProductListingId::new(),
-            embedding: Some(vec![0.1_f32]),
-        })));
-        lock_state(&state).find_similar_product_listings_result =
-            Some(Ok(vec![product_search_item(product_listing_id)?]));
-        let handler = GetSimilarProductListingsHandler::new(
-            FakeUnitOfWork {
-                state: Arc::clone(&state),
-            },
-            FakeEmbeddingReaderFactory {
-                state: Arc::clone(&state),
-            },
-            FakeFxRateSnapshotRepositoryFactory,
-            FakeSimilarProductsReader {
-                state: Arc::clone(&state),
-            },
-            StaticListingSourceSummaryReader,
-            StaticUserStateReader {
-                states: HashMap::from([(product_listing_id, user_state)]),
-            },
-            EmptyAssessmentReader,
-            crate::shipping::ShippingEnrichment::for_tests(),
-        );
-
-        let result = handler
-            .execute(&authenticated_context(user_id), request())
-            .await?;
-
-        let GetSimilarProductListingsResult::Ready(products) = result else {
-            return Err(std::io::Error::other("expected ready similar products").into());
+        let watchlist = crate::user_state::WatchlistUserState {
+            watching: true,
+            notifications: false,
         };
-        assert_eq!(
-            Some(true),
-            products[0]
-                .user_state
-                .as_ref()
-                .map(|state| state.watchlist.watching)
-        );
+        let delegated = |capabilities: &[CredentialCapability]| Principal::DelegatedUser {
+            user_id,
+            capabilities: capabilities.iter().copied().collect(),
+        };
+        for (principal, expected) in [
+            (
+                Principal::User(user_id),
+                Some(ProductListingUserStateView {
+                    shipping: None,
+                    watchlist: Some(watchlist),
+                    content_visibility: Some(Default::default()),
+                    notification: Some(Default::default()),
+                    search_filter: Some(Default::default()),
+                }),
+            ),
+            (
+                delegated(&[CredentialCapability::WatchlistRead]),
+                Some(ProductListingUserStateView {
+                    watchlist: Some(watchlist),
+                    ..Default::default()
+                }),
+            ),
+            (delegated(&[]), None),
+        ] {
+            let state = state();
+            let product_listing_id = ProductListingId::new();
+            let mut user_state = ProductListingUserState::default();
+            user_state.watchlist.watching = true;
+            lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
+                product_listing_id: ProductListingId::new(),
+                embedding: Some(vec![0.1_f32]),
+            })));
+            lock_state(&state).find_similar_product_listings_result =
+                Some(Ok(vec![product_search_item(product_listing_id)?]));
+            let handler = GetSimilarProductListingsHandler::new(
+                FakeUnitOfWork {
+                    state: Arc::clone(&state),
+                },
+                FakeEmbeddingReaderFactory {
+                    state: Arc::clone(&state),
+                },
+                FakeFxRateSnapshotRepositoryFactory,
+                FakeSimilarProductsReader {
+                    state: Arc::clone(&state),
+                },
+                StaticListingSourceSummaryReader,
+                StaticUserStateReader {
+                    states: HashMap::from([(product_listing_id, user_state)]),
+                },
+                EmptyAssessmentReader,
+                crate::shipping::ShippingEnrichment::for_tests(),
+            );
+            let context = OperationContext {
+                principal,
+                ..authenticated_context(user_id)
+            };
+
+            let result = handler.execute(&context, request()).await?;
+
+            let GetSimilarProductListingsResult::Ready(products) = result else {
+                return Err(std::io::Error::other("expected ready similar products").into());
+            };
+            assert_eq!(
+                expected,
+                products[0].user_state,
+                "{}",
+                context.principal.kind()
+            );
+        }
         Ok(())
     }
 
