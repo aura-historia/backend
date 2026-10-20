@@ -276,6 +276,7 @@ dependencies = [
  "auction-core",
  "auction-postgres",
  "auction-service",
+ "aura-historia-contracts",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-s3",
@@ -401,6 +402,19 @@ dependencies = [
  "url",
  "user-core",
  "uuid",
+]
+
+[[package]]
+name = "aura-historia-contracts"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "localization",
+ "money",
+ "product-listing-core",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
 ]
 
 [[package]]
