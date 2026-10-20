@@ -71,7 +71,7 @@ use embedding::{
     VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
 };
 use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
-use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
+use fxrate_service::readers::FxSearchCacheConfig;
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
@@ -168,26 +168,19 @@ use party_service::use_cases::commands::update_party::UpdatePartyHandler;
 use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
-use product_listing_opensearch::{
-    OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
-};
 use product_listing_postgres::{
-    SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
+    SqlxAuctionCatalogueReaderFactory, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
+    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
     SqlxProductListingWatchlistDetailsReaderFactory, SqlxPublicCatalogueOverviewReaderFactory,
 };
-use product_listing_service::readers::{CachedListingSourceSummaryReader, SourceSearchCacheConfig};
+use product_listing_service::readers::SourceSearchCacheConfig;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetPublicCatalogueOverviewHandler, GetSimilarProductListingsHandler,
-    ProductListingSearchReadExecutionPolicy, SearchProductListingsHandler,
-    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
-    UpsertProductListingHandler, WithdrawProductListingHandler,
+    GetAuctionCatalogueHandler, GetProductListingHistoryHandler, GetPublicCatalogueOverviewHandler,
+    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
+    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -1408,14 +1401,7 @@ async fn app_state_from_config_and_runtime(
         user_postgres::SqlxAddressBookFactory,
         geo_postgres::SqlxResolutionRepositoryFactory,
     ));
-    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
-        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::assessment::SqlxAssessmentReaderFactory,
-            address_book.clone(),
-        )),
-        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
-    );
+    let shipping = runtime.listing_shipping().clone();
     let get_auction_catalogue = GetAuctionCatalogueHandler::new(
         unit_of_work.clone(),
         SqlxAuctionCatalogueReaderFactory::new(),
@@ -1682,39 +1668,14 @@ async fn app_state_from_config_and_runtime(
             SqlxNotificationDeliveryIntentRepositoryFactory::new(),
         ),
     );
-    let product_user_states = SqlxProductListingUserStateReader::new(pool.clone());
-    let get_similar_products = GetSimilarProductListingsHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingEmbeddingReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
-        SqlxListingSourceSummaryReader::new(pool.clone()),
-        product_user_states.clone(),
-        SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        shipping.clone(),
-    );
-    let search_products = SearchProductListingsHandler::new(
-        OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
-        CachedFxRateSnapshotReader::new(
-            SqlxFxRateSnapshotReader::new(pool.clone()),
-            config.product_listing_search_fx_cache_config(),
-        ),
-        Arc::clone(&embeddings),
-        CachedListingSourceSummaryReader::new(
-            SqlxListingSourceSummaryReader::new(pool.clone()),
-            config.product_listing_search_source_cache_config(),
-        ),
-        product_user_states,
-        SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        shipping.clone(),
-    )
-    .with_read_execution_policy(config.product_listing_search_read_execution_policy());
-    let get_product = GetProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
+    let public_product_listings =
+        runtime.public_product_listings(aura_historia_runtime::ProductListingDependencies {
+            opensearch: opensearch_client.clone(),
+            embeddings: Arc::clone(&embeddings),
+            fx_cache: config.product_listing_search_fx_cache_config(),
+            source_cache: config.product_listing_search_source_cache_config(),
+            read_execution_policy: config.product_listing_search_read_execution_policy(),
+        });
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
@@ -2331,9 +2292,9 @@ async fn app_state_from_config_and_runtime(
         .with_partnerships(partnerships_state)
         .with_products(
             ProductListingsState::new(
-                Arc::new(get_product),
-                Arc::new(get_similar_products),
-                Arc::new(search_products),
+                Arc::clone(&public_product_listings.get),
+                Arc::clone(&public_product_listings.similar),
+                Arc::clone(&public_product_listings.search),
                 Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
             )
             .with_product_listing_history(Arc::new(get_product_listing_history)),

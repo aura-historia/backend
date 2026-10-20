@@ -8,23 +8,13 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
-use localization::Language;
-use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::ProductListingEmbeddingLookup;
 use product_listing_service::use_cases::{
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-struct SimilarProductListingsQuery {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-}
+use aura_historia_contracts::product_listings::presentation::ProductListingPresentationData as SimilarProductListingsQuery;
 
 pub async fn get_similar_products_by_id(
     State(state): State<ProductListingsState>,

@@ -1,258 +1,27 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
-use crate::product_listings::product_data::{
-    PersonalizedProductListingSummaryData, personalized_product_summary_data,
-};
 use crate::state::ProductListingsState;
 
 use application::operation_context::Principal;
 use application::pagination::Cursor;
-use auction_core::AuctionId;
-use axum::Json;
-use axum::extract::{RawQuery, State};
-use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
-use domain_primitives::query::range_query::RangeQuery;
-use domain_primitives::query::text_query::TextQuery;
-use domain_primitives::sort::{Sort, SortOrder};
-use fxrate_core::FxRateId;
-
-use localization::Language;
-use money::Currency;
-use money::MonetaryAmount;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::listing_orderability::ListingOrderability;
-use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
+use aura_historia_contracts::product_listings::search::{
+    self, CursoredProductListingsData, ProductListingSearchCursorInputData,
+    ProductListingSearchData,
 };
-
-use listing_source_core::ListingSourceId;
-use product_listing_core::sort_product_listing_field::SortProductListingField;
+use axum::{
+    Json,
+    extract::{RawQuery, State},
+    http::HeaderMap,
+    response::{IntoResponse, Response},
+};
+use domain_primitives::sort::Sort;
+use product_listing_core::{
+    product_listing_search::ProductListingSearch,
+    sort_product_listing_field::SortProductListingField,
+};
 use product_listing_service::use_cases::{
     ProductListingSearchCursor, SearchProductListingsRequest,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::str::FromStr;
-use time::OffsetDateTime;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductListingSearchData {
-    #[serde(default)]
-    geography: Option<crate::geographic_search::GeographicSearchData>,
-    #[serde(default)]
-    shipping: Option<crate::shipping_search::ShippingSearchData>,
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-    #[serde(default, rename = "productQuery")]
-    product_listing_query: Vec<TextQuery<1>>,
-    #[serde(default)]
-    enhanced_search_description: Option<String>,
-    #[serde(default)]
-    exclude_product_listing_id: HashSet<String>,
-    #[serde(default)]
-    listing_source_id: HashSet<String>,
-    #[serde(default)]
-    exclude_listing_source_id: HashSet<String>,
-    #[serde(default)]
-    auction_id: HashSet<String>,
-    #[serde(default)]
-    price: Option<RangeQuery<u64>>,
-    #[serde(
-        default,
-        deserialize_with = "crate::wire::listing_availability::set_option::deserialize"
-    )]
-    availability: Option<HashSet<ListingAvailability>>,
-    #[serde(
-        default,
-        deserialize_with = "crate::wire::listing_orderability::set_option::deserialize"
-    )]
-    orderability: Option<HashSet<ListingOrderability>>,
-    #[serde(default)]
-    include_unspecified_availability: Option<bool>,
-    #[serde(
-        with = "domain_primitives::query::range_query::range_rfc3339::option",
-        default
-    )]
-    created: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(
-        with = "domain_primitives::query::range_query::range_rfc3339::option",
-        default
-    )]
-    updated: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(
-        with = "domain_primitives::query::range_query::range_rfc3339::option",
-        default
-    )]
-    lot_bidding_opens: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(
-        with = "domain_primitives::query::range_query::range_rfc3339::option",
-        default
-    )]
-    lot_scheduled_closes: Option<RangeQuery<OffsetDateTime>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SortProductListingFieldData {
-    Score,
-    Updated,
-    Created,
-}
-
-impl TryFrom<&str> for SortProductListingFieldData {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "score" => Ok(Self::Score),
-            "updated" => Ok(Self::Updated),
-            "created" => Ok(Self::Created),
-            value => Err(format!(
-                "Expected any of: 'score', 'updated', 'created'. Got: '{value}'"
-            )),
-        }
-    }
-}
-
-impl From<SortProductListingFieldData> for SortProductListingField {
-    fn from(value: SortProductListingFieldData) -> Self {
-        match value {
-            SortProductListingFieldData::Score => Self::Score,
-            SortProductListingFieldData::Updated => Self::Updated,
-            SortProductListingFieldData::Created => Self::Created,
-        }
-    }
-}
-
-impl TryFrom<ProductListingSearchData> for ProductListingSearch {
-    type Error = ApiError;
-
-    fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            geography: crate::geographic_search::parse_query(data.geography, "geography")?,
-            shipping: crate::shipping_search::parse(data.shipping, false)?,
-            language: data.language,
-            currency: data.currency,
-            product_listing_query: data.product_listing_query,
-            enhanced_search_description: data
-                .enhanced_search_description
-                .map(EnhancedSearchDescription::try_from)
-                .transpose()
-                .map_err(|error| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                        .with_query_field("enhancedSearchDescription")
-                        .with_detail(error.to_string())
-                })?,
-            exclude_product_listing_id_query: parse_query_object_ids::<ProductListingId>(
-                data.exclude_product_listing_id,
-                "excludeProductListingId",
-                "ProductListing",
-            )?
-            .into(),
-            listing_source_id_query: parse_query_object_ids::<ListingSourceId>(
-                data.listing_source_id,
-                "listingSourceId",
-                "ListingSource",
-            )?
-            .into(),
-            exclude_listing_source_id_query: parse_query_object_ids::<ListingSourceId>(
-                data.exclude_listing_source_id,
-                "excludeListingSourceId",
-                "ListingSource",
-            )?
-            .into(),
-            auction_id_query: parse_query_object_ids::<AuctionId>(
-                data.auction_id,
-                "auctionId",
-                "Auction",
-            )?
-            .into(),
-            price_query: data.price.map(|range| range.map(MonetaryAmount::from)),
-            availability_query: availability_query_from_parts(
-                data.availability,
-                data.orderability,
-                data.include_unspecified_availability,
-            ),
-            created_query: data.created,
-            updated_query: data.updated,
-            lot_bidding_opens_query: data.lot_bidding_opens,
-            lot_scheduled_closes_query: data.lot_scheduled_closes,
-        })
-    }
-}
-
-fn parse_query_object_ids<T>(
-    values: HashSet<String>,
-    field: &'static str,
-    semantic_type: &'static str,
-) -> Result<HashSet<T>, ApiError>
-where
-    T: FromStr + Eq + Hash,
-{
-    values
-        .into_iter()
-        .map(|value| crate::wire::parse_query_object_id(&value, field, semantic_type))
-        .collect()
-}
-
-fn availability_query_from_parts(
-    availability: Option<HashSet<ListingAvailability>>,
-    orderability: Option<HashSet<ListingOrderability>>,
-    include_unspecified: Option<bool>,
-) -> Option<ListingAvailabilityQuery> {
-    if availability.is_none() && orderability.is_none() && include_unspecified.is_none() {
-        None
-    } else {
-        Some(ListingAvailabilityQuery {
-            any_of: availability.unwrap_or_default().into(),
-            orderability: orderability.unwrap_or_default().into(),
-            include_unspecified: include_unspecified.unwrap_or(false),
-        })
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CursoredProductListingsData {
-    items: Vec<PersonalizedProductListingSummaryData>,
-    size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    search_after: Option<ProductListingSearchCursorData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    total: Option<u64>,
-}
-
-/// HTTP encoding of the ProductListing-owned opaque continuation cursor.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductListingSearchCursorData {
-    fx_rate_id: FxRateId,
-    search_after: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductListingSearchCursorInputData {
-    fx_rate_id: String,
-    search_after: Value,
-}
-
-impl From<ProductListingSearchCursor> for ProductListingSearchCursorData {
-    fn from(cursor: ProductListingSearchCursor) -> Self {
-        Self {
-            fx_rate_id: cursor.fx_rate_id,
-            search_after: cursor.search_after,
-        }
-    }
-}
-
 pub async fn get_products(
     State(state): State<ProductListingsState>,
     headers: HeaderMap,
@@ -294,7 +63,7 @@ async fn handle_search(
 
     let search = match ProductListingSearch::try_from(data) {
         Ok(search) => search,
-        Err(error) => return error.into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
     };
     let geographic = search.has_geography();
     let context = principal.operation_context(metadata);
@@ -315,18 +84,7 @@ async fn handle_search(
                 result.items.iter().map(|i| i.item.shipping.as_ref()),
                 60,
             );
-            let items = result
-                .items
-                .into_iter()
-                .map(personalized_product_summary_data)
-                .collect::<Vec<_>>();
-            let response = Json(CursoredProductListingsData {
-                size: items.len() as u64,
-                items,
-                search_after: result.cursor.search_after.map(Into::into),
-                total: result.total,
-            })
-            .into_response();
+            let response = Json(CursoredProductListingsData::from(result)).into_response();
             crate::transport::cache::anonymous_shared_success(
                 response,
                 &headers,
@@ -339,35 +97,11 @@ async fn handle_search(
 }
 
 fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductListingField>>, ApiError> {
-    let sort = query_value(raw_query, "sort")
-        .map(|sort| {
-            SortProductListingFieldData::try_from(sort.as_str()).map_err(|detail| {
-                ApiError::bad_request(BAD_SORT_VALUE)
-                    .with_query_field("sort")
-                    .with_detail(detail)
-            })
-        })
-        .transpose()?;
-    let order = query_value(raw_query, "order")
-        .map(|order| {
-            SortOrder::try_from(order.as_str()).map_err(|detail| {
-                ApiError::bad_request(BAD_ORDER_VALUE)
-                    .with_query_field("order")
-                    .with_detail(detail)
-            })
-        })
-        .transpose()?;
-
-    match (sort, order) {
-        (None, None) => Ok(None),
-        (Some(sort), order) => Ok(Some(Sort {
-            sort: sort.into(),
-            order: order.unwrap_or(SortOrder::Desc),
-        })),
-        (None, Some(_)) => Err(ApiError::bad_request(BAD_SORT_VALUE)
-            .with_query_field("sort")
-            .with_detail("'sort' is required when 'order' is supplied.")),
-    }
+    search::parse_sort(
+        query_value(raw_query, "sort").as_deref(),
+        query_value(raw_query, "order").as_deref(),
+    )
+    .map_err(Into::into)
 }
 
 fn parse_cursor(
@@ -380,8 +114,7 @@ fn parse_cursor(
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
                 .with_query_field("size")
                 .with_detail(error.to_string())
-        })?
-        .map(|size| size.clamp(1, 100));
+        })?;
     let values = query_values(raw_query, "searchAfter");
     let search_after = match values.as_slice() {
         [] => None,
@@ -393,30 +126,14 @@ fn parse_cursor(
         }
     };
 
-    if size.is_some() || search_after.is_some() {
-        Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<ProductListingSearchCursor>::default().size),
-            search_after,
-        }))
-    } else {
-        Ok(None)
-    }
+    search::parse_cursor(size, search_after).map_err(Into::into)
 }
 
-fn parse_search_after(value: &str) -> Result<ProductListingSearchCursor, ApiError> {
-    let cursor =
-        serde_json::from_str::<ProductListingSearchCursorInputData>(value).map_err(|error| {
-            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("searchAfter")
-                .with_detail(error.to_string())
-        })?;
-    Ok(ProductListingSearchCursor {
-        fx_rate_id: crate::wire::parse_query_object_id(
-            &cursor.fx_rate_id,
-            "searchAfter",
-            "FxRate",
-        )?,
-        search_after: cursor.search_after,
+fn parse_search_after(value: &str) -> Result<ProductListingSearchCursorInputData, ApiError> {
+    serde_json::from_str(value).map_err(|error| {
+        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field("searchAfter")
+            .with_detail(error.to_string())
     })
 }
 
@@ -435,18 +152,45 @@ fn query_values(raw_query: Option<&str>, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+impl From<search::ListingInputError> for ApiError {
+    fn from(error: search::ListingInputError) -> Self {
+        let code = match error.kind {
+            search::ListingInputErrorKind::Value => BAD_QUERY_PARAMETER_VALUE,
+            search::ListingInputErrorKind::Identifier => crate::error::INVALID_OBJECT_ID,
+            search::ListingInputErrorKind::Sort => BAD_SORT_VALUE,
+            search::ListingInputErrorKind::Order => BAD_ORDER_VALUE,
+        };
+        Self::bad_request(code)
+            .with_query_field(error.field)
+            .with_detail(error.detail)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use auction_core::AuctionId;
+    use fxrate_core::FxRateId;
+    use listing_source_core::ListingSourceId;
+    use product_listing_core::{
+        listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
+        product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
+    };
+    use std::collections::HashSet;
+    use time::OffsetDateTime;
+
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
     use application::operation_context::OperationContext;
     use application::pagination::Cursor;
+
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use domain_primitives::sort::SortOrder;
+
     use localization::Language;
     use money::Currency;
+
     use product_listing_service::use_cases::{
         GetProductListingError, GetProductListingRequest, GetProductListingUseCase,
         GetSimilarProductListingsError, GetSimilarProductListingsRequest,
@@ -517,6 +261,28 @@ mod tests {
         ) -> Result<TransportPrincipal, AuthError> {
             Ok(TransportPrincipal::Anonymous)
         }
+    }
+
+    #[tokio::test]
+    async fn should_preserve_every_filter_at_the_shared_application_boundary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture =
+            include_str!("../../../aura-historia-contracts/tests/fixtures/listing-search.json");
+        let options = serde_json::from_str::<search::ProductListingSearchOptionsData>(fixture)?;
+        let expected = options.into_request(serde_json::from_str(fixture)?)?;
+        let query =
+            include_str!("../../../aura-historia-contracts/tests/fixtures/listing-search.query")
+                .trim();
+        let (app, calls) = app();
+        let response = app
+            .oneshot(Request::get(format!("/v1/product-listings?{query}")).body(Body::empty())?)
+            .await?;
+        assert_eq!(StatusCode::OK, response.status());
+        let calls = lock(&calls);
+        assert_eq!(1, calls.len());
+        assert_eq!(expected, calls[0].1);
+        assert!(matches!(calls[0].0.principal, Principal::Anonymous));
+        Ok(())
     }
 
     #[tokio::test]
@@ -672,14 +438,17 @@ mod tests {
             listing_source_id.as_uuid().to_string(),
             "ls_not-a-typeid".to_owned(),
         ] {
-            let Err(error) = parse_query_object_ids::<ListingSourceId>(
-                HashSet::from([invalid]),
-                "listingSourceId",
-                "ListingSource",
-            ) else {
+            let Err(error) =
+                ProductListingSearch::try_from(serde_json::from_value::<ProductListingSearchData>(
+                    serde_json::json!({"listingSourceId":[invalid]}),
+                )?)
+            else {
                 return Err("noncanonical ListingSource ID was accepted".into());
             };
-            assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
+            assert_eq!(
+                crate::error::INVALID_OBJECT_ID,
+                ApiError::from(error).code()
+            );
         }
 
         let auction_id = AuctionId::new();
@@ -688,14 +457,17 @@ mod tests {
             auction_id.as_uuid().to_string(),
             "auc_not-a-typeid".to_owned(),
         ] {
-            let Err(error) = parse_query_object_ids::<AuctionId>(
-                HashSet::from([invalid]),
-                "auctionId",
-                "Auction",
-            ) else {
+            let Err(error) =
+                ProductListingSearch::try_from(serde_json::from_value::<ProductListingSearchData>(
+                    serde_json::json!({"auctionId":[invalid]}),
+                )?)
+            else {
                 return Err("noncanonical Auction ID was accepted".into());
             };
-            assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
+            assert_eq!(
+                crate::error::INVALID_OBJECT_ID,
+                ApiError::from(error).code()
+            );
         }
 
         let fx_rate_id = FxRateId::new();
@@ -709,7 +481,10 @@ mod tests {
                 "searchAfter": ["next"]
             })
             .to_string();
-            let Err(error) = parse_search_after(&raw) else {
+            let query = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("searchAfter", &raw)
+                .finish();
+            let Err(error) = parse_cursor(Some(&query)) else {
                 return Err("noncanonical FxRate ID was accepted".into());
             };
             assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
@@ -878,15 +653,19 @@ mod tests {
     mod cursor_validation {
         use super::*;
         use crate::state::AppState;
+
         use embedding::{
             EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
         };
+
         use fxrate_core::FxRateSnapshot;
         use fxrate_service::ports::{FxRateSnapshotReadError, FxRateSnapshotReader};
+
         use opensearch::{
             OpenSearch,
             http::transport::{SingleNodeConnectionPool, TransportBuilder},
         };
+
         use product_listing_opensearch::OpenSearchProductListingSearchReader;
         use product_listing_service::ports::{
             ListingSourceSummaryReadError, ListingSourceSummaryReader,

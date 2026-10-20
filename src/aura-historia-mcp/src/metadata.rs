@@ -17,3 +17,18 @@ pub(crate) struct InvocationDeadline {
     pub deadline: Instant,
     pub request_id: String,
 }
+
+impl InvocationContext {
+    /// Bound application work by the request cancellation and absolute transport deadline.
+    pub(crate) async fn execute<T>(
+        &self,
+        work: impl std::future::Future<Output = T>,
+    ) -> Result<T, crate::OperationError> {
+        tokio::select! {
+            biased;
+            _=self.cancellation.cancelled()=>Err(crate::OperationError::Unavailable(application::error::static_error("invocation cancelled"))),
+            _=tokio::time::sleep_until(self.deadline)=>Err(crate::OperationError::Unavailable(application::error::static_error("invocation deadline elapsed"))),
+            result=work=>Ok(result),
+        }
+    }
+}

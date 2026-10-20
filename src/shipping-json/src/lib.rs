@@ -9,6 +9,7 @@ use geo::{
 use listing_source_core::ListingSourceId;
 use money::{Currency, Price};
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use shipping_core::{
     coverage::{
@@ -45,6 +46,15 @@ fn code<T>(v: &str, f: impl FnOnce(&str) -> Option<T>) -> Result<T, BoxError> {
 #[serde(transparent)]
 struct RequiredNullable<T>(Option<T>);
 
+impl<T: JsonSchema> JsonSchema for RequiredNullable<T> {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        format!("RequiredNullable_{}", T::schema_name()).into()
+    }
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        Option::<T>::json_schema(generator)
+    }
+}
+
 fn required<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<RequiredNullable<T>, D::Error> {
@@ -59,25 +69,28 @@ pub trait ShippingTermsReferenceCodec {
     fn encode_location(value: PartyLocationId) -> String;
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TermsData {
+    #[schemars(schema_with = "schema::version")]
     schema: String,
     #[serde(deserialize_with = "required")]
     shipping: RequiredNullable<PolicyData>,
     #[serde(deserialize_with = "required")]
     collection: RequiredNullable<CollectionData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PolicyData {
     Prohibited {},
     Coverage { coverage: Box<CoverageData> },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct CoverageData {
+    #[schemars(schema_with = "schema::release")]
     reference_release: String,
+    #[schemars(schema_with = "schema::completeness")]
     completeness: String,
     applicability: ApplicabilityData,
     exclusions: Vec<AreaData>,
@@ -85,29 +98,33 @@ struct CoverageData {
     #[serde(deserialize_with = "required")]
     dispatch_origin: RequiredNullable<SiteData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ZoneData {
     areas: Vec<AreaData>,
     applicability: ApplicabilityData,
     services: Vec<ServiceData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum AreaData {
     Anywhere {},
     Domestic {},
     Country {
         code: String,
+        #[schemars(schema_with = "schema::release")]
         reference_release: String,
     },
     Subdivision {
         code: String,
+        #[schemars(schema_with = "schema::release")]
         reference_release: String,
     },
     Postal {
+        #[schemars(schema_with = "schema::postal_version")]
         version: String,
         country: String,
+        #[schemars(schema_with = "schema::release")]
         reference_release: String,
         form: PostalData,
     },
@@ -115,14 +132,14 @@ enum AreaData {
         assertion: String,
     },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PostalData {
     Exact { code: String },
     GermanPrefix { prefix: String },
     GermanRange { first: String, last: String },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ApplicabilityData {
     #[serde(deserialize_with = "required")]
@@ -134,62 +151,72 @@ struct ApplicabilityData {
     #[serde(deserialize_with = "required")]
     threshold: RequiredNullable<ThresholdData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct QuantityData {
+    #[schemars(range(max = u64::MAX))]
     minimum: NonZeroU64,
+    #[schemars(range(max = u64::MAX))]
     maximum: NonZeroU64,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ThresholdData {
     minimum: MoneyData,
+    #[schemars(schema_with = "schema::scope")]
     scope: String,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct MoneyData {
+    #[schemars(range(max = u64::MAX))]
     amount_minor: u64,
     currency: String,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ServiceData {
     code: String,
     applicability: ApplicabilityData,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::eligibility")]
     eligibility: RequiredNullable<String>,
     #[serde(deserialize_with = "required")]
     rate: RequiredNullable<RateData>,
     lead_times: LeadTimesData,
+    #[schemars(schema_with = "schema::features")]
     features: Vec<String>,
     #[serde(deserialize_with = "required")]
     arranger: RequiredNullable<ActorData>,
     #[serde(deserialize_with = "required")]
     performer: RequiredNullable<ActorData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum ActorData {
     ListingSource {},
     Buyer {},
     Party { party_id: String },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct RateData {
     price: PriceData,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::charge_basis")]
     basis: RequiredNullable<String>,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::optional_scope")]
     qualifying_scope: RequiredNullable<String>,
+    #[schemars(schema_with = "schema::components")]
     components: BTreeMap<String, String>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PriceData {
     Free {
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::currency")]
         currency: RequiredNullable<String>,
     },
     Fixed {
@@ -204,14 +231,16 @@ enum PriceData {
     },
     ExternallyCalculated {
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::currency")]
         currency: RequiredNullable<String>,
     },
     OnRequest {
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::currency")]
         currency: RequiredNullable<String>,
     },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct LeadTimesData {
     #[serde(deserialize_with = "required")]
@@ -221,37 +250,42 @@ struct LeadTimesData {
     #[serde(deserialize_with = "required")]
     total: RequiredNullable<TimeData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TimeData {
     minimum: u32,
     maximum: u32,
+    #[schemars(schema_with = "schema::time_unit")]
     unit: String,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::time_basis")]
     basis: RequiredNullable<String>,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::trigger")]
     trigger: RequiredNullable<String>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct CollectionData {
     applicability: ApplicabilityData,
+    #[schemars(schema_with = "schema::dependency")]
     dependency: String,
     #[serde(deserialize_with = "required")]
+    #[schemars(schema_with = "schema::eligibility")]
     eligibility: RequiredNullable<String>,
     #[serde(deserialize_with = "required")]
     site: RequiredNullable<SiteData>,
     #[serde(deserialize_with = "required")]
     arrangement: RequiredNullable<ArrangementData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum ArrangementData {
     ByAppointment {},
     ContactToArrange {},
     Window { duration: TimeData },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum SiteData {
     PartyLocation {
@@ -784,6 +818,45 @@ pub fn encode<C: ShippingTermsReferenceCodec>(
     .map_err(box_error)
 }
 
+pub mod listing_delivery;
+
+/// Schema of the same terms DTOs used by the codec. Each public or storage adapter supplies
+/// its reference representation, just as it does when encoding and decoding the values.
+pub fn terms_schema(generator: &mut SchemaGenerator, party: Schema, location: Schema) -> Schema {
+    let schema = generator.subschema_for::<TermsData>();
+    fn references(value: &mut serde_json::Value, party: &Schema, location: &Schema) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if let Some(properties) = object
+                    .get_mut("properties")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    for (name, schema) in [("party_id", party), ("party_location_id", location)] {
+                        if let Some(value) = properties.get_mut(name) {
+                            *value = serde_json::to_value(schema).expect("schema is JSON");
+                        }
+                    }
+                }
+                for value in object.values_mut() {
+                    references(value, party, location);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    references(value, party, location);
+                }
+            }
+            _ => {}
+        }
+    }
+    for definition in generator.definitions_mut().values_mut() {
+        references(definition, &party, &location);
+    }
+    schema
+}
+
+mod schema;
+
 #[cfg(test)]
 mod tests {
     use super::TermsData;
@@ -801,5 +874,3 @@ mod tests {
         }
     }
 }
-
-pub mod listing_delivery;

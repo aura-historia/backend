@@ -6,10 +6,12 @@
 
 mod postgres;
 mod public_listing_sources;
+mod public_product_listings;
 mod rotation;
 
 pub use postgres::PostgresConfigError;
 pub use public_listing_sources::PublicListingSources;
+pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
 
 use sqlx::PgPool;
@@ -19,6 +21,8 @@ use std::sync::OnceLock;
 pub struct Runtime {
     postgres: PgPool,
     public_listing_sources: OnceLock<PublicListingSources>,
+    public_product_listings: OnceLock<PublicProductListings>,
+    listing_shipping: OnceLock<product_listing_service::shipping::ShippingEnrichment>,
 }
 
 impl Runtime {
@@ -26,6 +30,8 @@ impl Runtime {
         Self {
             postgres,
             public_listing_sources: OnceLock::new(),
+            public_product_listings: OnceLock::new(),
+            listing_shipping: OnceLock::new(),
         }
     }
 
@@ -40,6 +46,24 @@ impl Runtime {
     /// Request handlers must use inbound use cases rather than this pool.
     pub fn postgres_pool(&self) -> &PgPool {
         &self.postgres
+    }
+
+    pub fn public_product_listings(
+        &self,
+        dependencies: ProductListingDependencies,
+    ) -> &PublicProductListings {
+        self.public_product_listings.get_or_init(|| {
+            PublicProductListings::compose(
+                &self.postgres,
+                self.listing_shipping().clone(),
+                dependencies,
+            )
+        })
+    }
+
+    pub fn listing_shipping(&self) -> &product_listing_service::shipping::ShippingEnrichment {
+        self.listing_shipping
+            .get_or_init(|| public_product_listings::shipping(&self.postgres))
     }
 
     pub fn public_listing_sources(&self) -> &PublicListingSources {

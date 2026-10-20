@@ -186,16 +186,7 @@ where
 }
 
 pub(crate) mod source_listing_id {
-    use product_listing_core::source_listing_id::SourceListingId;
-
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &SourceListingId, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(value.as_ref())
-    }
+    pub(crate) use aura_historia_contracts::wire::source_listing_id::serialize;
 }
 
 pub(crate) mod currency {
@@ -298,26 +289,9 @@ pub(crate) mod listing_availability {
     }
 
     pub(crate) mod option {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            value: &Option<ListingAvailability>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_option_code(value, serializer, ListingAvailability::as_str)
-        }
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<Option<ListingAvailability>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_option_code(deserializer, parse, None)
-        }
+        pub(crate) use aura_historia_contracts::wire::listing::availability_option::{
+            deserialize, serialize,
+        };
     }
 
     pub(crate) mod patch_set {
@@ -333,25 +307,6 @@ pub(crate) mod listing_availability {
         }
     }
 
-    pub(crate) mod set_option {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<Option<HashSet<ListingAvailability>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
-                values
-                    .into_iter()
-                    .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, None)))
-                    .collect::<Result<HashSet<_>, D::Error>>()
-                    .map(Some)
-            })
-        }
-    }
-
     pub(crate) mod patch {
         use super::*;
 
@@ -363,45 +318,6 @@ pub(crate) mod listing_availability {
         {
             deserialize_patch_code(deserializer, parse, None)
         }
-    }
-}
-
-pub(crate) mod listing_orderability {
-    use super::*;
-    use product_listing_core::listing_orderability::ListingOrderability;
-
-    pub(crate) mod set_option {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<Option<HashSet<ListingOrderability>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
-                values
-                    .into_iter()
-                    .map(|value| {
-                        ListingOrderability::from_code(&value)
-                            .ok_or_else(|| invalid_code(&value, None))
-                    })
-                    .collect::<Result<HashSet<_>, D::Error>>()
-                    .map(Some)
-            })
-        }
-    }
-}
-
-pub(crate) mod listing_lifecycle {
-    use super::*;
-    use product_listing_core::listing_lifecycle::ListingLifecycle;
-
-    pub(crate) fn serialize<S>(value: &ListingLifecycle, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ListingLifecycle::as_str)
     }
 }
 

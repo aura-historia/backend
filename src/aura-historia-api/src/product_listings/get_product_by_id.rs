@@ -6,20 +6,10 @@ use crate::wire::parse_path_object_id;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use localization::Language;
-use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{GetProductListingRequest, ProductListingLookup};
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-struct ProductListingDetailsQuery {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-}
+use aura_historia_contracts::product_listings::presentation::ProductListingPresentationData as ProductListingDetailsQuery;
 
 pub async fn get_product_by_id(
     State(state): State<ProductListingsState>,

@@ -93,6 +93,33 @@ messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
 
+## Public listing family
+
+The module-local [listing registrations](../src/aura-historia-mcp/src/product_listings/mod.rs)
+provide these public read operations for release composition; the production registry remains
+empty until the public release selects its families.
+
+| Tool / source operation ID | Arguments | Result |
+| --- | --- | --- |
+| `simpleSearchProductListings` | Complete existing filters plus `sort`, `order`, `size` and `searchAfter` | Existing cursored summary response, including totals when supplied by the service |
+| `getProductListing` | `productListingId`, language and currency | Existing personalized detail envelope; anonymous results omit `userState` |
+| `getProductListingByTitleSlug` | `productListingTitleSlugId`, language and currency | The same detail envelope |
+| `getSimilarProductListings` | `productListingId`, language and currency | `{ "status": "EMBEDDING_PENDING" }` or `{ "status": "READY", "items": [...] }` |
+
+Search preserves geography, shipping, all identifier inclusion/exclusion sets, price and date
+ranges, availability, orderability and unspecified-availability predicates. Presentation defaults,
+size clamping and FX-bound continuation follow the shared contract. `searchAfter` is the existing
+cursor object supplied directly as JSON; REST alone encodes that object into its query string.
+Unsigned amounts, revisions and opaque integer sort values remain exact JSON integers.
+
+The similarity envelope represents REST's bodyless pending HTTP outcome. Pending means the
+embedding is unavailable and callers may retry the same operation later; `READY` with an empty
+array is a completed result. The service owns the fixed neighbor limit, so no `size` argument
+is offered. All four tools use native inbound use cases and the same shared DTOs and pure
+mappings as REST, preserving localization/fallback, source-local identifiers, outbound URLs,
+shipping disclosure, content policy and withdrawn-listing handling. Listing input schemas and
+output schemas derive from those shared types, including explicit custom-codec annotations.
+
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON
