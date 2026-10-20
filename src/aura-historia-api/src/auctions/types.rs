@@ -19,6 +19,7 @@ use auction_service::{
         queries::get_auction::AuctionAdminDetailsView,
     },
 };
+pub(crate) use aura_historia_contracts::auctions::AuctionScheduleResponseData;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -191,30 +192,6 @@ impl From<AuctionAdminDetailsView> for AuctionAdminData {
 
             created: value.created,
             updated: value.updated,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AuctionScheduleResponseData {
-    #[serde(with = "time::serde::rfc3339::option")]
-    bidding_opens: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    live_starts: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    lots_begin_closing: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    scheduled_end: Option<OffsetDateTime>,
-}
-
-impl From<AuctionSchedule> for AuctionScheduleResponseData {
-    fn from(value: AuctionSchedule) -> Self {
-        Self {
-            bidding_opens: value.bidding_opens(),
-            live_starts: value.live_starts(),
-            lots_begin_closing: value.lots_begin_closing(),
-            scheduled_end: value.scheduled_end(),
         }
     }
 }

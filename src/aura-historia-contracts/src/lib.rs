@@ -11,3 +11,5 @@ pub mod geographic_search;
 pub mod product_listings;
 pub mod shipping;
 pub mod shipping_search;
+
+pub mod auctions;

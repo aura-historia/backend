@@ -27,8 +27,9 @@ pub fn schema(_generator: &mut SchemaGenerator) -> Schema {
 
 /// Canonical optional currency input and output used by existing query contracts.
 pub mod option {
-    use super::*;
-    use serde::{Deserialize, Serialize};
+    use money::Currency;
+    use schemars::{Schema, SchemaGenerator, json_schema};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S: Serializer>(
         value: &Option<Currency>,

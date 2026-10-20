@@ -90,6 +90,11 @@ async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
             &runtime.public_overview().get,
             &runtime.public_overview().get,
         ));
+        let auctions = runtime.public_auctions();
+        let same_auctions = runtime.public_auctions();
+        assert!(Arc::ptr_eq(&auctions.get, &same_auctions.get));
+        assert!(Arc::ptr_eq(&auctions.list, &same_auctions.list));
+        assert!(Arc::ptr_eq(&auctions.catalogue, &same_auctions.catalogue));
         let result = family
             .search
             .execute(&context(), search(Some("a"))?)

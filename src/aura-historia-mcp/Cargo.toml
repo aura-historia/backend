@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
+auction-core = { workspace = true }
+auction-service = { workspace = true }
 aura-historia-contracts = { workspace = true }
 aura-historia-runtime = { workspace = true }
 axum = { workspace = true }
@@ -34,6 +36,7 @@ user-service = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
@@ -42,5 +45,6 @@ localization = { workspace = true }
 money = { workspace = true }
 party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+shipping-core = { workspace = true, features = ["test-data"] }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["test-util"] }

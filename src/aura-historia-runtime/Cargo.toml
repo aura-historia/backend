@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+auction-postgres = { workspace = true }
+auction-service = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }

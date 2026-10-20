@@ -5,6 +5,7 @@
 //! with their existing owners. Extract further families only when a transport needs them.
 
 mod postgres;
+mod public_auctions;
 mod public_listing_source_read_budget;
 mod public_listing_sources;
 mod public_overview;
@@ -14,6 +15,7 @@ mod public_product_listings;
 mod rotation;
 
 pub use postgres::PostgresConfigError;
+pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
 pub use public_listing_sources::PublicListingSources;
 pub use public_overview::PublicOverview;
@@ -30,6 +32,7 @@ pub struct Runtime {
     postgres: PgPool,
     public_listing_sources: OnceLock<PublicListingSources>,
     public_product_listing_history: OnceLock<PublicProductListingHistory>,
+    public_auctions: OnceLock<PublicAuctions>,
     public_product_listings: OnceLock<PublicProductListings>,
     listing_shipping: OnceLock<product_listing_service::shipping::ShippingEnrichment>,
     public_party_locations: OnceLock<PublicPartyLocations>,
@@ -42,6 +45,7 @@ impl Runtime {
             postgres,
             public_listing_sources: OnceLock::new(),
             public_product_listing_history: OnceLock::new(),
+            public_auctions: OnceLock::new(),
             public_product_listings: OnceLock::new(),
             listing_shipping: OnceLock::new(),
             public_party_locations: OnceLock::new(),
@@ -83,6 +87,12 @@ impl Runtime {
     pub fn public_product_listing_history(&self) -> &PublicProductListingHistory {
         self.public_product_listing_history
             .get_or_init(|| PublicProductListingHistory::compose(&self.postgres))
+    }
+
+    pub fn public_auctions(&self) -> &PublicAuctions {
+        self.public_auctions.get_or_init(|| {
+            PublicAuctions::compose(&self.postgres, self.listing_shipping().clone())
+        })
     }
 
     pub fn public_listing_sources(&self) -> &PublicListingSources {

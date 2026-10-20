@@ -411,6 +411,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "auction-core",
+ "auction-service",
  "base64 0.23.1",
  "domain-primitives",
  "fxrate-core",
@@ -462,10 +463,13 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-service",
  "aura-historia-contracts",
  "aura-historia-runtime",
  "axum",
  "base64 0.23.1",
+ "domain-primitives",
  "fxrate-core",
  "fxrate-service",
  "geo",
@@ -487,6 +491,7 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "shipping-core",
  "shipping-service",
  "thiserror 2.0.21",
  "time",
@@ -511,6 +516,8 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-postgres",
+ "auction-service",
  "embedding",
  "fxrate-postgres",
  "fxrate-service",
