@@ -26,9 +26,10 @@ use product_listing_service::ports::{
     ProductListingDetailsBatchReadRequest, ProductListingDetailsBatchReader,
 };
 use product_listing_service::use_cases::{
-    PersonalizedProductListingDetailsView, ProductListingPricingPresentationError,
-    present_product_details, redact_hidden_product,
+    PersonalizedProductListingDetailsView, ProductListingDetailsWithUserState,
+    ProductListingPricingPresentationError, present_product_details, redact_hidden_product,
 };
+use product_listing_service::user_state::ProductListingUserStateDisclosure;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 
@@ -268,8 +269,12 @@ where
                 valuation_at,
             )
             .await?;
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
         Ok(CursoredResult {
-            items: product_listings,
+            items: product_listings
+                .into_iter()
+                .map(|product| disclosure.disclose(product))
+                .collect(),
             cursor: matches.cursor,
             total: matches.total,
         })
@@ -338,7 +343,7 @@ fn present_with_pricing_snapshot(
     factual_details: PersonalizedProductListingDetailsReadModel,
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
-) -> Result<PersonalizedProductListingDetailsView, ListSearchFilterMatchesError> {
+) -> Result<ProductListingDetailsWithUserState, ListSearchFilterMatchesError> {
     let snapshot = match factual_details.item.sale_observation.filter(|_| {
         factual_details.item.availability == Some(ListingAvailability::SoldOut)
             || factual_details.item.lifecycle == ListingLifecycle::Withdrawn
@@ -461,7 +466,10 @@ mod tests {
     };
     use product_listing_service::ports::{ListingSourceSummary, ProductListingDetailsReadModel};
     use product_listing_service::use_cases::ProductListingPricingValuation;
-    use product_listing_service::user_state::{NotificationUserState, ProductListingUserState};
+    use product_listing_service::user_state::{
+        ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
+        ProductListingUserStateView, SearchFilterUserState, WatchlistUserState,
+    };
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -730,7 +738,7 @@ mod tests {
         let second_sale_product_listing_id = ProductListingId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let mut expected_user_state = ProductListingUserState {
+        let user_state = ProductListingUserState {
             shipping: None,
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
@@ -738,13 +746,22 @@ mod tests {
             ..Default::default()
         };
         let mut current = product(current_product_listing_id)?;
-        current.user_state = Some(expected_user_state.clone());
+        current.user_state = Some(user_state.clone());
         let shipping_valuation = search_filter_core::ShippingMatchValuation {
             fx_rate_id: FxRateId::new(),
             captured_at: OffsetDateTime::UNIX_EPOCH,
             maximum_per_item: money::Price::new(7500_u64.into(), Currency::Usd),
         };
-        expected_user_state.search_filter.shipping_match_valuation = Some(shipping_valuation);
+        let expected_user_state = ProductListingUserStateView {
+            shipping: None,
+            watchlist: Some(user_state.watchlist),
+            content_visibility: Some(user_state.content_visibility),
+            notification: Some(user_state.notification),
+            search_filter: Some(SearchFilterUserState {
+                shipping_match_valuation: Some(shipping_valuation),
+                ..user_state.search_filter
+            }),
+        };
         let mut first_sale = product(first_sale_product_listing_id)?;
         first_sale.item.sale_observation = Some(ListingSaleObservation::new(
             OffsetDateTime::UNIX_EPOCH,
@@ -817,6 +834,64 @@ mod tests {
             HashSet::from([sale_snapshot.id()]),
             state.sale_snapshot_requests[0].iter().copied().collect()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_disclose_only_saved_search_state_to_a_search_filter_read_delegate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let product_listing_id = ProductListingId::new();
+        let search_filter = SearchFilterUserState {
+            matched: true,
+            hidden: true,
+            user_search_filter_id: Some(UserSearchFilterId::new()),
+            match_feedback: Some(false),
+            ..Default::default()
+        };
+        let mut matched = product(product_listing_id)?;
+        matched.user_state = Some(ProductListingUserState {
+            shipping: None,
+            watchlist: WatchlistUserState {
+                watching: true,
+                notifications: true,
+            },
+            content_visibility: ContentVisibilityUserState {
+                show_unassessed_or_sensitive_content: true,
+            },
+            notification: NotificationUserState {
+                unseen_notification_ids: vec![Default::default()],
+            },
+            search_filter: search_filter.clone(),
+        });
+        let state = Arc::new(Mutex::new(State {
+            latest_snapshot: Some(snapshot(FxRateId::new())?),
+            ..Default::default()
+        }));
+        let context = OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id,
+                capabilities: [CredentialCapability::SearchFiltersRead].into(),
+            },
+            ..context()
+        };
+
+        let result = handler(
+            &state,
+            vec![match_item(product_listing_id)],
+            HashMap::from([(product_listing_id, matched)]),
+        )
+        .execute(&context, request(user_id))
+        .await?;
+
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                search_filter: Some(search_filter),
+                ..Default::default()
+            }),
+            result.items[0].user_state
+        );
+        assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
         Ok(())
     }
 

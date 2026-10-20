@@ -1,6 +1,6 @@
 //! Current shipping enrichment for public listing reads. Buyer state never enters item data.
 use crate::{
-    use_cases::{PersonalizedProductListingDetailsView, PersonalizedProductListingSummary},
+    use_cases::{ProductListingDetailsWithUserState, ProductListingSummaryWithUserState},
     user_state::ProductListingUserState,
 };
 use application::operation_context::OperationContext;
@@ -293,7 +293,7 @@ impl ShippingEnrichment {
     pub async fn details(
         &self,
         context: &OperationContext,
-        items: &mut [PersonalizedProductListingDetailsView],
+        items: &mut [ProductListingDetailsWithUserState],
         currency: Currency,
         snapshot: Option<&FxRateSnapshot>,
         valuation_at: OffsetDateTime,
@@ -324,7 +324,7 @@ impl ShippingEnrichment {
     pub async fn summaries(
         &self,
         context: &OperationContext,
-        items: &mut [PersonalizedProductListingSummary],
+        items: &mut [ProductListingSummaryWithUserState],
         currency: Currency,
         snapshot: &FxRateSnapshot,
     ) -> Result<(), ShippingReadError> {

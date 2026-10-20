@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-20 — Scoped personalization for delegated tokens (#2213)
+
+- Aura Historia access tokens now receive each `userState` section only with its read scope: `watchlist` needs `watchlist:read`, `notification` needs `notifications:read`, `searchFilter` needs `search-filters:read`, and `contentVisibility` needs `users:read`. This applies to product-listing detail by ID and slug, search, similar listings, auction catalogues, watchlists and saved-search matches. These tokens previously received every section regardless of scope.
+- Sections without their scope are omitted rather than returned as `false` or empty values. `userState` is omitted when no section applies. `ProductListingUserStateData` therefore no longer requires `watchlist`, `contentVisibility`, `notification` or `searchFilter`; regenerate clients that assumed them. `userState.shipping` keeps its existing `users:read` requirement.
+- The watchlist PATCH response still includes the updated `userState.watchlist` with only `watchlist:write`; its other sections now follow the read scopes above.
+- Undisclosed state still applies to the listing: matches hidden by the saved-search quota remain redacted, and the stored content preference still decides image visibility. Cognito users and anonymous callers are unaffected.
+
 ## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
 
 - CloudFront no longer applies its EC2 metadata SSRF and IPv4 remote-file-inclusion request checks to OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` or `POST /api/v1/oauth/token`. Contract-valid loopback HTTPS redirect URIs, such as `https://localhost:3458/oauth/callback` used by Shopify CLI `--use-localhost` development, therefore reach the API's redirect URI validation. Registering that URI previously failed with an HTML `403` (`Request blocked.`) before authentication or validation. Redirect URI validation is unchanged, and other routes keep these checks.

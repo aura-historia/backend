@@ -1483,6 +1483,8 @@ Scopes belong to delegated Aura Historia access tokens, not Cognito JWTs. Cognit
 
 Aura Historia access tokens use a closed-world assumption: a delegated principal has only the scopes stored on the token. Use cases that protect a state change or private read MUST check the narrowest matching `CredentialCapability` before executing protected work.
 
+A query that returns private per-user state alongside public data MUST disclose each private section only when the delegated credential holds that section's read capability, even when the query itself is public. Undisclosed state still drives enforcement such as visibility, entitlement or redaction; disclosure filtering MUST NOT replace it by treating the caller as anonymous.
+
 Scope names SHOULD use `resource:action` with plural resources and stable actions; the exact registry is owned by the credential contract and public API. Prefer `read`, `write`, or an explicit non-role action over vague scopes such as `records:manage`. Roles are not scopes: admin-only use cases MUST check the relevant role or policy after credential capability checks. Public queries SHOULD NOT require scopes unless authenticated state changes the returned private data or policy.
 
 ### 15.7 Operational identity logging

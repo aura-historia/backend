@@ -25,6 +25,7 @@ use product_listing_service::use_cases::{
     GetProductListingError, PersonalizedProductListingDetailsView, ProductListingLookup,
     present_product_details, redact_hidden_product,
 };
+use product_listing_service::user_state::ProductListingUserStateDisclosure;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use user_service::ports::{
@@ -336,7 +337,12 @@ where
             product_listing_id = %command.product_listing_id,
             outcome = if changed { "success" } else { "unchanged" },
         );
-        Ok(UpdateWatchlistProductListingResult { product })
+        // The written entry is the operation's result; other private sections need read scopes.
+        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal)
+            .including_watchlist();
+        Ok(UpdateWatchlistProductListingResult {
+            product: disclosure.disclose(product),
+        })
     }
 }
 
@@ -449,7 +455,9 @@ mod tests {
         ProductListingLifecycleGuardFactory,
     };
     use product_listing_service::use_cases::ProductListingPricingValuation;
-    use product_listing_service::user_state::ProductListingUserState;
+    use product_listing_service::user_state::{
+        ProductListingUserState, ProductListingUserStateView, WatchlistUserState,
+    };
     use strum::IntoEnumIterator;
     use url::Url;
 
@@ -1261,6 +1269,7 @@ mod tests {
                 .as_ref()
                 .expect("user state")
                 .watchlist
+                .expect("watchlist state")
                 .notifications
         );
         assert_eq!(product_listing_id, result.product.item.product_listing_id);
@@ -1296,8 +1305,8 @@ mod tests {
         .map_err(|error| error.to_string())?;
 
         let user_state = result.product.user_state.as_ref().expect("user state");
-        assert!(user_state.watchlist.notifications);
-        assert!(user_state.watchlist.watching);
+        assert!(user_state.watchlist.expect("watchlist state").notifications);
+        assert!(user_state.watchlist.expect("watchlist state").watching);
         assert_eq!(product_listing_id, result.product.item.product_listing_id);
         assert_eq!(0, state.updated());
         assert!(state.committed());
@@ -1447,7 +1456,8 @@ mod tests {
                     .product
                     .user_state
                     .expect("user state")
-                    .watchlist;
+                    .watchlist
+                    .expect("watchlist state");
                 assert!(!watchlist.watching);
                 assert!(!watchlist.notifications);
                 assert_eq!(1, state.updated());
@@ -1506,6 +1516,7 @@ mod tests {
                 .as_ref()
                 .expect("user state")
                 .watchlist
+                .expect("watchlist state")
                 .watching
         );
         assert_eq!(1, state.lifecycle_guard_calls());
@@ -1685,9 +1696,16 @@ mod tests {
         user_state.notification.unseen_notification_ids = vec![Default::default()];
         user_state.search_filter.matched = true;
         user_state.search_filter.match_feedback = Some(false);
-        let mut expected_user_state = user_state.clone();
-        expected_user_state.watchlist.watching = true;
-        expected_user_state.watchlist.notifications = true;
+        let expected_user_state = ProductListingUserStateView {
+            shipping: user_state.shipping.clone(),
+            watchlist: Some(WatchlistUserState {
+                watching: true,
+                notifications: true,
+            }),
+            content_visibility: Some(user_state.content_visibility),
+            notification: Some(user_state.notification.clone()),
+            search_filter: Some(user_state.search_filter.clone()),
+        };
         let expected_item = factual.item.clone();
         state
             .presentation
@@ -1777,7 +1795,12 @@ mod tests {
             )
             .await
             .expect("deactivated response");
-            let watchlist = result.product.user_state.expect("user state").watchlist;
+            let watchlist = result
+                .product
+                .user_state
+                .expect("user state")
+                .watchlist
+                .expect("watchlist state");
             assert!(!watchlist.watching);
             assert!(watchlist.notifications);
             assert_eq!(usize::from(changed), state.updated());
@@ -1806,7 +1829,12 @@ mod tests {
         )
         .await
         .expect("persisted response");
-        let watchlist = result.product.user_state.expect("user state").watchlist;
+        let watchlist = result
+            .product
+            .user_state
+            .expect("user state")
+            .watchlist
+            .expect("watchlist state");
         assert!(!watchlist.watching);
         assert!(watchlist.notifications);
         assert_eq!(1, state.updated());
@@ -1881,9 +1909,15 @@ mod tests {
             assert!(product.item.lot.is_none());
             assert!(product.item.shipping.is_none());
             let user_state = product.user_state.expect("user state");
-            assert!(user_state.search_filter.hidden);
-            assert!(user_state.watchlist.watching);
-            assert!(!user_state.watchlist.notifications);
+            assert!(
+                user_state
+                    .search_filter
+                    .as_ref()
+                    .expect("search filter state")
+                    .hidden
+            );
+            assert!(user_state.watchlist.expect("watchlist state").watching);
+            assert!(!user_state.watchlist.expect("watchlist state").notifications);
             assert!(user_state.shipping.is_none());
             assert!(state.committed());
         }
@@ -1947,7 +1981,11 @@ mod tests {
                 ))),
                 product.item.pricing.display.price
             );
-            let watchlist = product.user_state.expect("user state").watchlist;
+            let watchlist = product
+                .user_state
+                .expect("user state")
+                .watchlist
+                .expect("watchlist state");
             assert!(watchlist.watching);
             assert_eq!(notifications.unwrap_or(true), watchlist.notifications);
             assert_eq!(0, state.lifecycle_guard_calls());
@@ -2304,13 +2342,16 @@ mod tests {
         )
         .await
         .expect("write-only delegated actor");
-        assert!(
-            !result
-                .product
-                .user_state
-                .expect("user state")
-                .watchlist
-                .notifications
+        // The response discloses the written entry, but no section that needs another read scope.
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                watchlist: Some(WatchlistUserState {
+                    watching: true,
+                    notifications: false,
+                }),
+                ..Default::default()
+            }),
+            result.product.user_state
         );
         assert!(state.committed());
 

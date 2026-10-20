@@ -183,7 +183,7 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_service::ports::ListingSourceSummary;
-    use product_listing_service::user_state::ProductListingUserState;
+    use product_listing_service::user_state::ProductListingUserStateView;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;
@@ -344,7 +344,11 @@ mod tests {
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
-            user_state: Some(ProductListingUserState::default()),
+            user_state: Some(ProductListingUserStateView {
+                watchlist: Some(Default::default()),
+                notification: Some(Default::default()),
+                ..Default::default()
+            }),
         })
     }
 

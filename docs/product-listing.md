@@ -122,6 +122,21 @@ Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts
 
 Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
+### Personalized user state
+
+Listing reads may attach `userState`, the caller's private state for each returned listing. Use cases load the complete state for enforcement, then disclose it through one shared policy. Delegated credentials are closed-world, so each section needs its own read scope wherever listings are returned, including public routes:
+
+| Section | Delegated read scope |
+| --- | --- |
+| Watchlist state and settings | `watchlist:read` |
+| Unseen notification IDs | `notifications:read` |
+| Saved-search match, name, feedback and hidden flag | `search-filters:read` |
+| Content preference and browsing-destination shipping | `users:read` |
+
+Undisclosed sections are absent, never defaulted, and an empty `userState` is omitted. A write response may also disclose the state it wrote, such as the watchlist entry updated with `watchlist:write`. Cognito users, services and the system keep full disclosure.
+
+Disclosure never weakens enforcement. Quota-hidden redaction, entitlement decisions and [image visibility](#content-assessment-and-image-visibility) still use the loaded state when a section is withheld, so a principal is never treated as anonymous to hide personalization. Exact fields remain in [OpenAPI](swagger.yaml).
+
 ## Management inspection and mutation
 
 The `/api/v1/admin/product-listings` directory and detail return authoritative original facts from PostgreSQL, including retained `WITHDRAWN` listings. Administrator authority is checked before reading the target or directory. Delegated credentials additionally require `product-listings:read` for reads and `product-listings:write` for mutations; Cognito users use their persisted role. Partnership/source ingestion grants are not prerequisites. All responses, including errors, are `private, no-store`.
