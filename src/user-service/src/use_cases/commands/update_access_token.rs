@@ -38,6 +38,8 @@ pub enum UpdateAccessTokenError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("delegated credentials cannot expand access token authority")]
+    DelegatedAuthorityExpansionForbidden,
     #[error("access token not found")]
     AccessTokenNotFound,
     #[error("access token name is required")]
@@ -133,7 +135,13 @@ where
             .await?
             .ok_or(UpdateAccessTokenError::AccessTokenNotFound)?;
 
+        // Delegates may rename a token, narrow its scopes or shorten its expiry,
+        // but never widen it, including the token they authenticate with.
+        let current = access_token.clone();
         let changed = apply_update(&mut access_token, command)?;
+        if context.principal.is_delegated() && !access_token.grants_no_more_than(&current) {
+            return Err(UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden);
+        }
         if changed {
             access_token = repository.update(&access_token, version).await?.value;
         }
@@ -254,6 +262,7 @@ mod tests {
     use domain_primitives::versioned::Versioned;
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
         NewAccessToken, RawAccessToken, Scope,
@@ -290,14 +299,22 @@ mod tests {
     }
 
     fn token(user_id: UserId) -> AccessToken {
+        token_with(user_id, HashSet::from([Scope::ProductListingsWrite]), None)
+    }
+
+    fn token_with(
+        user_id: UserId,
+        scopes: HashSet<Scope>,
+        expires: Option<OffsetDateTime>,
+    ) -> AccessToken {
         AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: RawAccessToken::new().into(),
             user_id,
             name: AccessTokenName::from("test token"),
-            scopes: HashSet::from([Scope::ProductListingsWrite]),
+            scopes,
             origin: AccessTokenOrigin::User,
-            expires: None,
+            expires,
         })
     }
 
@@ -462,5 +479,227 @@ mod tests {
         let state = lock(&fakes.0);
         assert_eq!(1, state.begins);
         assert_eq!(0, state.commits);
+    }
+
+    fn delegate(user_id: UserId, capabilities: &[Scope]) -> Principal {
+        Principal::DelegatedUser {
+            user_id,
+            capabilities: capabilities.iter().copied().collect(),
+        }
+    }
+
+    fn fakes_with(token: &AccessToken) -> Fakes {
+        let fakes = Fakes::default();
+        lock(&fakes.0).token = Some(versioned(token.clone()));
+        fakes
+    }
+
+    fn stored(fakes: &Fakes) -> Option<AccessToken> {
+        lock(&fakes.0).token.clone().map(|token| token.value)
+    }
+
+    #[tokio::test]
+    async fn should_reject_delegated_authority_expansion_without_storing_change() {
+        let user_id = UserId::new();
+        let expires = OffsetDateTime::now_utc() + Duration::days(1);
+        let capabilities = [Scope::AccessTokensWrite, Scope::ProductListingsWrite];
+        let own_token = token_with(user_id, HashSet::from(capabilities), Some(expires));
+        let other_token = token_with(user_id, HashSet::from([Scope::UsersRead]), Some(expires));
+
+        for (current, scopes, new_expires) in [
+            (
+                &own_token,
+                PatchField::Set(HashSet::from([
+                    Scope::AccessTokensWrite,
+                    Scope::ProductListingsWrite,
+                    Scope::UsersWrite,
+                ])),
+                PatchField::Unchanged,
+            ),
+            (
+                &other_token,
+                PatchField::Set(HashSet::from([Scope::UsersRead, Scope::UsersWrite])),
+                PatchField::Unchanged,
+            ),
+            (
+                &other_token,
+                PatchField::Set(HashSet::from([Scope::ProductListingsWrite])),
+                PatchField::Unchanged,
+            ),
+            (&own_token, PatchField::Unchanged, PatchField::Clear),
+            (&other_token, PatchField::Unchanged, PatchField::Clear),
+            (
+                &own_token,
+                PatchField::Unchanged,
+                PatchField::Set(expires + Duration::seconds(1)),
+            ),
+            (
+                &other_token,
+                PatchField::Set(HashSet::new()),
+                PatchField::Set(expires + Duration::days(365)),
+            ),
+        ] {
+            let fakes = fakes_with(current);
+            let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(delegate(user_id, &capabilities)),
+                    UpdateAccessTokenCommand {
+                        user_id,
+                        access_token_id: current.id(),
+                        name: PatchField::Set(AccessTokenName::from("renamed")),
+                        scopes: scopes.clone(),
+                        expires: new_expires.clone(),
+                    },
+                )
+                .await;
+
+            assert!(
+                matches!(
+                    result,
+                    Err(UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden)
+                ),
+                "scopes {scopes:?}, expires {new_expires:?}: {result:?}"
+            );
+            assert_eq!(Some(current.clone()), stored(&fakes));
+            let state = lock(&fakes.0);
+            assert_eq!(0, state.update_calls);
+            assert_eq!(0, state.commits);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_allow_delegated_rename_and_narrowing_updates() {
+        let user_id = UserId::new();
+        let expires = OffsetDateTime::now_utc() + Duration::days(1);
+        let earlier = expires - Duration::hours(1);
+        let capabilities = [Scope::AccessTokensWrite];
+        let scoped = HashSet::from([Scope::UsersRead, Scope::UsersWrite]);
+        let finite = token_with(user_id, scoped.clone(), Some(expires));
+        let unlimited = token_with(user_id, scoped.clone(), None);
+
+        for (current, scopes, new_expires, expected_scopes, expected_expires) in [
+            (
+                &finite,
+                PatchField::Unchanged,
+                PatchField::Unchanged,
+                scoped.clone(),
+                Some(expires),
+            ),
+            (
+                &finite,
+                PatchField::Set(HashSet::from([Scope::UsersRead])),
+                PatchField::Set(earlier),
+                HashSet::from([Scope::UsersRead]),
+                Some(earlier),
+            ),
+            (
+                &finite,
+                PatchField::Clear,
+                PatchField::Set(expires),
+                HashSet::new(),
+                Some(expires),
+            ),
+            (
+                &unlimited,
+                PatchField::Set(scoped.clone()),
+                PatchField::Set(expires),
+                scoped.clone(),
+                Some(expires),
+            ),
+            (
+                &unlimited,
+                PatchField::Unchanged,
+                PatchField::Clear,
+                scoped.clone(),
+                None,
+            ),
+        ] {
+            let fakes = fakes_with(current);
+            let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(delegate(user_id, &capabilities)),
+                    UpdateAccessTokenCommand {
+                        user_id,
+                        access_token_id: current.id(),
+                        name: PatchField::Set(AccessTokenName::from("renamed")),
+                        scopes: scopes.clone(),
+                        expires: new_expires.clone(),
+                    },
+                )
+                .await;
+
+            let view = match result {
+                Ok(result) => result.view,
+                Err(error) => panic!("scopes {scopes:?}, expires {new_expires:?}: {error:?}"),
+            };
+            assert_eq!(expected_scopes, view.scopes);
+            assert_eq!(expected_expires, view.expires);
+            let updated = stored(&fakes).unwrap_or_else(|| panic!("stored token is retained"));
+            assert_eq!(&AccessTokenName::from("renamed"), updated.name());
+            assert_eq!(&expected_scopes, updated.scopes());
+            assert_eq!(expected_expires, updated.expires());
+            assert_eq!(1, lock(&fakes.0).commits);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_let_first_party_user_expand_scopes_and_clear_expiry() {
+        let user_id = UserId::new();
+        let current = token_with(
+            user_id,
+            HashSet::from([Scope::UsersRead]),
+            Some(OffsetDateTime::now_utc() + Duration::days(1)),
+        );
+        let fakes = fakes_with(&current);
+        let expanded = HashSet::from([Scope::UsersRead, Scope::AccessTokensWrite]);
+
+        let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+            .execute(
+                &context(Principal::User(user_id)),
+                UpdateAccessTokenCommand {
+                    user_id,
+                    access_token_id: current.id(),
+                    scopes: PatchField::Set(expanded.clone()),
+                    expires: PatchField::Clear,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(result.is_ok(), "unexpected result: {result:?}");
+        let updated = stored(&fakes).unwrap_or_else(|| panic!("stored token is retained"));
+        assert_eq!(&expanded, updated.scopes());
+        assert_eq!(None, updated.expires());
+    }
+
+    #[tokio::test]
+    async fn should_keep_capability_and_ownership_checks_for_delegated_updates() {
+        let owner_id = UserId::new();
+        let current = token(owner_id);
+
+        for principal in [
+            delegate(owner_id, &[Scope::AccessTokensRead]),
+            delegate(UserId::new(), &[Scope::AccessTokensWrite]),
+        ] {
+            let fakes = fakes_with(&current);
+            let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(principal),
+                    UpdateAccessTokenCommand {
+                        user_id: owner_id,
+                        access_token_id: current.id(),
+                        scopes: PatchField::Clear,
+                        ..Default::default()
+                    },
+                )
+                .await;
+
+            assert!(
+                matches!(result, Err(UpdateAccessTokenError::Forbidden)),
+                "unexpected result: {result:?}"
+            );
+            assert_eq!(Some(current.clone()), stored(&fakes));
+            assert_eq!(0, lock(&fakes.0).begins);
+        }
     }
 }

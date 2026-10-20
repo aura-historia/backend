@@ -2196,6 +2196,10 @@ impl From<CreateAccessTokenError> for ApiError {
             CreateAccessTokenError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            CreateAccessTokenError::DelegatedIssuanceForbidden => ApiError::forbidden(FORBIDDEN)
+                .with_detail(
+                    "Aura Historia access tokens cannot create access tokens; use a Cognito access JWT.",
+                ),
             CreateAccessTokenError::Conflict { .. } => {
                 ApiError::conflict(CONFLICT).with_detail("Access token already exists.")
             }
@@ -2305,6 +2309,11 @@ impl From<UpdateAccessTokenError> for ApiError {
             }
             UpdateAccessTokenError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail(
+                    "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
+                )
             }
             UpdateAccessTokenError::AccessTokenNotFound => {
                 ApiError::not_found(ACCESS_TOKEN_NOT_FOUND)
@@ -3239,6 +3248,30 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
         assert_eq!(FORBIDDEN.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_delegated_access_token_management_denials_to_forbidden()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (response, detail) in [
+            (
+                ApiError::from(CreateAccessTokenError::DelegatedIssuanceForbidden).into_response(),
+                "Aura Historia access tokens cannot create access tokens; use a Cognito access JWT.",
+            ),
+            (
+                ApiError::from(UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden)
+                    .into_response(),
+                "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
+            ),
+        ] {
+            assert_eq!(StatusCode::FORBIDDEN, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(FORBIDDEN.to_string(), body["error"]);
+            assert_eq!(detail, body["detail"]);
+            assert!(body.get("source").is_none());
+        }
         Ok(())
     }
 

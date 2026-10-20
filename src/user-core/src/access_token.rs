@@ -115,6 +115,17 @@ impl AccessToken {
         self.scopes.contains(&scope)
     }
 
+    /// Whether this token's scopes and lifetime stay within `other`'s, so
+    /// replacing `other` with it cannot expand the authority it grants.
+    pub fn grants_no_more_than(&self, other: &AccessToken) -> bool {
+        let lifetime_within = match (self.expires, other.expires) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(expires), Some(limit)) => expires <= limit,
+        };
+        lifetime_within && self.scopes.is_subset(&other.scopes)
+    }
+
     pub fn id(&self) -> AccessTokenId {
         self.id
     }
@@ -587,6 +598,56 @@ mod access_token_state_tests {
 
         assert!(token.has_scope(Scope::ProductListingsWrite));
         assert!(!token.has_scope(Scope::UsersWrite));
+    }
+
+    #[test]
+    fn should_grant_no_more_than_token_with_wider_scopes_and_lifetime() {
+        let now = OffsetDateTime::now_utc();
+        let limit = access_token(
+            Some(now + time::Duration::days(2)),
+            HashSet::from([Scope::UsersRead, Scope::UsersWrite]),
+        );
+
+        for (expires, scopes) in [
+            (limit.expires, limit.scopes.clone()),
+            (Some(now), HashSet::from([Scope::UsersRead])),
+            (Some(now - time::Duration::days(1)), HashSet::new()),
+        ] {
+            assert!(access_token(expires, scopes).grants_no_more_than(&limit));
+        }
+        assert!(
+            access_token(None, HashSet::from([Scope::UsersRead]))
+                .grants_no_more_than(&access_token(None, HashSet::from([Scope::UsersRead])))
+        );
+        assert!(
+            access_token(Some(now), HashSet::new())
+                .grants_no_more_than(&access_token(None, HashSet::new()))
+        );
+    }
+
+    #[test]
+    fn should_grant_more_than_token_when_scopes_or_lifetime_expand() {
+        let now = OffsetDateTime::now_utc();
+        let limit = access_token(
+            Some(now + time::Duration::days(2)),
+            HashSet::from([Scope::UsersRead]),
+        );
+
+        for (expires, scopes) in [
+            (
+                limit.expires,
+                HashSet::from([Scope::UsersRead, Scope::UsersWrite]),
+            ),
+            (limit.expires, HashSet::from([Scope::AccessTokensWrite])),
+            (
+                Some(now + time::Duration::days(3)),
+                HashSet::from([Scope::UsersRead]),
+            ),
+            (None, HashSet::from([Scope::UsersRead])),
+            (None, HashSet::new()),
+        ] {
+            assert!(!access_token(expires, scopes).grants_no_more_than(&limit));
+        }
     }
 
     #[test]
