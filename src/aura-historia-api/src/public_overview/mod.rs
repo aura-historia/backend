@@ -143,7 +143,7 @@ mod tests {
     fn app(outcome: Outcome, requests: Requests) -> Router {
         crate::transport::with_transport_middleware(
             Router::new()
-                .route("/api/v1/overview", axum::routing::get(get_public_overview))
+                .route("/v1/overview", axum::routing::get(get_public_overview))
                 .with_state(PublicOverviewState::new(Arc::new(
                     FakeGetPublicCatalogueOverviewUseCase { requests, outcome },
                 ))),
@@ -186,7 +186,7 @@ mod tests {
 
         let response = get(
             app(Outcome::Overview, Arc::clone(&requests)),
-            "/api/v1/overview",
+            "/v1/overview",
             None,
         )
         .await;
@@ -222,11 +222,11 @@ mod tests {
         let mut representations = Vec::new();
 
         for uri in [
-            "/api/v1/overview",
-            "/api/v1/overview?",
-            "/api/v1/overview?utm_source=landing",
-            "/api/v1/overview?language=de&currency=USD",
-            "/api/v1/overview?asOf=invalid&asOf=duplicate",
+            "/v1/overview",
+            "/v1/overview?",
+            "/v1/overview?utm_source=landing",
+            "/v1/overview?language=de&currency=USD",
+            "/v1/overview?asOf=invalid&asOf=duplicate",
         ] {
             let response = get(app(Outcome::Overview, Arc::clone(&requests)), uri, None).await;
             assert_eq!(StatusCode::OK, response.status(), "{uri}");
@@ -250,7 +250,7 @@ mod tests {
 
             let response = get(
                 app(Outcome::Overview, Arc::clone(&requests)),
-                "/api/v1/overview",
+                "/v1/overview",
                 Some(authorization),
             )
             .await;
@@ -282,7 +282,7 @@ mod tests {
         ] {
             let response = get(
                 app(outcome, Arc::new(Mutex::new(Vec::new()))),
-                "/api/v1/overview",
+                "/v1/overview",
                 None,
             )
             .await;

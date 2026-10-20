@@ -284,7 +284,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+                "/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
                 delete(super::delete_listing_source_grant),
             )
             .with_state(state)
@@ -322,7 +322,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Ok(success(outcome)), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
+                    "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
                     Some("Bearer valid"),
                 ))
                 .await?;
@@ -351,11 +351,11 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for (path, field) in [
             (
-                "/api/v1/admin/partnerships/not-an-object-id/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
+                "/v1/admin/partnerships/not-an-object-id/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
                 "partnershipId",
             ),
             (
-                "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/not-an-object-id",
+                "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/not-an-object-id",
                 "listingSourceId",
             ),
         ] {
@@ -397,7 +397,7 @@ mod tests {
                 reject_auth,
             )
             .oneshot(request(
-                "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
+                "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
                 authorization,
             ))
             .await?;
@@ -478,7 +478,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Err(error), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
+                    "/v1/admin/partnerships/psh_01h455vb4pex5vy7enb1p677vn/listing-source-grants/ls_01h455vb4pex5vy7enb1p677vn",
                     Some("Bearer valid"),
                 ))
                 .await?;

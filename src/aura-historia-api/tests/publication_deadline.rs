@@ -38,7 +38,7 @@ use user_core::user_id::UserId;
 
 const QUEUE_URL: &str = "https://sqs.us-east-1.amazonaws.com/123456789012/ingestion.fifo";
 const SOURCE_ID: &str = "ls_01h455vb4pex5vy7enb1p677vn";
-const PATH: &str = "/api/v1/listing-sources/ls_01h455vb4pex5vy7enb1p677vn/product-listings/async";
+const PATH: &str = "/v1/listing-sources/ls_01h455vb4pex5vy7enb1p677vn/product-listings/async";
 
 struct Auth {
     gate: Option<Arc<Gate>>,

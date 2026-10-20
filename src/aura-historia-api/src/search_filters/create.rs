@@ -51,7 +51,7 @@ pub(super) async fn create_search_filter(
                 Json(SearchFilterData::from(result.filter)),
             )
                 .into_response();
-            let location = format!("/api/v1/me/search-filters/{search_filter_id}");
+            let location = format!("/v1/me/search-filters/{search_filter_id}");
             match HeaderValue::from_str(&location) {
                 Ok(value) => {
                     response.headers_mut().insert(header::LOCATION, value);

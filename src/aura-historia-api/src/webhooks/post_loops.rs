@@ -262,7 +262,7 @@ mod tests {
     ) -> Request<Body> {
         Request::builder()
             .method("POST")
-            .uri("/api/v1/webhooks/loops")
+            .uri("/v1/webhooks/loops")
             .header("webhook-id", delivery_id)
             .header("webhook-timestamp", timestamp)
             .header("webhook-signature", signature)
@@ -312,6 +312,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_not_resolve_or_redirect_a_signed_webhook_on_the_legacy_path() {
+        let use_case = RecordingUseCase::new(Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
+        let calls = Arc::clone(&use_case.calls);
+        let (body, delivery_id, timestamp, signature) = signed_fixture();
+        let mut legacy = request(body, &delivery_id, &timestamp, &signature);
+        *legacy.uri_mut() = "/api/v1/webhooks/loops".parse().expect("legacy URI");
+
+        let response = app_for(use_case)
+            .oneshot(legacy)
+            .await
+            .expect("route response");
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+        assert!(!response.headers().contains_key(header::LOCATION));
+        assert_eq!(0, calls.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
     async fn invalid_or_ambiguous_provider_proof_returns_generic_401_without_application() {
         let use_case = RecordingUseCase::new(Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
         let calls = Arc::clone(&use_case.calls);
@@ -320,7 +338,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/webhooks/loops")
+                    .uri("/v1/webhooks/loops")
                     .body(Body::empty())
                     .expect("request without proof"),
             )
@@ -413,7 +431,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/webhooks/loops")
+                    .uri("/v1/webhooks/loops")
                     .body(Body::from(vec![
                         b'x';
                         crate::transport::MAX_LOOPS_WEBHOOK_BODY_BYTES
@@ -463,10 +481,10 @@ mod tests {
         let mut event: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/fixtures/http_api_v2_health.json"))
                 .expect("HTTP API v2 fixture");
-        event["routeKey"] = "POST /api/v1/webhooks/loops".into();
-        event["rawPath"] = "/api/v1/webhooks/loops".into();
+        event["routeKey"] = "POST /v1/webhooks/loops".into();
+        event["rawPath"] = "/v1/webhooks/loops".into();
         event["requestContext"]["http"]["method"] = "POST".into();
-        event["requestContext"]["http"]["path"] = "/api/v1/webhooks/loops".into();
+        event["requestContext"]["http"]["path"] = "/v1/webhooks/loops".into();
         event["headers"] = serde_json::json!({
             "host": "api.example.test",
             "webhook-id": delivery_id,

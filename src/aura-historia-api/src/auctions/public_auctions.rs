@@ -823,10 +823,10 @@ mod tests {
 
     fn app_with_auth(catalogue: FakeCatalogue, authenticator: FakeAuthenticator) -> Router {
         Router::new()
-            .route("/api/v1/auctions", get(list_public_auctions))
-            .route("/api/v1/auctions/{auction_id}", get(get_public_auction))
+            .route("/v1/auctions", get(list_public_auctions))
+            .route("/v1/auctions/{auction_id}", get(get_public_auction))
             .route(
-                "/api/v1/auctions/{auction_id}/product-listings",
+                "/v1/auctions/{auction_id}/product-listings",
                 get(get_auction_catalogue),
             )
             .with_state(PublicAuctionsState::new(
@@ -842,7 +842,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let auction_id = detail().auction_id;
         let response = app(FakeCatalogue::default())
-            .oneshot(Request::get(format!("/api/v1/auctions/{auction_id}")).body(Body::empty())?)
+            .oneshot(Request::get(format!("/v1/auctions/{auction_id}")).body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
@@ -862,7 +862,7 @@ mod tests {
     async fn should_reject_invalid_public_auction_id_without_store()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app(FakeCatalogue::default())
-            .oneshot(Request::get("/api/v1/auctions/not-an-auction").body(Body::empty())?)
+            .oneshot(Request::get("/v1/auctions/not-an-auction").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -881,7 +881,7 @@ mod tests {
         let response = app(catalogue.clone())
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/auctions/{auction_id}/product-listings?currency=USD&pageSize=25"
+                    "/v1/auctions/{auction_id}/product-listings?currency=USD&pageSize=25"
                 ))
                 .body(Body::empty())?,
             )
@@ -906,7 +906,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app(FakeCatalogue::default())
             .oneshot(
-                Request::get("/api/v1/auctions")
+                Request::get("/v1/auctions")
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::empty())?,
             )
@@ -928,7 +928,7 @@ mod tests {
 
         let detail_response = app_with_auth(FakeCatalogue::default(), authenticator)
             .oneshot(
-                Request::get(format!("/api/v1/auctions/{auction_id}"))
+                Request::get(format!("/v1/auctions/{auction_id}"))
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -941,7 +941,7 @@ mod tests {
 
         let catalogue_response = app_with_auth(FakeCatalogue::default(), authenticator)
             .oneshot(
-                Request::get(format!("/api/v1/auctions/{auction_id}/product-listings"))
+                Request::get(format!("/v1/auctions/{auction_id}/product-listings"))
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -958,7 +958,7 @@ mod tests {
     async fn should_cache_anonymous_auction_directory_for_sixty_seconds()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = app(FakeCatalogue::default())
-            .oneshot(Request::get("/api/v1/auctions").body(Body::empty())?)
+            .oneshot(Request::get("/v1/auctions").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
@@ -979,7 +979,7 @@ mod tests {
             "sort=scheduled&timeRole=LIVE_STARTS&to=2026-01-01T00%3A00%3A00Z",
         ] {
             let response = app(FakeCatalogue::default())
-                .oneshot(Request::get(format!("/api/v1/auctions?{query}")).body(Body::empty())?)
+                .oneshot(Request::get(format!("/v1/auctions?{query}")).body(Body::empty())?)
                 .await?;
             assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{query}");
             assert_eq!(

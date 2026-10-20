@@ -15,7 +15,7 @@ info:
     \ sessions\n\n## Authentication model\n\nThe API uses more than one authentication scheme depending on the route:\n\n\
     - **`BearerAuth`** — Cognito **access** JWT bearer tokens for authenticated user, admin, and\n  partner-user workflows.\
     \ Cognito ID tokens are not accepted as API credentials.\n- **`AccessTokenAuth`** — Aura Historia opaque bearer access\
-    \ tokens created via\n  `/api/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server\n\
+    \ tokens created via\n  `/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server\n\
     \  ingestion scenarios.\n\nWhen a route lists multiple security schemes, any one of the listed schemes may be accepted.\n\
     Some read endpoints can also be called without authentication, while a valid user token may enrich\nthe response with\
     \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## Data and response conventions\n\
@@ -32,8 +32,8 @@ info:
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
     \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Request bodies are limited to 1 MiB and requests time out after 30 seconds. A declared `Content-Length` above 1 MiB is\
-    \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /api/v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /api/v1/health` is a\
-    \ process liveness check. `GET /api/v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
+    \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /v1/health` is a\
+    \ process liveness check. `GET /v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
     \ endpoints\n\n- **Development:** `https://api.stage.aura-historia.com`\n- **Production:** `https://api.aura-historia.com`\n\
@@ -54,7 +54,7 @@ servers:
   - url: https://api.aura-historia.com
     description: Production environment
 paths:
-  /api/v1/health:
+  /v1/health:
     get:
       summary: Check process liveness
       description: Returns the fixed `ok` response without checking dependencies.
@@ -68,7 +68,7 @@ paths:
             text/plain:
               schema: { type: string }
               example: "ok\n"
-  /api/v1/ready:
+  /v1/ready:
     get:
       summary: Check service readiness
       description: Returns no diagnostic body when readiness fails.
@@ -80,7 +80,7 @@ paths:
           description: The readiness check succeeded.
         "503":
           description: The readiness check failed or timed out; no diagnostic body is returned.
-  /api/v1/overview:
+  /v1/overview:
     get:
       summary: Get public catalogue statistics
       description: |
@@ -135,7 +135,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OVERVIEW_TEMPORARILY_UNAVAILABLE
-  /api/v1/auctions:
+  /v1/auctions:
     get:
       summary: List public Auctions
       operationId: listAuctions
@@ -199,7 +199,7 @@ paths:
                 $ref: "#/components/schemas/PublicAuctionDirectoryData"
         "400":
           description: "Invalid ID, filter, cursor, or incomplete exact-time range."
-  /api/v1/auctions/{auctionId}:
+  /v1/auctions/{auctionId}:
     get:
       summary: Get public Auction detail
       operationId: getAuction
@@ -219,7 +219,7 @@ paths:
                 $ref: "#/components/schemas/PublicAuctionData"
         "400": { description: Invalid Auction ID (`INVALID_OBJECT_ID`). }
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
-  /api/v1/auctions/{auctionId}/product-listings:
+  /v1/auctions/{auctionId}/product-listings:
     get:
       summary: Get public Auction catalogue
       operationId: getAuctionCatalogue
@@ -273,7 +273,7 @@ paths:
                 $ref: "#/components/schemas/PublicAuctionCatalogueData"
         "400": { description: Invalid Auction ID or cursor. }
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
-  /api/v1/admin/product-listings:
+  /v1/admin/product-listings:
     get:
       summary: Search ProductListings for administration
       operationId: searchAdminProductListings
@@ -314,7 +314,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/admin/product-listings/{productListingId}:
+  /v1/admin/product-listings/{productListingId}:
     get:
       summary: Inspect authoritative ProductListing facts
       operationId: getAdminProductListing
@@ -428,7 +428,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/admin/product-listings/{productListingId}/restore:
+  /v1/admin/product-listings/{productListingId}/restore:
     post:
       summary: Explicitly restore a retained ProductListing
       operationId: restoreAdminProductListing
@@ -469,7 +469,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/admin/auctions:
+  /v1/admin/auctions:
     get:
       summary: Search Auctions for administration
       operationId: adminSearchAuctions
@@ -583,7 +583,7 @@ paths:
           {
             description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
           }
-  /api/v1/admin/auctions/{auctionId}:
+  /v1/admin/auctions/{auctionId}:
     get:
       summary: Get Auction administration detail
       operationId: getAdminAuction
@@ -666,7 +666,7 @@ paths:
             description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
           }
 
-  /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce:
+  /v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce:
     put:
       summary: Replace WooCommerce ListingSource ingestion configuration
       description: |
@@ -758,7 +758,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/shopify:
+  /v1/listing-sources/{listingSourceId}/ingestion-configurations/shopify:
     put:
       summary: Replace Shopify ListingSource ingestion configuration
       description: |
@@ -850,7 +850,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/listing-sources/{listingSourceId}/product-listings:
+  /v1/listing-sources/{listingSourceId}/product-listings:
     get:
       summary: List ProductListings for an administered ListingSource
       operationId: listPartnerProductListings
@@ -906,7 +906,7 @@ paths:
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
 
         The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
-        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        does not grant access. Administrators use the separate `/v1/admin/product-listings` operations.
         Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
 
@@ -1112,7 +1112,7 @@ paths:
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
 
         The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
-        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        does not grant access. Administrators use the separate `/v1/admin/product-listings` operations.
         Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
 
@@ -1311,7 +1311,7 @@ paths:
         \ partner user linked to the listing source, or\n- an Aura Historia access token owned by that partner user.\n\nAura\
         \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nThe caller must be a\
         \ user with an active Partnership grant for the path ListingSource; administrator role alone does not grant access.\n\
-        Administrators use the separate `/api/v1/admin/product-listings` operations. Partnership and scope checks run\n\
+        Administrators use the separate `/v1/admin/product-listings` operations. Partnership and scope checks run\n\
         per entry, so an authenticated empty array returns `[]` without them.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
         \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested Auction/lot-facts patch (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction/lot-facts patch, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
@@ -1533,7 +1533,7 @@ paths:
 
 
         The caller must be a user with an active Partnership grant for the path ListingSource; administrator role alone
-        does not grant access. Administrators use the separate `/api/v1/admin/product-listings` operations.
+        does not grant access. Administrators use the separate `/v1/admin/product-listings` operations.
         Partnership and scope checks run per entry, so an authenticated empty array returns `[]` without them.
 
         Aura Historia access tokens must include the `product-listings:write` scope.
@@ -1632,7 +1632,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}:
+  /v1/listing-sources/{listingSourceId}/product-listings/{productListingId}:
     get:
       summary: Inspect authoritative ProductListing facts
       operationId: getPartnerProductListing
@@ -1749,7 +1749,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore:
+  /v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore:
     post:
       summary: Explicitly restore a retained ProductListing
       operationId: restorePartnerProductListing
@@ -1791,7 +1791,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/listing-sources/{listingSourceId}/product-listings/async:
+  /v1/listing-sources/{listingSourceId}/product-listings/async:
     post:
       summary: Submit a batch of product-listing creates asynchronously (Partner API)
       operationId: postAsyncPartnerProductListings
@@ -2495,7 +2495,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AsyncProductListingBatchReport"
 
-  /api/v1/webhooks/woocommerce/{listingSourceId}:
+  /v1/webhooks/woocommerce/{listingSourceId}:
     post:
       summary: Ingest a WooCommerce product webhook (Partner API)
       description:
@@ -2866,7 +2866,7 @@ paths:
                     status: 500
                     title: Internal Server Error
                     error: PRODUCT_LISTING_INTERNAL_ERROR
-  /api/v1/webhooks/loops:
+  /v1/webhooks/loops:
     post:
       summary: Apply a signed Loops preference webhook
       description: >-
@@ -3009,7 +3009,7 @@ paths:
                   title: Service Unavailable,
                   error: LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE,
                 }
-  /api/v1/product-listings/by-slug/{productListingTitleSlugId}:
+  /v1/product-listings/by-slug/{productListingTitleSlugId}:
     get:
       summary: Get a single product by title slug
       description: >-
@@ -3094,7 +3094,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/product-listings/{productListingId}:
+  /v1/product-listings/{productListingId}:
     get:
       summary: Get a single product
       description:
@@ -3223,7 +3223,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
-  /api/v1/product-listings/{productListingId}/history:
+  /v1/product-listings/{productListingId}/history:
     get:
       summary: Get ProductListing history
       description:
@@ -3387,7 +3387,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: PRODUCT_LISTING_INTERNAL_ERROR
-  /api/v1/product-listings/{productListingId}/similar:
+  /v1/product-listings/{productListingId}/similar:
     get:
       summary: Get similar product-listings
       description:
@@ -3475,7 +3475,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: /api/v1/product-listings/pl_5xdb465tg1enarx2knf04mxbxj/similar
+              example: /v1/product-listings/pl_5xdb465tg1enarx2knf04mxbxj/similar
         "400":
           description: Bad request - invalid parameters
           content:
@@ -3505,7 +3505,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/product-listings:
+  /v1/product-listings:
     get:
       summary: Simple product search via query parameters
       description:
@@ -3915,7 +3915,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/search-filters:
+  /v1/me/search-filters:
     get:
       summary: List user search filters
       description: "Delegated Aura access tokens require `search-filters:read`; missing scope returns `403 FORBIDDEN`. Retrieves all search filters for the authenticated user.
@@ -4062,7 +4062,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: https://api.aura-historia.com/api/v1/me/search-filters/sf_4hyqf0gyxveazss7nby5hve5x2
+              example: https://api.aura-historia.com/v1/me/search-filters/sf_4hyqf0gyxveazss7nby5hve5x2
             Content-Language:
               description: The language of the returned content
               schema:
@@ -4188,7 +4188,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/search-filters/{userSearchFilterId}:
+  /v1/me/search-filters/{userSearchFilterId}:
     get:
       summary: Get a specific search filter
       description:
@@ -4665,7 +4665,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/search-filters/{userSearchFilterId}/matches:
+  /v1/me/search-filters/{userSearchFilterId}/matches:
     get:
       summary: List persisted matches for a saved search filter
       description: >-
@@ -4847,7 +4847,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: SEARCH_FILTER_TEMPORARILY_UNAVAILABLE
-  /api/v1/me/search-filters/{userSearchFilterId}/matches/{productListingId}:
+  /v1/me/search-filters/{userSearchFilterId}/matches/{productListingId}:
     patch:
       summary: Update feedback for a search-filter match
       description:
@@ -5054,7 +5054,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/watchlist:
+  /v1/me/watchlist:
     get:
       summary: List user's watchlist product-listings
       description:
@@ -5368,7 +5368,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/admin/listing-sources:
+  /v1/admin/listing-sources:
     post:
       summary: Create a ListingSource as admin
       description: |
@@ -5402,7 +5402,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: /api/v1/admin/listing-sources/ls_6rd827eqfefsva9teecmwa3ate
+              example: /v1/admin/listing-sources/ls_6rd827eqfefsva9teecmwa3ate
           content:
             application/json:
               schema:
@@ -5668,7 +5668,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: LISTING_SOURCE_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/parties:
+  /v1/admin/parties:
     post:
       summary: Create a Party as admin
       description: |
@@ -5705,7 +5705,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: /api/v1/admin/parties/pty_4k4snxc3pkecc9yw66heemzyp0
+              example: /v1/admin/parties/pty_4k4snxc3pkecc9yw66heemzyp0
             Cache-Control:
               description: Responses are never stored because contact data is returned.
               schema:
@@ -6028,7 +6028,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: PARTY_INTERNAL_ERROR
-  /api/v1/admin/parties/{partyId}:
+  /v1/admin/parties/{partyId}:
     delete:
       summary: Hard-delete an unused Party as admin
       description: |
@@ -6388,7 +6388,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: PARTY_INTERNAL_ERROR
-  /api/v1/admin/users:
+  /v1/admin/users:
     get:
       summary: Search users as admin
       description:
@@ -6680,7 +6680,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
-  /api/v1/admin/users/{userId}:
+  /v1/admin/users/{userId}:
     get:
       summary: Get a user as admin
       description:
@@ -7055,7 +7055,7 @@ paths:
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
 
-  /api/v1/admin/users/{userId}/suspension:
+  /v1/admin/users/{userId}/suspension:
     put:
       summary: Suspend a user as admin
       description: |
@@ -7406,7 +7406,7 @@ paths:
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
 
-  /api/v1/admin/users/{userId}/sessions/revoke:
+  /v1/admin/users/{userId}/sessions/revoke:
     post:
       summary: Revoke a user's Cognito sessions as admin
       description: |
@@ -7543,7 +7543,7 @@ paths:
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
 
-  /api/v1/admin/users/{userId}/access-tokens:
+  /v1/admin/users/{userId}/access-tokens:
     get:
       summary: List a user's Aura Historia access-token metadata as admin
       description: |
@@ -7843,7 +7843,7 @@ paths:
                 title: Internal Server Error
                 error: ACCESS_TOKEN_INTERNAL_ERROR
 
-  /api/v1/admin/users/{userId}/access-tokens/{accessTokenId}:
+  /v1/admin/users/{userId}/access-tokens/{accessTokenId}:
     delete:
       summary: Revoke a user's Aura Historia access token as admin
       description: |
@@ -7961,7 +7961,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: ACCESS_TOKEN_INTERNAL_ERROR
-  /api/v1/me:
+  /v1/me:
     delete:
       summary: Delete authenticated user
       description: "Permanently deletes the authenticated user's account.
@@ -8034,7 +8034,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/account:
+  /v1/me/account:
     get:
       summary: Get user account data
       description:
@@ -8245,7 +8245,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/access-tokens:
+  /v1/me/access-tokens:
     post:
       summary: Create an Aura Historia access token
       description:
@@ -8582,7 +8582,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/access-tokens/{accessTokenId}:
+  /v1/me/access-tokens/{accessTokenId}:
     get:
       summary: Get one Aura Historia access token
       description:
@@ -8781,7 +8781,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/billing/checkout:
+  /v1/me/billing/checkout:
     post:
       summary: Create Stripe checkout session
       description:
@@ -8900,7 +8900,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/billing/portal:
+  /v1/me/billing/portal:
     post:
       summary: Create Stripe billing portal session
       description:
@@ -8974,7 +8974,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/billing/manage:
+  /v1/me/billing/manage:
     post:
       summary: Create Stripe billing management session
       description:
@@ -9106,7 +9106,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/watchlist/{productListingId}:
+  /v1/me/watchlist/{productListingId}:
     delete:
       summary: Remove product from watchlist
       description:
@@ -9434,7 +9434,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/me/notifications:
+  /v1/me/notifications:
     get:
       summary: List user notifications
       description:
@@ -9581,7 +9581,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/me/notifications/all:
+  /v1/me/notifications/all:
     patch:
       summary: Update all notification seen states
       description: Delegated Aura access tokens require `notifications:write`; missing scope returns `403 FORBIDDEN`.
@@ -9624,7 +9624,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/me/notifications/{notificationId}:
+  /v1/me/notifications/{notificationId}:
     patch:
       summary: Update one notification seen state
       description: Delegated Aura access tokens require `notifications:write`; missing scope returns `403 FORBIDDEN`.
@@ -9727,7 +9727,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/newsletter-subscriptions:
+  /v1/newsletter-subscriptions:
     put:
       summary: Request newsletter confirmation
       description: |
@@ -9849,7 +9849,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: NEWSLETTER_INTERNAL_ERROR
-  /api/v1/newsletter-subscriptions/confirm:
+  /v1/newsletter-subscriptions/confirm:
     post:
       summary: Confirm a newsletter subscription
       description: |
@@ -9939,7 +9939,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: NEWSLETTER_INTERNAL_ERROR
-  /api/v1/admin/listing-sources/{listingSourceId}:
+  /v1/admin/listing-sources/{listingSourceId}:
     get:
       summary: Get a ListingSource as admin
       description: |
@@ -10236,7 +10236,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/oauth/clients/{clientId}:
+  /v1/oauth/clients/{clientId}:
     get:
       summary: Get OAuth client metadata for consent
       description: |
@@ -10246,7 +10246,7 @@ paths:
         client token, or a source partnership. Only a Cognito access JWT is accepted through `BearerAuth`; Cognito ID
         tokens, Aura opaque access tokens, and client-secret credentials are rejected. Centralized account restrictions
         continue to apply. Redirect URIs and allowed scopes are returned exactly as registered; `scope: []` means the
-        client has no allowed scopes and does not imply user consent. `/api/v1/oauth/authorize` remains authoritative
+        client has no allowed scopes and does not imply user consent. `/v1/oauth/authorize` remains authoritative
         and revalidates registration, exact redirect URI, requested-scope subset, and S256 PKCE before issuing a code.
         Every success and error response uses `Cache-Control: no-store`.
       operationId: getOAuthConsentClient
@@ -10371,7 +10371,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/oauth/authorize:
+  /v1/oauth/authorize:
     get:
       summary: OAuth2 authorization endpoint
       description: "Starts the OAuth2 authorization code flow (RFC 6749 §4.1).
@@ -10385,7 +10385,7 @@ paths:
 
         supplied, `state` as query parameters. The single-use authorization code must be exchanged
 
-        for an access token via `POST /api/v1/oauth/token` before it expires. A delegated caller
+        for an access token via `POST /v1/oauth/token` before it expires. A delegated caller
 
         must have `access-tokens:write` and every requested OAuth scope.
 
@@ -10595,7 +10595,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/oauth/token:
+  /v1/oauth/token:
     post:
       summary: OAuth2 token endpoint
       description:
@@ -10612,11 +10612,11 @@ paths:
 
         The issued access token is non-expiring by default (same lifetime as tokens created via
 
-        `POST /api/v1/me/access-tokens`). Successful responses also include a short-lived
+        `POST /v1/me/access-tokens`). Successful responses also include a short-lived
 
         `third_party_exchange_code` that can be redeemed once via
 
-        `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`. The exchange code expires
+        `GET /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`. The exchange code expires
 
         after 60 seconds and is deleted on first use.
 
@@ -10813,11 +10813,11 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}:
+  /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}:
     get:
       summary: Exchange OAuth token by third-party code
       description:
-        "Exchanges a one-time `third_party_exchange_code` returned by `POST /api/v1/oauth/token`
+        "Exchanges a one-time `third_party_exchange_code` returned by `POST /v1/oauth/token`
 
         for the same Aura Historia access token. No client credentials or bearer token are required.
 
@@ -10917,7 +10917,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/oauth/revoke:
+  /v1/oauth/revoke:
     post:
       summary: OAuth2 token revocation endpoint
       description:
@@ -11063,7 +11063,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/oauth/introspect:
+  /v1/oauth/introspect:
     post:
       summary: OAuth2 token introspection endpoint
       description:
@@ -11215,7 +11215,7 @@ paths:
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
 
-  /api/v1/admin/oauth-clients:
+  /v1/admin/oauth-clients:
     get:
       summary: List OAuth client metadata for administration
       description: |
@@ -11223,7 +11223,7 @@ paths:
 
         User and delegated-user principals must have the persisted `ADMIN` business role.
         Delegated Aura Historia access-token callers must also have the `access-tokens:read`
-        capability. The OAuth protocol routes remain under `/api/v1/oauth`.
+        capability. The OAuth protocol routes remain under `/v1/oauth`.
 
         Results use bounded keyset pagination in fixed `created` ascending, then OAuthClient ID ascending order. Page sizes are clamped to 1–100, with a default of 21. The
         `searchAfter` value is a JSON-encoded `[created RFC3339 timestamp, OAuthClient ID]`
@@ -11429,7 +11429,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: /api/v1/admin/oauth-clients/oc_7b0gwc1x49e0mvbt3tfexfqgb5
+              example: /v1/admin/oauth-clients/oc_7b0gwc1x49e0mvbt3tfexfqgb5
             Cache-Control:
               description: Always set to `no-store` because the response contains the raw secret.
               schema:
@@ -11551,7 +11551,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/oauth-clients/{clientId}:
+  /v1/admin/oauth-clients/{clientId}:
     get:
       summary: Get OAuth client metadata for administration
       description: |
@@ -11894,7 +11894,7 @@ paths:
         Delegated Aura Historia access-token callers must also have the `access-tokens:write`
         capability. Deletion atomically invalidates pending authorization codes, OAuth-issued
         Aura access tokens, and their one-time third-party exchange codes. The OAuth protocol
-        routes remain under `/api/v1/oauth`; this administrative mutation is not a protocol route.
+        routes remain under `/v1/oauth`; this administrative mutation is not a protocol route.
       operationId: adminDeleteOAuthClient
       tags:
         - OAuth
@@ -12019,7 +12019,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/listing-sources:
+  /v1/listing-sources:
     get:
       summary: Search public ListingSources
       description: Anonymous, literal partial-name search and browse of every persisted ListingSource. Optional valid credentials never widen the public representation; invalid supplied credentials are rejected. Query values are NFC/Unicode-whitespace canonicalized. One scalar and punctuation-only input return a terminal empty collection.
@@ -12080,7 +12080,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-  /api/v1/listing-sources/by-slug/{listingSourceSlugId}:
+  /v1/listing-sources/by-slug/{listingSourceSlugId}:
     get:
       summary: Get a public ListingSource by immutable slug
       description: Anonymous exact immutable-slug lookup. This route accepts no query parameters. Optional valid credentials never widen the public representation; invalid supplied credentials are rejected.
@@ -12134,7 +12134,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-  /api/v1/me/listing-sources:
+  /v1/me/listing-sources:
     get:
       summary: List caller-administered ListingSources
       description: Delegated Aura access tokens require `listing-sources:read`; missing scope returns `403 FORBIDDEN`.
@@ -12177,7 +12177,7 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-  /api/v1/me/partnership-applications:
+  /v1/me/partnership-applications:
     get:
       summary: List caller PartnershipApplications
       description: Delegated Aura access tokens require `partnership-applications:read`; missing scope returns `403 FORBIDDEN`.
@@ -12278,7 +12278,7 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-  /api/v1/me/partnership-applications/{partnershipApplicationId}:
+  /v1/me/partnership-applications/{partnershipApplicationId}:
     get:
       summary: Get a caller PartnershipApplication
       description: Delegated Aura access tokens require `partnership-applications:read`; missing scope returns `403 FORBIDDEN`.
@@ -12397,7 +12397,7 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-  /api/v1/admin/overview:
+  /v1/admin/overview:
     get:
       summary: Get the administrator operational overview
       description: |
@@ -12495,7 +12495,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/partnerships:
+  /v1/admin/partnerships:
     get:
       summary: List Partnerships for administration
       description: |
@@ -12670,7 +12670,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/partnerships/{partnershipId}:
+  /v1/admin/partnerships/{partnershipId}:
     get:
       summary: Get a Partnership for administration
       description: |
@@ -12898,7 +12898,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}:
+  /v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}:
     put:
       summary: Grant a ListingSource to a Partnership
       description: |
@@ -13237,7 +13237,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/partnerships/{partnershipId}/members/{userId}:
+  /v1/admin/partnerships/{partnershipId}/members/{userId}:
     put:
       summary: Grant a user membership in a Partnership
       description: |
@@ -13559,7 +13559,7 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
-  /api/v1/admin/partnership-applications:
+  /v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration
       description: |
@@ -13837,7 +13837,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/admin/partnership-applications/{partnershipApplicationId}:
+  /v1/admin/partnership-applications/{partnershipApplicationId}:
     get:
       summary: Get a PartnershipApplication for administration
       description:
@@ -14075,7 +14075,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/admin/partnership-applications/{partnershipApplicationId}/decision:
+  /v1/admin/partnership-applications/{partnershipApplicationId}/decision:
     post:
       summary: Decide a PartnershipApplication as admin
       description: |
@@ -14206,7 +14206,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/me/addresses:
+  /v1/me/addresses:
     post:
       summary: Save a private address
       operationId: createUserAddress
@@ -14443,7 +14443,7 @@ paths:
           minimum: 1
           maximum: 100
           default: 25
-  /api/v1/me/addresses/{address_id}:
+  /v1/me/addresses/{address_id}:
     get:
       summary: Read an own private address
       operationId: getUserAddress
@@ -14794,7 +14794,7 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/UserAddressId'
-  /api/v1/me/browsing-destination:
+  /v1/me/browsing-destination:
     get:
       summary: Read own browsing destination
       operationId: getBrowsingDestination
@@ -15016,7 +15016,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetBrowsingDestination'
-  /api/v1/party-locations:
+  /v1/party-locations:
     get:
       summary: Discover public Party locations
       operationId: discoverPartyLocations
@@ -15071,7 +15071,7 @@ paths:
           content:
             application/problem+json:
               schema: {$ref: '#/components/schemas/ApiError'}
-  /api/v1/parties/{party_id}/locations:
+  /v1/parties/{party_id}/locations:
     post:
       operationId: createPartyLocation
       summary: Create a Party location
@@ -15322,7 +15322,7 @@ paths:
         membership in this Party's active partnership, or an explicit location management grant.
         Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
         authority; independent explicit grants survive. Listing-write scope does not confer access.
-  /api/v1/parties/{party_id}/locations/{location_id}:
+  /v1/parties/{party_id}/locations/{location_id}:
     get:
       operationId: getPartyLocation
       summary: Get a protected Party location
@@ -15561,7 +15561,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CorrectPartyLocationData'
-  /api/v1/parties/{party_id}/locations/{location_id}/lifecycle:
+  /v1/parties/{party_id}/locations/{location_id}/lifecycle:
     put:
       operationId: setPartyLocationLifecycle
       summary: Retire or explicitly restore a Party location
@@ -15690,7 +15690,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetPartyLocationLifecycleData'
-  /api/v1/admin/parties/{party_id}/location-managers:
+  /v1/admin/parties/{party_id}/location-managers:
     get:
       operationId: listPartyLocationManagers
       summary: List current Party location managers
@@ -15843,7 +15843,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /api/v1/admin/parties/{party_id}/location-managers/{user_id}:
+  /v1/admin/parties/{party_id}/location-managers/{user_id}:
     put:
       operationId: setPartyLocationManagementGrant
       summary: Grant or revoke Party location management
@@ -15967,7 +15967,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PartyLocationManagementGrantData'
-  /api/v1/listing-sources/{listing_source_id}/location-default:
+  /v1/listing-sources/{listing_source_id}/location-default:
     get:
       summary: Get source location default
       operationId: getSourceLocationDefault
@@ -16474,7 +16474,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ClearSourceLocationDefaultData'
-  /api/v1/admin/listing-sources/{listing_source_id}/location-default:
+  /v1/admin/listing-sources/{listing_source_id}/location-default:
     get:
       summary: Get source location default as administrator
       operationId: adminGetSourceLocationDefault
@@ -16981,7 +16981,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ClearSourceLocationDefaultData'
-  /api/v1/listing-sources/{listing_source_id}/shipping-profiles:
+  /v1/listing-sources/{listing_source_id}/shipping-profiles:
     get:
       summary: List source shipping profiles
       operationId: listShippingProfiles
@@ -17114,7 +17114,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateShippingProfileData'
-  /api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}:
+  /v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}:
     get:
       summary: Get source shipping profile
       operationId: getShippingProfile
@@ -17288,7 +17288,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ShippingProfileLifecycleData'
-  /api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore:
+  /v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore:
     post:
       summary: Restore shipping profile explicitly
       operationId: restoreShippingProfile
@@ -17348,7 +17348,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ShippingProfileLifecycleData'
-  /api/v1/listing-sources/{listing_source_id}/shipping-default:
+  /v1/listing-sources/{listing_source_id}/shipping-default:
     get:
       summary: Read explicit source shipping default
       operationId: getShippingDefault
@@ -17504,7 +17504,7 @@ paths:
             schema:
               $ref: '#/components/schemas/ClearShippingDefaultData'
 
-  /api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery:
+  /v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery:
     parameters:
     - name: listing_source_id
       in: path
@@ -17651,7 +17651,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async:
+  /v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async:
     parameters:
     - name: listing_source_id
       in: path
@@ -17775,7 +17775,7 @@ components:
       scheme: bearer
       bearerFormat: opaque
       description:
-        "Aura Historia bearer access token created through `/api/v1/me/access-tokens`.
+        "Aura Historia bearer access token created through `/v1/me/access-tokens`.
 
         Tokens are sent as standard bearer authorization headers.
 
@@ -22228,7 +22228,7 @@ components:
       description:
         "Secret-free OAuth client metadata returned by the admin OAuth client collection,
 
-        detail, and update endpoints under `/api/v1/admin/oauth-clients`.
+        detail, and update endpoints under `/v1/admin/oauth-clients`.
 
         This schema intentionally has no `client_secret` property.
 
@@ -22296,9 +22296,9 @@ components:
           example: 1748539200
     OAuthTokenResponseData:
       type: object
-      description: "Token response returned by `POST /api/v1/oauth/token` and
+      description: "Token response returned by `POST /v1/oauth/token` and
 
-        `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`.
+        `GET /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`.
 
         The `access_token` is an Aura Historia bearer access token. `expires_in` is omitted
 
@@ -22333,9 +22333,9 @@ components:
           type: string
           format: uuid
           description:
-            "Optional one-time exchange code returned by `POST /api/v1/oauth/token`.
+            "Optional one-time exchange code returned by `POST /v1/oauth/token`.
 
-            It can be redeemed once via `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`
+            It can be redeemed once via `GET /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`
 
             within 60 seconds to obtain the same access token.
 
@@ -22344,7 +22344,7 @@ components:
     OAuthIntrospectionResponseData:
       type: object
       description:
-        "Introspection response returned by `POST /api/v1/oauth/introspect` (RFC 7662).
+        "Introspection response returned by `POST /v1/oauth/introspect` (RFC 7662).
 
         When `active` is `false` all other fields are omitted.
 
@@ -22751,7 +22751,7 @@ components:
     OwnUserAccountData:
       type: object
       description:
-        User-owned account information for `/api/v1/me/account`. Role, tier, and Stripe customer ID are read-only
+        User-owned account information for `/v1/me/account`. Role, tier, and Stripe customer ID are read-only
         here.
       required:
         - userId

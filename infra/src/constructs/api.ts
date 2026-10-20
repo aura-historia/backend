@@ -88,100 +88,100 @@ const apiRoutes = (
  * entry here cannot expose it through API Gateway.
  */
 export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/health", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/ready", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/overview", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/party-locations", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}/history", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/product-listings/{product_listing_id}/similar", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/newsletter-subscriptions", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/overview", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/party-locations", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions/{auction_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions/{auction_id}/product-listings", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/by-slug/{product_listing_title_slug_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}/history", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}/similar", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/listing-sources", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/newsletter-subscriptions", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/newsletter-subscriptions/confirm", ["POST"]),
 
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/shipping-default", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings/{product_listing_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings/{product_listing_id}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions/{auction_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/overview", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/listing-sources", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}/location-managers/{user_id}", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}/location-managers", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me", ["DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/account", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/addresses", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/browsing-destination", ["GET", "PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/access-tokens", ["GET", "POST", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/access-tokens/{access_token_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/watchlist", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/search-filters", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/search-filters/{user_search_filter_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/search-filters/{user_search_filter_id}/matches", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/search-filters/{user_search_filter_id}/matches/{product_listing_id}", ["PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/notifications", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/notifications/all", ["PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/notifications/{notification_id}", ["PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/billing/checkout", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/billing/portal", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/billing/manage", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/partnership-applications", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/partnership-applications/{partnership_application_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnership-applications", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnership-applications/{partnership_application_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnership-applications/{partnership_application_id}/decision", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnerships", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnerships/{partnership_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}/suspension", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}/sessions/revoke", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}/access-tokens", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/oauth-clients", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/oauth/clients/{client_id}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-default", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings/{product_listing_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings/{product_listing_id}/restore", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/auctions", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/auctions/{auction_id}", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/overview", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources/{listing_source_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/listing-sources", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations/{location_id}", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations/{location_id}/lifecycle", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/location-managers/{user_id}", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/location-managers", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me", ["DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/account", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/browsing-destination", ["GET", "PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens", ["GET", "POST", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens/{access_token_id}", ["GET", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches/{product_listing_id}", ["PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications/all", ["PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications/{notification_id}", ["PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/checkout", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/portal", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/manage", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/partnership-applications", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/partnership-applications/{partnership_application_id}", ["GET", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}/decision", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}", ["GET", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}/members/{user_id}", ["PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}", ["PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/suspension", ["PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/sessions/revoke", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens", ["GET", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/clients/{client_id}", ["GET"]),
 
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/authorize", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/token", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/tokens/by-third-party-code/{third_party_code}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/revoke", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/introspect", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/authorize", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/token", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/tokens/by-third-party-code/{third_party_code}", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/revoke", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/introspect", ["POST"]),
 
-  ...apiRoutes(RouteAuthPolicy.ProviderSignature, "/api/v1/webhooks/woocommerce/{listing_source_id}", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.LoopsSignature, "/api/v1/webhooks/loops", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ProviderSignature, "/v1/webhooks/woocommerce/{listing_source_id}", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.LoopsSignature, "/v1/webhooks/loops", ["POST"]),
 ];
 
 export interface HttpApiProps {
@@ -295,7 +295,7 @@ export class BackendHttpApi extends Construct {
         methods: [definition.method],
         integration,
       });
-      if (definition.path === "/api/v1/listing-sources/{listingSourceId}/product-listings") {
+      if (definition.path === "/v1/listing-sources/{listingSourceId}/product-listings") {
         const logicalId = PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS[definition.method];
         if (logicalId) {
           for (const httpRoute of httpRoutes) {
@@ -379,13 +379,13 @@ export class BackendHttpApi extends Construct {
     });
     const webAclArn = this.configureCloudFrontWebAcl(props);
     const selectiveReadPathPatterns = [
-      "/api/v1/listing-sources",
-      "/api/v1/listing-sources/by-slug/*",
-      "/api/v1/auctions",
-      "/api/v1/auctions/*",
-      "/api/v1/product-listings",
-      "/api/v1/product-listings/*",
-      "/api/v1/overview",
+      "/v1/listing-sources",
+      "/v1/listing-sources/by-slug/*",
+      "/v1/auctions",
+      "/v1/auctions/*",
+      "/v1/product-listings",
+      "/v1/product-listings/*",
+      "/v1/overview",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
@@ -410,7 +410,7 @@ export class BackendHttpApi extends Construct {
             cachePolicyId: CLOUDFRONT_CACHING_DISABLED_POLICY_ID,
             compress: true,
             originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
-            pathPattern: "/api/*",
+            pathPattern: "/v1/*",
             targetOriginId: originId,
             viewerProtocolPolicy: "redirect-to-https",
           },
@@ -512,7 +512,7 @@ export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
  * The URI path is matched raw, so encoded, dot-segment or trailing-slash variants stay out of scope.
  */
 export const API_OAUTH_REDIRECT_URI_PATH_PATTERN =
-  "^/api/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token))$";
+  "^/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token))$";
 
 /**
  * Common-rule-set rules for URLs that target internal hosts in the body or query. Contract-valid
@@ -660,7 +660,7 @@ function resourceCode(fileName: string): string {
 }
 
 function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): ApplicationRouteAuthPolicy {
-  if (path.startsWith("/api/v1/admin/")) {
+  if (path.startsWith("/v1/admin/")) {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.Administrator,
@@ -668,7 +668,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path.startsWith("/api/v1/parties/{party_id}/locations")) {
+  if (path.startsWith("/v1/parties/{party_id}/locations")) {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.PartyLocationManager,
@@ -676,7 +676,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/listing-sources/{listing_source_id}/location-default") {
+  if (path === "/v1/listing-sources/{listing_source_id}/location-default") {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.SourceLocationManager,
@@ -684,9 +684,9 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
-      path === "/api/v1/listing-sources/{listing_source_id}/shipping-default" ||
-      path.startsWith("/api/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
+  if (path.startsWith("/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
+      path === "/v1/listing-sources/{listing_source_id}/shipping-default" ||
+      path.startsWith("/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.ShippingProfileManager,
@@ -694,9 +694,9 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path.startsWith("/api/v1/listing-sources/{listingSourceId}/product-listings") ||
-      path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
-      path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify") {
+  if (path.startsWith("/v1/listing-sources/{listingSourceId}/product-listings") ||
+      path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
+      path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify") {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.Partner,
@@ -704,7 +704,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/oauth/authorize") {
+  if (path === "/v1/oauth/authorize") {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.AuthenticatedUser,
@@ -712,7 +712,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/oauth/token" || path === "/api/v1/oauth/revoke" || path === "/api/v1/oauth/introspect") {
+  if (path === "/v1/oauth/token" || path === "/v1/oauth/revoke" || path === "/v1/oauth/introspect") {
     return {
       bearer: "NONE",
       authorization: RouteAuthorizationClass.Public,
@@ -720,7 +720,7 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/oauth/tokens/by-third-party-code/{third_party_code}") {
+  if (path === "/v1/oauth/tokens/by-third-party-code/{third_party_code}") {
     return {
       bearer: "NONE",
       authorization: RouteAuthorizationClass.Public,

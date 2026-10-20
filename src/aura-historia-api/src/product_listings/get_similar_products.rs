@@ -127,7 +127,7 @@ fn ready_response(
 fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
     let location_path = match lookup {
         ProductListingEmbeddingLookup::ById(product_listing_id) => {
-            format!("/api/v1/product-listings/{product_listing_id}/similar")
+            format!("/v1/product-listings/{product_listing_id}/similar")
         }
         ProductListingEmbeddingLookup::ByTitleSlug(_) => {
             return crate::transport::cache::private_no_store(
@@ -300,10 +300,8 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/similar"
-                ))
-                .body(Body::empty())?,
+                Request::get(format!("/v1/product-listings/{product_listing_id}/similar"))
+                    .body(Body::empty())?,
             )
             .await?;
 
@@ -345,11 +343,9 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/similar"
-                ))
-                .header(header::AUTHORIZATION, "Bearer token")
-                .body(Body::empty())?,
+                Request::get(format!("/v1/product-listings/{product_listing_id}/similar"))
+                    .header(header::AUTHORIZATION, "Bearer token")
+                    .body(Body::empty())?,
             )
             .await?;
 
@@ -376,16 +372,14 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!(
-                    "/api/v1/product-listings/{product_listing_id}/similar"
-                ))
-                .body(Body::empty())?,
+                Request::get(format!("/v1/product-listings/{product_listing_id}/similar"))
+                    .body(Body::empty())?,
             )
             .await?;
 
         assert_eq!(StatusCode::ACCEPTED, response.status());
         assert_eq!(
-            format!("/api/v1/product-listings/{product_listing_id}/similar"),
+            format!("/v1/product-listings/{product_listing_id}/similar"),
             response.headers()[header::LOCATION]
         );
         assert_eq!(
@@ -406,7 +400,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/{}/similar",
+                    "/v1/product-listings/{}/similar",
                     ProductListingId::new()
                 ))
                 .body(Body::empty())?,
@@ -432,7 +426,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/product-listings/{}/similar",
+                    "/v1/product-listings/{}/similar",
                     ProductListingId::new()
                 ))
                 .body(Body::empty())?,
@@ -456,7 +450,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/product-listings/{product_listing_id}/similar",
+                "/v1/product-listings/{product_listing_id}/similar",
                 axum::routing::get(get_similar_products_by_id),
             )
             .with_state(state)

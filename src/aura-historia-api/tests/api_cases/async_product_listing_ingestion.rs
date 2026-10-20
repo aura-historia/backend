@@ -54,7 +54,7 @@ async fn send(
         .request(
             method,
             format!(
-                "{}/api/v1/listing-sources/{source}/product-listings/async",
+                "{}/v1/listing-sources/{source}/product-listings/async",
                 AURA_API.base_url()
             ),
         )

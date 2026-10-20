@@ -65,10 +65,7 @@ async fn create_oauth_client_with_name(
     client_name: &str,
 ) -> OAuthClientCredentials {
     let response = client
-        .post(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(token)
         .json(&serde_json::json!({
             "client_name": client_name,
@@ -102,7 +99,7 @@ async fn create_oauth_client_with_name(
     assert_eq!(7, client_id.as_uuid().get_version_num());
     assert!(client_id.to_string().starts_with("oc_"));
     assert_eq!(
-        Some(format!("/api/v1/admin/oauth-clients/{client_id}")),
+        Some(format!("/v1/admin/oauth-clients/{client_id}")),
         location
     );
     assert_eq!(Some("no-store".to_owned()), cache_control);
@@ -155,7 +152,7 @@ async fn authorize_code(
 ) -> String {
     let client_id = credentials.client_id.to_string();
     let response = client
-        .get(format!("{}/api/v1/oauth/authorize", AURA_API.base_url()))
+        .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
         .bearer_auth(token)
         .query(&[
             ("response_type", "code"),
@@ -201,7 +198,7 @@ async fn exchange_code_response(
 ) -> (reqwest::StatusCode, serde_json::Value) {
     let client_id = credentials.client_id.to_string();
     let response = client
-        .post(format!("{}/api/v1/oauth/token", AURA_API.base_url()))
+        .post(format!("{}/v1/oauth/token", AURA_API.base_url()))
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -244,7 +241,7 @@ async fn exchange_third_party_code_response(
 ) -> (reqwest::StatusCode, serde_json::Value) {
     let response = client
         .get(format!(
-            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            "{}/v1/oauth/tokens/by-third-party-code/{}",
             AURA_API.base_url(),
             code
         ))
@@ -261,10 +258,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let admin_token = admin_read_token().await;
     let response = client
-        .get(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(&admin_token)
         .query(&[("name", "Acceptance OAuth"), ("size", "100")])
         .send()
@@ -292,7 +286,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     assert!(body["items"][0].get("client_secret").is_none());
 
     let response = client
-        .post(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
+        .post(format!("{}/v1/oauth/clients", AURA_API.base_url()))
         .bearer_auth(&admin_token)
         .send()
         .await
@@ -303,7 +297,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/oauth-clients/{}",
+            "{}/v1/admin/oauth-clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -337,7 +331,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/oauth/clients/{}",
+            "{}/v1/oauth/clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -357,7 +351,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/oauth/clients/{}",
+            "{}/v1/oauth/clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -372,7 +366,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/admin/oauth-clients/{}",
+            "{}/v1/admin/oauth-clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -431,7 +425,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/admin/oauth-clients/{}",
+            "{}/v1/admin/oauth-clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -456,7 +450,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/oauth/clients/{}",
+            "{}/v1/oauth/clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -470,7 +464,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/oauth-clients/{}",
+            "{}/v1/admin/oauth-clients/{}",
             AURA_API.base_url(),
             credentials.client_id
         ))
@@ -493,7 +487,7 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion
     let (client, admin_token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &admin_token).await;
     let url = format!(
-        "{}/api/v1/admin/oauth-clients/{}",
+        "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
         credentials.client_id
     );
@@ -558,7 +552,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
         .to_owned();
 
     let delete_url = format!(
-        "{}/api/v1/admin/oauth-clients/{}",
+        "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
         credentials.client_id
     );
@@ -573,7 +567,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     let ordinary_user_id = seed_user("USER").await;
     let cognito_access_token = api_support::cognito_access_token_for_test_user(ordinary_user_id);
     let consent_url = format!(
-        "{}/api/v1/oauth/clients/{}",
+        "{}/v1/oauth/clients/{}",
         AURA_API.base_url(),
         credentials.client_id
     );
@@ -603,7 +597,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
 
     let client_id = credentials.client_id.to_string();
     let response = client
-        .get(format!("{}/api/v1/oauth/authorize", AURA_API.base_url()))
+        .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
         .bearer_auth(&admin_token)
         .query(&[
             ("response_type", "code"),
@@ -627,7 +621,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     );
 
     let response = client
-        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(&access_token)
         .send()
         .await
@@ -644,7 +638,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            "{}/v1/oauth/tokens/by-third-party-code/{}",
             AURA_API.base_url(),
             third_party_code
         ))
@@ -680,16 +674,16 @@ async fn should_require_authentication_for_admin_oauth_client_collection_and_ite
     let routes = [
         (
             reqwest::Method::GET,
-            format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url()),
+            format!("{}/v1/admin/oauth-clients", AURA_API.base_url()),
         ),
         (
             reqwest::Method::POST,
-            format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url()),
+            format!("{}/v1/admin/oauth-clients", AURA_API.base_url()),
         ),
         (
             reqwest::Method::GET,
             format!(
-                "{}/api/v1/admin/oauth-clients/{}",
+                "{}/v1/admin/oauth-clients/{}",
                 AURA_API.base_url(),
                 OAuthClientId::new()
             ),
@@ -697,7 +691,7 @@ async fn should_require_authentication_for_admin_oauth_client_collection_and_ite
         (
             reqwest::Method::PATCH,
             format!(
-                "{}/api/v1/admin/oauth-clients/{}",
+                "{}/v1/admin/oauth-clients/{}",
                 AURA_API.base_url(),
                 OAuthClientId::new()
             ),
@@ -705,7 +699,7 @@ async fn should_require_authentication_for_admin_oauth_client_collection_and_ite
         (
             reqwest::Method::DELETE,
             format!(
-                "{}/api/v1/admin/oauth-clients/{}",
+                "{}/v1/admin/oauth-clients/{}",
                 AURA_API.base_url(),
                 OAuthClientId::new()
             ),
@@ -751,7 +745,7 @@ async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
                 .request(
                     method.clone(),
                     format!(
-                        "{}/api/v1/admin/oauth-clients/{invalid_id}",
+                        "{}/v1/admin/oauth-clients/{invalid_id}",
                         AURA_API.base_url()
                     ),
                 )
@@ -788,10 +782,7 @@ async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
 async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
     let (client, token) = authenticated_client().await;
     let response = client
-        .post(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(token)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body("{")
@@ -852,7 +843,7 @@ async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
             ),
         ] {
             let response = client
-                .post(format!("{}/api/v1/oauth/{route}", AURA_API.base_url()))
+                .post(format!("{}/v1/oauth/{route}", AURA_API.base_url()))
                 .form(&form)
                 .send()
                 .await
@@ -879,10 +870,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
 
     for invalid_id in noncanonical_oauth_client_ids(UserId::new().to_string()) {
         let response = client
-            .get(format!(
-                "{}/api/v1/admin/oauth-clients",
-                AURA_API.base_url()
-            ))
+            .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
             .bearer_auth(&token)
             .query(&[("clientId", invalid_id.as_str())])
             .send()
@@ -899,7 +887,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
         assert_eq!("QUERY", body["source"]["type"]);
 
         let response = client
-            .get(format!("{}/api/v1/oauth/authorize", AURA_API.base_url()))
+            .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
             .bearer_auth(&token)
             .query(&[
                 ("response_type", "code"),
@@ -930,10 +918,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
 async fn should_return_bad_query_for_malformed_admin_oauth_client_search_after_shape() {
     let token = admin_read_token().await;
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(token)
         .query(&[("searchAfter", "{}")])
         .send()
@@ -965,10 +950,7 @@ async fn should_reject_noncanonical_admin_oauth_client_cursors() {
     for invalid_id in noncanonical_oauth_client_ids(AccessTokenId::new().to_string()) {
         let cursor = serde_json::json!(["2026-09-09T12:00:00Z", invalid_id]).to_string();
         let response = client
-            .get(format!(
-                "{}/api/v1/admin/oauth-clients",
-                AURA_API.base_url()
-            ))
+            .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
             .bearer_auth(&token)
             .query(&[("searchAfter", cursor)])
             .send()
@@ -1000,7 +982,7 @@ async fn should_return_not_found_for_missing_admin_oauth_client() {
     let missing_client_id = OAuthClientId::new();
     let response = client
         .get(format!(
-            "{}/api/v1/admin/oauth-clients/{missing_client_id}",
+            "{}/v1/admin/oauth-clients/{missing_client_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(admin_token)
@@ -1026,10 +1008,7 @@ async fn should_return_not_found_for_missing_admin_oauth_client() {
 async fn should_require_admin_role_and_delegated_read_for_oauth_client_detail() {
     let client = reqwest::Client::new();
     let client_id = OAuthClientId::new();
-    let path = format!(
-        "{}/api/v1/admin/oauth-clients/{client_id}",
-        AURA_API.base_url()
-    );
+    let path = format!("{}/v1/admin/oauth-clients/{client_id}", AURA_API.base_url());
 
     let non_admin_id = seed_user("USER").await;
     let non_admin_token = seed_access_token_for(
@@ -1080,10 +1059,7 @@ async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user(
         "https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce?target=staging",
     ];
     let create_response = admin_client
-        .post(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(&admin_token)
         .json(&serde_json::json!({
             "client_name": "Aura Historia WooCommerce",
@@ -1105,7 +1081,7 @@ async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user(
 
     let ordinary_user_id = seed_user("USER").await;
     let cognito_access_token = api_support::cognito_access_token_for_test_user(ordinary_user_id);
-    let url = format!("{}/api/v1/oauth/clients/{client_id}", AURA_API.base_url());
+    let url = format!("{}/v1/oauth/clients/{client_id}", AURA_API.base_url());
     let response =
         get_oauth_consent_metadata(&reqwest::Client::new(), &url, Some(&cognito_access_token))
             .await;
@@ -1167,7 +1143,7 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
     let invalid_jwt = "not.a.valid.jwt";
     let client_secret = String::from(RawOAuthClientSecret::new());
     let client_id = OAuthClientId::new();
-    let url = format!("{}/api/v1/oauth/clients/{client_id}", AURA_API.base_url());
+    let url = format!("{}/v1/oauth/clients/{client_id}", AURA_API.base_url());
     let client = reqwest::Client::new();
 
     for bearer_token in [
@@ -1196,7 +1172,7 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
     }
 
     let malformed_url = format!(
-        "{}/api/v1/oauth/clients/not-an-oauth-client-id",
+        "{}/v1/oauth/clients/not-an-oauth-client-id",
         AURA_API.base_url()
     );
     let response =
@@ -1217,7 +1193,7 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
     assert_eq!(Some("no-store".to_owned()), cache_control);
 
     let missing_url = format!(
-        "{}/api/v1/oauth/clients/{}",
+        "{}/v1/oauth/clients/{}",
         AURA_API.base_url(),
         OAuthClientId::new()
     );
@@ -1247,10 +1223,7 @@ async fn should_reject_oauth_client_creation_for_non_admin() {
     )
     .await;
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "client_name": "Non-admin OAuth Client",
@@ -1274,10 +1247,7 @@ async fn should_reject_oauth_client_creation_for_admin_without_delegated_write()
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(admin_id, Default::default()).await;
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "client_name": "Missing Capability OAuth Client",
@@ -1303,7 +1273,7 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_update()
     let (client, admin_token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &admin_token).await;
     let url = format!(
-        "{}/api/v1/admin/oauth-clients/{}",
+        "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
         credentials.client_id
     );
@@ -1344,7 +1314,7 @@ async fn should_validate_admin_oauth_client_update_and_report_not_found() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
     let url = format!(
-        "{}/api/v1/admin/oauth-clients/{}",
+        "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
         credentials.client_id
     );
@@ -1391,7 +1361,7 @@ async fn should_validate_admin_oauth_client_update_and_report_not_found() {
 
     let response = client
         .patch(format!(
-            "{}/api/v1/admin/oauth-clients/{}",
+            "{}/v1/admin/oauth-clients/{}",
             AURA_API.base_url(),
             OAuthClientId::new()
         ))
@@ -1426,7 +1396,7 @@ async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
         .await,
     );
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url());
+    let url = format!("{}/v1/admin/oauth-clients", AURA_API.base_url());
 
     let response = client
         .post(&url)
@@ -1485,7 +1455,7 @@ async fn should_paginate_and_filter_admin_oauth_clients() {
     let third_client =
         create_oauth_client_with_name(&client, &token, "Cursor OAuth Client C").await;
     let admin_token = admin_read_token().await;
-    let url = format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url());
+    let url = format!("{}/v1/admin/oauth-clients", AURA_API.base_url());
 
     let first = client
         .get(&url)
@@ -1583,10 +1553,7 @@ async fn should_reject_admin_oauth_client_list_without_delegated_read_capability
     let user_id = api_support::seed_user("ADMIN").await;
     let token = api_support::seed_access_token_for(user_id, Default::default()).await;
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -1611,10 +1578,7 @@ async fn should_reject_admin_oauth_client_list_for_non_admin_with_delegated_read
     )
     .await;
     let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/oauth-clients",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -1659,7 +1623,7 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            "{}/v1/oauth/tokens/by-third-party-code/{}",
             AURA_API.base_url(),
             third_party_code
         ))
@@ -1672,7 +1636,7 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            "{}/v1/oauth/tokens/by-third-party-code/{}",
             AURA_API.base_url(),
             third_party_code
         ))
@@ -1780,7 +1744,7 @@ async fn should_introspect_and_revoke_oauth_access_token() {
     let client_id = credentials.client_id.to_string();
 
     let response = client
-        .post(format!("{}/api/v1/oauth/introspect", AURA_API.base_url()))
+        .post(format!("{}/v1/oauth/introspect", AURA_API.base_url()))
         .form(&[
             ("token", access_token),
             ("client_id", client_id.as_str()),
@@ -1797,7 +1761,7 @@ async fn should_introspect_and_revoke_oauth_access_token() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/access-tokens/{access_token_id}",
+            "{}/v1/me/access-tokens/{access_token_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(access_token)
@@ -1810,7 +1774,7 @@ async fn should_introspect_and_revoke_oauth_access_token() {
     assert_eq!(serde_json::json!(user_id), body["userId"]);
 
     let response = client
-        .post(format!("{}/api/v1/oauth/revoke", AURA_API.base_url()))
+        .post(format!("{}/v1/oauth/revoke", AURA_API.base_url()))
         .form(&[
             ("token", access_token),
             ("client_id", client_id.as_str()),

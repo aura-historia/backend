@@ -307,7 +307,7 @@ fn location_response(
 ) -> Response {
     let mut response = match result {
         Ok(v) => {
-            let location = format!("/api/v1/parties/{}/locations/{}", v.party_id, v.id);
+            let location = format!("/v1/parties/{}/locations/{}", v.party_id, v.id);
             let mut r = (
                 if created {
                     StatusCode::CREATED
@@ -787,7 +787,7 @@ mod route_tests {
     async fn creates_without_a_key_and_ignores_legacy_headers() {
         let capture = Arc::new(Capture::default());
         let app = location_app(capture.clone());
-        let path = format!("/api/v1/parties/{}/locations", PartyId::new());
+        let path = format!("/v1/parties/{}/locations", PartyId::new());
         let mut ids = BTreeSet::new();
         for keys in [
             vec![],
@@ -818,23 +818,76 @@ mod route_tests {
             assert_eq!(StatusCode::CREATED, response.status());
             assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
             assert!(!response.headers().contains_key("idempotency-key"));
+            let location = response.headers()[header::LOCATION]
+                .to_str()
+                .unwrap()
+                .to_owned();
             let body: serde_json::Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
                     .unwrap(),
             )
             .unwrap();
-            assert!(ids.insert(body["id"].as_str().unwrap().to_owned()));
+            let id = body["id"].as_str().unwrap();
+            assert_eq!(format!("{path}/{id}"), location);
+            assert!(ids.insert(id.to_owned()));
         }
         assert_eq!(8, capture.calls.lock().unwrap().len());
     }
+    #[tokio::test]
+    async fn should_not_resolve_or_redirect_legacy_party_location_routes() {
+        let capture = Arc::new(Capture::default());
+        let app = location_app(capture.clone());
+        let party = PartyId::new();
+        let id = PartyLocationId::new();
+        let base = format!("/api/v1/parties/{party}/locations");
+        for (method, path) in [
+            ("GET", base.clone()),
+            ("POST", base.clone()),
+            ("GET", format!("{base}/{id}")),
+            ("PATCH", format!("{base}/{id}")),
+            ("PUT", format!("{base}/{id}/lifecycle")),
+            (
+                "GET",
+                format!("/api/v1/admin/parties/{party}/location-managers"),
+            ),
+            (
+                "PUT",
+                format!(
+                    "/api/v1/admin/parties/{party}/location-managers/{}",
+                    UserId::new()
+                ),
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(&path)
+                        .header("authorization", "Bearer test-token")
+                        .header("content-type", "application/json")
+                        .body(Body::from(r#"{"label":"Site"}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(StatusCode::NOT_FOUND, response.status(), "{method} {path}");
+            assert!(
+                !response.headers().contains_key(header::LOCATION),
+                "{method} {path}"
+            );
+        }
+        assert!(capture.calls.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn routes_map_commands_authentication_and_cache_headers() {
         let capture = Arc::new(Capture::default());
         let app = location_app(capture.clone());
         let party = PartyId::new();
         let id = PartyLocationId::new();
-        let base = format!("/api/v1/parties/{party}/locations");
+        let base = format!("/v1/parties/{party}/locations");
         let cases = [
             (
                 "POST",
@@ -862,7 +915,7 @@ mod route_tests {
             (
                 "PUT",
                 format!(
-                    "/api/v1/admin/parties/{party}/location-managers/{}",
+                    "/v1/admin/parties/{party}/location-managers/{}",
                     UserId::new()
                 ),
                 r#"{"granted":true}"#,
@@ -926,8 +979,8 @@ mod route_tests {
         }
         assert_eq!(6, capture.calls.lock().unwrap().len());
         for path in [
-            format!("/api/v1/public/parties/{party}/locations/{id}"),
-            format!("/api/v1/public/parties/{party}/locations"),
+            format!("/v1/public/parties/{party}/locations/{id}"),
+            format!("/v1/public/parties/{party}/locations"),
         ] {
             for credential in [
                 None,
@@ -954,7 +1007,7 @@ mod route_tests {
         let capture = Arc::new(Capture::default());
         let app = location_app(capture.clone());
         let party = PartyId::new();
-        let manager_path = format!("/api/v1/admin/parties/{party}/location-managers");
+        let manager_path = format!("/v1/admin/parties/{party}/location-managers");
         let user_id = UserId::new();
         let response = app
             .clone()
@@ -1065,7 +1118,7 @@ mod route_tests {
                 StatusCode::BAD_REQUEST,
             ),
             (
-                "/api/v1/admin/parties/bad/location-managers".to_owned(),
+                "/v1/admin/parties/bad/location-managers".to_owned(),
                 Some("Bearer test-token"),
                 StatusCode::BAD_REQUEST,
             ),

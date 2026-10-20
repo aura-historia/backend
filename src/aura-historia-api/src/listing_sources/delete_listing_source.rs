@@ -224,7 +224,7 @@ mod tests {
         }));
         Router::new()
             .route(
-                "/api/v1/admin/listing-sources/{listing_source_id}",
+                "/v1/admin/listing-sources/{listing_source_id}",
                 delete(delete_listing_source),
             )
             .with_state(state)
@@ -252,7 +252,7 @@ mod tests {
         let calls = Arc::new(Mutex::new(0));
         let response = request(
             router(Ok(()), false, Arc::clone(&calls)),
-            &format!("/api/v1/admin/listing-sources/{}", ListingSourceId::new()),
+            &format!("/v1/admin/listing-sources/{}", ListingSourceId::new()),
         )
         .await;
 
@@ -278,7 +278,7 @@ mod tests {
         let calls = Arc::new(Mutex::new(0));
         let response = request(
             router(Ok(()), false, Arc::clone(&calls)),
-            "/api/v1/admin/listing-sources/not-an-object-id",
+            "/v1/admin/listing-sources/not-an-object-id",
         )
         .await;
 
@@ -313,7 +313,7 @@ mod tests {
         let calls = Arc::new(Mutex::new(0));
         let response = request(
             router(Ok(()), true, Arc::clone(&calls)),
-            &format!("/api/v1/admin/listing-sources/{}", ListingSourceId::new()),
+            &format!("/v1/admin/listing-sources/{}", ListingSourceId::new()),
         )
         .await;
 
@@ -366,7 +366,7 @@ mod tests {
             let calls = Arc::new(Mutex::new(0));
             let response = request(
                 router(Err(error), false, Arc::clone(&calls)),
-                &format!("/api/v1/admin/listing-sources/{}", ListingSourceId::new()),
+                &format!("/v1/admin/listing-sources/{}", ListingSourceId::new()),
             )
             .await;
             assert_eq!(status, response.status());

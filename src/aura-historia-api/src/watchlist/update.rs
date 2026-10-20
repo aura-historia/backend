@@ -284,7 +284,7 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/me/watchlist/{product_listing_id}",
+                    "/v1/me/watchlist/{product_listing_id}",
                     axum::routing::patch(patch_watchlist),
                 )
                 .with_state(state),
@@ -297,7 +297,7 @@ mod tests {
         query: &str,
         body: &'static str,
     ) -> Request<Body> {
-        Request::patch(format!("/api/v1/me/watchlist/{product_listing_id}{query}"))
+        Request::patch(format!("/v1/me/watchlist/{product_listing_id}{query}"))
             .header(header::AUTHORIZATION, "Bearer valid")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body))

@@ -432,7 +432,7 @@ mod tests {
         let id = ListingSourceId::new();
         let location = PartyLocationId::new();
         for (prefix, capture) in [("", &capture), ("/admin", &admin_capture)] {
-            let path = format!("/api/v1{prefix}/listing-sources/{id}/location-default");
+            let path = format!("/v1{prefix}/listing-sources/{id}/location-default");
             let body=serde_json::json!({"expectedRevision":1,"partyLocationId":location,"businessAssociation":{"reference":"Private evidence","scope":"ASSOCIATED_BUSINESS"}}).to_string();
             let cases = [
                 ("GET", "", true, StatusCode::OK),

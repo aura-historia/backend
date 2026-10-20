@@ -57,9 +57,10 @@ does not opt an operation into replay; preserve the [keyless creation exceptions
 
 - Public aliases are exactly `api.stage.aura-historia.com` for AWS **`dev`** and
   `api.aura-historia.com` for prod, never `*.stage.aura-historia.com`.
-- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The public
-  `/api/v1` path stays unchanged; the Lambda adapter normalizes a matching Gateway
-  stage prefix. Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
+- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The canonical
+  REST prefix is `/v1`, without a mapping key or origin-path rewrite. The Lambda adapter
+  normalizes a matching Gateway stage prefix; it must not strip arbitrary path segments.
+  Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
 - CloudFront redirects viewers to HTTPS and uses an HTTPS-only regional Gateway
   origin (`attrRegionalDomainName`), **not the public CloudFront-facing DNS record**.
   AllViewer forwards `Host`; origin TLS and custom-domain mapping must accept it.
@@ -114,13 +115,56 @@ The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors, including the exact `/api/v1/overview` path, use
-this policy; generic `/api/*` and default behaviors use `CachingDisabled`. Wildcard
+Only reviewed discovery path behaviors, including the exact `/v1/overview` path, use
+this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
 expansion requires route/cache review and tests. Do not add token-derived keys, cookie
 partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
+
+## REST client and provider configuration
+
+| Environment | REST base URL |
+| --- | --- |
+| Development (AWS `dev`) | `https://api.stage.aura-historia.com/v1` |
+| Production | `https://api.aura-historia.com/v1` |
+
+Append operation suffixes exactly once, for example `/health` to the REST base URL.
+Clients configured with an origin alone must include `/v1` in their request paths.
+The removed `/api/v1` routes have no compatibility aliases, redirects or deprecation
+period. Historical changelog entries retain their original paths.
+
+Coordinate these externally owned settings with the backend development cutover:
+
+- In [`aura-historia/webapp`](https://github.com/aura-historia/webapp), refresh the checked-in
+  OpenAPI contract and regenerate REST/partner clients. Also update handwritten OAuth
+  approval and broker token-exchange endpoints, similar-listing `Location` validation,
+  partner-spec extraction, examples and test intercepts. Keep `VITE_API_URL` origin-only:
+  generated operation paths already include `/v1`. Verify login, consent metadata,
+  approval and code/token exchange end to end. Webapp-owned `/api/...` routes and client
+  callback URLs are independent; change a callback only if it targets a renamed backend route.
+- Advertise Aura's authorization endpoint at `/v1/oauth/authorize` and token endpoint at
+  `/v1/oauth/token`, using the environment's API origin. Do not change provider OAuth URLs.
+- Update each registered WooCommerce delivery URL to the API origin plus
+  `/v1/webhooks/woocommerce/{listingSourceId}` and the signed Loops preference endpoint to
+  `/v1/webhooks/loops`. Preserve provider authentication, signing secrets, delivery identity
+  and exact raw-body/signature handling; do not redirect deliveries. Loops' external
+  `https://app.loops.so/api` base URL is unrelated and remains unchanged. Shopify/Stripe
+  event ingestion is not part of this HTTP route migration.
+- In [`woocommerce-extension`](https://github.com/aura-historia/woocommerce-extension),
+  update the webhook URL builder, refresh its pinned backend schema/client, and trigger
+  managed webhook synchronization for existing installations; changing code alone does
+  not update registered delivery URLs. Keep its backend base URL origin-only. In
+  [`shopify-app`](https://github.com/aura-historia/shopify-app), update the backend token
+  endpoint and pinned generated client, not webapp consent-page URLs or callbacks.
+- Update other project-owned scripts and test clients from OpenAPI. Preserve existing
+  retry behavior: a prefix change does not make writes safe to replay.
+
+These registrations and webapp changes are not performed by CDK or verified by local
+fixtures. Local changes are not evidence that an external registration has changed.
+Owners must apply them and verify requests against the development edge before
+signing off the cutover; omitted live checks are not passes.
 
 ## Deployment, cutover, and rollback
 
@@ -134,20 +178,25 @@ Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), 
    stage references in configuration; `*.aura-historia.com` or `*.dev.aura-historia.com`
    does not cover `api.stage.aura-historia.com`. Do not infer validity from synth.
 3. Review the actual diff and deployed API version/`live` alias, route catalog,
-   origin Host/TLS, WAF and forwarding. Probe the approved full chain before DNS:
+   origin Host/TLS, WAF and forwarding. Path-derived logical IDs can replace routes,
+   the shared integration and its invoke permission. Check the actual Gateway route
+   inventory and account quota against the create-before-delete peak, not just the
+   final catalog; unmanaged routes consume that headroom too. Retain the `live`-alias
+   proxy integration and API-scoped invoke permission. Probe the approved full chain:
    health/readiness, anonymous and invalid optional bearers, allowed/denied protected
    Cognito/Aura calls, OAuth, CORS, signed bodies, a valid JSON body above 16 KiB
    reaching validation, an oversized `Content-Length` returning JSON `413`, and
    cache/header isolation. Search
    readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
    Keep credentials and signed payloads out of logs; omitted checks are not passes.
-4. With approval and successful probes, move external DNS and affected frontend/provider
-   registrations; repeat probes on the public hostname. Keep the old endpoint until
-   its consumers are migrated and verified. Redirecting authenticated requests or
-   signed webhooks is not a safe default, and old-host retirement is not automatic.
+4. With approval and successful probes, update affected frontend/provider registrations
+   as described [above](#rest-client-and-provider-configuration); change external DNS only
+   if its target changes. Repeat probes on the public hostname, including canonical
+   `/v1` reads, representative writes and signed webhooks, and verify that `/api/v1`
+   operations are rejected without redirecting. Do not retain old routes or mappings.
 
 If alias/certificate/Host/TLS/forwarding checks fail, hold cutover. After cutover,
 restore the recorded DNS target and affected client/provider URLs, accounting for TTL.
 [Code/stack rollback](infra.md#rollback-and-stack-recovery) does not reverse DNS or
-provider effects. Preserve the old front door, WAF and retained state. Lambda timeout
+provider effects. Preserve WAF protections and retained state. Lambda timeout
 is not proof that side effects were canceled; reconcile before retrying writes.

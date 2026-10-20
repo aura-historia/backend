@@ -251,7 +251,7 @@ async fn version(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
 async fn all_admin_endpoints_enforce_persisted_role_and_delegated_capability_without_partner_grants()
  {
     let (app, id, pool) = fixture().await;
-    let path = format!("/api/v1/admin/product-listings/{id}");
+    let path = format!("/v1/admin/product-listings/{id}");
     for token in [
         None,
         Some("invalid"),
@@ -269,7 +269,7 @@ async fn all_admin_endpoints_enforce_persisted_role_and_delegated_capability_wit
         ] {
             let expected_version = version(&pool, id).await;
             let target = if suffix == "directory" {
-                "/api/v1/admin/product-listings".to_owned()
+                "/v1/admin/product-listings".to_owned()
             } else if method == "DELETE" {
                 format!("{path}?expectedVersion={expected_version}")
             } else {
@@ -321,7 +321,7 @@ async fn all_admin_endpoints_enforce_persisted_role_and_delegated_capability_wit
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn composed_admin_router_validates_fields_versions_lifecycle_and_privileged_images() {
     let (app, id, pool) = fixture().await;
-    let path = format!("/api/v1/admin/product-listings/{id}");
+    let path = format!("/v1/admin/product-listings/{id}");
     let (status, before) = request(&app, "GET", &path, Some("admin"), Value::Null).await;
     assert_eq!(StatusCode::OK, status);
     assert_eq!("Original title", before["title"]["text"]);
@@ -345,7 +345,7 @@ async fn composed_admin_router_validates_fields_versions_lifecycle_and_privilege
         let (status, _) = request(
             &app,
             "GET",
-            &format!("/api/v1/admin/product-listings/{invalid}"),
+            &format!("/v1/admin/product-listings/{invalid}"),
             Some("admin"),
             Value::Null,
         )
@@ -399,7 +399,7 @@ async fn composed_admin_router_validates_fields_versions_lifecycle_and_privilege
     let (status, page) = request(
         &app,
         "GET",
-        "/api/v1/admin/product-listings?sourceListingId=original-key",
+        "/v1/admin/product-listings?sourceListingId=original-key",
         Some("admin"),
         Value::Null,
     )
@@ -420,7 +420,7 @@ async fn composed_admin_router_validates_fields_versions_lifecycle_and_privilege
     assert_eq!(Value::Null, detail["availability"]);
     for method in ["GET", "PATCH", "DELETE", "POST"] {
         let missing = format!(
-            "/api/v1/admin/product-listings/{}{}",
+            "/v1/admin/product-listings/{}{}",
             ProductListingId::new(),
             if method == "DELETE" {
                 "?expectedVersion=1"

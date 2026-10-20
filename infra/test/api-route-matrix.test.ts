@@ -11,104 +11,41 @@ import {
   RouteAuthorizationClass,
 } from "../src/constructs/api";
 import { STAGES, stageConfig, type StageName } from "../src/config";
+import { axumRouteKeys, routeKey, swaggerRouteKeys } from "./api-route-contract";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
 };
 
-const ASYNC_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
+const ASYNC_PATH = "/v1/listing-sources/{listingSourceId}/product-listings/async";
 const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
-  "GET /api/v1/listing-sources",
-  "GET /api/v1/listing-sources/by-slug/{}",
-  "GET /api/v1/auctions",
-  "GET /api/v1/auctions/{}",
-  "GET /api/v1/auctions/{}/product-listings",
-  "GET /api/v1/product-listings",
-  "GET /api/v1/product-listings/by-slug/{}",
-  "GET /api/v1/product-listings/{}",
-  "GET /api/v1/product-listings/{}/history",
-  "GET /api/v1/product-listings/{}/similar",
-  "GET /api/v1/overview",
+  "GET /v1/listing-sources",
+  "GET /v1/listing-sources/by-slug/{}",
+  "GET /v1/auctions",
+  "GET /v1/auctions/{}",
+  "GET /v1/auctions/{}/product-listings",
+  "GET /v1/product-listings",
+  "GET /v1/product-listings/by-slug/{}",
+  "GET /v1/product-listings/{}",
+  "GET /v1/product-listings/{}/history",
+  "GET /v1/product-listings/{}/similar",
+  "GET /v1/overview",
 ];
-
-const RUST_ROUTE_FILES = [
-  "../../src/aura-historia-api/src/lib.rs",
-  "../../src/aura-historia-api/src/search_filters/mod.rs",
-  "../../src/aura-historia-api/src/notifications/mod.rs",
-  "../../src/aura-historia-api/src/partnership_applications/mod.rs",
-  "../../src/aura-historia-api/src/partnerships/mod.rs",
-] as const;
-
-function normalizePath(value: string): string {
-  return value.replace(/\{[^}]+}/g, "{}");
-}
-
-function routeKey(method: string, routePath: string): string {
-  return `${method.toUpperCase()} ${normalizePath(routePath)}`;
-}
 
 function matchesSelectiveCacheBehavior(path: string): boolean {
   return (
-    path === "/api/v1/listing-sources" ||
-    path.startsWith("/api/v1/listing-sources/by-slug/") ||
-    path === "/api/v1/auctions" ||
-    path.startsWith("/api/v1/auctions/") ||
-    path === "/api/v1/product-listings" ||
-    path.startsWith("/api/v1/product-listings/") ||
-    path === "/api/v1/overview"
+    path === "/v1/listing-sources" ||
+    path.startsWith("/v1/listing-sources/by-slug/") ||
+    path === "/v1/auctions" ||
+    path.startsWith("/v1/auctions/") ||
+    path === "/v1/product-listings" ||
+    path.startsWith("/v1/product-listings/") ||
+    path === "/v1/overview"
   );
 }
 
 function catalogRouteKeys(): string[] {
   return API_ROUTE_CATALOG.map((definition) => routeKey(definition.method, definition.path)).sort();
-}
-
-function swaggerRouteKeys(): string[] {
-  const lines = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8").split("\n");
-  const routes: string[] = [];
-  let currentPath: string | undefined;
-
-  for (const line of lines) {
-    const routeMatch = line.match(/^  (\/[^:]+):\s*$/);
-    if (routeMatch) {
-      currentPath = routeMatch[1];
-      continue;
-    }
-    const methodMatch = line.match(/^    (get|post|put|patch|delete):\s*$/);
-    if (methodMatch && currentPath) {
-      routes.push(routeKey(methodMatch[1], currentPath));
-    }
-  }
-
-  return routes.sort();
-}
-
-function axumRouteKeys(): string[] {
-  const routes = new Set<string>();
-
-  for (const fileName of RUST_ROUTE_FILES) {
-    const source = fs.readFileSync(path.join(__dirname, fileName), "utf8");
-    const routeStart = /\.route\(\s*"([^"]+)"\s*,/g;
-    let match: RegExpExecArray | null;
-    while ((match = routeStart.exec(source))) {
-      const routePath = match[1];
-      if (!routePath.startsWith("/api/v1/")) {
-        continue;
-      }
-      const nextRoute = source.indexOf(".route(", routeStart.lastIndex);
-      const stateBoundary = source.indexOf(".with_state", routeStart.lastIndex);
-      const handlerEnd = [nextRoute, stateBoundary].filter((index) => index !== -1).reduce(
-        (end, index) => Math.min(end, index),
-        source.length,
-      );
-      const handlers = source.slice(routeStart.lastIndex, handlerEnd);
-      for (const method of handlers.matchAll(/\b(get|post|put|patch|delete)\s*\(/g)) {
-        routes.add(routeKey(method[1], routePath));
-      }
-    }
-  }
-
-  return [...routes].sort();
 }
 
 function apiTemplate(stage: StageName): Template {
@@ -134,7 +71,7 @@ function resolveConcreteArn(value: unknown): string {
 describe("HTTP API route policy matrix", () => {
   test.each(STAGES)("preserves deployed collection route identities with camelCase keys in %s", (stage) => {
     const resources = apiTemplate(stage).findResources("AWS::ApiGatewayV2::Route");
-    const path = "/api/v1/listing-sources/{listingSourceId}/product-listings";
+    const path = "/v1/listing-sources/{listingSourceId}/product-listings";
     const deployedLogicalIds = {
       POST: "HttpApiPOSTapiv1listingsourceslistingsourceidproductlistings99639C00",
       PATCH: "HttpApiPATCHapiv1listingsourceslistingsourceidproductlistingsC3BE1E06",
@@ -151,7 +88,7 @@ describe("HTTP API route policy matrix", () => {
   });
 
   test("classifies every admin ProductListing route as administrator bearer access", () => {
-    const routes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/product-listings"));
+    const routes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/v1/admin/product-listings"));
     expect(routes).toHaveLength(5);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -160,7 +97,7 @@ describe("HTTP API route policy matrix", () => {
   });
 
   test("requires Partner bearer authority for every management route and excludes shared caching", () => {
-    const collection = "/api/v1/listing-sources/{listingSourceId}/product-listings";
+    const collection = "/v1/listing-sources/{listingSourceId}/product-listings";
     const detail = `${collection}/{productListingId}`;
     const routes = API_ROUTE_CATALOG.filter((route) =>
       (route.path === collection && route.method === "GET") ||
@@ -173,24 +110,29 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
-  test("covers the declared Axum and OpenAPI operations without a catch-all", () => {
+  test("exposes only /v1 operations in Axum and OpenAPI with no legacy aliases, duplicates or catch-all", () => {
     const catalog = catalogRouteKeys();
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(152);
-    expect(new Set(catalog).size).toBe(catalog.length);
+    for (const routes of [catalog, swagger, axum]) {
+      expect(routes).toHaveLength(152);
+      expect(new Set(routes).size).toBe(routes.length);
+      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key))).toBe(true);
+      expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
+      expect(routes.filter((key) => key.includes(" /api/"))).toEqual([]);
+    }
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
-    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/newsletter-subscriptions")))
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/v1/newsletter-subscriptions")))
       .toEqual([
         {
           method: "PUT",
-          path: "/api/v1/newsletter-subscriptions",
+          path: "/v1/newsletter-subscriptions",
           lambda: "auraHistoriaApi",
           auth: RouteAuthPolicy.OptionalBearer,
           policy: {
@@ -202,7 +144,7 @@ describe("HTTP API route policy matrix", () => {
         },
         {
           method: "POST",
-          path: "/api/v1/newsletter-subscriptions/confirm",
+          path: "/v1/newsletter-subscriptions/confirm",
           lambda: "auraHistoriaApi",
           auth: RouteAuthPolicy.Anonymous,
           policy: {
@@ -217,7 +159,7 @@ describe("HTTP API route policy matrix", () => {
 
   test("preserves Party-location management authority and exposes independent public discovery", () => {
     const protectedRoutes = API_ROUTE_CATALOG.filter((route) =>
-      route.path.startsWith("/api/v1/parties/{party_id}/locations"));
+      route.path.startsWith("/v1/parties/{party_id}/locations"));
     expect(protectedRoutes).toHaveLength(5);
     for (const route of protectedRoutes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -229,18 +171,18 @@ describe("HTTP API route policy matrix", () => {
       });
       expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
     }
-    const discovery = API_ROUTE_CATALOG.find((route) => route.path === "/api/v1/party-locations");
+    const discovery = API_ROUTE_CATALOG.find((route) => route.path === "/v1/party-locations");
     expect(discovery?.auth).toBe(RouteAuthPolicy.Anonymous);
     expect(discovery?.policy.authorization).toBe(RouteAuthorizationClass.Public);
-    expect(matchesSelectiveCacheBehavior("/api/v1/party-locations")).toBe(false);
+    expect(matchesSelectiveCacheBehavior("/v1/party-locations")).toBe(false);
     const publicRoutes = API_ROUTE_CATALOG.filter((route) =>
-      route.path.startsWith("/api/v1/public/parties/{party_id}/locations"));
+      route.path.startsWith("/v1/public/parties/{party_id}/locations"));
     expect(publicRoutes).toHaveLength(0);
   });
 
   test("exposes four source location default methods with source management authority and no discovery cache", () => {
     const routes = API_ROUTE_CATALOG.filter((route) =>
-      route.path === "/api/v1/listing-sources/{listing_source_id}/location-default");
+      route.path === "/v1/listing-sources/{listing_source_id}/location-default");
     expect(routes.map((route) => route.method)).toEqual(["GET", "PUT", "PATCH", "DELETE"]);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -256,7 +198,7 @@ describe("HTTP API route policy matrix", () => {
 
   test("exposes four admin source location default methods with administrator authority and no discovery cache", () => {
     const routes = API_ROUTE_CATALOG.filter((route) =>
-      route.path === "/api/v1/admin/listing-sources/{listing_source_id}/location-default");
+      route.path === "/v1/admin/listing-sources/{listing_source_id}/location-default");
     expect(routes.map((route) => route.method)).toEqual(["GET", "PUT", "PATCH", "DELETE"]);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -272,7 +214,7 @@ describe("HTTP API route policy matrix", () => {
 
   test("requires source shipping authority for all profile/default routes and excludes discovery caching", () => {
     const routes = API_ROUTE_CATALOG.filter((route) =>
-      route.path.startsWith("/api/v1/listing-sources/{listing_source_id}/shipping-"));
+      route.path.startsWith("/v1/listing-sources/{listing_source_id}/shipping-"));
     expect(routes).toHaveLength(9);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -288,8 +230,8 @@ describe("HTTP API route policy matrix", () => {
 
   test("documents anonymous versioned probes with their body contracts", () => {
     const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");
-    const health = swagger.split("  /api/v1/health:\n")[1]?.split(/\n  \//)[0];
-    const ready = swagger.split("  /api/v1/ready:\n")[1]?.split(/\n  \//)[0];
+    const health = swagger.split("  /v1/health:\n")[1]?.split(/\n  \//)[0];
+    const ready = swagger.split("  /v1/ready:\n")[1]?.split(/\n  \//)[0];
 
     expect(health).toContain("security: []");
     expect(health).toContain('"200":');
@@ -318,23 +260,23 @@ describe("HTTP API route policy matrix", () => {
     );
     expect(API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/product-listings/async")))
       .toHaveLength(4);
-    expect(swaggerRouteKeys().filter((key) => key.endsWith(" /api/v1/listing-sources/{}/product-listings/async")))
-      .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /api/v1/listing-sources/{}/product-listings/async`));
-    expect(axumRouteKeys().filter((key) => key.endsWith(" /api/v1/listing-sources/{}/product-listings/async")))
-      .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /api/v1/listing-sources/{}/product-listings/async`));
-    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listingSourceId}/product-listings")
+    expect(swaggerRouteKeys().filter((key) => key.endsWith(" /v1/listing-sources/{}/product-listings/async")))
+      .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /v1/listing-sources/{}/product-listings/async`));
+    expect(axumRouteKeys().filter((key) => key.endsWith(" /v1/listing-sources/{}/product-listings/async")))
+      .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /v1/listing-sources/{}/product-listings/async`));
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/listing-sources/{listingSourceId}/product-listings")
       .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE", "GET"]);
   });
 
   test("registers provider configuration PUT routes with the Partner application bearer policy", () => {
     const routes = API_ROUTE_CATALOG.filter((route) =>
-      route.path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
-      route.path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
+      route.path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
+      route.path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
     );
 
     expect(routes.map((route) => routeKey(route.method, route.path)).sort()).toEqual([
-      "PUT /api/v1/listing-sources/{}/ingestion-configurations/shopify",
-      "PUT /api/v1/listing-sources/{}/ingestion-configurations/woocommerce",
+      "PUT /v1/listing-sources/{}/ingestion-configurations/shopify",
+      "PUT /v1/listing-sources/{}/ingestion-configurations/woocommerce",
     ]);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -369,7 +311,7 @@ describe("HTTP API route policy matrix", () => {
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.ApplicationBearer)).not.toHaveLength(0);
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.OAuth)).not.toHaveLength(0);
 
-    const adminRoutes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/"));
+    const adminRoutes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/v1/admin/"));
     expect(adminRoutes.length).toBeGreaterThan(0);
     expect(adminRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual(
       API_ROUTE_CATALOG.filter((route) => route.policy.authorization === RouteAuthorizationClass.Administrator)
@@ -387,16 +329,16 @@ describe("HTTP API route policy matrix", () => {
 
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
       method: "POST",
-      path: "/api/v1/webhooks/woocommerce/{listing_source_id}",
+      path: "/v1/webhooks/woocommerce/{listing_source_id}",
       policy: expect.objectContaining({
         bearer: "REQUIRED",
         authorization: RouteAuthorizationClass.Partner,
         providerProof: ProviderProofRequirement.WooCommerceSignature,
       }),
     }));
-    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/webhooks/loops")).toEqual([{
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/webhooks/loops")).toEqual([{
       method: "POST",
-      path: "/api/v1/webhooks/loops",
+      path: "/v1/webhooks/loops",
       lambda: "auraHistoriaApi",
       auth: RouteAuthPolicy.LoopsSignature,
       policy: {
@@ -407,18 +349,18 @@ describe("HTTP API route policy matrix", () => {
       },
     }]);
     const probeRoutes = API_ROUTE_CATALOG.filter((route) =>
-      ["/api/v1/health", "/api/v1/ready", "/health", "/ready"].includes(route.path));
+      ["/v1/health", "/v1/ready", "/health", "/ready"].includes(route.path));
     expect(probeRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual([
-      "GET /api/v1/health",
-      "GET /api/v1/ready",
+      "GET /v1/health",
+      "GET /v1/ready",
     ]);
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
       method: "GET",
-      path: "/api/v1/health",
+      path: "/v1/health",
     }));
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
       method: "GET",
-      path: "/api/v1/ready",
+      path: "/v1/ready",
     }));
     expect(API_ROUTE_CATALOG.map((route) => routeKey(route.method, route.path))).not.toContain("GET /health");
     expect(API_ROUTE_CATALOG.map((route) => routeKey(route.method, route.path))).not.toContain("GET /ready");
@@ -431,8 +373,8 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.None,
       });
     }
-    const meRoutes = API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/me" || route.path.startsWith("/api/v1/me/"));
-    expect(meRoutes.map((route) => routeKey(route.method, route.path))).toContain("DELETE /api/v1/me");
+    const meRoutes = API_ROUTE_CATALOG.filter((route) => route.path === "/v1/me" || route.path.startsWith("/v1/me/"));
+    expect(meRoutes.map((route) => routeKey(route.method, route.path))).toContain("DELETE /v1/me");
     for (const route of meRoutes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
       expect(route.policy).toEqual({
@@ -443,12 +385,12 @@ describe("HTTP API route policy matrix", () => {
       });
     }
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
-      path: "/api/v1/oauth/authorize",
+      path: "/v1/oauth/authorize",
       policy: expect.objectContaining({ bearer: "REQUIRED", oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce }),
     }));
     expect(API_ROUTE_CATALOG).toContainEqual({
       method: "GET",
-      path: "/api/v1/oauth/clients/{client_id}",
+      path: "/v1/oauth/clients/{client_id}",
       lambda: "auraHistoriaApi",
       auth: RouteAuthPolicy.ApplicationBearer,
       policy: {
@@ -458,7 +400,7 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.None,
       },
     });
-    for (const path of ["/api/v1/oauth/token", "/api/v1/oauth/revoke", "/api/v1/oauth/introspect"]) {
+    for (const path of ["/v1/oauth/token", "/v1/oauth/revoke", "/v1/oauth/introspect"]) {
       expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
         path,
         policy: expect.objectContaining({ bearer: "NONE", oauthCredentials: OAuthCredentialRequirement.ClientCredentials }),
@@ -480,7 +422,7 @@ describe("HTTP API route policy matrix", () => {
     const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
       // The overview evaluates no credentials; discovery routes accept optional bearers.
-      const anonymous = route.path === "/api/v1/overview";
+      const anonymous = route.path === "/v1/overview";
       expect(route.auth).toBe(anonymous ? RouteAuthPolicy.Anonymous : RouteAuthPolicy.OptionalBearer);
       expect(route.policy).toEqual({
         bearer: anonymous ? "NONE" : "OPTIONAL",
@@ -491,27 +433,27 @@ describe("HTTP API route policy matrix", () => {
     }
 
     const excludedFamilies = [
-      "/api/v1/me",
-      "/api/v1/admin",
-      "/api/v1/oauth",
-      "/api/v1/health",
-      "/api/v1/ready",
-      "/api/v1/webhooks",
-      "/api/v1/newsletter-subscriptions",
+      "/v1/me",
+      "/v1/admin",
+      "/v1/oauth",
+      "/v1/health",
+      "/v1/ready",
+      "/v1/webhooks",
+      "/v1/newsletter-subscriptions",
     ];
     for (const family of excludedFamilies) {
       expect(selectiveReadRoutes.some((route) => route.path === family || route.path.startsWith(`${family}/`))).toBe(false);
     }
     expect(selectiveReadRoutes.some((route) =>
-      route.path.startsWith("/api/v1/listing-sources/") && route.path.includes("/product-listings"),
+      route.path.startsWith("/v1/listing-sources/") && route.path.includes("/product-listings"),
     )).toBe(false);
 
     const wildcardFamilyGetRouteKeys = API_ROUTE_CATALOG.filter((route) => route.method === "GET" && (
-      route.path.startsWith("/api/v1/auctions/") || route.path.startsWith("/api/v1/product-listings/")
+      route.path.startsWith("/v1/auctions/") || route.path.startsWith("/v1/product-listings/")
     )).map((route) => routeKey(route.method, route.path)).sort();
     expect(wildcardFamilyGetRouteKeys).toEqual(
       SELECTIVE_CACHE_GET_ROUTE_KEYS.filter((key) =>
-        key.startsWith("GET /api/v1/auctions/") || key.startsWith("GET /api/v1/product-listings/"),
+        key.startsWith("GET /v1/auctions/") || key.startsWith("GET /v1/product-listings/"),
       ).sort(),
     );
   });
@@ -530,6 +472,11 @@ describe("HTTP API route policy matrix", () => {
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
     expect(routes).toHaveLength(152);
+    // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
+    // The four preserved collection IDs keep this cutover at 152 + 148 = 300 routes.
+    expect(routes.length).toBeLessThanOrEqual(300);
+    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)))).toBe(true);
+    expect(routes.filter((route) => String(route.Properties.RouteKey).includes(" /api/"))).toEqual([]);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
@@ -593,7 +540,7 @@ describe("HTTP API route policy matrix", () => {
       };
     };
     const allowedOrigins = ["https://aura-historia.com", "https://admin.shopify.com"];
-    const pathAndQuery = "/api/v1/listing-sources?query=source";
+    const pathAndQuery = "/v1/listing-sources?query=source";
     const cacheKeys = allowedOrigins.map((origin) => ({ pathAndQuery, origin }));
 
     for (const origin of allowedOrigins) {
@@ -654,11 +601,12 @@ describe("HTTP API route policy matrix", () => {
         SecurityPolicy: "TLS_1_2",
       })],
     }));
-    expect(mapping.Properties).toEqual(expect.objectContaining({
+    expect(Object.values(template.findResources("AWS::ApiGatewayV2::ApiMapping"))).toHaveLength(1);
+    expect(mapping.Properties).toEqual({
       ApiId: { Ref: apiId },
       DomainName: { Ref: domainId },
       Stage: stage,
-    }));
+    });
     expect(distribution.Properties.DistributionConfig).toEqual(expect.objectContaining({
       Aliases: [host],
       Origins: [expect.objectContaining({
@@ -668,8 +616,8 @@ describe("HTTP API route policy matrix", () => {
       ViewerCertificate: expect.objectContaining({ AcmCertificateArn: config.apiCloudFrontCertificateArn }),
       DefaultCacheBehavior: expect.objectContaining({ OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
       CacheBehaviors: expect.arrayContaining([
-        expect.objectContaining({ PathPattern: "/api/v1/listing-sources", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
-        expect.objectContaining({ PathPattern: "/api/*", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
+        expect.objectContaining({ PathPattern: "/v1/listing-sources", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
+        expect.objectContaining({ PathPattern: "/v1/*", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
       ]),
     }));
   });
@@ -703,13 +651,13 @@ describe("HTTP API route policy matrix", () => {
     const responseHeadersPolicyConfig = responseHeadersPolicy.Properties.ResponseHeadersPolicyConfig as Record<string, unknown>;
     const originId = distributionConfig.Origins[0].Id;
     const selectivePathPatterns = [
-      "/api/v1/listing-sources",
-      "/api/v1/listing-sources/by-slug/*",
-      "/api/v1/auctions",
-      "/api/v1/auctions/*",
-      "/api/v1/product-listings",
-      "/api/v1/product-listings/*",
-      "/api/v1/overview",
+      "/v1/listing-sources",
+      "/v1/listing-sources/by-slug/*",
+      "/v1/auctions",
+      "/v1/auctions/*",
+      "/v1/product-listings",
+      "/v1/product-listings/*",
+      "/v1/overview",
     ];
     const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
     const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
@@ -743,7 +691,7 @@ describe("HTTP API route policy matrix", () => {
     });
     expect(distributionConfig.CacheBehaviors.map((behavior) => behavior.PathPattern)).toEqual([
       ...selectivePathPatterns,
-      "/api/*",
+      "/v1/*",
     ]);
     for (const [index, behavior] of selectiveBehaviors.entries()) {
       expect(behavior).toEqual(expect.objectContaining({
@@ -766,7 +714,7 @@ describe("HTTP API route policy matrix", () => {
       CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
       Compress: true,
       OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
-      PathPattern: "/api/*",
+      PathPattern: "/v1/*",
       TargetOriginId: originId,
       ViewerProtocolPolicy: "redirect-to-https",
     }));
@@ -781,6 +729,8 @@ describe("HTTP API route policy matrix", () => {
       ViewerProtocolPolicy: "redirect-to-https",
     }));
     expect(distributionConfig.DefaultCacheBehavior).not.toHaveProperty("ResponseHeadersPolicyId");
+    expect(distributionConfig.Origins[0]).not.toHaveProperty("OriginPath");
+    expect(JSON.stringify(distributionConfig)).not.toContain("/api/");
     expect(distributionConfig.CustomErrorResponses).toEqual(
       [400, 403, 404, 405, 414, 500, 501, 502, 503, 504].map((errorCode) => ({
         ErrorCode: errorCode,

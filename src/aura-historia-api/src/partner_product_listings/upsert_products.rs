@@ -123,7 +123,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"first"},{"sourceListingId":"second","availability":null}]"#,
             true,
         )
@@ -155,7 +155,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
                 {"sourceListingId":"omitted"},
                 {"sourceListingId":"clear","price":null},
@@ -196,7 +196,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{
                 "sourceListingId":"patched",
                 "priceEstimateMin":{"amount":10000,"currency":"EUR"},
@@ -237,7 +237,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"empty-images","images":[]}]"#,
             true,
         )
@@ -285,7 +285,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
                 {"sourceListingId":"omitted"},
                 {
@@ -313,7 +313,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
                 {"sourceListingId":"valid"},
                 {"sourceListingId":"invalid","images":null}
@@ -345,7 +345,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"created"},{"sourceListingId":"failed"}]"#,
             true,
         )
@@ -377,7 +377,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            &format!("/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"invalid"}]"#,
             true,
         )
@@ -397,7 +397,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                "/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::put(upsert_products),
             )
             .with_state(state)

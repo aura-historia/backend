@@ -40,7 +40,7 @@ pub async fn create_party(
         Ok(result) => {
             let party_id = result.party_id;
             let mut response = (StatusCode::CREATED, Json(PartyData::from(result))).into_response();
-            let location = format!("/api/v1/admin/parties/{party_id}");
+            let location = format!("/v1/admin/parties/{party_id}");
             let location = match HeaderValue::from_str(&location) {
                 Ok(value) => value,
                 Err(_) => {

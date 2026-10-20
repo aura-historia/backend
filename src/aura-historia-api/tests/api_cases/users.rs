@@ -19,7 +19,7 @@ async fn should_return_current_user_account_when_authenticated() {
         seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -43,7 +43,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
     .await;
 
     let response = reqwest::Client::new()
-        .patch(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .patch(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "firstName": "Ada",
@@ -84,7 +84,7 @@ async fn should_delete_current_user_when_authenticated() {
     .await;
 
     let response = reqwest::Client::new()
-        .delete(format!("{}/api/v1/me", AURA_API.base_url()))
+        .delete(format!("{}/v1/me", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -107,7 +107,7 @@ async fn should_return_user_when_admin_reads_user() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -146,7 +146,7 @@ async fn should_return_not_found_when_admin_reads_missing_user() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             missing_user_id
         ))
@@ -174,7 +174,7 @@ async fn should_return_not_found_when_admin_reads_missing_user() {
 async fn should_require_authentication_for_admin_user_detail() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -208,7 +208,7 @@ async fn should_search_users_when_actor_is_admin() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -249,7 +249,7 @@ async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[
             ("query", "ada"),
@@ -321,7 +321,7 @@ async fn should_follow_admin_user_search_cursor() {
     .await;
     let client = reqwest::Client::new();
     let first = client
-        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
         .query(&[
             ("role", "USER"),
@@ -343,7 +343,7 @@ async fn should_follow_admin_user_search_cursor() {
         .to_owned();
 
     let second = client
-        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .query(&[
             ("role", "USER"),
@@ -383,7 +383,7 @@ async fn should_reject_noncanonical_admin_user_search_cursors() {
         AccessTokenId::new().to_string(),
     ] {
         let response = reqwest::Client::new()
-            .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+            .get(format!("{}/v1/admin/users", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .query(&[("searchAfter", invalid_id)])
             .send()
@@ -411,7 +411,7 @@ async fn should_reject_admin_user_search_when_actor_is_not_admin() {
         seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .get(format!("{}/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -432,7 +432,7 @@ async fn should_reject_invalid_admin_user_search_query() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users?sort=invalid&order=asc",
+            "{}/v1/admin/users?sort=invalid&order=asc",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -459,7 +459,7 @@ async fn should_remove_legacy_admin_user_search_route() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/users", AURA_API.base_url()))
+        .get(format!("{}/v1/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -472,7 +472,7 @@ async fn should_remove_legacy_admin_user_search_route() {
 async fn should_remove_legacy_admin_user_detail_route() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/users/{}",
+            "{}/v1/users/{}",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -495,7 +495,7 @@ async fn should_update_user_tier_when_actor_is_admin() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -523,7 +523,7 @@ async fn should_update_user_role_when_actor_is_admin() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -550,7 +550,7 @@ async fn should_update_user_profile_when_actor_is_admin() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -583,7 +583,7 @@ async fn should_reject_admin_profile_patch_for_non_admin_actor() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -615,7 +615,7 @@ async fn should_reject_mixed_admin_user_patch_categories() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -652,7 +652,7 @@ async fn should_accept_idempotent_admin_user_patch() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -685,7 +685,7 @@ async fn should_reject_null_admin_user_role() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -715,7 +715,7 @@ async fn should_remove_legacy_admin_user_patch_route() {
     .await;
 
     let response = reqwest::Client::new()
-        .patch(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .patch(format!("{}/v1/users/{}", AURA_API.base_url(), user_id))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"tier": "PRO"}))
         .send()
@@ -736,7 +736,7 @@ async fn should_protect_the_last_admin_from_self_demotion() {
 
     let response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             admin_id
         ))
@@ -764,7 +764,7 @@ async fn should_protect_the_last_admin_from_self_deletion() {
     .await;
 
     let response = reqwest::Client::new()
-        .delete(format!("{}/api/v1/me", AURA_API.base_url()))
+        .delete(format!("{}/v1/me", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -790,7 +790,7 @@ async fn should_delete_user_when_actor_is_admin() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -803,7 +803,7 @@ async fn should_delete_user_when_actor_is_admin() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -820,7 +820,7 @@ async fn should_delete_user_when_actor_is_admin() {
     );
 
     let response = client
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(target_token)
         .send()
         .await
@@ -845,7 +845,7 @@ async fn should_return_not_found_when_admin_deletes_missing_user() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -874,7 +874,7 @@ async fn should_reject_admin_user_delete_when_user_id_is_malformed() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/usr_not-a-typeid",
+            "{}/v1/admin/users/usr_not-a-typeid",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -902,7 +902,7 @@ async fn should_reject_admin_user_delete_when_actor_is_not_admin() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -926,7 +926,7 @@ async fn should_protect_the_last_admin_from_admin_user_deletion() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             admin_id
         ))
@@ -940,7 +940,7 @@ async fn should_protect_the_last_admin_from_admin_user_deletion() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             admin_id
         ))
@@ -959,7 +959,7 @@ async fn should_reject_admin_user_read_when_actor_is_not_admin() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}",
+            "{}/v1/admin/users/{}",
             AURA_API.base_url(),
             user_id
         ))
@@ -989,7 +989,7 @@ async fn should_reject_noncanonical_admin_user_read_ids() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/admin/users/{invalid_id}",
+                "{}/v1/admin/users/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -1016,7 +1016,7 @@ async fn should_create_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
 
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .post(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(cognito_access_token_for_test_user(user_id))
         .json(&serde_json::json!({
             "name": "acceptance token",
@@ -1064,7 +1064,7 @@ async fn should_list_access_tokens_for_current_user() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -1105,7 +1105,7 @@ async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
         ("current admin inspection token", "2099-01-01T00:00:00Z"),
     ] {
         let response = client
-            .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .post(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
             .bearer_auth(cognito_access_token_for_test_user(target_user_id))
             .json(&serde_json::json!({
                 "name": name,
@@ -1125,7 +1125,7 @@ async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
     )
     .await;
     let endpoint = format!(
-        "{}/api/v1/admin/users/{}/access-tokens",
+        "{}/v1/admin/users/{}/access-tokens",
         AURA_API.base_url(),
         target_user_id
     );
@@ -1213,7 +1213,7 @@ async fn should_reject_noncanonical_admin_access_token_cursors() {
         let cursor = serde_json::json!(["2026-09-04T12:00:00Z", invalid_id]).to_string();
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/admin/users/{target_user_id}/access-tokens",
+                "{}/v1/admin/users/{target_user_id}/access-tokens",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(admin_token.clone()))
@@ -1250,7 +1250,7 @@ async fn should_return_empty_admin_access_token_page_for_existing_user() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -1291,7 +1291,7 @@ async fn should_reject_admin_access_token_list_for_non_admin_missing_and_invalid
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -1310,7 +1310,7 @@ async fn should_reject_admin_access_token_list_for_non_admin_missing_and_invalid
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -1334,7 +1334,7 @@ async fn should_reject_admin_access_token_list_for_non_admin_missing_and_invalid
 
     let response = client
         .get(format!(
-            "{}/api/v1/admin/users/usr_not-a-typeid/access-tokens",
+            "{}/v1/admin/users/usr_not-a-typeid/access-tokens",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -1369,7 +1369,7 @@ async fn should_get_access_token_for_current_user() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/me/access-tokens/{}",
+            "{}/v1/me/access-tokens/{}",
             AURA_API.base_url(),
             access_token_id
         ))
@@ -1408,7 +1408,7 @@ async fn should_update_access_token_for_current_user() {
     let access_token_id = create_access_token(user_id).await;
 
     let response = reqwest::Client::new()
-        .patch(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .patch(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "accessTokenId": access_token_id,
@@ -1454,7 +1454,7 @@ async fn should_reject_noncanonical_access_token_ids_in_update_body() {
         UserId::new().to_string(),
     ] {
         let response = reqwest::Client::new()
-            .patch(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .patch(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .json(&serde_json::json!({
                 "accessTokenId": invalid_id,
@@ -1501,7 +1501,7 @@ async fn should_reject_access_token_creation_with_delegated_bearer() {
         serde_json::json!({"name": "beyond delegation", "scopes": ["users:write"]}),
     ] {
         let response = client
-            .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .post(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
             .bearer_auth(String::from(token.clone()))
             .json(&request)
             .send()
@@ -1520,7 +1520,7 @@ async fn should_reject_access_token_creation_with_delegated_bearer() {
     }
 
     let response = client
-        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -1552,7 +1552,7 @@ async fn should_reject_delegated_access_token_authority_expansion() {
     )
     .await;
     let client = reqwest::Client::new();
-    let endpoint = format!("{}/api/v1/me/access-tokens", AURA_API.base_url());
+    let endpoint = format!("{}/v1/me/access-tokens", AURA_API.base_url());
     let read_back = || async {
         let response = client
             .get(format!("{endpoint}/{access_token_id}"))
@@ -1713,7 +1713,7 @@ async fn should_delete_access_token_for_current_user() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/me/access-tokens/{}",
+            "{}/v1/me/access-tokens/{}",
             AURA_API.base_url(),
             access_token_id
         ))
@@ -1754,7 +1754,7 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -1774,7 +1774,7 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
 
     for revoked_token in [target_token_one, target_token_two] {
         let response = client
-            .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+            .get(format!("{}/v1/me/account", AURA_API.base_url()))
             .bearer_auth(String::from(revoked_token))
             .send()
             .await
@@ -1789,7 +1789,7 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
     }
 
     let response = client
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(String::from(unrelated_token))
         .send()
         .await
@@ -1803,7 +1803,7 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -1828,7 +1828,7 @@ async fn should_bulk_revoke_existing_admin_user_with_no_tokens_idempotently() {
     for _ in 0..2 {
         let response = client
             .delete(format!(
-                "{}/api/v1/admin/users/{}/access-tokens",
+                "{}/v1/admin/users/{}/access-tokens",
                 AURA_API.base_url(),
                 target_user_id
             ))
@@ -1860,7 +1860,7 @@ async fn should_return_not_found_when_bulk_revoke_target_user_is_missing() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             missing_user_id
         ))
@@ -1904,7 +1904,7 @@ async fn should_revoke_admin_target_cognito_sessions_idempotently() {
     for _ in 0..2 {
         let response = client
             .post(format!(
-                "{}/api/v1/admin/users/{target_user_id}/sessions/revoke",
+                "{}/v1/admin/users/{target_user_id}/sessions/revoke",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(admin_token.clone()))
@@ -1942,7 +1942,7 @@ async fn should_map_temporary_cognito_session_revocation_failure() {
 
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/users/{target_user_id}/sessions/revoke",
+            "{}/v1/admin/users/{target_user_id}/sessions/revoke",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -1970,7 +1970,7 @@ async fn should_reject_session_revocation_for_non_admin_or_missing_target() {
     .await;
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/users/{target_user_id}/sessions/revoke",
+            "{}/v1/admin/users/{target_user_id}/sessions/revoke",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(actor_token))
@@ -1988,7 +1988,7 @@ async fn should_reject_session_revocation_for_non_admin_or_missing_target() {
     .await;
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/admin/users/{}/sessions/revoke",
+            "{}/v1/admin/users/{}/sessions/revoke",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -2017,7 +2017,7 @@ async fn should_reject_bulk_revoke_for_non_admin_actor() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -2049,7 +2049,7 @@ async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -2066,7 +2066,7 @@ async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens",
+            "{}/v1/admin/users/{}/access-tokens",
             AURA_API.base_url(),
             target_user_id
         ))
@@ -2084,7 +2084,7 @@ async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
 
     let response = client
         .delete(format!(
-            "{}/api/v1/admin/users/usr_not-a-typeid/access-tokens",
+            "{}/v1/admin/users/usr_not-a-typeid/access-tokens",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -2121,7 +2121,7 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             access_token_id
@@ -2141,7 +2141,7 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
     );
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(revoked_token)
         .send()
         .await
@@ -2158,7 +2158,7 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             access_token_id
@@ -2171,7 +2171,7 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             AccessTokenId::new()
@@ -2204,7 +2204,7 @@ async fn should_not_revoke_another_users_access_token_from_admin_route() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             access_token_id
@@ -2216,7 +2216,7 @@ async fn should_not_revoke_another_users_access_token_from_admin_route() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(owner_token)
         .send()
         .await
@@ -2237,7 +2237,7 @@ async fn should_reject_admin_access_token_revoke_for_non_admin_and_invalid_auth(
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             access_token_id
@@ -2251,7 +2251,7 @@ async fn should_reject_admin_access_token_revoke_for_non_admin_and_invalid_auth(
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             access_token_id
@@ -2284,14 +2284,14 @@ async fn should_validate_both_admin_access_token_revoke_path_ids() {
     let cases = [
         (
             format!(
-                "{}/api/v1/admin/users/usr_not-a-typeid/access-tokens/{valid_access_token_id}",
+                "{}/v1/admin/users/usr_not-a-typeid/access-tokens/{valid_access_token_id}",
                 AURA_API.base_url()
             ),
             "userId",
         ),
         (
             format!(
-                "{}/api/v1/admin/users/{}/access-tokens/{valid_access_token_id}",
+                "{}/v1/admin/users/{}/access-tokens/{valid_access_token_id}",
                 AURA_API.base_url(),
                 user_id.as_uuid()
             ),
@@ -2299,7 +2299,7 @@ async fn should_validate_both_admin_access_token_revoke_path_ids() {
         ),
         (
             format!(
-                "{}/api/v1/admin/users/{}/access-tokens/{valid_access_token_id}",
+                "{}/v1/admin/users/{}/access-tokens/{valid_access_token_id}",
                 AURA_API.base_url(),
                 AccessTokenId::new()
             ),
@@ -2307,14 +2307,14 @@ async fn should_validate_both_admin_access_token_revoke_path_ids() {
         ),
         (
             format!(
-                "{}/api/v1/admin/users/{target_user_id}/access-tokens/at_not-a-typeid",
+                "{}/v1/admin/users/{target_user_id}/access-tokens/at_not-a-typeid",
                 AURA_API.base_url()
             ),
             "accessTokenId",
         ),
         (
             format!(
-                "{}/api/v1/admin/users/{target_user_id}/access-tokens/{}",
+                "{}/v1/admin/users/{target_user_id}/access-tokens/{}",
                 AURA_API.base_url(),
                 access_token_id.as_uuid()
             ),
@@ -2322,7 +2322,7 @@ async fn should_validate_both_admin_access_token_revoke_path_ids() {
         ),
         (
             format!(
-                "{}/api/v1/admin/users/{target_user_id}/access-tokens/{}",
+                "{}/v1/admin/users/{target_user_id}/access-tokens/{}",
                 AURA_API.base_url(),
                 UserId::new()
             ),
@@ -2359,7 +2359,7 @@ async fn should_reject_admin_access_token_revoke_without_admin_scope() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             AccessTokenId::new()
@@ -2377,7 +2377,7 @@ async fn should_reject_access_token_revoke_with_invalid_bearer_credentials() {
     let target_user_id = seed_user("USER").await;
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/access-tokens/{}",
+            "{}/v1/admin/users/{}/access-tokens/{}",
             AURA_API.base_url(),
             target_user_id,
             AccessTokenId::new()
@@ -2414,7 +2414,7 @@ async fn should_reject_noncanonical_access_token_read_ids() {
     ] {
         let response = reqwest::Client::new()
             .get(format!(
-                "{}/api/v1/me/access-tokens/{invalid_id}",
+                "{}/v1/me/access-tokens/{invalid_id}",
                 AURA_API.base_url()
             ))
             .bearer_auth(String::from(token.clone()))
@@ -2439,7 +2439,7 @@ async fn should_reject_noncanonical_access_token_read_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_auth_for_access_tokens() {
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list missing auth token API: {error}"));
@@ -2463,7 +2463,7 @@ async fn should_suspend_user_and_repeat_idempotently_when_actor_is_admin() {
     )
     .await;
     let endpoint = format!(
-        "{}/api/v1/admin/users/{target_user_id}/suspension",
+        "{}/v1/admin/users/{target_user_id}/suspension",
         AURA_API.base_url()
     );
     let client = reqwest::Client::new();
@@ -2508,7 +2508,7 @@ async fn should_unsuspend_user_idempotently_and_restore_existing_token() {
     )
     .await;
     let endpoint = format!(
-        "{}/api/v1/admin/users/{target_user_id}/suspension",
+        "{}/v1/admin/users/{target_user_id}/suspension",
         AURA_API.base_url()
     );
     let client = reqwest::Client::new();
@@ -2546,7 +2546,7 @@ async fn should_unsuspend_user_idempotently_and_restore_existing_token() {
     }
 
     let response = client
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(String::from(target_token))
         .send()
         .await
@@ -2573,7 +2573,7 @@ async fn should_reject_user_reactivation_when_actor_is_not_admin() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{target_user_id}/suspension",
+            "{}/v1/admin/users/{target_user_id}/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(actor_token))
@@ -2596,7 +2596,7 @@ async fn should_return_not_found_for_missing_user_reactivation() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/{}/suspension",
+            "{}/v1/admin/users/{}/suspension",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -2625,7 +2625,7 @@ async fn should_reject_malformed_user_id_for_reactivation() {
 
     let response = reqwest::Client::new()
         .delete(format!(
-            "{}/api/v1/admin/users/usr_not-a-typeid/suspension",
+            "{}/v1/admin/users/usr_not-a-typeid/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -2654,7 +2654,7 @@ async fn should_reject_secret_bearing_user_suspension_reason() {
 
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/users/{target_user_id}/suspension",
+            "{}/v1/admin/users/{target_user_id}/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -2684,7 +2684,7 @@ async fn should_reject_user_suspension_when_actor_is_not_admin() {
 
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/users/{target_user_id}/suspension",
+            "{}/v1/admin/users/{target_user_id}/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(actor_token))
@@ -2708,7 +2708,7 @@ async fn should_return_not_found_when_admin_suspends_missing_user() {
 
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/users/{}/suspension",
+            "{}/v1/admin/users/{}/suspension",
             AURA_API.base_url(),
             UserId::new()
         ))
@@ -2738,7 +2738,7 @@ async fn should_protect_last_active_admin_from_suspension() {
 
     let response = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/admin/users/{admin_id}/suspension",
+            "{}/v1/admin/users/{admin_id}/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -2769,7 +2769,7 @@ async fn should_reject_suspended_user_aura_token_on_later_request() {
 
     let response = client
         .put(format!(
-            "{}/api/v1/admin/users/{target_user_id}/suspension",
+            "{}/v1/admin/users/{target_user_id}/suspension",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(admin_token))
@@ -2780,7 +2780,7 @@ async fn should_reject_suspended_user_aura_token_on_later_request() {
     assert_eq!(reqwest::StatusCode::OK, response.status());
 
     let response = client
-        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
         .bearer_auth(String::from(target_token))
         .send()
         .await
@@ -2815,7 +2815,7 @@ async fn create_access_token_with_body(
     body: serde_json::Value,
 ) -> (AccessTokenId, String) {
     let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .post(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(cognito_access_token_for_test_user(user_id))
         .json(&body)
         .send()
@@ -2867,11 +2867,11 @@ fn assert_secret_free_access_token_metadata(value: &serde_json::Value) {
 #[test]
 fn should_keep_own_access_token_openapi_contract_aligned() {
     let swagger = include_str!("../../../../docs/swagger.yaml");
-    let collection_path = yaml_block(swagger, "/api/v1/me/access-tokens", 2);
+    let collection_path = yaml_block(swagger, "/v1/me/access-tokens", 2);
     let create = yaml_block(collection_path, "post", 4);
     let list = yaml_block(collection_path, "get", 4);
     let update = yaml_block(collection_path, "patch", 4);
-    let item_path = yaml_block(swagger, "/api/v1/me/access-tokens/{accessTokenId}", 2);
+    let item_path = yaml_block(swagger, "/v1/me/access-tokens/{accessTokenId}", 2);
     let get = yaml_block(item_path, "get", 4);
     let delete = yaml_block(item_path, "delete", 4);
 
