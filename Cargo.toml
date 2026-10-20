@@ -10,6 +10,7 @@ test-api = { workspace = true }
 members = [
     "src/application",
     "src/aura-historia-api",
+    "src/aura-historia-contracts",
     "src/aura-historia-runtime",
     "src/aura-historia-jobs",
     "src/aura-historia-cdc-routing",
@@ -119,6 +120,7 @@ members = [
 ]
 
 [workspace.dependencies]
+aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-runtime = { path = "src/aura-historia-runtime" }
 aura-historia-jobs = { path = "src/aura-historia-jobs" }
 aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }

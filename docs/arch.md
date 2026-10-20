@@ -75,7 +75,7 @@ They MUST NOT silently become authoritative for domain invariants.
 12. Several PostgreSQL repositories MAY participate in the same abstract transaction.
 13. Cross-datasource writes do not share a transaction.
 14. CDC and projection invariants are summarized below; event routing and recovery belong to the dedicated event and worker documentation.
-15. REST DTOs belong to the REST layer and are mapped by controllers.
+15. Shared public wire DTOs and pure mappings belong to a transport-independent contract owner; transport-specific extraction, responses and errors belong to the corresponding adapter.
 16. Trusted caller identity is mapped into a service-owned `OperationContext`.
 17. Domain and service crates MUST NOT depend on infrastructure crates.
 
@@ -223,7 +223,8 @@ Allowed dependencies:
 record-service       -> record-core
 record-postgres      -> record-service + record-core + platform-postgres as needed
 record-opensearch      -> record-service + record-core identifiers as needed
-api                  -> record-service + public core identifiers/value objects as needed
+public contracts     -> service views + public core identifiers/value objects as needed
+api / mcp            -> public contracts + record-service + public core identifiers/value objects as needed
 runtime              -> service crates + adapter crates + platform crates
 ```
 
@@ -233,7 +234,7 @@ Forbidden dependencies:
 record-core          -X-> record-service
 record-core          -X-> adapters
 record-service       -X-> adapters
-record-service       -X-> REST DTOs
+record-service       -X-> public wire DTOs / transport adapters
 adapter A            -X-> private types from adapter B
 controller           -X-> concrete database client
 controller           -X-> repository
@@ -383,8 +384,8 @@ A valid absence of a semantic assertion MUST use `Option<T>`, not an `Unknown` e
 | PostgreSQL row | `RecordRow` | `record-postgres` | private or `pub(crate)` |
 | Search document | `RecordDocument` | `record-opensearch` | private or `pub(crate)` |
 | Shared search protocol envelope | `SearchResponse<T>` | `platform-opensearch` | `pub` only after multiple production adapters prove the exact generic wire shape |
-| REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
-| REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
+| Shared public request/response DTO | `RecordDetailsResponseDto` | public contracts | `pub` when reused by transport adapters |
+| Transport-specific request/response envelope | `RenameRecordHttpRequest` | transport adapter | private or `pub(crate)` |
 
 ### 5.1.1 Semantic leaf types across boundaries
 
@@ -392,7 +393,7 @@ Architectural ownership of a DTO, command, read model, row, or document does not
 
 A boundary-local field type SHOULD exist only for a distinct vocabulary, compatibility rule, validation rule, unknown-value policy, representation metadata, or independent lifecycle. A variant-for-variant mirror enum with only identity conversions is a smell and needs a concrete reason.
 
-REST owns request/response structure, JSON field names, omission and null rules, aliases, REST-specific compatibility vocabulary, and HTTP validation. A semantic owner MAY also own a stable canonical machine identifier when that identifier is genuinely shared across first-party representations. REST may expose that identifier through an API-local codec without adding Serde to core types; if REST vocabulary diverges, the API-local codec owns the divergent mapping. REST does not own a duplicate of every semantic field.
+The shared public contract owner owns reused request/response structure, JSON field names, omission and null rules, aliases, and pure codecs. Transport-specific compatibility vocabulary and HTTP validation belong to REST. A semantic owner MAY also own a stable canonical machine identifier when that identifier is genuinely shared across first-party representations. The public boundary may expose that identifier through a codec without adding Serde or schema dependencies to core types; divergent transport vocabulary belongs to its adapter. Public DTOs do not duplicate every semantic field.
 
 PostgreSQL owns row types and storage encoding. A row MAY decode directly into canonical semantic leaf types; an intermediate storage enum is unnecessary unless it carries distinct storage semantics.
 
@@ -407,7 +408,7 @@ struct CreateListingSourceDto {
 
 Avoid a boundary mirror such as `ListingIngestionMethodDto` plus exhaustive identity conversions unless an intentional contract divergence requires it.
 
-For bounded-context enums, this workspace uses the policy that the canonical value set equals the REST value set when the API delegates to the canonical identifier. Adding a canonical variant therefore intentionally makes it REST-visible. A REST-specific alias, subset, or compatibility value still requires an API-local codec and review.
+For bounded-context enums, this workspace uses the policy that the canonical value set equals the public value set when the contract delegates to the canonical identifier. Adding a canonical variant therefore intentionally makes it publicly visible. An alias, subset, or compatibility value still requires a boundary-owned codec and review.
 
 ### 5.1.2 Object identifiers
 
@@ -1075,13 +1076,19 @@ Do not represent source failure as genuine absence unless the product semantics 
 
 ## 10. Mapping and serialization
 
-Mapping belongs to the boundary that owns the source representation: REST DTOs in the API, PostgreSQL rows in PostgreSQL adapters, search documents in search adapters, and provider payloads in provider adapters. Storage and transport mapping MUST NOT be placed in core. A core crate MAY own semantic fields of a composite key, but boundary-specific string encodings and compatibility rules belong to the owning boundary.
+Mapping belongs to the boundary that owns the source representation: shared public DTOs in the transport-independent contract owner, transport-specific DTOs in their adapter, PostgreSQL rows in PostgreSQL adapters, search documents in search adapters, and provider payloads in provider adapters. Storage and transport mapping MUST NOT be placed in core. A core crate MAY own semantic fields of a composite key, but boundary-specific string encodings and compatibility rules belong to the owning boundary.
 
 Stable machine-readable identities for fieldless domain enums MUST use an explicit exhaustive canonical mapping; boundary decoders reject unknown or noncanonical persisted values rather than silently defaulting. Persisted enum values use `SCREAMING_SNAKE_CASE` where applicable; retain standardized identifiers such as ISO language codes. Database constraints, migrations, and API codecs must evolve with the semantic values. Do not derive persisted identifiers from Rust variant names.
 
 ### 10.1 Transport mapping
 
-REST owns request/response structure, field names, null/omission rules, HTTP validation, and service-error mapping. Controllers map requests to service commands and service results to response DTOs; services MUST NOT depend on REST DTOs or status codes. Reuse canonical semantic leaf types when their meaning and value set coincide (Section 5); otherwise use a deliberate transport codec. Fallible parsing SHOULD return a typed error rather than accepting invalid input.
+REST and MCP MUST reuse the same public DTO definitions, Serde behavior and pure view-to-DTO mappings when they expose the same business fields. The contract owner MAY depend on the domain values and service views needed for those pure conversions, but MUST NOT depend on HTTP, Lambda or MCP framework request/response machinery. Application, core and service crates MUST NOT depend on public wire contracts or transport adapters.
+
+Extract a family when its operation is exposed through another adapter; migrate the existing REST imports in the same change. Do not declare a parallel DTO or maintain an OpenAPI-to-MCP translation pipeline. A wrapper MAY assemble existing path/query/body values or represent an actual HTTP-only outcome, while reusing shared nested DTOs. Reuse pagination only where the existing operation has a shared collection contract; an unpaginated operation MUST NOT acquire truncation through an adapter.
+
+Schemas MUST describe the DTO's actual Serde representation, including custom codecs, tagged or untagged unions, numeric bounds, omission and null. Distinguish accepted input from serialized output where aliases or omission rules differ. Schema tests MUST validate serialized and accepted examples and compare rejection behavior; a struct snapshot alone does not prove agreement. The [contracts contributor example](../src/aura-historia-contracts/README.md) illustrates this extraction rule.
+
+Transport adapters own extraction, status codes, headers/cache policy, framework responses and service-error conversion. REST retains HTTP validation and `IntoResponse`; pure parsing and mappings stay beside the shared DTOs. Services MUST NOT depend on wire DTOs or status codes. Reuse canonical semantic leaf types when their meaning and value set coincide (Section 5); otherwise use a deliberate public-boundary codec. Fallible parsing SHOULD return a typed error rather than accepting invalid input.
 
 ### 10.2 Persistence mapping
 
@@ -1578,12 +1585,11 @@ A controller owns:
 - REST path/query/header extraction;
 - authentication principal extraction;
 - mapping transport identity into `OperationContext`;
-- request DTOs;
-- response DTOs;
+- transport-specific wrappers and extraction around shared public DTOs;
 - transport-level validation;
 - request-to-use-case mapping;
 - use-case invocation;
-- use-case-result-to-response mapping;
+- applying shared pure result mappings and constructing transport responses;
 - cache and representation headers owned by the public REST contract;
 - service-error-to-HTTP mapping through crate error mappings.
 
