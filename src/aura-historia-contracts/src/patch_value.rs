@@ -6,7 +6,7 @@ use std::borrow::Cow;
 /// A patch member's omission, explicit null, or concrete value.
 ///
 /// Use `#[serde(default)]` on the enclosing DTO member so omission becomes
-/// `Omitted`. JSON Schema requiredness is likewise owned by that enclosing DTO.
+/// `Omitted`. Without that attribute, Serde accepts omission as `Null`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PatchValue<T> {
     #[default]
@@ -64,5 +64,10 @@ impl<T: JsonSchema> JsonSchema for PatchValue<T> {
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         // Omission is an absent object member, never a third tagged JSON value.
         <Option<T>>::json_schema(generator)
+    }
+
+    fn _schemars_private_is_option() -> bool {
+        // Serde's missing-field deserializer reaches the Option<T> decoder above.
+        true
     }
 }

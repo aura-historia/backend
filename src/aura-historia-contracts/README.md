@@ -37,8 +37,9 @@ assert!(matches!(omitted.price, PatchValue::Omitted));
 ```
 
 `PatchValue<T>` models omission, explicit null and a concrete value; `#[serde(default)]`
-on the enclosing member enables omission. Its schema describes null or `T`;
-requiredness belongs to the enclosing DTO. It is an input representation and does
+on the enclosing member preserves omission as `Omitted`. Without that attribute,
+Serde accepts a missing member as `Null`; its schema permits omission in either case
+and describes a present member as null or `T`. It is an input representation and does
 not serialize a fictitious `Omitted` JSON value. Family-specific restrictions such
 as rejecting null must also be reflected in that family's schema and validation.
 

@@ -223,6 +223,23 @@ fn should_describe_patch_omission_null_and_value_without_enum_wrappers() {
     );
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct PricePatchWithoutDefault {
+    value: PatchValue<PriceData>,
+}
+
+#[test]
+fn should_describe_implicit_null_when_patch_member_has_no_default() {
+    assert_input_agreement::<PricePatchWithoutDefault>([
+        (json!({}), true),
+        (json!({"value": null}), true),
+        (json!({"value": fixture()["price"]}), true),
+        (json!({"value": {"currency": "XXX", "amount": 1}}), false),
+    ]);
+    let omitted: PricePatchWithoutDefault = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(PatchValue::Null, omitted.value);
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct OptionalPrice {
