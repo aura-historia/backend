@@ -1,0 +1,14 @@
+{
+  "price": { "currency": "CHF", "amount": 1200 },
+  "localizedTextInput": { "text": "Cabinet", "language": "en-GB" },
+  "localizedTextOutput": { "text": "Cabinet", "language": "en" },
+  "listingPrices": [
+    { "type": "MONETARY", "currency": "JPY", "amount": 1200 },
+    { "type": "ON_REQUEST" }
+  ],
+  "patches": {
+    "omitted": {},
+    "null": { "value": null },
+    "value": { "value": { "currency": "CHF", "amount": 1200 } }
+  }
+}

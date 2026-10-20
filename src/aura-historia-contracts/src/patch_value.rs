@@ -1,6 +1,12 @@
 use application::patch_field::PatchField;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Deserializer};
+use std::borrow::Cow;
 
+/// A patch member's omission, explicit null, or concrete value.
+///
+/// Use `#[serde(default)]` on the enclosing DTO member so omission becomes
+/// `Omitted`. JSON Schema requiredness is likewise owned by that enclosing DTO.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PatchValue<T> {
     #[default]
@@ -43,5 +49,20 @@ pub fn clearable<T>(value: PatchValue<T>) -> PatchField<T> {
         PatchValue::Omitted => PatchField::Unchanged,
         PatchValue::Null => PatchField::Clear,
         PatchValue::Value(value) => PatchField::Set(value),
+    }
+}
+
+impl<T: JsonSchema> JsonSchema for PatchValue<T> {
+    fn schema_name() -> Cow<'static, str> {
+        format!("PatchValue_{}", T::schema_name()).into()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        format!("{}::PatchValue<{}>", module_path!(), T::schema_id()).into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        // Omission is an absent object member, never a third tagged JSON value.
+        <Option<T>>::json_schema(generator)
     }
 }

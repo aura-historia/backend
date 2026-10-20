@@ -1,5 +1,7 @@
 use localization::Language;
+use schemars::{Schema, SchemaGenerator, json_schema};
 use serde::{Deserializer, Serializer};
+use strum::IntoEnumIterator;
 
 const LOCALE_ALIASES: &[(&str, Language)] = &[
     ("de-DE", Language::De),
@@ -43,6 +45,7 @@ const LOCALE_ALIASES: &[(&str, Language)] = &[
     ("ar-AE", Language::Ar),
 ];
 
+/// Decode the public canonical codes and existing locale compatibility aliases.
 pub fn parse(value: &str) -> Option<Language> {
     LOCALE_ALIASES
         .iter()
@@ -62,4 +65,13 @@ where
     D: Deserializer<'de>,
 {
     super::deserialize_code(deserializer, parse)
+}
+
+/// Input accepts locale aliases; output always emits canonical ISO language codes.
+pub fn schema(generator: &mut SchemaGenerator) -> Schema {
+    let mut codes: Vec<_> = Language::iter().map(Language::as_str).collect();
+    if generator.contract().is_deserialize() {
+        codes.extend(LOCALE_ALIASES.iter().map(|(alias, _)| *alias));
+    }
+    json_schema!({ "type": "string", "enum": codes })
 }

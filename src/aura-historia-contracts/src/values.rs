@@ -1,13 +1,16 @@
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::product_listing_price::ProductListingPrice;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Text paired with its public language code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalizedTextData {
     pub text: String,
     #[serde(with = "crate::wire::language")]
+    #[schemars(schema_with = "crate::wire::language::schema")]
     pub language: Language,
 }
 
@@ -26,11 +29,15 @@ impl<T: Into<String>> From<Localized<Language, T>> for LocalizedTextData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// A monetary amount in the currency's minor units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceData {
     #[serde(with = "crate::wire::currency")]
+    #[schemars(schema_with = "crate::wire::currency::schema")]
     pub currency: Currency,
+    /// Unsigned amount in the currency's minor units.
+    #[schemars(range(max = u64::MAX))]
     pub amount: u64,
 }
 
@@ -49,15 +56,25 @@ impl From<Price> for PriceData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum ProductListingPriceData {
     Monetary {
         #[serde(with = "crate::wire::currency")]
+        #[schemars(schema_with = "crate::wire::currency::schema")]
         currency: Currency,
+        /// Unsigned amount in the currency's minor units.
+        #[schemars(range(max = u64::MAX))]
         amount: u64,
     },
+    #[schemars(transform = allow_unit_variant_unknown_members)]
     OnRequest,
+}
+
+// Serde consumes internally tagged unit variants without checking unknown members.
+// Preserve that accepted-input contract rather than tightening REST while extracting it.
+fn allow_unit_variant_unknown_members(schema: &mut Schema) {
+    schema.remove("additionalProperties");
 }
 
 impl From<ProductListingPriceData> for ProductListingPrice {
