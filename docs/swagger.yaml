@@ -8250,8 +8250,9 @@ paths:
         The response includes the plaintext bearer token once. List, get, and update responses contain only
         secret-free metadata and never return the bearer token again.
 
-        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
-        the delegated `access-tokens:write` capability.
+        Requires a Cognito access JWT. A valid Aura Historia access token is rejected with `403 FORBIDDEN`, even
+        with the delegated `access-tokens:write` capability, so a delegated credential cannot issue a credential
+        with other scopes or a longer lifetime than its own. No token is created or returned.
 
         "
       operationId: postMyAccessToken
@@ -8259,7 +8260,6 @@ paths:
         - User Account
       security:
         - BearerAuth: []
-        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Access-token creation payload.
@@ -8329,6 +8329,17 @@ paths:
                   field: Authorization
                   type: HEADER
                 detail: Bearer token is invalid.
+        "403":
+          description: Forbidden - the bearer is an Aura Historia access token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Aura Historia access tokens cannot create access tokens; use a Cognito access JWT.
         "404":
           description: User not found
           content:
@@ -8445,7 +8456,11 @@ paths:
         plaintext or masked token values.
 
         Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
-        the delegated `access-tokens:write` capability.
+        the delegated `access-tokens:write` capability and may only rename the target token or narrow it: `scopes`
+        must be a subset of its current scopes, and `expires` may be set no later than its current expiry (or to any
+        time when it has none). Adding a scope, extending the expiry, or clearing an existing expiry with `null` is
+        rejected with `403 FORBIDDEN` and leaves the token unchanged. This applies to every token of the user,
+        including the bearer token itself. Cognito access JWTs may make any change.
 
         "
       operationId: patchMyAccessToken
@@ -8531,6 +8546,18 @@ paths:
                   field: Authorization
                   type: HEADER
                 detail: Bearer token is invalid.
+        "403":
+          description: Forbidden - an Aura Historia access token lacks `access-tokens:write` or would expand the
+            target token's scopes or lifetime
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.
         "404":
           description: Access token not found
           content:
@@ -21861,14 +21888,16 @@ components:
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
-          description: Omit to leave unchanged. Send `[]` to empty the set; null is invalid.
+          description: Omit to leave unchanged. Send `[]` to empty the set; null is invalid. Aura Historia access
+            tokens may only send a subset of the current scopes.
           example:
             - product-listings:write
         expires:
           type: string
           format: date-time
           nullable: true
-          description: Omit to leave unchanged. Send null to clear the expiration timestamp.
+          description: Omit to leave unchanged. Send null to clear the expiration timestamp. Aura Historia access
+            tokens cannot clear or extend an existing expiry.
           example: "2026-07-31T00:00:00Z"
     OAuthClientConsentMetadataData:
       type: object

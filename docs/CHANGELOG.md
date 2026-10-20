@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-20 — Delegated access-token management cannot expand authority (#2212)
+
+- `POST /api/v1/me/access-tokens` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write`, receives `403 FORBIDDEN` and no token is created. OpenAPI no longer lists `AccessTokenAuth` for this operation. Integrations that minted tokens with an Aura access token must create them while signed in instead.
+- `PATCH /api/v1/me/access-tokens` called with an Aura Historia access token may still rename a token, narrow its `scopes` to a subset of the current ones (including `[]`) and set `expires` no later than the current expiry, or to any time when the token has none. Adding a scope, extending the expiry, or sending `expires: null` for a token that has an expiry returns `403 FORBIDDEN` and leaves the token unchanged. This includes the bearer token itself. Cognito access JWT callers are unaffected, and `DELETE` keeps its existing rules.
+
 ## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)
 
 - CloudFront no longer applies its EC2 metadata SSRF and IPv4 remote-file-inclusion request checks to OAuth client registration and update (`POST /api/v1/admin/oauth-clients`, `PATCH /api/v1/admin/oauth-clients/{client_id}`), `GET /api/v1/oauth/authorize` or `POST /api/v1/oauth/token`. Contract-valid loopback HTTPS redirect URIs, such as `https://localhost:3458/oauth/callback` used by Shopify CLI `--use-localhost` development, therefore reach the API's redirect URI validation. Registering that URI previously failed with an HTML `403` (`Request blocked.`) before authentication or validation. Redirect URI validation is unchanged, and other routes keep these checks.
