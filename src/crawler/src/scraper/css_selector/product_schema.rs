@@ -189,8 +189,15 @@ impl ProductCssSelectorSchema {
     /// returning a [`RawExtractedProduct`] with the raw (non-normalised) values.
     ///
     /// Rules for optional fields are skipped (returning `None`) when the field itself
-    /// is `None`. When a field is present but its rule fails (e.g. no element matched),
-    /// the corresponding [`ApplySchemaError`] variant is returned immediately.
+    /// is `None`. A present optional rule (`source_listing_id`, `description`, `price`,
+    /// the price estimates and raw attributes) that matches nothing yields an empty
+    /// value (`None` for the prices) and a per-field log diagnostic (warn for description and
+    /// price, debug or trace otherwise) instead of a page error: one page without
+    /// a description must not invalidate the schema. Only `title` and `state` fail
+    /// closed on a miss; `images` fails closed unless the image container exists and
+    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). Any other rule
+    /// failure (invalid selector, missing attribute) still returns the corresponding
+    /// [`ApplySchemaError`] variant immediately.
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
@@ -198,11 +205,13 @@ impl ProductCssSelectorSchema {
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
-            Some(rule) => match rule.apply(html) {
-                Ok(values) => values.into_iter().next().unwrap_or_default(),
-                Err(ExtractionError::NoElementMatched { .. }) => String::new(),
-                Err(err) => return Err(ApplySchemaError::SourceListingId(err)),
-            },
+            Some(rule) => {
+                apply_optional_rule("source_listing_id", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::SourceListingId)?
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default()
+            }
         };
 
         let title = self
@@ -215,34 +224,38 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => vals,
-                Err(e) => return Err(ApplySchemaError::Description(e)),
-            },
+            Some(rule) => apply_optional_rule("description", rule, html, OptionalMissLog::Warn)
+                .map_err(ApplySchemaError::Description)?,
         };
 
+        // A miss yields `None`, exactly like a schema without the rule, so downstream
+        // normalization and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::Price(e)),
-            },
+            Some(rule) => apply_optional_rule("price", rule, html, OptionalMissLog::Warn)
+                .map_err(ApplySchemaError::Price)?
+                .into_iter()
+                .next(),
         };
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::PriceEstimateMin(e)),
-            },
+            Some(rule) => {
+                apply_optional_rule("price_estimate_min", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::PriceEstimateMin)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::PriceEstimateMax(e)),
-            },
+            Some(rule) => {
+                apply_optional_rule("price_estimate_max", rule, html, OptionalMissLog::Debug)
+                    .map_err(ApplySchemaError::PriceEstimateMax)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let state = self
@@ -269,19 +282,15 @@ impl ProductCssSelectorSchema {
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
-            let values: Vec<String> = match rule.apply(html) {
-                Ok(values) => values,
-                Err(ExtractionError::NoElementMatched { .. }) => continue,
-                Err(source) => {
-                    return Err(ApplySchemaError::RawAttribute {
+            let values: Vec<String> =
+                apply_optional_rule(field, rule, html, OptionalMissLog::Trace)
+                    .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
-                    });
-                }
-            }
-            .into_iter()
-            .filter(|value| !value.trim().is_empty())
-            .collect();
+                    })?
+                    .into_iter()
+                    .filter(|value| !value.trim().is_empty())
+                    .collect();
             if !values.is_empty() {
                 raw_attributes.insert(field.clone(), values);
             }
@@ -298,6 +307,57 @@ impl ProductCssSelectorSchema {
             images,
             raw_attributes,
         })
+    }
+}
+
+/// Log level of an optional-rule miss.
+///
+/// A soft miss no longer fails the page, so selector drift on a cached schema only
+/// shows up in the log: description and price misses are warnings so they stay
+/// visible at the production log level, identity and estimate misses are debug
+/// diagnostics, and raw attributes (absent on most pages by design) stay at trace.
+#[derive(Clone, Copy)]
+enum OptionalMissLog {
+    Warn,
+    Debug,
+    Trace,
+}
+
+/// Applies the rule of an optional field, turning a miss into an empty result.
+///
+/// The miss is still recorded as a per-field diagnostic so the scrape log explains
+/// why the field is empty; the page itself keeps extracting.
+fn apply_optional_rule(
+    field: &str,
+    rule: &ExtractionRule,
+    html: &Html,
+    miss_log: OptionalMissLog,
+) -> Result<Vec<String>, ExtractionError> {
+    match rule.apply(html) {
+        Ok(values) => Ok(values),
+        Err(ExtractionError::NoElementMatched { selector }) => {
+            // The message must be a literal in each arm: a `const` in message position
+            // becomes a field named after the constant and leaves `message` empty.
+            match miss_log {
+                OptionalMissLog::Warn => tracing::warn!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
+                OptionalMissLog::Debug => tracing::debug!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
+                OptionalMissLog::Trace => tracing::trace!(
+                    field,
+                    selector = %selector,
+                    "Optional schema rule matched nothing; leaving the field empty"
+                ),
+            }
+            Ok(Vec::new())
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -1015,109 +1075,99 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Error cases: optional fields (rule present but selector fails)
+    // Optional fields fail softly (rule present but selector matches nothing)
     // -------------------------------------------------------------------------
 
-    #[test]
-    fn should_return_err_description_when_rule_present_but_selector_matches_nothing() {
-        let html = Html::parse_document(
+    /// A schema with only the required rules configured, so each test below adds
+    /// exactly the optional rule it exercises.
+    fn required_only_schema() -> ProductCssSelectorSchema {
+        ProductCssSelectorSchema {
+            source_listing_id: Some(text_rule("#product-id")),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("#state"),
+            images: attr_rule_all("img", "src"),
+            raw_attributes: Default::default(),
+        }
+    }
+
+    /// A product page that carries every required element but no description,
+    /// price or estimate markup.
+    fn page_without_optional_elements() -> Html {
+        Html::parse_document(
             r#"<html><body>
                 <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
                 <img src="x.jpg">
             </body></html>"#,
-        );
+        )
+    }
+
+    #[test]
+    fn should_leave_description_empty_when_rule_present_but_selector_matches_nothing() {
+        let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
-            source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
-            raw_attributes: Default::default(),
+            ..required_only_schema()
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::Description(_)),
-            "unexpected variant: {err}"
-        );
+
+        let result = schema
+            .apply(&html)
+            .unwrap_or_else(|err| panic!("optional miss must not fail the page: {err}"));
+
+        assert_eq!(result.title, "T");
+        assert_eq!(result.state, "ok");
+        assert!(result.description.is_empty());
     }
 
     #[test]
-    fn should_return_err_price_when_rule_present_but_selector_matches_nothing() {
-        let html = Html::parse_document(
-            r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
-                <img src="x.jpg">
-            </body></html>"#,
-        );
+    fn should_leave_price_empty_when_rule_present_but_selector_matches_nothing() {
+        let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
-            source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
-            description: None,
             price: Some(text_rule("span.price")),
-            price_estimate_min: None,
-            price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
-            raw_attributes: Default::default(),
+            ..required_only_schema()
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::Price(_)),
-            "unexpected variant: {err}"
-        );
+
+        let result = schema
+            .apply(&html)
+            .unwrap_or_else(|err| panic!("optional miss must not fail the page: {err}"));
+
+        assert_eq!(result.title, "T");
+        assert_eq!(result.price, None);
     }
 
     #[test]
-    fn should_return_err_price_estimate_min_when_rule_present_but_selector_matches_nothing() {
-        let html = Html::parse_document(
-            r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
-                <img src="x.jpg">
-            </body></html>"#,
-        );
+    fn should_leave_price_estimates_empty_when_rules_present_but_selectors_match_nothing() {
+        let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
-            source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
-            description: None,
-            price: None,
             price_estimate_min: Some(text_rule("#est-min")),
-            price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
-            raw_attributes: Default::default(),
+            price_estimate_max: Some(text_rule("#est-max")),
+            ..required_only_schema()
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::PriceEstimateMin(_)),
-            "unexpected variant: {err}"
-        );
+
+        let result = schema
+            .apply(&html)
+            .unwrap_or_else(|err| panic!("optional miss must not fail the page: {err}"));
+
+        assert_eq!(result.price_estimate_min, None);
+        assert_eq!(result.price_estimate_max, None);
     }
 
     #[test]
-    fn should_return_err_price_estimate_max_when_rule_present_but_selector_matches_nothing() {
-        let html = Html::parse_document(
-            r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
-                <img src="x.jpg">
-            </body></html>"#,
-        );
+    fn should_still_fail_closed_when_required_rule_matches_nothing_beside_optional_miss() {
+        let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
-            source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
-            description: None,
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: Some(text_rule("#est-max")),
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
-            raw_attributes: Default::default(),
+            description: Some(text_rule_all("p.desc")),
+            state: text_rule("#missing-state"),
+            ..required_only_schema()
         };
+
         let err = schema.apply(&html).unwrap_err();
+
         assert!(
-            matches!(err, ApplySchemaError::PriceEstimateMax(_)),
+            matches!(err, ApplySchemaError::State(_)),
             "unexpected variant: {err}"
         );
     }
@@ -1222,17 +1272,12 @@ mod tests {
 
     #[test]
     fn should_include_field_name_in_error_message_for_price() {
-        let html = Html::parse_document(
-            r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
-                <img src="x.jpg">
-            </body></html>"#,
-        );
+        let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
-            price: Some(text_rule(".price")),
+            price: Some(text_rule("!!! invalid !!!")),
             price_estimate_min: None,
             price_estimate_max: None,
             state: text_rule("#state"),
