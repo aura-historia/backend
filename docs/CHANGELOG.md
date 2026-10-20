@@ -6,7 +6,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - Aura Historia access tokens now receive each `userState` section only with its read scope: `watchlist` needs `watchlist:read`, `notification` needs `notifications:read`, `searchFilter` needs `search-filters:read`, and `contentVisibility` needs `users:read`. This applies to product-listing detail by ID and slug, search, similar listings, auction catalogues, watchlists and saved-search matches. These tokens previously received every section regardless of scope.
 - Sections without their scope are omitted rather than returned as `false` or empty values. `userState` is omitted when no section applies. `ProductListingUserStateData` therefore no longer requires `watchlist`, `contentVisibility`, `notification` or `searchFilter`; regenerate clients that assumed them. `userState.shipping` keeps its existing `users:read` requirement.
-- The watchlist PATCH response still includes the updated `userState.watchlist` with only `watchlist:write`; its other sections now follow the read scopes above.
+- `PATCH /api/v1/me/watchlist/{productListingId}` still needs only `watchlist:write` to apply the update, but its response follows the same read scopes: the updated `userState.watchlist` now also requires `watchlist:read`.
 - Undisclosed state still applies to the listing: matches hidden by the saved-search quota remain redacted, and the stored content preference still decides image visibility. Cognito users and anonymous callers are unaffected.
 
 ## 2026-10-19 — Loopback OAuth redirect URIs at the edge (#2206)

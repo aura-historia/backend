@@ -337,11 +337,9 @@ where
             product_listing_id = %command.product_listing_id,
             outcome = if changed { "success" } else { "unchanged" },
         );
-        // The written entry is the operation's result; other private sections need read scopes.
-        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal)
-            .including_watchlist();
         Ok(UpdateWatchlistProductListingResult {
-            product: disclosure.disclose(product),
+            product: ProductListingUserStateDisclosure::for_principal(&context.principal)
+                .disclose(product),
         })
     }
 }
@@ -2321,6 +2319,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_disclose_updated_watchlist_only_with_watchlist_read() {
+        let user_id = UserId::new();
+        let id = ProductListingId::new();
+        let state = SharedState::with_entry(entry(user_id, id, true));
+        let mut factual = details(id, Language::En);
+        let user_state = factual.user_state.as_mut().expect("user state");
+        user_state.notification.unseen_notification_ids = vec![Default::default()];
+        user_state.search_filter.matched = true;
+        state
+            .presentation
+            .lock()
+            .expect("presentation")
+            .details_result = Some(Ok(Some(factual)));
+
+        let result = handler(
+            state.clone(),
+            UserTier::Free,
+            TestLifecycleGuardOutcome::Active,
+        )
+        .execute(
+            &delegated_context(
+                user_id,
+                BTreeSet::from([
+                    CredentialCapability::WatchlistWrite,
+                    CredentialCapability::WatchlistRead,
+                ]),
+            ),
+            UpdateWatchlistProductListingCommand {
+                notifications: Some(false),
+                ..command(user_id, id)
+            },
+        )
+        .await
+        .expect("read-write delegated actor");
+
+        assert_eq!(
+            Some(ProductListingUserStateView {
+                watchlist: Some(WatchlistUserState {
+                    watching: true,
+                    notifications: false,
+                }),
+                ..Default::default()
+            }),
+            result.product.user_state
+        );
+        assert!(state.committed());
+    }
+
+    #[tokio::test]
     async fn should_require_only_watchlist_write_and_reject_unauthorized_actors_before_begin() {
         let user_id = UserId::new();
         let id = ProductListingId::new();
@@ -2342,17 +2389,8 @@ mod tests {
         )
         .await
         .expect("write-only delegated actor");
-        // The response discloses the written entry, but no section that needs another read scope.
-        assert_eq!(
-            Some(ProductListingUserStateView {
-                watchlist: Some(WatchlistUserState {
-                    watching: true,
-                    notifications: false,
-                }),
-                ..Default::default()
-            }),
-            result.product.user_state
-        );
+        // A write scope authorizes the update, not reading the private state in its response.
+        assert_eq!(None, result.product.user_state);
         assert!(state.committed());
 
         for principal in [

@@ -78,14 +78,6 @@ impl ProductListingUserStateDisclosure {
         }
     }
 
-    /// Also discloses watchlist state that the current operation has just written.
-    pub fn including_watchlist(self) -> Self {
-        Self {
-            watchlist: true,
-            ..self
-        }
-    }
-
     pub fn disclose<Item>(
         self,
         personalized: Personalized<Item, ProductListingUserState>,
@@ -345,23 +337,6 @@ mod tests {
             None,
             ProductListingUserStateDisclosure::for_principal(&Principal::Anonymous)
                 .disclose_state(full_state())
-        );
-    }
-
-    #[test]
-    fn should_add_written_watchlist_without_other_sections() {
-        let state = full_state();
-        let disclosure = ProductListingUserStateDisclosure::for_principal(&delegated(&[
-            CredentialCapability::WatchlistWrite,
-        ]))
-        .including_watchlist();
-
-        assert_eq!(
-            Some(ProductListingUserStateView {
-                watchlist: Some(state.watchlist),
-                ..Default::default()
-            }),
-            disclosure.disclose_state(state)
         );
     }
 
