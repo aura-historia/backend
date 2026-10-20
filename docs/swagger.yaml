@@ -10385,9 +10385,14 @@ paths:
 
         supplied, `state` as query parameters. The single-use authorization code must be exchanged
 
-        for an access token via `POST /v1/oauth/token` before it expires. A delegated caller
+        for an access token via `POST /v1/oauth/token` before it expires.
 
-        must have `access-tokens:write` and every requested OAuth scope.
+
+        Approval requires a Cognito access JWT. An Aura Historia access token, including one with
+
+        `access-tokens:write`, receives `403 FORBIDDEN` and no authorization code is issued, so a
+
+        delegated credential cannot obtain an OAuth token that outlives its own grant.
 
         "
       operationId: oauthAuthorize
@@ -10564,27 +10569,42 @@ paths:
                       type: QUERY
                     detail: must be a valid OAuthClient ID
         "401":
-          description:
-            Unauthorized — the Cognito bearer token is missing, invalid, or the OAuth client was not found / credentials
-            are invalid.
+          description: Unauthorized — the bearer token is missing or invalid (`INVALID_CREDENTIALS`).
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_bearer:
-                  summary: Missing or invalid bearer token
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: UNAUTHORIZED
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
+        "403":
+          description:
+            Forbidden — the bearer is an Aura Historia access token. Approving an authorization request requires a
+            Cognito access JWT, and no authorization code is issued.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.
+        "404":
+          description: No OAuth client is registered with the requested `client_id` (`OAUTH_CLIENT_NOT_FOUND`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
         "500":
           description: Internal server error.
           content:
@@ -10612,7 +10632,11 @@ paths:
 
         The issued access token is non-expiring by default (same lifetime as tokens created via
 
-        `POST /v1/me/access-tokens`). Successful responses also include a short-lived
+        `POST /v1/me/access-tokens`). Codes are issued only for approvals made with a Cognito access
+
+        JWT, so the token is an independent credential of the approving user: expiring or revoking
+
+        any other Aura Historia access token does not affect it. Successful responses also include a short-lived
 
         `third_party_exchange_code` that can be redeemed once via
 
@@ -11390,9 +11414,10 @@ paths:
       description: |
         Creates a new OAuth client metadata record for an authenticated administrator.
 
-        User and delegated-user principals must have the persisted `ADMIN` business role.
-        Delegated Aura Historia access-token callers must also have the `access-tokens:write`
-        capability. The plaintext `client_secret` is returned only in this create response and
+        Requires a Cognito access JWT of a user with the persisted `ADMIN` business role. The
+        response contains a new client secret, so an Aura Historia access token, including an
+        administrator's token with `access-tokens:write`, receives `403 FORBIDDEN` and no client is
+        registered. The plaintext `client_secret` is returned only in this create response and
         is never logged or returned by later reads.
 
         Redirect URIs must be non-empty HTTPS URLs without fragments. Requested scopes must be
@@ -11402,7 +11427,6 @@ paths:
         - OAuth
       security:
         - BearerAuth: []
-        - AccessTokenAuth: []
       requestBody:
         required: true
         description: OAuth client metadata creation payload.
@@ -11503,7 +11527,7 @@ paths:
                 title: Unauthorized
                 error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:write`.
+          description: Forbidden — the caller is not an administrator, or the bearer is an Aura Historia access token.
           headers:
             Cache-Control:
               description: Error responses are never stored.
@@ -11514,11 +11538,20 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 403
-                title: Forbidden
-                error: FORBIDDEN
-                detail: OAuth client creation requires the ADMIN role; delegated callers also require access-tokens:write.
+              examples:
+                not_admin:
+                  summary: Caller is not an administrator
+                  value:
+                    status: 403
+                    title: Forbidden
+                    error: FORBIDDEN
+                delegated_credential:
+                  summary: Bearer is an Aura Historia access token
+                  value:
+                    status: 403
+                    title: Forbidden
+                    error: FORBIDDEN
+                    detail: Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT.
         "500":
           description: Internal authentication or OAuth client creation failure.
           headers:

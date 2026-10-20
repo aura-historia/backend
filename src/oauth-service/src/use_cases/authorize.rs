@@ -70,11 +70,25 @@ where
     C: OAuthClientRepositoryFactory<U::Tx>,
     A: AuthorizationCodeRepositoryFactory<U::Tx>,
 {
+    #[tracing::instrument(
+        name = "authorize_oauth_request",
+        skip_all,
+        fields(
+            client_id = %request.client_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
     async fn execute(
         &self,
         context: &OperationContext,
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError> {
+        if let Some(actor_id) = context.principal.actor_id() {
+            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+        }
         let user_id = authorized_user_id(context, &request.scope)?;
         let mut tx = self.unit_of_work.begin().await?;
         let client = self
@@ -121,16 +135,17 @@ where
     }
 }
 
+/// Approval requires first-party authority. The operation context does not carry a
+/// delegation's lifetime, so a delegate could approve an OAuth token that outlives its own
+/// grant (`docs/arch.md` §15.6). A delegate that lacks `access-tokens:write` or a requested
+/// scope keeps the generic denial.
 fn authorized_user_id(
     context: &OperationContext,
     requested_scopes: &HashSet<Scope>,
 ) -> Result<UserId, OAuthServiceError> {
     match &context.principal {
         Principal::User(user_id) => Ok(*user_id),
-        Principal::DelegatedUser {
-            user_id,
-            capabilities,
-        } => {
+        Principal::DelegatedUser { capabilities, .. } => {
             if !capabilities.contains(&CredentialCapability::AccessTokensWrite)
                 || requested_scopes
                     .iter()
@@ -138,7 +153,14 @@ fn authorized_user_id(
             {
                 return Err(OAuthServiceError::Forbidden);
             }
-            Ok(*user_id)
+            let error = OAuthServiceError::DelegatedAuthorizationForbidden;
+            tracing::warn!(
+                event = "oauth_authorization_code.created",
+                actor_id = %context.principal.label(),
+                error_category = %error,
+                outcome = "failure",
+            );
+            Err(error)
         }
         Principal::Anonymous => Err(OAuthServiceError::AuthenticatedActorRequired),
         Principal::Service(_) | Principal::System => Err(OAuthServiceError::Forbidden),

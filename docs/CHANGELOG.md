@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
+
+- `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.
+- `POST /v1/admin/oauth-clients` now requires a Cognito access JWT because its response contains a new client secret. An administrator's Aura Historia access token receives `403 FORBIDDEN` and no client is registered. OpenAPI no longer lists `AccessTokenAuth` for this operation. Reading, updating and deleting OAuth clients keep accepting administrators' Aura Historia access tokens with the existing scopes.
+
 ## 2026-10-20 — REST base path development cutover (#2216)
 
 - **Breaking development change:** all REST operations now use `/v1/...` on `https://api.aura-historia.com` and `https://api.stage.aura-historia.com`, replacing `/api/v1/...`. The old routes are removed without aliases, redirects or a deprecation period. Generated `Location` headers use `/v1/...`; operation IDs, authentication, request/response schemas and operation/retry semantics are unchanged.

@@ -1,6 +1,8 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
-use api_support::{json_response, seed_access_token_for, seed_user};
+use api_support::{
+    cognito_access_token_for_test_user, json_response, seed_access_token_for, seed_user,
+};
 use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::{
     authorization_code::OAuthAuthorizationCode, third_party_exchange_code::ThirdPartyExchangeCode,
@@ -36,7 +38,16 @@ struct OAuthClientCredentials {
     client_id_issued_at: i64,
 }
 
-async fn authenticated_client() -> (reqwest::Client, String) {
+/// An administrator's credentials. Registering a client and approving an authorization request
+/// require the first-party Cognito credential; reading, updating and deleting clients also
+/// accept the delegated Aura Historia access token.
+struct OAuthAdmin {
+    client: reqwest::Client,
+    cognito_token: String,
+    access_token: String,
+}
+
+async fn oauth_admin() -> OAuthAdmin {
     let user_id = seed_user("ADMIN").await;
     assert_eq!(7, user_id.as_uuid().get_version_num());
     assert!(user_id.to_string().starts_with("usr_"));
@@ -52,7 +63,11 @@ async fn authenticated_client() -> (reqwest::Client, String) {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_else(|error| panic!("failed to build HTTP client: {error}"));
-    (client, token)
+    OAuthAdmin {
+        client,
+        cognito_token: cognito_access_token_for_test_user(user_id),
+        access_token: token,
+    }
 }
 
 async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClientCredentials {
@@ -253,8 +268,12 @@ async fn exchange_third_party_code_response(
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_list_get_update_and_delete_oauth_client() {
-    let (client, token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &token).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token: token,
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
 
     let admin_token = admin_read_token().await;
     let response = client
@@ -484,8 +503,12 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion() {
-    let (client, admin_token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &admin_token).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token: admin_token,
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
     let url = format!(
         "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
@@ -533,13 +556,17 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
-    let (client, admin_token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &admin_token).await;
-    let pending_code = authorize_code(&client, &admin_token, &credentials).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token: admin_token,
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
+    let pending_code = authorize_code(&client, &cognito_token, &credentials).await;
     let issued = exchange_code(
         &client,
         &credentials,
-        &authorize_code(&client, &admin_token, &credentials).await,
+        &authorize_code(&client, &cognito_token, &credentials).await,
     )
     .await;
     let access_token = issued["access_token"]
@@ -598,7 +625,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     let client_id = credentials.client_id.to_string();
     let response = client
         .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
-        .bearer_auth(&admin_token)
+        .bearer_auth(&cognito_token)
         .query(&[
             ("response_type", "code"),
             ("client_id", client_id.as_str()),
@@ -733,7 +760,11 @@ async fn should_require_authentication_for_admin_oauth_client_collection_and_ite
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        access_token: token,
+        ..
+    } = oauth_admin().await;
 
     for method in [
         reqwest::Method::GET,
@@ -780,7 +811,11 @@ async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let response = client
         .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
         .bearer_auth(token)
@@ -807,8 +842,12 @@ async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
-    let (client, token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &token).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        ..
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
     let authorization_code = OAuthAuthorizationCode::new().to_string();
     let raw_access_token = String::from(RawAccessToken::new());
 
@@ -866,7 +905,11 @@ async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_oauth_client_query_ids() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token: token,
+    } = oauth_admin().await;
 
     for invalid_id in noncanonical_oauth_client_ids(UserId::new().to_string()) {
         let response = client
@@ -888,7 +931,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
 
         let response = client
             .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
-            .bearer_auth(&token)
+            .bearer_auth(&cognito_token)
             .query(&[
                 ("response_type", "code"),
                 ("client_id", invalid_id.as_str()),
@@ -1053,7 +1096,11 @@ async fn should_require_admin_role_and_delegated_read_for_oauth_client_detail() 
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user() {
-    let (admin_client, admin_token) = authenticated_client().await;
+    let OAuthAdmin {
+        client: admin_client,
+        cognito_token: admin_token,
+        ..
+    } = oauth_admin().await;
     let registered_redirects = [
         "https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce?target=integration&shop=merchant.example",
         "https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce?target=staging",
@@ -1217,29 +1264,38 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_oauth_client_creation_for_non_admin() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
+    let access_token = seed_access_token_for(
         user_id,
         std::collections::HashSet::from([Scope::AccessTokensWrite]),
     )
     .await;
-    let response = reqwest::Client::new()
-        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
-        .json(&serde_json::json!({
-            "client_name": "Non-admin OAuth Client",
-            "tos_uri": "https://client.example/tos",
-            "policy_uri": "https://client.example/policy",
-            "client_uri": "https://client.example",
-            "logo_uri": "https://client.example/logo.png",
-            "redirect_uris": ["https://client.example/callback"],
-            "scope": ["access-tokens:read"]
-        }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to reject non-admin OAuth client create: {error}"));
-    let (status, body) = json_response(response).await;
 
-    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    for token in [
+        cognito_access_token_for_test_user(user_id),
+        String::from(access_token),
+    ] {
+        let response = reqwest::Client::new()
+            .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
+            .bearer_auth(token)
+            .json(&serde_json::json!({
+                "client_name": "Non-admin OAuth Client",
+                "tos_uri": "https://client.example/tos",
+                "policy_uri": "https://client.example/policy",
+                "client_uri": "https://client.example",
+                "logo_uri": "https://client.example/logo.png",
+                "redirect_uris": ["https://client.example/callback"],
+                "scope": ["access-tokens:read"]
+            }))
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed to reject non-admin OAuth client create: {error}")
+            });
+        let (status, body) = json_response(response).await;
+
+        api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+        assert!(body.get("detail").is_none(), "{body}");
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -1266,12 +1322,17 @@ async fn should_reject_oauth_client_creation_for_admin_without_delegated_write()
     let (status, body) = json_response(response).await;
 
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert!(body.get("detail").is_none(), "{body}");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_admin_role_and_delegated_write_for_oauth_client_update() {
-    let (client, admin_token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &admin_token).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        ..
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
     let url = format!(
         "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
@@ -1311,8 +1372,12 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_update()
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_validate_admin_oauth_client_update_and_report_not_found() {
-    let (client, token) = authenticated_client().await;
-    let credentials = create_oauth_client(&client, &token).await;
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token: token,
+    } = oauth_admin().await;
+    let credentials = create_oauth_client(&client, &cognito_token).await;
     let url = format!(
         "{}/v1/admin/oauth-clients/{}",
         AURA_API.base_url(),
@@ -1387,14 +1452,7 @@ async fn should_validate_admin_oauth_client_update_and_report_not_found() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = String::from(
-        seed_access_token_for(
-            admin_id,
-            std::collections::HashSet::from([Scope::AccessTokensWrite]),
-        )
-        .await,
-    );
+    let token = cognito_access_token_for_test_user(seed_user("ADMIN").await);
     let client = reqwest::Client::new();
     let url = format!("{}/v1/admin/oauth-clients", AURA_API.base_url());
 
@@ -1447,7 +1505,11 @@ async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_paginate_and_filter_admin_oauth_clients() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let first_client =
         create_oauth_client_with_name(&client, &token, "Cursor OAuth Client A").await;
     let second_client =
@@ -1589,8 +1651,111 @@ async fn should_reject_admin_oauth_client_list_for_non_admin_with_delegated_read
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_stop_a_delegated_admin_from_registering_or_approving_an_oauth_client() {
+    let OAuthAdmin {
+        client,
+        cognito_token,
+        access_token,
+    } = oauth_admin().await;
+    let pool = get_postgres_client().await;
+    let client_name = format!("Delegated OAuth Client {}", UserId::new());
+
+    let response = client
+        .post(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
+        .bearer_auth(&access_token)
+        .json(&serde_json::json!({
+            "client_name": client_name,
+            "tos_uri": "https://client.example/tos",
+            "policy_uri": "https://client.example/policy",
+            "client_uri": "https://client.example",
+            "logo_uri": "https://client.example/logo.png",
+            "redirect_uris": ["https://client.example/callback"],
+            "scope": ["access-tokens:read"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to request delegated registration: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(
+        serde_json::json!(
+            "Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT."
+        ),
+        body["detail"]
+    );
+    assert!(body.get("client_secret").is_none());
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    let registered: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oauth_clients WHERE name = $1")
+        .bind(&client_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count registered OAuth clients: {error}"));
+    assert_eq!(0, registered);
+
+    let credentials = create_oauth_client(&client, &cognito_token).await;
+    let client_id = credentials.client_id.to_string();
+    let response = client
+        .get(format!("{}/v1/oauth/authorize", AURA_API.base_url()))
+        .bearer_auth(&access_token)
+        .query(&[
+            ("response_type", "code"),
+            ("client_id", client_id.as_str()),
+            ("redirect_uri", "https://client.example/callback"),
+            ("scope", "access-tokens:read"),
+            ("state", "delegated-state"),
+            ("code_challenge", PKCE_CODE_CHALLENGE),
+            ("code_challenge_method", "S256"),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to request delegated approval: {error}"));
+    assert!(response.headers().get(reqwest::header::LOCATION).is_none());
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(
+        serde_json::json!(
+            "Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT."
+        ),
+        body["detail"]
+    );
+    let count_for_client = |query: &'static str| {
+        let pool = pool.clone();
+        let client_id = credentials.client_id;
+        async move {
+            sqlx::query_scalar::<_, i64>(query)
+                .bind(client_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("failed to count OAuth credentials: {error}"))
+        }
+    };
+    assert_eq!(
+        0,
+        count_for_client("SELECT COUNT(*) FROM oauth_authorization_codes WHERE client_id = $1")
+            .await
+    );
+
+    let code = authorize_code(&client, &cognito_token, &credentials).await;
+    let token = exchange_code(&client, &credentials, &code).await;
+    assert!(token.get("expires_in").is_none());
+    assert_eq!(
+        1,
+        count_for_client("SELECT COUNT(*) FROM access_tokens WHERE oauth_client_id = $1").await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_redirect_authorized_user_with_authorization_code_and_state() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
     assert!(!code.is_empty());
@@ -1598,7 +1763,11 @@ async fn should_redirect_authorized_user_with_authorization_code_and_state() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_authorization_code_for_access_token() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
     let body = exchange_code(&client, &credentials, &code).await;
@@ -1612,7 +1781,11 @@ async fn should_exchange_authorization_code_for_access_token() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
     let token_body = exchange_code(&client, &credentials, &code).await;
@@ -1648,7 +1821,11 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_sequential_authorization_code_replay() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
 
@@ -1660,7 +1837,11 @@ async fn should_reject_sequential_authorization_code_replay() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_only_one_concurrent_authorization_code_redemption() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
 
@@ -1680,7 +1861,11 @@ async fn should_allow_only_one_concurrent_authorization_code_redemption() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_only_one_concurrent_third_party_exchange() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
     let token_body = exchange_code(&client, &credentials, &code).await;
@@ -1705,7 +1890,11 @@ async fn should_allow_only_one_concurrent_third_party_exchange() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_introspect_and_revoke_oauth_access_token() {
-    let (client, token) = authenticated_client().await;
+    let OAuthAdmin {
+        client,
+        cognito_token: token,
+        ..
+    } = oauth_admin().await;
     let credentials = create_oauth_client(&client, &token).await;
     let code = authorize_code(&client, &token, &credentials).await;
     let token_body = exchange_code(&client, &credentials, &code).await;

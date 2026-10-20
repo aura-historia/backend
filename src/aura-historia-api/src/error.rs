@@ -2994,6 +2994,15 @@ impl From<OAuthServiceError> for ApiError {
                 ApiError::unauthorized(OAUTH_INVALID_CLIENT_SECRET).with_detail(error.to_string())
             }
             OAuthServiceError::Forbidden => ApiError::forbidden(FORBIDDEN),
+            OAuthServiceError::DelegatedAuthorizationForbidden => ApiError::forbidden(FORBIDDEN)
+                .with_detail(
+                    "Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.",
+                ),
+            OAuthServiceError::DelegatedClientRegistrationForbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail(
+                    "Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT.",
+                )
+            }
             OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
             OAuthServiceError::ConcurrencyConflict => ApiError::conflict(CONFLICT),
             OAuthServiceError::InvalidRedirectUri => {
@@ -3252,7 +3261,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_delegated_access_token_management_denials_to_forbidden()
+    async fn should_map_delegated_credential_management_denials_to_forbidden()
     -> Result<(), Box<dyn std::error::Error>> {
         for (response, detail) in [
             (
@@ -3263,6 +3272,15 @@ mod tests {
                 ApiError::from(UpdateAccessTokenError::DelegatedAuthorityExpansionForbidden)
                     .into_response(),
                 "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
+            ),
+            (
+                ApiError::from(OAuthServiceError::DelegatedAuthorizationForbidden).into_response(),
+                "Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.",
+            ),
+            (
+                ApiError::from(OAuthServiceError::DelegatedClientRegistrationForbidden)
+                    .into_response(),
+                "Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT.",
             ),
         ] {
             assert_eq!(StatusCode::FORBIDDEN, response.status());
