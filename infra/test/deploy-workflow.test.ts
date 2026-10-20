@@ -67,10 +67,10 @@ describe("release source contract", () => {
     const dispatch = block(triggers, "workflow_dispatch", 2);
     expect(block(dispatch, "stage", 6)).toMatch(/options:\s*\[dev, prod\]/);
     expect(block(dispatch, "ref", 6)).toMatch(/type:\s*string/);
-    expect(block(dispatch, "scope", 6)).toMatch(/default:\s*auto/);
-    expect(block(dispatch, "scope", 6)).toMatch(/options:\s*\[auto, foundation, all\]/);
+    expect(block(dispatch, "scope", 6)).toMatch(/default:\s*routine/);
+    expect(block(dispatch, "scope", 6)).toMatch(/options:\s*\[routine, foundation, all\]/);
     expect(block(deployWorkflow, "env")).toMatch(/STAGE:.*workflow_dispatch.*inputs.stage.*refs\/tags\/.*'prod'.*'dev'/);
-    expect(job(deployWorkflow, "aws-cdk-deploy")).toContain("DEPLOY_SCOPE: ${{ inputs.scope || 'auto' }}");
+    expect(job(deployWorkflow, "release-plan")).toContain("RELEASE_SCOPE: ${{ inputs.scope || 'routine' }}");
   });
 
   test.each([
@@ -232,11 +232,12 @@ describe("deployment workflow boundaries", () => {
 
   test("uses one dependency graph for every trigger and requires every publisher to succeed before CDK", () => {
     const prerequisites = ["aws-push-container-images", "aws-push-lambda", "aws-push-mail-templates"];
-    expect(awsDeployJobs).toEqual([...prerequisites, "aws-cdk-deploy"]);
+    expect(awsDeployJobs).toEqual([...prerequisites, "release-plan", "aws-cdk-deploy"]);
     for (const name of prerequisites) {
       expect(needs(job(deployWorkflow, name))).toEqual(["infra-test"]);
     }
-    expect(needs(job(deployWorkflow, "aws-cdk-deploy"))).toEqual(["infra-test", ...prerequisites]);
+    expect(needs(job(deployWorkflow, "release-plan"))).toEqual(["infra-test", ...prerequisites]);
+    expect(needs(job(deployWorkflow, "aws-cdk-deploy"))).toEqual(["infra-test", "release-plan"]);
     expect(jobNames(deployWorkflow).filter((name) => /^    environment:/m.test(job(deployWorkflow, name)))).toEqual(["aws-cdk-deploy"]);
     for (const name of jobNames(deployWorkflow)) {
       const body = job(deployWorkflow, name);
@@ -383,48 +384,26 @@ describe("immutable artifact publication", () => {
 });
 
 describe("CDK deployment responsibility", () => {
-  test("resolves the pinned image map then delegates deployment, never manual operations or imports", () => {
-    const deploy = job(deployWorkflow, "aws-cdk-deploy");
-    const checkout = deploy.split(/^      - /m).find((step) => step.includes("uses: actions/checkout@"));
-    expect(checkout).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
-    expect(checkout).toMatch(/fetch-depth:\s*0/);
-    expectInOrder(deploy, "uses: ./.github/actions/resolve-container-images", "bash ci/deploy-stacks.sh");
-    expect(deploy).toContain("commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}");
-    expect(deploy).toContain("CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}");
-    expect(deployHelper).toContain('npm --prefix infra run cdk -- deploy "$@"');
-    for (const source of [deployWorkflow, deployHelper]) {
-      expect(source).not.toMatch(/aws lambda invoke|invoke-operation\.sh|--use-previous-template|--resources-to-import|--change-set-type\s+IMPORT|\bcdk\s+import\b/);
-    }
+  test("publishes immutable artifacts and plans before the single protected release job", () => {
+    const prepare = job(deployWorkflow, "release-plan");
+    const execute = job(deployWorkflow, "aws-cdk-deploy");
+    expectInOrder(prepare, "uses: ./.github/actions/resolve-container-images", "node ci/release.cjs prepare", "actions/upload-artifact@");
+    expectInOrder(execute, "actions/download-artifact@", "node ci/release.cjs execute");
+    expect(execute).toContain("RELEASE_PLAN_ID: ${{ needs.release-plan.outputs.plan_id }}");
+    expect(execute).toContain("needs.release-plan.outputs.gate");
+    expect(execute).not.toMatch(/always\(\)|workflow_dispatch|invoke-operation/);
+    expect(deployHelper).toContain('--app "$RELEASE_ASSEMBLY"');
+    expectInOrder(deployHelper, "assert-phase", 'npm --prefix infra run cdk -- deploy "$@"');
   });
 
-  test("compares deployed and selected migration sources only in auto, failing closed before mutations", () => {
-    const gate = deployHelper.match(/^if \[ "\$DEPLOY_SCOPE" = auto \] && \[ "\$application_exists" = true \]; then[\s\S]*?^fi$/m)?.[0];
-    expect(gate).toBeDefined();
-    expect(gate).toContain('select(.ParameterKey == "CommitSHA")');
-    expect(gate).toContain("compute-stack.json");
-    expect(gate).toContain('[[ "$current_sha" =~ ^[0-9a-f]{40}$ ]]');
-    expect(gate).toContain('git --no-pager diff --quiet "$current_sha" "$DEPLOY_COMMIT_SHA"');
-    expect(gate).toContain("-- migrations infra/sql src/database-migration-lambda");
-    expectInOrder(gate!, "compute-stack.json", '[[ "$current_sha"', "git --no-pager diff", "status=$?", 'if [ "$status" != 1 ]; then', "exit 1", "migration_changed=true");
-    // Explicit all scope bypasses this source-only check, not an assertion of database readiness.
-    expectInOrder(deployHelper, "migration_changed=false", gate!, "bash infra/scripts/ensure-dms-vpc-role.sh", 'deploy "${STACK_NAME_PREFIX}-network"');
-  });
-
-  test("stops at foundation for new stages or changed migration sources until explicit all acknowledgement", () => {
-    expect(deployHelper).toContain('case "$DEPLOY_SCOPE" in auto|foundation|all)');
-    expect(deployHelper).toContain("application_exists=false");
-    expect(deployHelper).toContain('if [ "$stack" = compute ]; then application_exists=true; fi');
-    const guard = deployHelper.match(/^if .*"\$DEPLOY_SCOPE".*foundation[\s\S]*?^fi$/m)?.[0];
-    expect(guard).toBeDefined();
-    expect(guard).toContain('[ "$DEPLOY_SCOPE" = auto ] && [ "$application_exists" = false ]');
-    expect(guard).toContain('|| [ "$migration_changed" = true ] ||');
-    expect(guard).toContain("exit 0");
-    expect(guard).toContain("scope=all");
-    expectInOrder(deployHelper, "aws cloudformation describe-stacks", "bash infra/scripts/ensure-dms-vpc-role.sh", 'deploy "${STACK_NAME_PREFIX}-network"', 'deploy "${STACK_NAME_PREFIX}-data"', 'deploy "${STACK_NAME_PREFIX}-initialize"', guard!, 'deploy "${STACK_NAME_PREFIX}-compute"', 'deploy "${STACK_NAME_PREFIX}-api"');
+  test("deploys recorded foundation and application phases without legacy auto orchestration", () => {
+    expect(deployHelper).toContain('case "$DEPLOY_SCOPE" in foundation|application|all)');
+    expect(deployHelper).not.toContain('migration_changed');
+    expectInOrder(deployHelper, 'deploy "${STACK_NAME_PREFIX}-network"', 'deploy "${STACK_NAME_PREFIX}-data"', 'deploy "${STACK_NAME_PREFIX}-initialize"', 'deploy "${STACK_NAME_PREFIX}-compute"', 'deploy "${STACK_NAME_PREFIX}-api"');
     expect(deployHelper.match(/bash infra\/scripts\/ensure-dms-vpc-role\.sh/g)).toHaveLength(1);
-    expect(deployWorkflow).not.toContain("ensure-dms-vpc-role.sh");
-    for (const { workflow } of operationWorkflows) expect(workflow).not.toContain("ensure-dms-vpc-role.sh");
-    expect(deployHelper).toMatch(/if \[ "\$STAGE" = prod \]; then deploy "\$\{STACK_NAME_PREFIX\}-observability"/);
+    const coordinator = read("ci/release/coordinator.cjs");
+    expectInOrder(coordinator.slice(coordinator.indexOf("async run(")), "await this.pause()", "await this.deploy(name, digests)", "await this.migrate()", "await this.finish(targets, digests)");
+    expect(coordinator).not.toContain("'ci/invoke-operation.sh', 'initialize'");
   });
 
   test("preserves existing activation parameters while updating source and image digests", () => {
@@ -432,7 +411,7 @@ describe("CDK deployment responsibility", () => {
     expect(deployHelper).toContain("--exclusively");
     expect(deployHelper).toContain("node ci/container-images.cjs deploy-parameters");
     expect(deployHelper).toContain('--commit-sha "$DEPLOY_COMMIT_SHA"');
-    expect(deployHelper).toContain("--digests container-image-digests.json");
+    expect(deployHelper).toContain('--digests "$work_dir/digests.json"');
     expect(deployHelper).toContain('deploy "${STACK_NAME_PREFIX}-compute" "${compute_parameters[@]}"');
     expect(deployHelper).not.toMatch(/(?:CdcRouterEnabled|PeriodicMatcherEnabled)=/);
   });
@@ -454,7 +433,7 @@ describe("manual operations responsibility", () => {
       expect(block(operationJob, "environment", 4)).toContain("name: aws-${{ inputs.stage }}");
       expect(operationJob).toMatch(/id-token:\s*write/);
       expect(operationJob).toContain("secrets.CI_DEPLOY_ROLE_ARN");
-      expectInOrder(operationJob, "ref: ${{ github.sha }}", "aws-actions/configure-aws-credentials@", `bash ci/invoke-operation.sh ${operation}`);
+      expectInOrder(operationJob, "ref: ${{ github.sha }}", "aws-actions/configure-aws-credentials@", `node ci/release.cjs operation ${operation}`);
     }
     expect(workflow).not.toMatch(/ref:\s*\$\{\{\s*inputs\.commit_sha|\bnpm\b|\bcdk\b|resolve-container-images|release-source|publish-container|docker|deploy-stacks/);
     expect(workflow).not.toContain(`invoke-operation.sh ${operation === "migrate" ? "initialize" : "migrate"}`);
