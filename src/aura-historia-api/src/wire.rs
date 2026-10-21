@@ -247,18 +247,6 @@ pub(crate) mod language {
     }
 }
 
-pub(crate) mod notification_kind {
-    use super::*;
-    use notification_core::notification_kind::NotificationKind;
-
-    pub(crate) fn serialize<S>(value: &NotificationKind, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, NotificationKind::as_str)
-    }
-}
-
 pub(crate) mod listing_availability {
     use super::*;
     use product_listing_core::listing_availability::ListingAvailability;
@@ -268,9 +256,7 @@ pub(crate) mod listing_availability {
     }
 
     pub(crate) mod option {
-        pub(crate) use aura_historia_contracts::wire::listing::availability_option::{
-            deserialize, serialize,
-        };
+        pub(crate) use aura_historia_contracts::wire::listing::availability_option::deserialize;
     }
 
     pub(crate) mod patch_set {
@@ -447,28 +433,6 @@ pub(crate) mod ingestion_method {
                 Some(&["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE", "PARTNER_API"]),
             )
         }
-    }
-}
-
-pub(crate) mod partnership_application_decision {
-    use super::*;
-    use notification_core::notification::PartnershipApplicationDecision;
-
-    fn code(value: PartnershipApplicationDecision) -> &'static str {
-        match value {
-            PartnershipApplicationDecision::Approved => "APPROVED",
-            PartnershipApplicationDecision::Rejected => "REJECTED",
-        }
-    }
-
-    pub(crate) fn serialize<S>(
-        value: &PartnershipApplicationDecision,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, code)
     }
 }
 

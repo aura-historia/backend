@@ -16,6 +16,8 @@ listing-source-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
+notification-service = { workspace = true }
+partnership-core = { workspace = true }
 party-core = { workspace = true }
 party-service = { workspace = true }
 product-listing-core = { workspace = true }
