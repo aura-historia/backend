@@ -94,6 +94,45 @@ fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredLi
     }
 }
 
+#[derive(Clone, Default)]
+struct SchedulerProbe {
+    spider_started: Arc<AtomicBool>,
+    scraper_started: Arc<AtomicBool>,
+    raw_capture_started: Arc<AtomicBool>,
+}
+
+fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob {
+    let spider_candidates = SpiderCandidateServiceImpl::new(pool.clone());
+    let scraper_candidates =
+        scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone());
+    let registration = ListingSourceRegistrationService::new(
+        Box::new(AbsentAuthoritativeSource),
+        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
+    );
+    CrawlerCronJob::new(
+        CrawlerCronConfig {
+            spider_interval: Duration::from_millis(1),
+            scraper_interval: Duration::from_millis(1),
+            spider_concurrency: 1,
+            scraper_concurrency: 1,
+            ..CrawlerCronConfig::default()
+        },
+        Arc::new(LocalLockManager::new()),
+        Box::new(spider_candidates),
+        Box::new(NoWorkSpider {
+            started: Arc::clone(&probe.spider_started),
+        }),
+        Box::new(scraper_candidates),
+        Box::new(NoWorkScraper {
+            started: Arc::clone(&probe.scraper_started),
+        }),
+        registration,
+        Box::new(NoWorkRawCapture {
+            started: Arc::clone(&probe.raw_capture_started),
+        }),
+    )
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let pool = get_postgres_client().await;
@@ -146,35 +185,8 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
             .len()
     );
 
-    let registration = ListingSourceRegistrationService::new(
-        Box::new(AbsentAuthoritativeSource),
-        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
-    );
-    let spider_started = Arc::new(AtomicBool::new(false));
-    let scraper_started = Arc::new(AtomicBool::new(false));
-    let raw_capture_started = Arc::new(AtomicBool::new(false));
-    let job = CrawlerCronJob::new(
-        CrawlerCronConfig {
-            spider_interval: Duration::from_millis(1),
-            scraper_interval: Duration::from_millis(1),
-            spider_concurrency: 1,
-            scraper_concurrency: 1,
-            ..CrawlerCronConfig::default()
-        },
-        Arc::new(LocalLockManager::new()),
-        Box::new(spider_candidates),
-        Box::new(NoWorkSpider {
-            started: Arc::clone(&spider_started),
-        }),
-        Box::new(scraper_candidates),
-        Box::new(NoWorkScraper {
-            started: Arc::clone(&scraper_started),
-        }),
-        registration,
-        Box::new(NoWorkRawCapture {
-            started: Arc::clone(&raw_capture_started),
-        }),
-    );
+    let probe = SchedulerProbe::default();
+    let job = build_scheduler(pool.clone(), &probe);
     let scheduler = test_api::spawn_owned(job.run_loop());
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
@@ -200,9 +212,9 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let _ = scheduler.await;
 
     assert!(!enabled);
-    assert!(!spider_started.load(Ordering::SeqCst));
-    assert!(!scraper_started.load(Ordering::SeqCst));
-    assert!(!raw_capture_started.load(Ordering::SeqCst));
+    assert!(!probe.spider_started.load(Ordering::SeqCst));
+    assert!(!probe.scraper_started.load(Ordering::SeqCst));
+    assert!(!probe.raw_capture_started.load(Ordering::SeqCst));
     assert!(
         SpiderCandidateServiceImpl::new(pool.clone())
             .get_candidates(1, &[])
