@@ -1,18 +1,18 @@
-use test_api::aws::spin_up_aws_emulator;
+use test_api::aws::{get_aws_emulator, get_endpoint_url};
 use test_api::{IntegrationTestService, OpenSearch};
 
 #[tokio::test]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
-    let container = spin_up_aws_emulator(&[]).await;
+    let container = get_aws_emulator(&["opensearch"], &[]).await;
 
-    let host_ip = container.0.get_host().await.unwrap().to_string();
-    let host_port = container.0.get_host_port_ipv4(4566).await.unwrap();
+    let host_ip = container.get_host().await.unwrap().to_string();
+    let host_port = container.get_host_port_ipv4(4566).await.unwrap();
 
     assert_eq!(host_ip, "localhost");
     assert!(host_port > 0, "a random port should be assigned");
 
-    drop(container);
+    assert_eq!(format!("http://{host_ip}:{host_port}"), get_endpoint_url());
 }
 
 #[tokio::test]
