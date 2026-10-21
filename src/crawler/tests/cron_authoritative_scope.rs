@@ -20,7 +20,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use test_api::*;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
@@ -149,12 +149,25 @@ fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob
     )
 }
 
-fn spawn_scheduler(probe: SchedulerProbe) -> (oneshot::Sender<()>, oneshot::Receiver<()>) {
+struct SchedulerStop(watch::Sender<bool>);
+
+impl Drop for SchedulerStop {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
+fn spawn_scheduler(probe: SchedulerProbe) -> (SchedulerStop, oneshot::Receiver<()>) {
     let context = TestContext::current().expect("crawler scheduler context");
+    let (stop, mut stopping) = watch::channel(false);
+    let shutdown_stop = stop.clone();
+    let stop = SchedulerStop(stop);
     let (join_sender, join_receiver) = oneshot::channel::<std::thread::JoinHandle<()>>();
     let stopped = Arc::clone(&probe.stopped);
     context
         .on_shutdown(async move {
+            // Cleanup runs in reverse order; the caller may still own its stop guard.
+            shutdown_stop.send_replace(true);
             let thread = join_receiver.await?;
             tokio::task::spawn_blocking(move || thread.join())
                 .await?
@@ -167,7 +180,6 @@ fn spawn_scheduler(probe: SchedulerProbe) -> (oneshot::Sender<()>, oneshot::Rece
             Ok(())
         })
         .expect("register scheduler thread before spawning");
-    let (stop, stopping) = oneshot::channel();
     let (finished, completion) = oneshot::channel();
     let thread = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -179,7 +191,7 @@ fn spawn_scheduler(probe: SchedulerProbe) -> (oneshot::Sender<()>, oneshot::Rece
             let job = build_scheduler(pool.clone(), &probe);
             tokio::select! {
                 _ = job.run_loop() => {},
-                _ = stopping => {},
+                _ = stopping.changed() => {},
             }
             pool.close().await;
         }));
@@ -294,10 +306,7 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
-    let probe = SchedulerProbe::default();
-    let observing = probe.clone();
+async fn spawn_waiting_scheduler_caller(observing: SchedulerProbe) -> OwnedTask<()> {
     let (ready, started) = oneshot::channel();
     let caller = spawn_owned(async move {
         let (stop, completion) = spawn_scheduler(observing.clone());
@@ -314,6 +323,13 @@ async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
         drop(stop);
     });
     started.await.expect("scheduler caller started");
+    caller
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
+    let probe = SchedulerProbe::default();
+    let caller = spawn_waiting_scheduler_caller(probe.clone()).await;
     caller.abort();
     assert!(caller.await.unwrap_err().is_cancelled());
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -323,4 +339,8 @@ async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
     })
     .await
     .expect("cancelled caller stopped scheduler workers");
+
+    // Keep a second caller running as the test body ends. Reverse cleanup order must
+    // stop/join its scheduler before the earlier caller-abort callback is polled.
+    drop(spawn_waiting_scheduler_caller(SchedulerProbe::default()).await);
 }
