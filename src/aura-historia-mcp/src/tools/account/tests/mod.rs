@@ -163,6 +163,22 @@ async fn should_publish_exact_family_manifest_schemas_and_truthful_effects() {
             json!({"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Home","owner":"foreign"}}),
         ),
         (
+            "createUserAddress",
+            json!({"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","country":"DE"}}),
+        ),
+        (
+            "createUserAddress",
+            json!({"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":null}}),
+        ),
+        (
+            "updateUserAddress",
+            json!({"addressId":id,"expectedVersion":1,"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","country":"DE"}}),
+        ),
+        (
+            "updateUserAddress",
+            json!({"addressId":id,"expectedVersion":1,"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":null}}),
+        ),
+        (
             "setBrowsingDestination",
             json!({"expectedVersion":1,"destination":{"kind":"NONE","country":"DE"}}),
         ),
@@ -207,6 +223,7 @@ async fn should_publish_exact_family_manifest_schemas_and_truthful_effects() {
 #[test]
 fn should_preserve_technical_error_causes_while_classifying_private_failures() {
     use application::error::static_error;
+    use application::transaction::TransactionError;
     use geo_service::resolution::ResolutionError;
     use std::error::Error;
     use user_service::address_book::AddressBookError;
@@ -216,18 +233,28 @@ fn should_preserve_technical_error_causes_while_classifying_private_failures() {
     };
     let errors = [
         errors::get_profile(GetOwnUserError::CommitTransactionFailed(static_error(
-            "private storage cause",
+            "private nested cause",
         ))),
         errors::update_profile(UpdateUserProfileError::BeginTransactionFailed(
-            static_error("private storage cause"),
+            static_error("private nested cause"),
         )),
         errors::address(AddressBookError::Resolution(ResolutionError::Storage(
-            static_error("private provider cause"),
+            static_error("private nested cause"),
+        ))),
+        errors::address(AddressBookError::Transaction(
+            TransactionError::CommitFailed(static_error("private nested cause")),
+        )),
+        errors::address(AddressBookError::Resolution(ResolutionError::Transaction(
+            TransactionError::BeginFailed(static_error("private nested cause")),
         ))),
     ];
     for error in errors {
         assert!(matches!(error, OperationError::Unavailable(_)));
-        assert!(error.source().is_some());
+        let mut cause = error.source().unwrap();
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert_eq!("private nested cause", cause.to_string());
         assert!(
             !serde_json::to_string(&error.into_protocol().unwrap())
                 .unwrap()
@@ -252,4 +279,43 @@ fn should_preserve_technical_error_causes_while_classifying_private_failures() {
         errors::get_profile(GetOwnUserError::Forbidden),
         OperationError::Forbidden
     ));
+}
+
+#[test]
+fn should_keep_internal_causes_private_for_each_account_service() {
+    use application::error::static_error;
+    use geo_service::resolution::ResolutionError;
+    use std::error::Error;
+    use user_service::{
+        address_book::AddressBookError,
+        use_cases::{
+            commands::update_user_profile::UpdateUserProfileError,
+            queries::get_own_user::GetOwnUserError,
+        },
+    };
+    for error in [
+        errors::get_profile(GetOwnUserError::InvalidReadModel {
+            source: static_error("private nested cause"),
+        }),
+        errors::update_profile(UpdateUserProfileError::InvalidPersistedState {
+            source: static_error("private nested cause"),
+        }),
+        errors::address(AddressBookError::Resolution(ResolutionError::InvalidState(
+            static_error("private nested cause"),
+        ))),
+    ] {
+        assert!(matches!(error, OperationError::Internal(_)));
+        let mut cause = error.source().unwrap();
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert_eq!("private nested cause", cause.to_string());
+        let protocol = error.into_protocol().unwrap_err();
+        assert_eq!(rmcp::model::ErrorCode::INTERNAL_ERROR, protocol.code);
+        assert!(
+            !serde_json::to_string(&protocol)
+                .unwrap()
+                .contains("private")
+        );
+    }
 }

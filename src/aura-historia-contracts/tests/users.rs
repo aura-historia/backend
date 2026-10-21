@@ -208,6 +208,43 @@ fn should_preserve_strict_full_address_input_and_constructor_validation() {
 }
 
 #[test]
+fn should_require_non_null_address_text_in_address_schemas() {
+    let create_schema = input_schema::<CreateData>();
+    let update_schema = input_schema::<UpdateData>();
+    for address_text in [None, Some(Value::Null), Some(json!(""))] {
+        let mut input = json!({"label":"Home","geography":geography()});
+        match address_text {
+            Some(value) => input["geography"]["addressText"] = value,
+            None => {
+                input["geography"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("addressText");
+            }
+        }
+        assert!(!create_schema.is_valid(&input), "{input}");
+        input["expectedVersion"] = json!(1);
+        assert!(!update_schema.is_valid(&input), "{input}");
+    }
+    let mut input = json!({"label":"Home","geography":geography()});
+    assert!(create_schema.is_valid(&input));
+    input["expectedVersion"] = json!(1);
+    assert!(update_schema.is_valid(&input));
+
+    // General geography still permits administrative facts without address text.
+    let country_only = json!({"referenceRelease":"iso-codes-4.20.1","country":"DE"});
+    assert!(
+        input_schema::<aura_historia_contracts::geography::GeographyData>().is_valid(&country_only)
+    );
+    assert!(
+        serde_json::from_value::<aura_historia_contracts::geography::GeographyData>(country_only)
+            .unwrap()
+            .into_core()
+            .is_ok()
+    );
+}
+
+#[test]
 fn should_retain_complete_resolution_attribution_and_page_cursor_output() {
     let submitted =
         serde_json::from_value::<CreateData>(json!({"label":"Home","geography":geography()}))

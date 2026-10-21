@@ -207,8 +207,9 @@ as replacement. `showUnassessedOrSensitiveContent` accepts a boolean and rejects
 locale aliases normalize to canonical language codes. Profile fields outside the editable
 contract have no effect, as on REST. Address and destination objects reject unknown members.
 Geography retains its reference release, address text, country, subdivision and postal code and
-uses the same validated constructors as REST. Address resolution includes status, eligible
-derived geography and point precision/accuracy, and provider attribution URL.
+uses the same validated constructors as REST. Address bookmarks require non-null `addressText`.
+Address resolution includes status, eligible derived geography and point precision/accuracy,
+and provider attribution URL.
 
 Pass the address page's `next` unchanged as `after` to continue; no transport cap truncates a
 page. Versioned writes preserve stale-version conflicts. `NONE` clears the destination;

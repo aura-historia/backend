@@ -1,16 +1,28 @@
 use crate::geography::{GeographyData, PositionData};
 use geo::DerivedGeography;
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use user_core::user_address::UserAddressId;
 use user_service::address_book::{
     CreateUserAddress, UpdateUserAddress, UserAddressPage, UserAddressResolution, UserAddressView,
 };
 
+fn address_geography_schema(generator: &mut SchemaGenerator) -> Schema {
+    // Other geography contexts permit country-only facts; address bookmarks require text.
+    json_schema!({"allOf": [generator.subschema_for::<GeographyData>(), {
+        "type": "object",
+        "required": ["addressText"],
+        "properties": {"addressText": {
+            "type": "string", "minLength": 1, "maxLength": geo::AddressText::MAX_BYTES
+        }}
+    }]})
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateData {
     pub label: String,
+    #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
 }
 #[derive(Deserialize, JsonSchema)]
@@ -19,6 +31,7 @@ pub struct UpdateData {
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
     pub label: String,
+    #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
 }
 #[derive(Deserialize, JsonSchema)]
@@ -33,6 +46,7 @@ pub struct AddressData {
     #[schemars(schema_with = "crate::wire::schema::user_address_id")]
     pub address_id: UserAddressId,
     pub label: String,
+    #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
     pub input_revision: u64,
     pub version: u64,

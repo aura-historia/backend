@@ -176,6 +176,29 @@ async fn should_preserve_owned_address_pagination_cas_destinations_and_http_scop
     .await;
     for (name, input) in requests(id)
         .into_iter()
+        .filter(|(name, _)| matches!(*name, "updateUserAddress" | "deleteUserAddress"))
+    {
+        assert_error(&registry, name, input, &both(foreign), |e| {
+            matches!(e, OperationError::NotFound)
+        })
+        .await;
+    }
+    assert_eq!(
+        address,
+        invoke(&registry, "getUserAddress", json!({"addressId":id}), &read).await
+    );
+    let write_only = context(owner, [CredentialCapability::UsersWrite]);
+    for (name, input) in requests(id)
+        .into_iter()
+        .filter(|(name, _)| registry.get(name).unwrap().policy().read_only)
+    {
+        assert_error(&registry, name, input, &write_only, |e| {
+            matches!(e, OperationError::Forbidden)
+        })
+        .await;
+    }
+    for (name, input) in requests(id)
+        .into_iter()
         .filter(|(name, _)| !registry.get(name).unwrap().policy().read_only)
     {
         assert_error(&registry, name, input, &read, |e| {
@@ -247,6 +270,42 @@ async fn should_preserve_owned_address_pagination_cas_destinations_and_http_scop
             .unwrap()
             .len()
     );
+    exercise_page_bounds(&registry, &ctx).await;
+}
+
+async fn exercise_page_bounds(registry: &Registry, ctx: &InvocationContext) {
+    for _ in 0..25 {
+        invoke(registry, "createUserAddress", input(), ctx).await;
+    }
+    let default_page = invoke(registry, "listUserAddresses", json!({}), ctx).await;
+    assert_eq!(25, default_page["items"].as_array().unwrap().len());
+    assert!(default_page["next"].is_string());
+    assert_eq!(
+        default_page,
+        invoke(registry, "listUserAddresses", json!({"limit":null}), ctx).await
+    );
+    let last = invoke(
+        registry,
+        "listUserAddresses",
+        json!({"after":default_page["next"]}),
+        ctx,
+    )
+    .await;
+    assert_eq!(1, last["items"].as_array().unwrap().len());
+    assert!(last["next"].is_null());
+    let complete = invoke(registry, "listUserAddresses", json!({"limit":100}), ctx).await;
+    assert_eq!(26, complete["items"].as_array().unwrap().len());
+    assert!(complete["next"].is_null());
+    for limit in [101, u32::MAX] {
+        assert_error(
+            registry,
+            "listUserAddresses",
+            json!({"limit":limit}),
+            ctx,
+            |e| matches!(e, OperationError::InvalidInput),
+        )
+        .await;
+    }
 }
 
 async fn exercise_destinations(
@@ -317,6 +376,14 @@ async fn exercise_invalid_inputs(registry: &Registry, ctx: &InvocationContext, i
     for (name, input) in [
         ("getUserAddress", json!({"addressId":id.as_uuid()})),
         (
+            "updateUserAddress",
+            json!({"addressId":id,"expectedVersion":2,"label":"Home","geography":input()["geography"],"owner":UserId::new()}),
+        ),
+        (
+            "deleteUserAddress",
+            json!({"addressId":id,"expectedVersion":2,"userId":UserId::new()}),
+        ),
+        (
             "setBrowsingDestination",
             json!({"expectedVersion":5,"destination":{"kind":"NONE","country":"DE"}}),
         ),
@@ -338,14 +405,31 @@ async fn exercise_invalid_inputs(registry: &Registry, ctx: &InvocationContext, i
         |e| matches!(e, OperationError::InvalidInput),
     )
     .await;
-    assert_error(
-        registry,
-        "setBrowsingDestination",
-        json!({"expectedVersion":0,"destination":{"kind":"NONE"}}),
-        ctx,
-        |e| matches!(e, OperationError::InvalidInput),
-    )
-    .await;
+    for version in [0, i64::MAX as u64 + 1, u64::MAX] {
+        for (name, input) in [
+            (
+                "updateUserAddress",
+                json!({"addressId":id,"expectedVersion":version,"label":"Home","geography":input()["geography"]}),
+            ),
+            (
+                "deleteUserAddress",
+                json!({"addressId":id,"expectedVersion":version}),
+            ),
+            (
+                "setBrowsingDestination",
+                json!({"expectedVersion":version,"destination":{"kind":"NONE"}}),
+            ),
+        ] {
+            let schema =
+                serde_json::to_value(registry.get(name).unwrap().tool().input_schema.as_ref())
+                    .unwrap();
+            assert!(!jsonschema::validator_for(&schema).unwrap().is_valid(&input));
+            assert_error(registry, name, input, ctx, |e| {
+                matches!(e, OperationError::InvalidInput)
+            })
+            .await;
+        }
+    }
 }
 
 struct ReadToken(UserId);
