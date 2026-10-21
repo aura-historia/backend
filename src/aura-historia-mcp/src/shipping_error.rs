@@ -16,7 +16,7 @@ pub(crate) fn shipping(error: ShippingReadError) -> OperationError {
         error => OperationError::Internal(Box::new(error)),
     }
 }
-fn destination(error: user_service::address_book::AddressBookError) -> OperationError {
+pub(crate) fn destination(error: user_service::address_book::AddressBookError) -> OperationError {
     use geo_service::resolution::ResolutionError;
     use user_service::address_book::AddressBookError::*;
     match error {

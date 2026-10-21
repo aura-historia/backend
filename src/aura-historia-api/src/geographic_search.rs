@@ -1,23 +1,9 @@
+#![cfg(test)]
 pub(crate) use aura_historia_contracts::geographic_search::*;
-use geo::core::discovery::GeographicQuery;
-
-pub(crate) fn parse_body(
-    d: Option<GeographicSearchData>,
-    field: &'static str,
-) -> Result<Option<GeographicQuery>, crate::error::ApiError> {
-    d.map(GeographicQuery::try_from)
-        .transpose()
-        .map_err(|detail| {
-            crate::error::ApiError::bad_request(crate::error::BAD_BODY_VALUE)
-                .with_body_field(field)
-                .with_detail(detail)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::{Distance, reference::ReferenceRelease};
+    use geo::{Distance, core::discovery::GeographicQuery, reference::ReferenceRelease};
 
     #[test]
     fn listing_geography_is_one_public_value_with_its_derived_basis() {

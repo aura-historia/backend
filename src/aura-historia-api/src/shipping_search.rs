@@ -1,6 +1,6 @@
+#![cfg(test)]
 pub(crate) use aura_historia_contracts::shipping_search::ShippingSearchData;
 use product_listing_core::shipping_search::ShippingSearch;
-use serde::Deserialize;
 
 pub(crate) fn parse(
     d: Option<ShippingSearchData>,
@@ -21,33 +21,8 @@ pub(crate) fn parse(
     })
 }
 
-/// Optional acceptance guard. The submitted country must equal the authorized address or
-/// preference's asserted country. Neither the reference nor provider evidence is retained.
-#[derive(Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
-pub(crate) enum AcceptShippingDestinationData {
-    Address {
-        #[serde(rename = "addressId")]
-        address_id: user_core::user_address::UserAddressId,
-    },
-    Preference {},
-}
-impl std::fmt::Debug for AcceptShippingDestinationData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("AcceptShippingDestinationData(<redacted>)")
-    }
-}
-impl From<AcceptShippingDestinationData>
-    for search_filter_service::shipping_destination::AcceptShippingDestination
-{
-    fn from(d: AcceptShippingDestinationData) -> Self {
-        match d {
-            AcceptShippingDestinationData::Address { address_id } => Self::Address(address_id),
-            AcceptShippingDestinationData::Preference {} => Self::Preference,
-        }
-    }
-}
-
+#[cfg(test)]
+use aura_historia_contracts::saved_searches::AcceptShippingDestinationData;
 #[cfg(test)]
 mod tests {
     use super::*;

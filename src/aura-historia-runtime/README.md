@@ -68,6 +68,12 @@ replacement, refresh failure and use-case error causes. Its subprocess probes is
 configuration without mutating a multithreaded test process. PostgreSQL integration tests use the
 repository's isolated Docker fixture and business migrations.
 
+`Runtime::saved_searches(embeddings)` supplies the seven saved-search and match-feedback inbound
+handles. REST and MCP reuse this family with the same PostgreSQL pool, shipping enrichment and
+existing lazy embedding provider. Selecting the family requires only its explicit embedding
+handle; it does not load unrelated provider settings. Services own tier/ownership checks,
+transactions, destination acceptance and materialized match semantics.
+
 `Runtime::notifications()` supplies the six existing notification inbox use-case handles against
 one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
 configuration. Notification ownership, delegated scopes and presentation preferences stay with

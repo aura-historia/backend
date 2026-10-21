@@ -20,6 +20,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - Add all nine own-account, address-book and browsing-destination operations to the existing MCP endpoint. The tools reuse complete REST contracts and service authorization, including profile patch states, geographic resolution/attribution, pagination, address ownership and version conflicts. Reads require `users:read`; mutations require `users:write`. Address creation remains non-idempotent. See the [account tool contract](mcp.md#own-account-addresses-and-browsing-destination) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).
 
+## 2026-10-21 — Saved-search MCP tools (#2244)
+
+- Add all seven own saved-search and match-feedback operations with independent read/write scopes, complete shared REST criteria and patch semantics, existing tier/ownership checks, JSON match continuations and listing presentation. Matching remains scheduled and eventual; mutations are never automatically retried. See the [saved-search MCP contract](mcp.md#saved-searches-and-match-feedback).
+
 ## 2026-10-21 — Shared Aura OAuth resource indicators (#2240)
 
 - `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource`. Use `https://mcp.aura-historia.com/v1` for MCP clients, or the corresponding stage identifier. Only exact configured REST/MCP identifiers are accepted; foreign, other-environment, empty and repeated values return `400 OAUTH_INVALID_RESOURCE`.

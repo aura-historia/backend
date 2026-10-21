@@ -66,6 +66,12 @@ the `shipping-json` codec's own DTO/schema owner and adapter-selected reference 
 The [listing fixtures](tests/listings.rs) check full filters, exact unsigned values, required nulls
 and public shipping redaction alongside the REST and MCP adapter fixtures.
 
+Saved-search CRUD, patches, match feedback and match continuation live under `saved_searches`.
+REST and MCP reuse the same DTOs, validation and service-view conversions; REST alone query-encodes
+match cursor arrays. The [saved-search fixture and schema tests](tests/saved_searches.rs) cover
+full listing criteria, patch omission/null rules, atomic availability updates and stored match
+shipping valuations. Account identity comes from each trusted transport context, never these DTOs.
+
 Watchlist entry, mutation, list query and paged personalized-detail contracts live in `watchlist`.
 REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
 patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)

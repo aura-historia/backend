@@ -24,6 +24,7 @@ product-listing-core = { workspace = true }
 product-listing-service = { workspace = true }
 schemars = { workspace = true }
 search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shipping-core = { workspace = true }
