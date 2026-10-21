@@ -25,6 +25,16 @@ pub enum PublicTargetError {
     InvalidRedirect,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum CrawlerClientError {
+    #[error(transparent)]
+    Target(#[from] PublicTargetError),
+    #[error("platform TLS trust store is unavailable")]
+    TrustStore(#[source] rustls::Error),
+    #[error("crawler HTTP client could not be built")]
+    Build(#[source] reqwest::Error),
+}
+
 /// Stable, scraper-specific health categories persisted on crawler domains.
 ///
 /// This is intentionally separate from [`NetworkErrorKind`]: the latter also
@@ -134,29 +144,33 @@ pub async fn resolve_public_http_target(
     Ok(PublicTarget { host, addresses })
 }
 
-/// Client settings every crawler request shares: the crawler identity,
-/// HTTP/1.1, no automatic redirects and bounded timeouts.
-/// [`public_http_client`] adds the pinned public addresses; tests build local
-/// clients from the same base.
-pub fn crawler_client_builder(timeout: Duration) -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+/// Client settings every crawler request shares: the crawler identity, the
+/// platform trust store, HTTP/1.1, no automatic redirects and bounded
+/// timeouts. [`public_http_client`] adds the pinned public addresses; tests
+/// build local clients from the same base.
+pub fn crawler_client_builder(
+    timeout: Duration,
+) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
+    let tls = crate::network::tls::platform_tls_config().map_err(CrawlerClientError::TrustStore)?;
+    Ok(reqwest::Client::builder()
+        .use_preconfigured_tls(tls)
         .user_agent(crate::network::CRAWLER_USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .connect_timeout(timeout)
         .no_proxy()
-        .http1_only()
+        .http1_only())
 }
 
 pub async fn public_http_client(
     url: &Url,
     timeout: Duration,
-) -> Result<reqwest::Client, PublicTargetError> {
+) -> Result<reqwest::Client, CrawlerClientError> {
     let target = resolve_public_http_target(url, timeout).await?;
-    crawler_client_builder(timeout)
+    crawler_client_builder(timeout)?
         .resolve_to_addrs(&target.host, &target.addresses)
         .build()
-        .map_err(|_| PublicTargetError::InvalidUrl)
+        .map_err(CrawlerClientError::Build)
 }
 
 pub fn redirect_target(
@@ -334,6 +348,16 @@ impl ReqwestErrorLike for reqwest::Error {
     }
 }
 
+/// `error` followed by its source chain, so a log shows the cause (for
+/// example `invalid peer certificate: UnknownIssuer`) behind reqwest's
+/// outermost `error sending request`.
+pub fn error_with_sources(error: &dyn std::error::Error) -> String {
+    std::iter::successors(Some(error), |error| error.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
+}
+
 pub fn classify_reqwest_error<E: ReqwestErrorLike>(err: &E) -> NetworkErrorKind {
     if err.is_timeout() {
         return NetworkErrorKind::Timeout;
@@ -456,6 +480,7 @@ mod tests {
         });
 
         let client = crawler_client_builder(Duration::from_secs(5))
+            .unwrap()
             .build()
             .unwrap();
         client
@@ -471,6 +496,50 @@ mod tests {
             .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
             .map(|(_, value)| value.trim());
         assert_eq!(user_agent, Some(crate::network::CRAWLER_USER_AGENT));
+    }
+
+    /// Certificate verification stays on with the platform trust store, and
+    /// the failure names its cause instead of only `error sending request`.
+    #[tokio::test]
+    async fn crawler_client_builder_should_reject_an_untrusted_certificate_with_its_cause() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let certificate = rustls::pki_types::CertificateDer::from(
+                include_bytes!("testdata/untrusted-localhost-cert.der").to_vec(),
+            );
+            let key = rustls::pki_types::PrivatePkcs8KeyDer::from(
+                include_bytes!("testdata/untrusted-localhost-key.der").to_vec(),
+            );
+            let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], key.into())
+            .unwrap();
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut connection =
+                rustls::ServerConnection::new(std::sync::Arc::new(config)).unwrap();
+            // The client aborts the handshake once it has seen the certificate.
+            while connection.is_handshaking() && connection.complete_io(&mut socket).is_ok() {}
+        });
+
+        let error = crawler_client_builder(Duration::from_secs(5))
+            .unwrap()
+            .resolve("localhost", addr)
+            .build()
+            .unwrap()
+            .get(format!("https://localhost:{}/", addr.port()))
+            .send()
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+
+        assert_eq!(classify_reqwest_error(&error), NetworkErrorKind::Connect);
+        let details = error_with_sources(&error);
+        assert!(details.contains("UnknownIssuer"), "{details}");
     }
 
     #[test]

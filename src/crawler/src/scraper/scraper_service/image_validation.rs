@@ -1,6 +1,6 @@
 use crate::network::policy::{
-    PublicTargetError, classify_reqwest_error, public_http_client, redirect_target,
-    resolve_public_http_target,
+    CrawlerClientError, PublicTargetError, classify_reqwest_error, error_with_sources,
+    public_http_client, redirect_target, resolve_public_http_target,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::normalization::error::NormalizationError;
@@ -187,9 +187,16 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
     let response = loop {
         let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT).await {
             Ok(client) => client,
-            Err(error) => {
+            Err(CrawlerClientError::Target(error)) => {
                 tracing::debug!("Image dimension probe rejected target");
                 return image_validation_for_target_error(error);
+            }
+            Err(error) => {
+                tracing::debug!(
+                    error = %error_with_sources(&error),
+                    "Image dimension probe client unavailable"
+                );
+                return ImageValidation::Unknown;
             }
         };
         let response = match client
@@ -202,6 +209,7 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
             Err(err) => {
                 tracing::debug!(
                     kind = ?classify_reqwest_error(&err),
+                    error = %error_with_sources(&err),
                     "Image dimension probe failed"
                 );
                 return ImageValidation::Unknown;

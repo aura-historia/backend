@@ -2,10 +2,10 @@ use crate::authoring::CrawlerAuthoringMode;
 #[cfg(test)]
 use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
-    network_error_kind_for_public_target_error, parse_retry_after, public_http_client,
-    redirect_target,
+    CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy,
+    action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
+    is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
+    public_http_client, redirect_target,
 };
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
@@ -261,12 +261,13 @@ impl ReqwestHtmlFetcher {
         #[cfg(test)]
         if self.allow_private_targets_for_test {
             return crawler_client_builder(self.attempt_timeout)
+                .map_err(client_fetch_error)?
                 .build()
                 .map_err(reqwest_fetch_error);
         }
         public_http_client(url, self.attempt_timeout)
             .await
-            .map_err(public_target_fetch_error)
+            .map_err(client_fetch_error)
     }
 
     #[cfg(test)]
@@ -333,6 +334,20 @@ fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
     }
 }
 
+fn client_fetch_error(error: CrawlerClientError) -> FetchAttemptError {
+    match error {
+        CrawlerClientError::Target(error) => public_target_fetch_error(error),
+        error @ (CrawlerClientError::TrustStore(_) | CrawlerClientError::Build(_)) => {
+            FetchAttemptError {
+                error: FetchError::Network {
+                    kind: NetworkErrorKind::Unknown,
+                    details: error_with_sources(&error),
+                },
+            }
+        }
+    }
+}
+
 fn unsafe_fetch_error(details: impl Into<String>) -> FetchError {
     FetchError::Network {
         kind: NetworkErrorKind::UnsafeTarget,
@@ -344,7 +359,7 @@ fn reqwest_fetch_error(error: reqwest::Error) -> FetchAttemptError {
     FetchAttemptError {
         error: FetchError::Network {
             kind: classify_reqwest_error(&error),
-            details: error.to_string(),
+            details: error_with_sources(&error),
         },
     }
 }
