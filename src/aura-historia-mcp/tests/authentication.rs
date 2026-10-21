@@ -532,6 +532,34 @@ async fn should_reject_ambiguous_headers_and_dispatch_identity_before_authentica
     assert_eq!(0, fixture.calls.load(Ordering::SeqCst));
     assert_eq!(0, fixture.store.calls());
 }
+
+#[tokio::test]
+async fn should_never_execute_a_tool_with_duplicate_json_dispatch_fields() {
+    let fixture = Fixture::new();
+    let token = fixture
+        .store
+        .insert(UserId::new(), &[Scope::UsersRead, Scope::UsersWrite]);
+    let authorization = format!("Bearer {token}");
+    for body in [
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","method":"tools/list","params":{"name":"protectedFixture","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","method":"tools/call","params":{"name":"protectedFixture","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"protectedFixture","arguments":{}},"params":{"name":"publicFixture","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"publicFixture","arguments":{}},"params":{"name":"protectedFixture","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"protectedFixture","name":"publicFixture","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"publicFixture","na\u006de":"protectedFixture","arguments":{}}}"#,
+    ] {
+        for authorization in [None, Some(authorization.as_str())] {
+            let mut call = request("tools/list", json!({}), authorization);
+            *call.body_mut() = Body::from(body);
+            let response = fixture.app.clone().oneshot(call).await.unwrap();
+            if response.status() == StatusCode::OK {
+                assert!(json_body(response).await.get("error").is_some());
+            }
+            assert_eq!(0, fixture.calls.load(Ordering::SeqCst), "{body}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn should_challenge_protected_calls_before_sdk_argument_validation_and_wrapping() {
     let fixture = Fixture::new();

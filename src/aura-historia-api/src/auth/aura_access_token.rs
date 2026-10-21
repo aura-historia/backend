@@ -41,12 +41,8 @@ fn map_access_token_error(error: AccessTokenAuthenticationError) -> AuthError {
             AuthError::MalformedCredentials
         }
         AccessTokenAuthenticationError::InvalidCredentials => AuthError::InvalidCredentials,
-        AccessTokenAuthenticationError::TemporarilyUnavailable { .. } => {
-            AuthError::TemporarilyUnavailable
-        }
-        AccessTokenAuthenticationError::Internal { source } => {
-            AuthError::Internal(source.to_string())
-        }
+        AccessTokenAuthenticationError::TemporarilyUnavailable { .. }
+        | AccessTokenAuthenticationError::Internal { .. } => AuthError::AuraAccessToken(error),
     }
 }
 
@@ -260,7 +256,12 @@ mod tests {
 
         let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
+        assert!(matches!(
+            result,
+            Err(AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::TemporarilyUnavailable { .. }
+            ))
+        ));
     }
 
     #[tokio::test]
@@ -276,7 +277,68 @@ mod tests {
 
             let result = authenticator.authenticate(&token, &metadata()).await;
 
-            assert!(matches!(result, Err(AuthError::Internal(_))));
+            assert!(matches!(
+                result,
+                Err(AuthError::AuraAccessToken(
+                    AccessTokenAuthenticationError::Internal { .. }
+                ))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_preserve_technical_causes_through_rest_authentication_and_error_mapping() {
+        use crate::error::{AUTH_INTERNAL_ERROR, AUTH_TEMPORARILY_UNAVAILABLE, ApiError};
+        use axum::{http::StatusCode, response::IntoResponse};
+        use std::error::Error;
+
+        for (outcome, status, code) in [
+            (
+                FakeTokenOutcome::TemporarilyUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                AUTH_TEMPORARILY_UNAVAILABLE,
+            ),
+            (
+                FakeTokenOutcome::Conflict,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+            (
+                FakeTokenOutcome::InvalidPersistedState,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+            (
+                FakeTokenOutcome::Internal,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+        ] {
+            let (use_case, _) = use_case(outcome);
+            let authenticator = AuraAccessTokenAuthenticator::new(use_case);
+            let token = String::from(RawAccessToken::new());
+            let error = authenticator
+                .authenticate(&token, &metadata())
+                .await
+                .unwrap_err();
+            let error = ApiError::from(error);
+            let mut source = error.source().expect("authentication error source");
+            while let Some(cause) = source.source() {
+                source = cause;
+            }
+            assert!(source.is::<std::io::Error>());
+            assert_eq!("boom", source.to_string());
+            assert!(!error.to_string().contains("boom"));
+
+            let response = error.into_response();
+            assert_eq!(status, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(code.to_string(), body["error"]);
+            assert!(!String::from_utf8_lossy(&bytes).contains("boom"));
+            assert!(!String::from_utf8_lossy(&bytes).contains(&token));
         }
     }
 }
