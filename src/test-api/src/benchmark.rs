@@ -63,7 +63,10 @@ mod tests {
         for setting in [None, Some("0"), Some("true"), Some(" 1"), Some("")] {
             let mut output = Vec::new();
             write_timing(&mut output, setting, "BODY", "example", Duration::ZERO);
-            assert!(output.is_empty(), "setting {setting:?} must not enable timing");
+            assert!(
+                output.is_empty(),
+                "setting {setting:?} must not enable timing"
+            );
         }
     }
 
