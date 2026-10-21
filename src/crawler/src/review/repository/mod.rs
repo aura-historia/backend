@@ -69,8 +69,11 @@ pub enum ReviewRepositoryError {
     NotReviewerAddedPage(CrawlerReviewPageId),
 }
 
-/// Upper bound on pages per review: a live schema-matrix refresh refetches every page.
-pub const MAX_REVIEW_PAGES: usize = 12;
+/// Upper bound on pages per review. A live schema-matrix refresh refetches every page one by
+/// one from the same throttled shop, at a second or more each, and must finish within the
+/// review API's 30-second request deadline; the bound leaves room for the seed pages plus a few
+/// reviewer-added ones.
+pub const MAX_REVIEW_PAGES: usize = 8;
 
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
