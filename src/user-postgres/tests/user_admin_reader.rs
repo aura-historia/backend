@@ -23,7 +23,7 @@ use user_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_last_admin_when_target_is_sole_admin() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -45,7 +45,7 @@ async fn should_return_last_admin_when_target_is_sole_admin() {
     assert_eq!(UserAdminRemovalDecision::LastAdmin, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_protect_last_active_admin_when_suspended_admin_remains() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -73,7 +73,7 @@ async fn should_protect_last_active_admin_when_suspended_admin_remains() {
     assert_eq!(UserAdminRemovalDecision::LastAdmin, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_make_suspended_admin_unavailable_for_authorization_and_removal() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -103,7 +103,7 @@ async fn should_make_suspended_admin_unavailable_for_authorization_and_removal()
     assert_eq!(UserAdminRemovalDecision::TargetNotAdmin, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_allow_admin_removal_when_multiple_admins_exist() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -127,7 +127,7 @@ async fn should_allow_admin_removal_when_multiple_admins_exist() {
     assert_eq!(UserAdminRemovalDecision::Allowed, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_concurrent_admin_removals_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -167,7 +167,7 @@ async fn should_serialize_concurrent_admin_removals_in_postgres() {
     let second_unit_of_work = unit_of_work.clone();
     let second_admins = admins;
     let second_id = second.id();
-    let second_task = tokio::spawn(async move {
+    let second_task = test_api::spawn_owned(async move {
         let mut second_tx = begin(&second_unit_of_work).await;
         second_started_signal.store(true, Ordering::SeqCst);
         let decision =
@@ -203,7 +203,7 @@ async fn should_serialize_concurrent_admin_removals_in_postgres() {
     assert_eq!(UserAdminRemovalDecision::LastAdmin, second_decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_target_not_admin_for_non_admin_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -225,7 +225,7 @@ async fn should_return_target_not_admin_for_non_admin_user() {
     assert_eq!(UserAdminRemovalDecision::TargetNotAdmin, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_target_not_found_for_missing_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -245,7 +245,7 @@ async fn should_return_target_not_found_for_missing_user() {
     assert_eq!(UserAdminRemovalDecision::TargetNotFound, decision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_user_admin_view_from_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

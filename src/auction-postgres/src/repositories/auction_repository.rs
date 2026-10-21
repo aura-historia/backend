@@ -144,7 +144,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("auction: {error}"))
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_persist_schedule_and_event_atomically() {
         let pool = get_postgres_client().await;
         let source_id = source(&pool).await;
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(0, auction_description_columns);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_replace_schedule_with_root_update_and_roll_back_uncommitted_write() {
         let pool = get_postgres_client().await;
         let source_id = source(&pool).await;
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(0, rolled_back_events);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_enforce_source_key_uniqueness_and_root_cas() {
         let pool = get_postgres_client().await;
         let source_id = source(&pool).await;

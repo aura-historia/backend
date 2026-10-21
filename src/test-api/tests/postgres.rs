@@ -6,10 +6,10 @@ const POSTGRES_WITH_SETUP: Postgres = Postgres::with_setup_script(
     "src/test-api/tests/fixtures/postgres_setup.sql",
 );
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_run_without_errors() {}
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_create_tables_from_migrations_dir() {
     let pool = get_postgres_client().await;
 
@@ -28,7 +28,7 @@ async fn should_create_tables_from_migrations_dir() {
     assert!(tables.contains(&"test_tags".to_string()));
 }
 
-#[aura_integration_test(services = [POSTGRES_WITH_SETUP])]
+#[aura_integration_test(services = [POSTGRES_WITH_SETUP], isolated = true)]
 async fn should_run_setup_script_after_migrations() {
     let pool = get_postgres_client().await;
 
@@ -41,7 +41,7 @@ async fn should_run_setup_script_after_migrations() {
     assert_eq!(1, count);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_insert_and_read_row() {
     let pool = get_postgres_client().await;
 
@@ -64,7 +64,7 @@ async fn should_insert_and_read_row() {
     assert_eq!(42, value);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_clean_up_rows_between_tests() {
     let pool = get_postgres_client().await;
 
@@ -77,7 +77,7 @@ async fn should_clean_up_rows_between_tests() {
     assert_eq!(0, count);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_handle_foreign_key_relations() {
     let pool = get_postgres_client().await;
 
@@ -107,7 +107,7 @@ async fn should_handle_foreign_key_relations() {
     assert_eq!(vec!["alpha", "beta"], tags);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_cascade_delete_tags_when_item_is_removed() {
     let pool = get_postgres_client().await;
 

@@ -4,7 +4,7 @@ use platform_postgres::PostgresPoolConfig;
 use std::path::PathBuf;
 use test_api::{
     IntegrationTestService, Postgres, aura_integration_test, get_postgres_client,
-    get_postgres_host_gateway_connection_string, get_postgres_tls_root_certificate_path,
+    get_postgres_tls_root_certificate_path,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -12,23 +12,31 @@ const ROTATION_ROLE: &str = "c07_runtime_rotation";
 const OLD_PASSWORD: &str = "c07-old-password";
 const NEW_PASSWORD: &str = "c07-new-password";
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_keep_an_old_pool_lease_alive_through_a_real_postgres_password_rotation() {
     let admin = get_postgres_client().await;
-    let (host, port, root_certificate) = runtime_connection();
+    let context = test_api::TestContext::current().expect("rotation test context");
+    let (host, port, database, root_certificate) = runtime_connection();
     drop_rotation_role(&admin).await;
     create_rotation_role(&admin).await;
 
     let cache = VersionedCompositionCache::new();
     let old = cache
         .get_or_try_build("version-old", || {
-            build_pool(host.clone(), port, root_certificate.clone(), OLD_PASSWORD)
+            build_pool(
+                host.clone(),
+                port,
+                database.clone(),
+                root_certificate.clone(),
+                OLD_PASSWORD,
+            )
         })
         .await;
     let old = match old {
         Ok(lease) => lease,
         Err(error) => panic!("failed to build old credential pool: {error}"),
     };
+    context.register_postgres_pool(old.value().clone()).unwrap();
     let mut old_transaction = match old.value().begin().await {
         Ok(transaction) => transaction,
         Err(error) => panic!("failed to begin old credential transaction: {error}"),
@@ -44,13 +52,20 @@ async fn should_keep_an_old_pool_lease_alive_through_a_real_postgres_password_ro
     rotate_role_password(&admin).await;
     let new = cache
         .get_or_try_build("version-new", || {
-            build_pool(host.clone(), port, root_certificate.clone(), NEW_PASSWORD)
+            build_pool(
+                host.clone(),
+                port,
+                database.clone(),
+                root_certificate.clone(),
+                NEW_PASSWORD,
+            )
         })
         .await;
     let new = match new {
         Ok(lease) => lease,
         Err(error) => panic!("failed to build rotated credential pool: {error}"),
     };
+    context.register_postgres_pool(new.value().clone()).unwrap();
     let new_user: String = match sqlx::query_scalar("SELECT current_user")
         .fetch_one(new.value())
         .await
@@ -80,33 +95,33 @@ async fn should_keep_an_old_pool_lease_alive_through_a_real_postgres_password_ro
     drop_rotation_role(&admin).await;
 }
 
-fn runtime_connection() -> (String, u16, PathBuf) {
-    let connection = match url::Url::parse(&get_postgres_host_gateway_connection_string("postgres"))
-    {
-        Ok(connection) => connection,
-        Err(error) => panic!("failed to parse test Postgres connection: {error}"),
-    };
-    // This integration test runs on the host, unlike the packaged Lambda fixture.
-    // The fixture certificate deliberately includes `localhost` for verified TLS.
-    let host = "localhost".to_owned();
-    let port = match connection.port() {
-        Some(port) => port,
-        None => panic!("test Postgres connection has no port"),
-    };
-
-    (host, port, get_postgres_tls_root_certificate_path())
+fn runtime_connection() -> (String, u16, String, PathBuf) {
+    let options = test_api::TestContext::current()
+        .expect("rotation test context")
+        .postgres_connect_options()
+        .expect("scoped rotation database");
+    (
+        options.get_host().to_owned(),
+        options.get_port(),
+        options
+            .get_database()
+            .expect("rotation database name")
+            .to_owned(),
+        get_postgres_tls_root_certificate_path(),
+    )
 }
 
 async fn build_pool(
     host: String,
     port: u16,
+    database: String,
     root_certificate: PathBuf,
     password: &str,
 ) -> Result<sqlx::PgPool, &'static str> {
     let config = PostgresPoolConfig::lambda(
         host,
         port,
-        "postgres".to_owned(),
+        database,
         ROTATION_ROLE.to_owned(),
         password.to_owned(),
         1,

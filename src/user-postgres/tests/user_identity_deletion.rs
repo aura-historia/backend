@@ -128,7 +128,7 @@ impl UserIdentityDeleter for &Provider {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn deletion_survives_provider_failure_and_fences_old_registration_but_allows_new_subject() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -232,7 +232,7 @@ async fn deletion_survives_provider_failure_and_fences_old_registration_but_allo
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn deletion_intent_rolls_back_with_account_and_claims_are_exclusive_and_fenced() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -351,7 +351,7 @@ async fn deletion_intent_rolls_back_with_account_and_claims_are_exclusive_and_fe
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn admin_deletion_records_the_same_provider_request_and_unbound_users_need_none() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -404,7 +404,7 @@ async fn admin_deletion_records_the_same_provider_request_and_unbound_users_need
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn eventually_consistent_initial_absence_keeps_work_unfinished_until_observed() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());

@@ -30,7 +30,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 type Revision = (ProductListingRawStreamId, ProductListingRawRevisionId, u64);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn reversed_duplicate_wakeups_drain_only_their_stream_from_persisted_progress() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -75,7 +75,7 @@ async fn reversed_duplicate_wakeups_drain_only_their_stream_from_persisted_progr
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn cancellation_before_commit_leaves_no_progress_and_redelivery_replays_once() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -91,7 +91,7 @@ async fn cancellation_before_commit_leaves_no_progress_and_redelivery_replays_on
         let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *barrier)
             .await?;
-        let pending = tokio::spawn({
+        let pending = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event([("cancelled", body)]), use_case.as_ref()).await }
@@ -149,7 +149,7 @@ async fn cancellation_before_commit_leaves_no_progress_and_redelivery_replays_on
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn postgres_write_failure_retains_item_and_replay_resumes_from_committed_head() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -197,7 +197,7 @@ async fn postgres_write_failure_retains_item_and_replay_resumes_from_committed_h
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn capped_stream_retains_sqs_item_until_a_later_invocation_drains_remaining_revisions() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -451,7 +451,7 @@ fn crawler_write(
     write
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn crawler_shipping_uses_original_acquisition_and_no_llm_or_budget_dependency() {
     let pool = get_postgres_client().await;
     let source = seed_listing_source(&pool).await.unwrap();
@@ -621,7 +621,7 @@ async fn listing_updated(pool: &sqlx::PgPool, source: ListingSourceId) -> time::
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn unicode_crawler_shipping_crosses_the_raw_worker_and_delivery_boundaries() {
     let pool = get_postgres_client().await;
     let use_case = compose_normalization_use_case(pool.clone());
@@ -661,7 +661,7 @@ async fn unicode_crawler_shipping_crosses_the_raw_worker_and_delivery_boundaries
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn native_missing_acquisition_and_stale_authority_preserve_catalog_ingestion() {
     let pool = get_postgres_client().await;
     let use_case = compose_normalization_use_case(pool.clone());
@@ -706,7 +706,7 @@ async fn native_missing_acquisition_and_stale_authority_preserve_catalog_ingesti
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn optional_shipping_storage_failure_never_rolls_back_the_catalog() {
     let pool = get_postgres_client().await;
     let source = seed_listing_source(&pool).await.unwrap();

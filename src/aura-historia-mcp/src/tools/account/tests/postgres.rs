@@ -43,7 +43,7 @@ async fn assert_error(
     assert!(result.as_ref().is_err_and(expected), "{name}: {result:?}");
 }
 
-#[aura_integration_test(services = [SCHEMA])]
+#[aura_integration_test(services = [SCHEMA], isolated = true)]
 async fn should_apply_profile_patches_only_to_the_delegated_owner_and_preserve_scope_checks() {
     let pool = get_postgres_client().await;
     let owner = seed(&pool).await;
@@ -115,7 +115,7 @@ async fn should_apply_profile_patches_only_to_the_delegated_owner_and_preserve_s
     .await;
 }
 
-#[aura_integration_test(services = [SCHEMA])]
+#[aura_integration_test(services = [SCHEMA], isolated = true)]
 async fn should_preserve_owned_address_pagination_cas_destinations_and_http_scope_challenges() {
     let pool = get_postgres_client().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")

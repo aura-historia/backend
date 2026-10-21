@@ -32,12 +32,13 @@ pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationB
 pub fn compose_projection_use_case(
     pool: sqlx::PgPool,
     open_search: OpenSearch,
+    index: impl Into<String>,
 ) -> Arc<dyn ProjectProductListingUseCase> {
     Arc::new(ProjectProductListingHandler::new(
         SqlxUnitOfWork::new(pool),
         SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchProductListingSearchProjection::new(open_search),
+        OpenSearchProductListingSearchProjection::with_index(open_search, index),
     ))
 }
 

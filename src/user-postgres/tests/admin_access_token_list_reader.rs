@@ -30,7 +30,7 @@ use user_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

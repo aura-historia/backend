@@ -147,7 +147,7 @@ async fn confirmed_prefix_is_not_retried_and_failed_suffix_never_starts() {
     assert_eq!(replay.seen.lock().unwrap().len(), 9);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
     let pool = get_postgres_client().await;
     let party = uuid::Uuid::now_v7();

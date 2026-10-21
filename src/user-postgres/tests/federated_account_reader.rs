@@ -6,7 +6,7 @@ use user_service::ports::FederatedAccountReader;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_federated_account_by_exact_email_and_optional_binding() {
     let pool = get_postgres_client().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();

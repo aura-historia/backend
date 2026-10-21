@@ -5,12 +5,13 @@ use test_api::{
     get_sqs_client,
 };
 
+// This case exercises the legacy purge contract under the macro's real exclusive gate.
 static UNIQUE_A: LazyLock<SqsQueuePair> = LazyLock::new(|| SqsQueuePair::unique("scoped-cleanup"));
 static UNIQUE_B: LazyLock<SqsQueuePair> = LazyLock::new(|| SqsQueuePair::unique("scoped-cleanup"));
 
-const SQS: Sqs = Sqs { name: "test_sqs" };
+const SQS: Sqs = Sqs { name: "test-sqs" };
 
-#[aura_integration_test(services = [SQS])]
+#[aura_integration_test(services = [SQS], isolated = true)]
 async fn should_run_without_errors() {
     assert!(SQS.queue_url().starts_with(aws::get_endpoint_url()));
 }
@@ -68,7 +69,7 @@ async fn should_purge_only_its_source_and_dlq_including_invisible_messages() {
     );
 }
 
-#[aura_integration_test(services = [SQS])]
+#[aura_integration_test(services = [SQS], isolated = true)]
 async fn should_expose_production_queue_metadata_for_every_worker_visibility_class() {
     let expected = [
         ("product-listing-opensearch", 300),
@@ -86,7 +87,6 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
     assert_eq!(11, expected.len());
     for (scope, visibility) in expected {
         let fifo = scope == "marketing-consent-sync";
-        let suffix = if fifo { ".fifo" } else { "" };
         let queues = WorkerSqs::new(scope, visibility);
         queues.set_up().await;
         let source = get_sqs_client()
@@ -109,8 +109,9 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
         let dlq = dlq.attributes().unwrap();
         assert_eq!(
             format!(
-                "{}/000000000000/aura-worker-{scope}-test{suffix}",
-                aws::get_endpoint_url()
+                "{}/000000000000/{}",
+                aws::get_endpoint_url(),
+                queues.queues().name
             ),
             queues.queue_url()
         );
@@ -155,54 +156,78 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
     }
 }
 
-#[aura_integration_test(services = [SQS])]
+#[tokio::test]
 async fn should_isolate_worker_queue_from_previous_tests_cancelled_long_poll() {
-    let queues = WorkerSqs::new("product-content-assessment", 60);
-    queues.set_up().await;
-    let receive = tokio::spawn(async move {
-        get_sqs_client()
+    aws::get_aws_emulator(&["sqs"], &[]).await;
+    let previous =
+        test_api::TestContext::acquire("cancelled worker poll", test_api::Isolation::Isolated)
             .await
-            .receive_message()
-            .queue_url(queues.queue_url())
-            .wait_time_seconds(20)
-            .send()
+            .unwrap();
+    previous
+        .context()
+        .scope(async {
+            SQS.set_up().await;
+            let queues = WorkerSqs::new("product-content-assessment", 60);
+            queues.set_up().await;
+            let queue_url = queues.queue_url();
+            let receive = test_api::spawn_owned(async move {
+                get_sqs_client()
+                    .await
+                    .receive_message()
+                    .queue_url(queue_url)
+                    .wait_time_seconds(20)
+                    .send()
+                    .await
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            assert!(
+                !receive.is_finished(),
+                "previous test has a pending long poll"
+            );
+            receive.abort();
+            assert!(receive.await.unwrap_err().is_cancelled());
+            queues.tear_down().await;
+        })
+        .await;
+    previous.finish().await.unwrap();
+
+    let next =
+        test_api::TestContext::acquire("worker poll slot reuse", test_api::Isolation::Isolated)
             .await
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(
-        !receive.is_finished(),
-        "previous test has a pending long poll"
-    );
-    receive.abort();
-    assert!(receive.await.unwrap_err().is_cancelled());
-    queues.tear_down().await;
-    queues.set_up().await;
-    get_sqs_client()
-        .await
-        .send_message()
-        .queue_url(queues.queue_url())
-        .message_body("next test message")
-        .send()
-        .await
-        .unwrap();
-    let received = get_sqs_client()
-        .await
-        .receive_message()
-        .queue_url(queues.queue_url())
-        .wait_time_seconds(1)
-        .send()
-        .await
-        .unwrap();
-    queues.tear_down().await;
-    assert_eq!(
-        1,
-        received.messages().len(),
-        "cancelled old receive must not hide new test work"
-    );
-    assert_eq!(Some("next test message"), received.messages()[0].body());
+            .unwrap();
+    next.context()
+        .scope(async {
+            let queues = WorkerSqs::new("product-content-assessment", 60);
+            queues.set_up().await;
+            get_sqs_client()
+                .await
+                .send_message()
+                .queue_url(queues.queue_url())
+                .message_body("next test message")
+                .send()
+                .await
+                .unwrap();
+            let received = get_sqs_client()
+                .await
+                .receive_message()
+                .queue_url(queues.queue_url())
+                .wait_time_seconds(1)
+                .send()
+                .await
+                .unwrap();
+            queues.tear_down().await;
+            assert_eq!(
+                1,
+                received.messages().len(),
+                "cancelled old receive must not hide new test work"
+            );
+            assert_eq!(Some("next test message"), received.messages()[0].body());
+        })
+        .await;
+    next.finish().await.unwrap();
 }
 
-#[aura_integration_test(services = [SQS])]
+#[aura_integration_test(services = [SQS], isolated = true)]
 async fn should_post_to_sqs() {
     let client = get_sqs_client().await;
     let _ = client
@@ -226,7 +251,7 @@ async fn should_post_to_sqs() {
     )
 }
 
-#[aura_integration_test(services = [SQS, Sqs { name: "test_sqs_foo" }])]
+#[aura_integration_test(services = [SQS, Sqs { name: "test-sqs-foo" }], isolated = true)]
 async fn should_create_multiple_sqs() {
     let client = get_sqs_client().await;
 
@@ -237,11 +262,11 @@ async fn should_create_multiple_sqs() {
         SQS.queue_url(),
         SQS.dead_letter_queue_url(),
         Sqs {
-            name: "test_sqs_foo",
+            name: "test-sqs-foo",
         }
         .queue_url(),
         Sqs {
-            name: "test_sqs_foo",
+            name: "test-sqs-foo",
         }
         .dead_letter_queue_url(),
     ];

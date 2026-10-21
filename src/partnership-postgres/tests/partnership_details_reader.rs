@@ -118,7 +118,7 @@ async fn read_details(partnership_id: PartnershipId) -> Option<AdminPartnershipD
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_ordered_current_members_and_grants_with_full_counts() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool, "Details party").await;
@@ -173,7 +173,7 @@ async fn should_return_ordered_current_members_and_grants_with_full_counts() {
     assert_eq!(datetime!(2026-01-03 00:00 UTC), result.updated);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_empty_associations_for_partnership_without_members_or_grants() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool, "Empty details party").await;
@@ -195,12 +195,12 @@ async fn should_return_empty_associations_for_partnership_without_members_or_gra
     assert_eq!(0, result.listing_source_grant_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_for_missing_partnership() {
     assert!(read_details(PartnershipId::new()).await.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_bound_large_member_and_grant_arrays_without_changing_counts() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool, "Bounded details party").await;

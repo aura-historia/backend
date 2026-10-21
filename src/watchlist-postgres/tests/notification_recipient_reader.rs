@@ -14,7 +14,7 @@ use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_select_watchlist_recipients_using_current_intervals_at_event_time() {
     let pool = get_postgres_client().await;
     let product_listing_id = seed_product(&pool).await;

@@ -486,7 +486,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_allow_only_one_concurrent_claim_and_return_the_winners_persisted_expiry() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -539,7 +539,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_defer_before_expiry_and_reclaim_at_or_after_expiry_with_new_token() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -604,7 +604,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_reject_late_finalization_even_when_original_completion_preceded_expiry() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -628,7 +628,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_replay_only_exact_committed_token_result_and_timestamp_without_another_write() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -698,7 +698,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_recognize_concurrent_identical_finalizations_and_replay_after_original_expiry()
     {
         let result: TestResult = async {
@@ -743,7 +743,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_clear_previous_receipt_on_reclaim_and_fence_old_completion_against_new_result()
     {
         let result: TestResult = async {
@@ -792,7 +792,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_classify_fresh_status_when_completion_races_with_unsuccessful_claim() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -820,7 +820,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_short_defer_expired_observed_lease_and_missing_row_without_inventing_expiry() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;
@@ -865,7 +865,7 @@ mod tests {
         assert!(result.is_ok(), "{result:?}");
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_rollback_claim_when_source_mapping_fails() {
         let result: TestResult = async {
             let pool = get_postgres_client().await;

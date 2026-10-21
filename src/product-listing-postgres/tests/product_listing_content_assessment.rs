@@ -19,7 +19,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_assessment_current_after_price_and_enrichment_events() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -57,7 +57,7 @@ async fn should_keep_assessment_current_after_price_and_enrichment_events() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_hide_assessment_when_content_source_event_changes() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -89,7 +89,7 @@ async fn should_hide_assessment_when_content_source_event_changes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_one_assessment_when_duplicate_completions_overlap() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -126,7 +126,7 @@ async fn should_persist_one_assessment_when_duplicate_completions_overlap() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_new_assessment_when_old_apply_and_clear_arrive_concurrently() {
     let result: Result<(), Box<dyn std::error::Error>> =
         async {
@@ -185,7 +185,7 @@ async fn should_preserve_new_assessment_when_old_apply_and_clear_arrive_concurre
     assert!(result.is_ok(), "reversed assessment completion: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_advance_listing_freshness_only_for_effective_assessment_changes() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

@@ -103,7 +103,7 @@ async fn read(p: &PgPool, ids: &[ProductListingId]) -> AssessmentDependencies {
     tx.commit().await.unwrap();
     deps
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn shared_current_dependencies_and_verification_are_independent_of_unrelated_writes() {
     let p = get_postgres_client().await;
     let (_, profile, ids) = seed(&p).await;
@@ -141,7 +141,7 @@ async fn shared_current_dependencies_and_verification_are_independent_of_unrelat
     .unwrap();
     assert_eq!(old, now);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn reads_share_repeatable_snapshot_and_new_transactions_see_retirement() {
     let p = get_postgres_client().await;
     let (_, profile, ids) = seed(&p).await;
@@ -180,7 +180,7 @@ async fn reads_share_repeatable_snapshot_and_new_transactions_see_retirement() {
             .is_empty()
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn invalid_delivery_codes_fail_closed_and_withdrawn_is_unavailable() {
     let p = get_postgres_client().await;
     let (_, _, ids) = seed(&p).await;
@@ -211,7 +211,7 @@ async fn invalid_delivery_codes_fail_closed_and_withdrawn_is_unavailable() {
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn evidence_requires_a_current_listing_assertion() {
     let p = get_postgres_client().await;
     let (_, _, ids) = seed(&p).await;
@@ -237,7 +237,7 @@ async fn evidence_requires_a_current_listing_assertion() {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn dispatch_uses_only_current_permitted_derived_country_without_projection_or_provider_io() {
     use geo_service::{geocoding::GeocodingRequest, resolution::*};
     use shipping_core::{coverage::*, terms::*};

@@ -30,7 +30,7 @@ domain-primitives = { workspace = true }
 listing-source-core = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["postgres", "ses"] }
+test-api = { workspace = true, features = ["postgres", "s3", "ses"] }
 time = { workspace = true }
 user-core = { workspace = true }
 uuid = { workspace = true }

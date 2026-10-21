@@ -122,7 +122,7 @@ async fn exists(pool: &sqlx::PgPool, table: &str, column: &str, id: Uuid) -> boo
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
     let pool = get_postgres_client().await;
     let replica_identity: String = sqlx::query_scalar(
@@ -362,7 +362,7 @@ async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn adapter_rejects_invalid_batches_before_deletion() {
     let pool = get_postgres_client().await;
     let now = OffsetDateTime::now_utc();
@@ -382,7 +382,7 @@ async fn adapter_rejects_invalid_batches_before_deletion() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn later_failure_preserves_committed_batches_for_safe_retry() {
     let pool = get_postgres_client().await;
     let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();

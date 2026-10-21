@@ -10,7 +10,7 @@ pub(super) async fn search(
 > {
     let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
         get_opensearch_client().await.clone(),
-        PRODUCTS_INDEX,
+        &products_index(),
     );
     reader
         .search(&ProductListingSearchReadRequest {
@@ -61,7 +61,7 @@ pub(super) async fn index_products(
     for product in product_listings {
         let id = product_listing_id_string(&product)?;
         let response = client
-            .index(IndexParts::IndexId(PRODUCTS_INDEX, &id))
+            .index(IndexParts::IndexId(&products_index(), &id))
             .body(product)
             .send()
             .await?;
@@ -75,7 +75,7 @@ pub(super) async fn index_products(
             .into());
         }
     }
-    refresh_index(PRODUCTS_INDEX).await;
+    refresh_index(&products_index()).await;
     Ok(())
 }
 

@@ -6,6 +6,7 @@ use tokio::process::Command;
 #[tokio::test]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
+    require_unmanaged_phase();
     get_aws_emulator(&["opensearch"], &[]).await;
     let endpoint = url::Url::parse(get_endpoint_url()).unwrap();
     assert_eq!(endpoint.host_str(), Some("localhost"));
@@ -20,12 +21,19 @@ async fn should_expose_test_host_and_port() {
 #[tokio::test]
 #[serial_test::serial]
 async fn should_reap_child_resources_without_removing_another_process_fixture() {
+    require_unmanaged_phase();
     test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
     OpenSearch().set_up().await;
 
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "aws_fixture_child", "--test-threads=1"])
         .env("AURA_AWS_FIXTURE_CHILD", "1")
+        .env_remove("AURA_TEST_ENV_MANAGED")
+        .env_remove("AURA_TEST_ENV_CONFIG")
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_RUN_ID")
+        .env_remove("NEXTEST_TEST_GLOBAL_SLOT")
+        .env_remove("NEXTEST_EXECUTION_MODE")
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
@@ -71,6 +79,14 @@ async fn aws_fixture_child() {
     if std::env::var_os("AURA_AWS_FIXTURE_CHILD").is_none() {
         return;
     }
+    require_unmanaged_phase();
     test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
     OpenSearch().set_up().await;
+}
+
+fn require_unmanaged_phase() {
+    assert!(
+        test_api::environment::managed_environment().is_none(),
+        "AWS fixture lifecycle requires the separate unmanaged phase documented in test-api/README.md"
+    );
 }

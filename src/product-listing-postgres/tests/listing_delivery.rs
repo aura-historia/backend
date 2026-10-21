@@ -67,7 +67,7 @@ fn crawler_observation(
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn crawler_prohibition_preserves_shared_collection_and_producer_fences() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -366,7 +366,7 @@ fn effective(
         .configuration();
     EffectiveDeliveryTerms::resolve(&configuration, Some(&default), &[profile])
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn gallery_inherits_rates_without_copying_and_cabinet_retains_collection() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -482,7 +482,7 @@ async fn gallery_inherits_rates_without_copying_and_cabinet_retains_collection()
     let versions:Vec<i16>=sqlx::query_scalar("SELECT event_type_schema_version FROM product_listing_events WHERE product_listing_id=$1 ORDER BY event_time,event_id").bind(current.product_listing_id.into_uuid()).fetch_all(&pool).await.unwrap();
     assert_eq!(vec![1, 2, 2], versions);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn replacement_suppression_assertion_removal_and_noops_have_distinct_revisions() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -558,7 +558,7 @@ async fn replacement_suppression_assertion_removal_and_noops_have_distinct_revis
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn unchanged_native_inheritance_revalidates_default_dependencies_and_clear_remains_possible()
 {
     let pool = get_postgres_client().await;
@@ -617,7 +617,7 @@ async fn unchanged_native_inheritance_revalidates_default_dependencies_and_clear
     assert_eq!(unchanged, cleared);
     assert_eq!(1, events(&pool, &key).await);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail_safely() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -712,7 +712,7 @@ async fn foreign_missing_retired_references_withdrawal_corruption_and_races_fail
     assert!(matches!(SqlxProductListingRepositoryFactory.in_transaction(&mut tx).find_by_id(id).await,Err(product_listing_service::ports::ProductListingRepositoryError::InvalidDeliveryPersisted {..})));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn current_integration_and_location_scope_are_checked_and_provider_clear_never_inherits() {
     use shipping_core::{inputs::Applicability, selection::DeliveryOverrides};
     let pool = get_postgres_client().await;
@@ -910,7 +910,7 @@ async fn current_integration_and_location_scope_are_checked_and_provider_clear_n
     assert!(current.delivery.unwrap().selection().is_none());
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn delivery_queue_replay_uses_the_committed_receipt_and_rejects_changed_retry_content() {
     use product_listing_service::ports::{
         ProductListingIngestionPublishError, ProductListingIngestionPublisher,
@@ -1014,7 +1014,7 @@ async fn delivery_queue_replay_uses_the_committed_receipt_and_rejects_changed_re
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn execution_rechecks_partner_source_grants_and_rejects_missing_capability() {
     use application::operation_context::CredentialCapability;
     let pool = get_postgres_client().await;
@@ -1123,7 +1123,7 @@ async fn dependencies(
     tx.commit().await.unwrap();
     d
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn explicit_manual_absence_is_protected_before_the_first_import() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1176,7 +1176,7 @@ async fn explicit_manual_absence_is_protected_before_the_first_import() {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn implicit_source_selection_does_not_block_imports_of_independent_components() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1277,7 +1277,7 @@ async fn implicit_source_selection_does_not_block_imports_of_independent_compone
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn incremental_imports_preserve_manual_components_and_observations_without_listing_events() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1575,7 +1575,7 @@ async fn incremental_imports_preserve_manual_components_and_observations_without
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn manual_provider_overrides_survive_disconnect_without_prior_import_observations() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1647,7 +1647,7 @@ async fn manual_provider_overrides_survive_disconnect_without_prior_import_obser
     assert_eq!(manual.version, view(&pool, &key).await.version);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn integration_replacement_requires_new_acquisition_and_explicit_owned_component_removal() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;

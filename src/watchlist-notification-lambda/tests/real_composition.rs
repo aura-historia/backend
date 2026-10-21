@@ -17,7 +17,7 @@ use watchlist_notification_lambda::{compose_watchlist_notification_use_case, han
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn missing_event_is_retried_then_committed_event_creates_one_notification_and_intent() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -50,7 +50,7 @@ async fn missing_event_is_retried_then_committed_event_creates_one_notification_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn overlapping_invocations_insert_only_one_notification_and_delivery_intent() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -70,13 +70,13 @@ async fn overlapping_invocations_insert_only_one_notification_and_delivery_inten
         let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *barrier)
             .await?;
-        let first = tokio::spawn({
+        let first = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event("first", body), use_case.as_ref()).await }
         });
         wait_for_blocked(&pool, blocker, 1).await?;
-        let second = tokio::spawn({
+        let second = test_api::spawn_owned({
             let use_case = use_case.clone();
             async move { handler(event("second", body), use_case.as_ref()).await }
         });
@@ -94,7 +94,7 @@ async fn overlapping_invocations_insert_only_one_notification_and_delivery_inten
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn withdrawn_listing_suppresses_historical_watchlist_notification() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;

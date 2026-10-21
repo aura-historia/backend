@@ -23,7 +23,7 @@ use user_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_find_update_user_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -129,7 +129,7 @@ async fn should_insert_find_update_user_in_postgres() {
     assert!(updated.version.into_inner() > consented.version.into_inner());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_durably_update_and_rehydrate_user_suspension() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -177,7 +177,7 @@ async fn should_durably_update_and_rehydrate_user_suspension() {
     assert!(rehydrated.value.is_suspended());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_default_newly_migrated_user_rows_to_no_consent() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -208,7 +208,7 @@ async fn should_default_newly_migrated_user_rows_to_no_consent() {
     assert!(!migrated.value.has_marketing_email_consent());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn ordinary_user_updates_preserve_consent() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -281,7 +281,7 @@ async fn ordinary_user_updates_preserve_consent() {
     assert!(updated.value.has_marketing_email_consent());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -366,7 +366,7 @@ async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
     assert!(persisted.value.has_marketing_email_consent());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_user_repository_conflicts_and_missing_rows() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -417,7 +417,7 @@ async fn should_report_user_repository_conflicts_and_missing_rows() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_existing_user_when_insert_if_absent_replays_user_id() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -441,7 +441,7 @@ async fn should_return_existing_user_when_insert_if_absent_replays_user_id() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_user_update_concurrency_conflict() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -478,7 +478,7 @@ async fn should_report_user_update_concurrency_conflict() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_unrepresentable_user_version_without_poisoning_transaction() {
     let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
     let users = SqlxUserRepositoryFactory::new();
@@ -513,7 +513,7 @@ async fn should_reject_unrepresentable_user_version_without_poisoning_transactio
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_insert_when_transaction_drops() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -537,7 +537,7 @@ async fn should_rollback_insert_when_transaction_drops() {
     assert!(missing.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_concurrency_conflict_when_updating_missing_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -556,7 +556,7 @@ async fn should_report_concurrency_conflict_when_updating_missing_user() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_delete_user_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
