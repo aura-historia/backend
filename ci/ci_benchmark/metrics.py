@@ -27,4 +27,3 @@ def observations(path):
             "fixture_timings": {"status": "COLLECTED" if records else "NOT_OBSERVED", "seconds": phases, "records": records,
                 "scope": "Opt-in fixture readiness/startup/reset and aura_integration_test setup/body/teardown. Setup includes Postgres/OpenSearch startup/migrations; teardown includes resets. Nested phases overlap and must not be added together. Body excludes fixture setup/teardown but includes helpers called by the test.",
                 "limitation": "Ordinary libtest tests have no per-body boundary; failed/cancelled phases may not emit a completion. Empty samples are not zero-duration phases."}}
-
