@@ -1,5 +1,5 @@
 use aws_sdk_sqs::types::QueueAttributeName as A;
-use std::sync::LazyLock;
+use std::{collections::HashSet, sync::LazyLock};
 use test_api::{
     IntegrationTestService, Sqs, SqsQueuePair, WorkerSqs, aura_integration_test, aws,
     get_sqs_client,
@@ -71,6 +71,9 @@ async fn should_purge_only_its_source_and_dlq_including_invisible_messages() {
 
 #[aura_integration_test(services = [SQS], isolated = true)]
 async fn should_expose_production_queue_metadata_for_every_worker_visibility_class() {
+    let context = test_api::TestContext::current().unwrap();
+    let namespace = format!("a{}-{}-", context.run_id(), &context.test_id()[..16]);
+    let mut names = HashSet::new();
     let expected = [
         ("product-listing-opensearch", 300),
         ("search-filter-match-notification", 300),
@@ -107,12 +110,18 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
             .unwrap();
         let source = source.attributes().unwrap();
         let dlq = dlq.attributes().unwrap();
+        let source_name = source[&A::QueueArn].rsplit(':').next().unwrap();
+        let dlq_name = dlq[&A::QueueArn].rsplit(':').next().unwrap();
+        for name in [source_name, dlq_name] {
+            assert!(name.starts_with(&namespace));
+            assert_eq!(fifo, name.ends_with(".fifo"));
+            assert!(
+                names.insert(name.to_owned()),
+                "worker queues must be distinct"
+            );
+        }
         assert_eq!(
-            format!(
-                "{}/000000000000/{}",
-                aws::get_endpoint_url(),
-                queues.queues().name
-            ),
+            format!("{}/000000000000/{source_name}", aws::get_endpoint_url()),
             queues.queue_url()
         );
         assert_eq!("604800", source[&A::MessageRetentionPeriod]);
