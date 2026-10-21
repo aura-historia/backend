@@ -80,5 +80,5 @@ an [externally operated service](docs/opensearch-stage.md#release-and-schema-cha
 ---
 
 <p align="center">
-  <img src="https://aura-historia-public.s3.eu-central-1.amazonaws.com/branding/banner_twitter_slogan.png" alt="Aura Historia — Where antiques find their story" />
+  <img src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia — Where your antiques find you." />
 </p>
