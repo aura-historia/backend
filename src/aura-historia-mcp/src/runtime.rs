@@ -14,15 +14,24 @@ pub fn mcp_router(
     runtime: &Runtime,
 ) -> Result<Router, McpStartupError> {
     let dependencies = ProductListingDependencies::from_env(listings)?;
-    let registry = crate::Registry::new(operations(PublicServices::from_runtime(
-        runtime,
-        dependencies,
-    ))?)?;
+    let registry = production_registry(runtime, dependencies)?;
     let gate = AuraTokenGate::new(
         runtime.access_token_authentication().clone(),
         transport.resource_policy,
     );
     Ok(router(transport, registry, Arc::new(gate))?)
+}
+
+fn production_registry(
+    runtime: &Runtime,
+    dependencies: ProductListingDependencies,
+) -> Result<crate::Registry, RegistryError> {
+    let saved_searches = runtime
+        .saved_searches(Arc::clone(&dependencies.embeddings))
+        .clone();
+    let mut registered = operations(PublicServices::from_runtime(runtime, dependencies))?;
+    registered.extend(crate::tools::saved_searches::operations(saved_searches)?);
+    crate::Registry::new(registered)
 }
 
 /// Credential refresh precedes every invocation, including discovery and warm catalogue calls.
@@ -70,4 +79,63 @@ pub enum McpStartupError {
     Registry(#[from] RegistryError),
     #[error("invalid MCP transport configuration")]
     Transport(#[from] ConfigError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_register_saved_searches_in_the_native_and_lambda_registry() {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "runtime::tests::production_registry_probe",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
+            .env("STAGE", "ephemeral");
+        if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+            command.env("LLVM_PROFILE_FILE", profile);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed"));
+    }
+
+    #[tokio::test]
+    #[ignore = "run in an isolated process by the production registry test"]
+    async fn production_registry_probe() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://fixture:fixture@127.0.0.1:9/fixture")
+            .unwrap();
+        let runtime = Runtime::from_pool(pool);
+        let config = ProductListingConfig::from_getter(|_| None).unwrap();
+        let registry = production_registry(
+            &runtime,
+            ProductListingDependencies::from_env(&config).unwrap(),
+        )
+        .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../authenticated-operations.json")).unwrap();
+        for selected in manifest["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|selected| selected["family"] == "saved_searches")
+        {
+            let name = selected["operationId"].as_str().unwrap();
+            assert_eq!(
+                crate::AccessClass::Protected,
+                registry.get(name).unwrap().policy().access
+            );
+        }
+    }
 }

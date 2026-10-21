@@ -1,0 +1,116 @@
+use crate::OperationError;
+use application::error::box_error;
+use search_filter_service::use_cases::*;
+
+pub(super) fn list(error: ListOwnedSearchFiltersError) -> OperationError {
+    match error {
+        ListOwnedSearchFiltersError::AuthenticatedActorRequired
+        | ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        error @ ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. } => {
+            OperationError::Unavailable(box_error(error))
+        }
+    }
+}
+pub(super) fn get(error: GetOwnedSearchFilterError) -> OperationError {
+    match error {
+        GetOwnedSearchFilterError::AuthenticatedActorRequired
+        | GetOwnedSearchFilterError::ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        GetOwnedSearchFilterError::SearchFilterNotFound => OperationError::NotFound,
+        error @ GetOwnedSearchFilterError::SearchFilterReadFailed { .. } => {
+            OperationError::Unavailable(box_error(error))
+        }
+    }
+}
+pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
+    use CreateSearchFilterError::*;
+    match error {
+        ShippingDestination(error) => crate::shipping_error::destination(error),
+        AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        UserNotFound => OperationError::NotFound,
+        SearchFilterAlreadyExists => OperationError::Conflict,
+        SearchFilterQuotaExceeded { .. } => OperationError::SearchFilterQuotaExceeded,
+        SearchFilterFeatureRestricted { .. } => OperationError::SearchFilterRestrictedFeature,
+        error @ PersistedSearchFilterStateInvalid { .. } => {
+            OperationError::Internal(box_error(error))
+        }
+        error @ (EmbeddingGenerationFailed { .. }
+        | UserTierEntitlementsLockFailed { .. }
+        | SearchFilterQuotaReadFailed { .. }
+        | SearchFilterInsertFailed { .. }
+        | BeginTransactionFailed(_)
+        | CommitTransactionFailed(_)) => OperationError::Unavailable(box_error(error)),
+    }
+}
+pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
+    use UpdateOwnedSearchFilterError::*;
+    match error {
+        ShippingDestination(error) => crate::shipping_error::destination(error),
+        AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        UserNotFound | SearchFilterNotFound => OperationError::NotFound,
+        InvalidSearchFilterPatch => OperationError::InvalidInput,
+        SearchFilterQuotaExceeded { .. } => OperationError::SearchFilterQuotaExceeded,
+        SearchFilterFeatureRestricted { .. } => OperationError::SearchFilterRestrictedFeature,
+        SearchFilterConcurrencyConflict => OperationError::Conflict,
+        error @ PersistedSearchFilterStateInvalid { .. } => {
+            OperationError::Internal(box_error(error))
+        }
+        error @ (EmbeddingGenerationFailed { .. }
+        | UserTierEntitlementsLockFailed { .. }
+        | SearchFilterQuotaReadFailed { .. }
+        | SearchFilterLookupFailed { .. }
+        | SearchFilterUpdateFailed { .. }
+        | BeginTransactionFailed(_)
+        | CommitTransactionFailed(_)) => OperationError::Unavailable(box_error(error)),
+    }
+}
+pub(super) fn delete(error: DeleteOwnedSearchFilterError) -> OperationError {
+    use DeleteOwnedSearchFilterError::*;
+    match error {
+        AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        SearchFilterNotFound => OperationError::NotFound,
+        error @ PersistedSearchFilterStateInvalid { .. } => {
+            OperationError::Internal(box_error(error))
+        }
+        error @ (SearchFilterLookupFailed { .. }
+        | SearchFilterDeletionFailed { .. }
+        | BeginTransactionFailed(_)
+        | CommitTransactionFailed(_)) => OperationError::Unavailable(box_error(error)),
+    }
+}
+pub(super) fn matches(error: ListSearchFilterMatchesError) -> OperationError {
+    use ListSearchFilterMatchesError::*;
+    match error {
+        Shipping(error) => crate::shipping_error::shipping(error),
+        AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        SearchFilterNotFound => OperationError::NotFound,
+        error @ (ProductListingDetailsInvalid { .. }
+        | MatchedProductListingMissing { .. }
+        | PricingFxSnapshotInvalid { .. }
+        | SaleFxSnapshotMismatch { .. }
+        | ProductListingPriceConversionFailed { .. }
+        | HiddenProductListingRedactionFailed { .. }) => OperationError::Internal(box_error(error)),
+        error @ (SearchFilterMatchReadFailed { .. }
+        | ProductListingDetailsReadFailed { .. }
+        | CurrentPricingFxSnapshotMissing
+        | SalePricingFxSnapshotMissing { .. }
+        | PricingFxSnapshotUnavailable { .. }
+        | BeginPricingTransactionFailed(_)
+        | CommitPricingTransactionFailed(_)) => OperationError::Unavailable(box_error(error)),
+    }
+}
+pub(super) fn feedback(error: UpdateSearchFilterMatchFeedbackError) -> OperationError {
+    use UpdateSearchFilterMatchFeedbackError::*;
+    match error {
+        AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
+        SearchFilterNotFound | SearchFilterMatchNotFound => OperationError::NotFound,
+        error @ (PersistedSearchFilterStateInvalid { .. }
+        | PersistedSearchFilterMatchStateInvalid { .. }) => {
+            OperationError::Internal(box_error(error))
+        }
+        error @ (SearchFilterLookupFailed { .. }
+        | SearchFilterMatchLookupFailed { .. }
+        | SearchFilterMatchUpdateFailed { .. }
+        | BeginTransactionFailed(_)
+        | CommitTransactionFailed(_)) => OperationError::Unavailable(box_error(error)),
+    }
+}

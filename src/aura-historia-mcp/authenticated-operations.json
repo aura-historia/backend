@@ -1,0 +1,115 @@
+{
+  "endpoint": "https://mcp.aura-historia.com/v1",
+  "schemaSource": {
+    "method": "tools/list",
+    "input": "inputSchema",
+    "output": "outputSchema"
+  },
+  "operations": [
+    {
+      "name": "createUserSearchFilter",
+      "operationId": "createUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteUserSearchFilter",
+      "operationId": "deleteUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserSearchFilter",
+      "operationId": "getUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserSearchFilters",
+      "operationId": "getUserSearchFilters",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listSearchFilterMatches",
+      "operationId": "listSearchFilterMatches",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateSearchFilterMatchFeedback",
+      "operationId": "updateSearchFilterMatchFeedback",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateUserSearchFilter",
+      "operationId": "updateUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

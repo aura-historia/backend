@@ -54,8 +54,10 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
 four mutation/retry/open-world annotations. The
-[selected-operation manifest](../src/aura-historia-mcp/public-operations.json) records
-the exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
+[public operation manifest](../src/aura-historia-mcp/public-operations.json) and
+[authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json)
+record disjoint subsets of the same endpoint and registry. Together they record the selected
+allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
 captures narrow service handles and calls the shared
 inbound application use case directly. Use shared `aura-historia-contracts`
@@ -181,6 +183,47 @@ contract/operation suites retain detailed input, mapping, validation and error p
 Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
+
+## Saved searches and match feedback
+
+All seven saved-search operations use the trusted delegated user's identity. Read and write
+capabilities remain independent; a write grant does not disclose saved searches or matches.
+Services enforce ownership, tier quotas, restricted criteria and shipping-destination acceptance.
+The family shares its [contracts and mappings](../src/aura-historia-contracts/src/saved_searches/mod.rs)
+with REST and calls the same inbound services directly.
+
+| Tool / source operation ID | Scope and contract |
+| --- | --- |
+| `getUserSearchFilters` | `search-filters:read`; empty arguments return every own filter with `items`, `from`, `size`, `total`. No truncation or invented continuation. |
+| `createUserSearchFilter` | `search-filters:write`; complete REST body, including `acceptShippingDestination`, nested `search` and optional `notifications` (default `true`). Returns the saved filter. Non-idempotent. |
+| `getUserSearchFilter` | `search-filters:read`; `userSearchFilterId` returns the complete own filter. |
+| `deleteUserSearchFilter` | `search-filters:write`; `userSearchFilterId` deletes the own filter and returns `{ "result": null }`. Missing filters remain `NOT_FOUND`. |
+| `updateUserSearchFilter` | `search-filters:write`; `userSearchFilterId` plus the complete shared REST patch. Returns the saved filter. |
+| `listSearchFilterMatches` | `search-filters:read`; `userSearchFilterId`, `language`, `currency`, `size` (default 21, clamped to 1–100) and JSON `searchAfter`. Returns the existing personalized listing details page in ascending match order. |
+| `updateSearchFilterMatchFeedback` | `search-filters:write`; `userSearchFilterId`, `productListingId` and optional `feedback`. Returns the stored match snapshot, including its existing shipping valuation. Missing or stale matches remain `NOT_FOUND`. |
+
+Search criteria retain every geography, shipping, identifier inclusion/exclusion, price, date,
+text, enhanced-description, availability and orderability predicate. Omitted top-level patch
+members and top-level nulls preserve values. Nested patches retain the existing field-specific
+null rules: clearable values clear, required values reject null. `availability`, `orderability`
+and `includeUnspecifiedAvailability` must be supplied together as three concrete values, or all
+null to clear the availability query. Feedback omission preserves its value, null clears it,
+and both booleans remain meaningful. Optional address/preference acceptance uses the existing
+service's ownership, capability and destination checks; MCP does not infer a destination.
+
+Match continuation is the exact JSON array `[RFC3339 timestamp, ProductListing ID]` from the
+response; supply that array directly on the next call. REST alone query-encodes it. Returned
+`size` counts emitted items. Listing prices, shipping valuation snapshots, canonical IDs and
+scope-dependent `userState` disclosure use the shared listing presentation without extra
+hydration or field dropping. Tier failures retain `SEARCH_FILTER_QUOTA_EXCEEDED` and
+`SEARCH_FILTER_RESTRICTED_FEATURE`; other failures use the common safe error classes.
+
+Creation and updates persist saved criteria; they do not complete background matching. Match
+listing reads materialized results from scheduled matching and remains subject to projection
+lag. An empty page is a current result, not evidence that matching has finished. No mutation is
+automatically retried. A timeout, unavailable response or response-size failure can follow a
+committed write; creation with an unknown outcome must be reconciled by listing own filters
+before deciding whether to submit another create. The adapters do not claim exactly-once execution.
 
 ## Bounds, metadata and runtime configuration
 
