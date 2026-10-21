@@ -439,6 +439,7 @@ dependencies = [
  "schemars 1.2.3",
  "search-filter-core",
  "serde",
+ "serde-email",
  "serde_json",
  "shipping-core",
  "shipping-json",
@@ -447,6 +448,8 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]
