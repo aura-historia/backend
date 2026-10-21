@@ -56,7 +56,7 @@ pub enum ReviewRepositoryError {
     )]
     StaleApprovedReview(CrawlerReviewId),
     #[error(
-        "URL `{0}` is not an http(s) URL without credentials on a domain of the review's ListingSource"
+        "URL `{0}` is not an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
     )]
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
