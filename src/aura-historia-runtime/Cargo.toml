@@ -32,6 +32,8 @@ tokio = { workspace = true, features = ["sync"] }
 url = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
+watchlist-postgres = { workspace = true }
+watchlist-service = { workspace = true }
 
 [dev-dependencies]
 listing-source-core = { workspace = true }

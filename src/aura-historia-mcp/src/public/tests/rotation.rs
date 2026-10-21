@@ -114,6 +114,7 @@ async fn rotation_probe() -> Result<(), TestError> {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(listed.len(), actual.len());
     assert_eq!(expected, actual);
+    assert_eq!(old_list, lambda_catalogue(old.clone()).await?);
 
     *credentials.version.lock().unwrap() = Some("version-2");
     let (left, right) = tokio::join!(app.current(), app.current());
@@ -141,4 +142,36 @@ async fn rotation_probe() -> Result<(), TestError> {
     );
     assert_eq!(6, credentials.calls.load(Ordering::SeqCst));
     Ok(())
+}
+
+async fn lambda_catalogue(app: Router) -> Result<Value, TestError> {
+    use lambda_http::{
+        lambda_runtime::{Context, LambdaEvent},
+        request::LambdaRequest,
+    };
+    let payload: LambdaRequest = serde_json::from_value(json!({
+        "version":"2.0", "routeKey":"ANY /v1", "rawPath":"/v1", "rawQueryString":"",
+        "headers":{
+            "host":"mcp.example.test", "content-type":"application/json",
+            "accept":"application/json,text/event-stream", "mcp-protocol-version":"2026-07-28",
+            "mcp-method":"tools/list"
+        },
+        "requestContext":{
+            "stage":"$default",
+            "http":{"method":"POST","path":"/v1","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"catalogue-fixture"}
+        },
+        "body":body("tools/list",json!({})).to_string(), "isBase64Encoded":false
+    }))?;
+    let service = lambda_http::service_fn(move |request| {
+        crate::lambda::handle_http_api_v2_request(app.clone(), request)
+    });
+    let mut context = Context::default();
+    context.deadline = (SystemTime::now().duration_since(UNIX_EPOCH)? + Duration::from_secs(30))
+        .as_millis() as u64;
+    let response = lambda_http::Adapter::from(service)
+        .oneshot(LambdaEvent { payload, context })
+        .await?;
+    let response = serde_json::to_value(response)?;
+    assert_eq!(200, response["statusCode"]);
+    Ok(serde_json::from_str(response["body"].as_str().unwrap())?)
 }

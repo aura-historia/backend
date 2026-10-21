@@ -3,7 +3,7 @@ use product_listing_service::use_cases::{
     GetProductListingError, GetSimilarProductListingsError, SearchProductListingsError,
 };
 
-pub(super) fn details(error: GetProductListingError) -> OperationError {
+pub(crate) fn details(error: GetProductListingError) -> OperationError {
     use GetProductListingError::*;
     match error {
         Shipping(error) => shipping(error),

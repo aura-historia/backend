@@ -16,3 +16,4 @@ pub mod auctions;
 
 pub mod geography;
 pub mod users;
+pub mod watchlist;
