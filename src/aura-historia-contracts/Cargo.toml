@@ -32,6 +32,8 @@ thiserror = { workspace = true }
 time = { workspace = true, features = ["serde", "serde-well-known"] }
 url = { workspace = true }
 user-core = { workspace = true }
+user-service = { workspace = true }
+serde-email = { workspace = true }
 watchlist-core = { workspace = true }
 watchlist-service = { workspace = true }
 

@@ -439,6 +439,7 @@ dependencies = [
  "schemars 1.2.3",
  "search-filter-core",
  "serde",
+ "serde-email",
  "serde_json",
  "shipping-core",
  "shipping-json",
@@ -448,6 +449,7 @@ dependencies = [
  "time",
  "url",
  "user-core",
+ "user-service",
  "watchlist-core",
  "watchlist-service",
 ]
