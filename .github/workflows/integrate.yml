@@ -150,21 +150,7 @@ jobs:
         run: cargo install grcov
 
       - name: Generate coverage for ${{ matrix.crate }}
-        run: |
-          set -euo pipefail
-          if profile_path="$(find coverage-profraw -type f -name "*.profraw" -print -quit)"; then
-            if [ -z "$profile_path" ]; then
-              echo "No LLVM coverage profiles were written." >&2
-              exit 1
-            fi
-          else
-            status=$?
-            echo "Failed to search for LLVM coverage profiles (find exited with $status)." >&2
-            exit "$status"
-          fi
-          mkdir -p coverage-lcov
-          grcov coverage-profraw --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
-          test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
+        run: bash ci/collect-coverage.sh coverage-profraw ./target/debug/deps/ "coverage-lcov/${{ strategy.job-index }}.lcov"
 
       - name: Upload coverage for ${{ matrix.crate }}
         uses: actions/upload-artifact@v7
