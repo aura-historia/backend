@@ -202,7 +202,7 @@ mod tests {
             }
         }
         let session =
-            TestContext::acquire_explicit("owned task runtime shutdown", Isolation::Isolated)
+            TestContext::acquire_explicit("owned task runtime shutdown", Isolation::Exclusive)
                 .await
                 .unwrap();
         let context = session.context().clone();
