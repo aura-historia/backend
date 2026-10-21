@@ -2,7 +2,7 @@
 //! policy's `Crawl-delay` asks for lives in the auto-throttle.
 
 use super::{FetchAttemptError, ReqwestHtmlFetcher};
-use crate::network::policy::redirect_target;
+use crate::network::policy::{is_same_or_www_host, redirect_target};
 use crate::network::robots::{
     MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, robots_txt_url,
 };
@@ -108,13 +108,17 @@ impl ReqwestHtmlFetcher {
     /// Redirects are followed to any public host, as RFC 9309 asks.
     async fn load_robots_policy(&self, url: &Url) -> Result<RobotsPolicy, FetchAttemptError> {
         let mut robots_url = robots_txt_url(url);
-        for _ in 0..=MAX_ROBOTS_TXT_REDIRECTS {
-            let client = self.http_client_for(&robots_url).await?;
-            let response = client
-                .get(robots_url.clone())
-                .send()
-                .await
-                .map_err(super::reqwest_fetch_error)?;
+        for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
+            let response = match self.request_robots_txt(&robots_url).await {
+                Ok(response) => response,
+                Err(error) => {
+                    let shop_host = is_same_or_www_host(url, &robots_url);
+                    return match RobotsPolicy::for_failed_redirect(error.error.kind(), shop_host) {
+                        Some(policy) if hop > 0 => Ok(policy),
+                        _ => Err(error),
+                    };
+                }
+            };
             let status = response.status();
             debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
             if status.is_success() {
@@ -131,6 +135,18 @@ impl ReqwestHtmlFetcher {
             }
         }
         Ok(RobotsPolicy::Unavailable)
+    }
+
+    async fn request_robots_txt(
+        &self,
+        robots_url: &Url,
+    ) -> Result<reqwest::Response, FetchAttemptError> {
+        self.http_client_for(robots_url)
+            .await?
+            .get(robots_url.clone())
+            .send()
+            .await
+            .map_err(super::reqwest_fetch_error)
     }
 }
 

@@ -747,6 +747,14 @@ impl SpiderImpl {
                 .iter()
                 .map(|pattern| pattern.into()),
         );
+        // Spider silently drops a deny list that fails to compile, which
+        // would drop robots.txt with it.
+        if regex::RegexSet::new(&blacklist_regex).is_err() {
+            return Err(SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RobotsBlocked,
+                "robots.txt rules do not compile into Spider's deny list",
+            ));
+        }
         let auto_throttle_config = AutoThrottleConfig {
             min_delay_ms: delay_millis,
             max_delay_ms: 60_000,

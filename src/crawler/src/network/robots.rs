@@ -5,6 +5,7 @@
 //! [`RobotsPolicy`] whether a URL may be requested and how far apart requests
 //! must be.
 
+use crate::network::policy::NetworkErrorKind;
 use std::time::Duration;
 use url::Url;
 
@@ -60,7 +61,20 @@ impl RobotsPolicy {
     /// [`MAX_ROBOTS_TXT_BYTES`] count.
     pub fn from_body(body: &[u8]) -> Self {
         let body = &body[..body.len().min(MAX_ROBOTS_TXT_BYTES)];
-        Self::Rules(RobotsRules::parse(&String::from_utf8_lossy(body)))
+        Self::Rules(RobotsRules::parse_bounded(&String::from_utf8_lossy(body)))
+    }
+
+    /// What a failed robots.txt request on a redirect hop means: a target
+    /// the crawler may not request leaves no robots.txt to read
+    /// (unavailable), and another host failing leaves it unreachable. `None`
+    /// when the shop's own host failed, which callers report as a transport
+    /// failure.
+    pub fn for_failed_redirect(kind: NetworkErrorKind, shop_host: bool) -> Option<Self> {
+        match kind {
+            NetworkErrorKind::UnsafeTarget => Some(Self::Unavailable),
+            _ if shop_host => None,
+            _ => Some(Self::Unreachable),
+        }
     }
 
     /// Classifies a non-success, non-redirect robots.txt status. A 429 asks
@@ -114,7 +128,12 @@ impl RobotsRules {
     /// crawler: every group naming its product token, otherwise every `*`
     /// group (RFC 9309 section 2.2.1).
     pub fn parse(body: &str) -> Self {
-        let groups = parse_groups(truncate_to_limit(body));
+        Self::parse_bounded(truncate_to_limit(body))
+    }
+
+    /// [`Self::parse`] for a body already cut to the size limit.
+    fn parse_bounded(body: &str) -> Self {
+        let groups = parse_groups(body);
         let applies = |token: &str| {
             groups
                 .iter()
@@ -172,12 +191,14 @@ fn truncate_to_limit(body: &str) -> &str {
 /// (`Allow`, `Disallow`, `Crawl-delay`) closes the agent list, so the next
 /// `User-agent` line starts a new group. Other records, such as `Sitemap`,
 /// belong to no group and leave the agent list open, as in Google's
-/// reference parser.
+/// reference parser. Lines end in LF, CRLF or CR (RFC 9309 section 2.2), and
+/// a leading UTF-8 byte order mark is ignored.
 fn parse_groups(body: &str) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut collecting_agents = false;
 
-    for line in body.lines() {
+    let body = body.strip_prefix('\u{feff}').unwrap_or(body);
+    for line in body.split(['\r', '\n']) {
         let line = line.split('#').next().unwrap_or_default().trim();
         let Some((key, value)) = line.split_once(':') else {
             continue;
@@ -392,6 +413,14 @@ mod tests {
     }
 
     #[test]
+    fn should_parse_cr_line_endings_and_a_byte_order_mark() {
+        let rules = RobotsRules::parse("\u{feff}User-agent: *\rDisallow: /private\r");
+
+        assert!(!rules.allows(&url("/private/1")));
+        assert!(rules.allows(&url("/public")));
+    }
+
+    #[test]
     fn should_always_allow_robots_txt_itself() {
         let rules = RobotsRules::parse("User-agent: *\nDisallow: /\n");
 
@@ -429,6 +458,35 @@ mod tests {
         assert_eq!(
             RobotsPolicy::for_failed_status(429),
             RobotsPolicy::Unreachable
+        );
+    }
+
+    #[test]
+    fn should_keep_rules_within_the_byte_limit_when_invalid_utf8_expands() {
+        // Each invalid byte decodes to a three-byte replacement character.
+        let mut body = vec![b'#'; 1];
+        body.resize(MAX_ROBOTS_TXT_BYTES / 2, 0xE9);
+        body.extend_from_slice(b"\nUser-agent: *\nDisallow: /a\n");
+
+        assert_eq!(
+            RobotsPolicy::from_body(&body).check(&url("/a")),
+            Err(RobotsRefusal::Disallowed)
+        );
+    }
+
+    #[test]
+    fn should_classify_failed_robots_txt_redirects() {
+        assert_eq!(
+            RobotsPolicy::for_failed_redirect(NetworkErrorKind::UnsafeTarget, true),
+            Some(RobotsPolicy::Unavailable)
+        );
+        assert_eq!(
+            RobotsPolicy::for_failed_redirect(NetworkErrorKind::DnsResolution, false),
+            Some(RobotsPolicy::Unreachable)
+        );
+        assert_eq!(
+            RobotsPolicy::for_failed_redirect(NetworkErrorKind::Connect, true),
+            None
         );
     }
 

@@ -4,7 +4,13 @@
 //! offers no pre-fetch hook besides its URL deny list, so the rules reach it
 //! as deny-list patterns.
 
-use super::website_spider::{CrawlFailureKind, SpiderDiscoveryError, SpiderTransport};
+use super::website_spider::{
+    CrawlFailureKind, SpiderDiscoveryError, SpiderTransport, SpiderTransportError,
+};
+use crate::network::policy::{
+    NetworkErrorKind, classify_reqwest_error, is_same_or_www_host,
+    network_error_kind_for_public_target_error,
+};
 use crate::network::robots::{
     DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, RobotsRules,
     robots_txt_url,
@@ -67,9 +73,8 @@ fn crawl_robots(root: &Url, rules: &RobotsRules) -> CrawlRobots {
     }
 }
 
-/// Requests to the root host reuse the client pinned to it in preflight; a
-/// redirect to another host, which RFC 9309 asks crawlers to follow, gets its
-/// own validated client.
+/// Redirects are followed to any public host, as RFC 9309 asks; each other
+/// host gets its own validated client.
 async fn fetch_robots_policy(
     transport: &dyn SpiderTransport,
     root: &Url,
@@ -77,20 +82,18 @@ async fn fetch_robots_policy(
     timeout: Duration,
 ) -> Result<RobotsPolicy, SpiderDiscoveryError> {
     let mut robots_url = robots_txt_url(root);
-    for _ in 0..=MAX_ROBOTS_TXT_REDIRECTS {
-        let client = if robots_url.host() == root.host() {
-            root_client.clone()
-        } else {
-            transport
-                .client_for(&robots_url, timeout)
-                .await
-                .map_err(|error| robots_request_failed(Box::new(error)))?
-        };
-        let mut response = client
-            .get(robots_url.clone())
-            .send()
-            .await
-            .map_err(|error| robots_request_failed(Box::new(error)))?;
+    for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
+        let mut response =
+            match request_robots_txt(transport, root, root_client, &robots_url, timeout).await {
+                Ok(response) => response,
+                Err((kind, source)) => {
+                    let shop_host = is_same_or_www_host(root, &robots_url);
+                    return match RobotsPolicy::for_failed_redirect(kind, shop_host) {
+                        Some(policy) if hop > 0 => Ok(policy),
+                        _ => Err(robots_request_failed(source)),
+                    };
+                }
+            };
         let status = response.status();
         debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt for spider");
         if status.is_success() {
@@ -120,6 +123,39 @@ async fn fetch_robots_policy(
         }
     }
     Ok(RobotsPolicy::Unavailable)
+}
+
+/// One robots.txt request. HTTP(S) requests to the root host reuse the client
+/// pinned to it in preflight; any other target is validated first.
+async fn request_robots_txt(
+    transport: &dyn SpiderTransport,
+    root: &Url,
+    root_client: &spider::reqwest::Client,
+    robots_url: &Url,
+    timeout: Duration,
+) -> Result<spider::reqwest::Response, (NetworkErrorKind, application::error::BoxError)> {
+    let client =
+        if robots_url.host() == root.host() && matches!(robots_url.scheme(), "http" | "https") {
+            root_client.clone()
+        } else {
+            transport
+                .client_for(robots_url, timeout)
+                .await
+                .map_err(|error| {
+                    let kind = match &error {
+                        SpiderTransportError::Target(target) => {
+                            network_error_kind_for_public_target_error(target.clone())
+                        }
+                        SpiderTransportError::Client(_) => NetworkErrorKind::Unknown,
+                    };
+                    (kind, Box::new(error) as application::error::BoxError)
+                })?
+        };
+    client
+        .get(robots_url.clone())
+        .send()
+        .await
+        .map_err(|error| (classify_reqwest_error(&error), Box::new(error) as _))
 }
 
 fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscoveryError {
