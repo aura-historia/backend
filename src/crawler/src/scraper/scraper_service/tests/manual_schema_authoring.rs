@@ -53,7 +53,6 @@ fn manual_scraper(
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_returning_sample_page()),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(candidates),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

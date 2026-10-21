@@ -33,7 +33,6 @@ async fn should_skip_when_only_non_main_document_content_changes() {
             let schema = schema.clone();
             Box::pin(async move { Ok(Some(schema)) })
         });
-    let norm_svc = MockProductListingNormalizationService::new();
     let expected_raw_input_sha256 = vec![5; 32];
     let expected_raw_input_sha256_for_mock = expected_raw_input_sha256.clone();
     let mut cand_svc = MockScraperCandidateService::new();
@@ -49,7 +48,6 @@ async fn should_skip_when_only_non_main_document_content_changes() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

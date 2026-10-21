@@ -11,7 +11,6 @@ large-language-model = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
-localization = { workspace = true }
 money = { workspace = true }
 public-network-policy = { workspace = true }
 
@@ -53,7 +52,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
-lingua = { workspace = true }
 dotenvy = { workspace = true }
 bloomfilter = "3.0.1"
 futures = { workspace = true }
@@ -100,7 +98,6 @@ test-data = [
     "application/test-data",
     "domain-primitives/test-data",
     "listing-source-core/test-data",
-    "localization/test-data",
     "money/test-data",
     "product-listing-core/test-data",
     "fake",

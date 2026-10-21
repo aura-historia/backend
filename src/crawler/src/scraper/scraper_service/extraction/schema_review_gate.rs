@@ -248,6 +248,7 @@ mod tests {
                     apply_ok: false,
                     extracted: None,
                     error: Some("failed to extract `title`".to_string()),
+                    plausibility_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -395,6 +396,7 @@ mod tests {
                     apply_ok: true,
                     extracted: None,
                     error: None,
+                    plausibility_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -432,6 +434,7 @@ mod tests {
                     apply_ok: true,
                     extracted: None,
                     error: None,
+                    plausibility_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
@@ -482,7 +485,6 @@ mod tests {
     async fn should_reject_invalid_generated_schema_before_persisting_it() {
         use crate::scraper::candidate_service::MockScraperCandidateService;
         use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
-        use crate::scraper::normalization::product_normalization_service::MockProductListingNormalizationService;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use std::sync::Arc;
 
@@ -491,7 +493,6 @@ mod tests {
         let service = ScraperServiceImpl::new(
             Box::new(MockHtmlFetcher::new()),
             Box::new(schema_service),
-            Box::new(MockProductListingNormalizationService::new()),
             Arc::new(MockScraperCandidateService::new()),
         );
         let mut schema: ProductCssSelectorSchema = serde_json::from_value(json!({

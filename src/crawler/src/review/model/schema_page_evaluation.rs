@@ -1,6 +1,7 @@
 use super::SelectorFieldEvaluation;
 use crate::CrawlerReviewPageId;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use crate::scraper::plausibility::PlausibilityFindings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,5 +19,8 @@ pub struct SchemaPageEvaluation {
     pub apply_ok: bool,
     pub extracted: Option<RawExtractedProduct>,
     pub error: Option<String>,
+    /// Every per-page plausibility check the extraction failed. A cached matrix
+    /// without them predates the checks and is refreshed from the live pages.
+    pub plausibility_findings: PlausibilityFindings,
     pub fields: Vec<SelectorFieldEvaluation>,
 }
