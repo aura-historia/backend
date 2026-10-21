@@ -1,12 +1,10 @@
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
-use application::operation_context::CredentialCapability;
-use std::collections::{BTreeSet, HashSet};
-use user_core::access_token::{RawAccessToken, Scope};
-use user_service::use_cases::{
-    AuthenticateAccessTokenError, AuthenticateAccessTokenRequest, AuthenticateAccessTokenUseCase,
-};
+use aura_historia_auth::{AccessTokenAuthenticationError, authenticate_access_token};
+use user_service::use_cases::AuthenticateAccessTokenUseCase;
+#[cfg(test)]
+use user_service::use_cases::{AuthenticateAccessTokenError, AuthenticateAccessTokenRequest};
 
 pub struct AuraAccessTokenAuthenticator<U> {
     use_case: U,
@@ -19,80 +17,32 @@ impl<U> AuraAccessTokenAuthenticator<U> {
 }
 
 #[async_trait::async_trait]
-impl<U> TokenAuthenticator for AuraAccessTokenAuthenticator<U>
-where
-    U: AuthenticateAccessTokenUseCase,
-{
+impl<U: AuthenticateAccessTokenUseCase> TokenAuthenticator for AuraAccessTokenAuthenticator<U> {
     async fn authenticate(
         &self,
         bearer_token: &str,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
-        let raw_token = RawAccessToken::try_from(bearer_token.to_owned())
-            .map_err(|_| AuthError::MalformedCredentials)?;
         let context = TransportPrincipal::Anonymous.operation_context(metadata.clone());
-        let result = self
-            .use_case
-            .execute(
-                &context,
-                AuthenticateAccessTokenRequest {
-                    hashed_token: raw_token.into(),
-                },
-            )
+        let identity = authenticate_access_token(&self.use_case, bearer_token, &context)
             .await
             .map_err(map_access_token_error)?;
-
         Ok(TransportPrincipal::User {
-            user_id: result.user_id,
+            user_id: identity.user_id,
             auth_method: AuthMethod::AuraAccessToken,
-            capabilities: capabilities_from_scopes(&result.scopes),
+            capabilities: identity.capabilities,
         })
     }
 }
 
-fn map_access_token_error(error: AuthenticateAccessTokenError) -> AuthError {
+fn map_access_token_error(error: AccessTokenAuthenticationError) -> AuthError {
     match error {
-        AuthenticateAccessTokenError::NotFound | AuthenticateAccessTokenError::Expired => {
-            AuthError::InvalidCredentials
+        AccessTokenAuthenticationError::MalformedCredentials { .. } => {
+            AuthError::MalformedCredentials
         }
-        AuthenticateAccessTokenError::TemporarilyUnavailable { .. } => {
-            AuthError::TemporarilyUnavailable
-        }
-        AuthenticateAccessTokenError::Conflict { .. }
-        | AuthenticateAccessTokenError::InvalidPersistedState { .. }
-        | AuthenticateAccessTokenError::Internal { .. } => AuthError::Internal(error.to_string()),
-    }
-}
-
-fn capabilities_from_scopes(scopes: &HashSet<Scope>) -> BTreeSet<CredentialCapability> {
-    scopes.iter().copied().map(credential_capability).collect()
-}
-
-fn credential_capability(scope: Scope) -> CredentialCapability {
-    match scope {
-        Scope::ProductListingsWrite => CredentialCapability::ProductListingsWrite,
-        Scope::ListingSourcesWrite => CredentialCapability::ListingSourcesWrite,
-        Scope::AuctionsRead => CredentialCapability::AuctionsRead,
-        Scope::ProductListingsRead => CredentialCapability::ProductListingsRead,
-        Scope::AuctionsWrite => CredentialCapability::AuctionsWrite,
-        Scope::ListingSourcesRead => CredentialCapability::ListingSourcesRead,
-        Scope::PartiesRead => CredentialCapability::PartiesRead,
-        Scope::PartiesWrite => CredentialCapability::PartiesWrite,
-        Scope::PartnershipApplicationsRead => CredentialCapability::PartnershipApplicationsRead,
-        Scope::PartnershipApplicationsWrite => CredentialCapability::PartnershipApplicationsWrite,
-        Scope::PartnershipsRead => CredentialCapability::PartnershipsRead,
-        Scope::PartnershipsWrite => CredentialCapability::PartnershipsWrite,
-        Scope::AdminOverviewRead => CredentialCapability::AdminOverviewRead,
-        Scope::SearchFiltersRead => CredentialCapability::SearchFiltersRead,
-        Scope::NotificationsRead => CredentialCapability::NotificationsRead,
-        Scope::NotificationsWrite => CredentialCapability::NotificationsWrite,
-        Scope::UsersRead => CredentialCapability::UsersRead,
-        Scope::UsersWrite => CredentialCapability::UsersWrite,
-        Scope::AccessTokensRead => CredentialCapability::AccessTokensRead,
-        Scope::AccessTokensWrite => CredentialCapability::AccessTokensWrite,
-        Scope::SearchFiltersWrite => CredentialCapability::SearchFiltersWrite,
-        Scope::WatchlistRead => CredentialCapability::WatchlistRead,
-        Scope::WatchlistWrite => CredentialCapability::WatchlistWrite,
+        AccessTokenAuthenticationError::InvalidCredentials => AuthError::InvalidCredentials,
+        AccessTokenAuthenticationError::TemporarilyUnavailable { .. }
+        | AccessTokenAuthenticationError::Internal { .. } => AuthError::AuraAccessToken(error),
     }
 }
 
@@ -100,9 +50,11 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
 mod tests {
     use super::*;
     use application::error::{BoxError, box_error};
+    use application::operation_context::CredentialCapability;
     use application::operation_context::{OperationContext, Principal};
+    use std::collections::{BTreeSet, HashSet};
     use std::sync::{Arc, Mutex, MutexGuard};
-    use user_core::access_token::HashedRawAccessToken;
+    use user_core::access_token::{HashedRawAccessToken, RawAccessToken, Scope};
     use user_core::user_id::UserId;
     use user_service::use_cases::AuthenticateAccessTokenResult;
 
@@ -296,90 +248,6 @@ mod tests {
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
     }
 
-    #[test]
-    fn should_map_all_token_scopes_to_credential_capabilities() {
-        let cases = [
-            (
-                Scope::ProductListingsWrite,
-                CredentialCapability::ProductListingsWrite,
-            ),
-            (
-                Scope::ListingSourcesWrite,
-                CredentialCapability::ListingSourcesWrite,
-            ),
-            (Scope::AuctionsRead, CredentialCapability::AuctionsRead),
-            (
-                Scope::ProductListingsRead,
-                CredentialCapability::ProductListingsRead,
-            ),
-            (Scope::AuctionsWrite, CredentialCapability::AuctionsWrite),
-            (
-                Scope::ListingSourcesRead,
-                CredentialCapability::ListingSourcesRead,
-            ),
-            (Scope::PartiesRead, CredentialCapability::PartiesRead),
-            (Scope::PartiesWrite, CredentialCapability::PartiesWrite),
-            (
-                Scope::PartnershipApplicationsRead,
-                CredentialCapability::PartnershipApplicationsRead,
-            ),
-            (
-                Scope::PartnershipApplicationsWrite,
-                CredentialCapability::PartnershipApplicationsWrite,
-            ),
-            (
-                Scope::PartnershipsRead,
-                CredentialCapability::PartnershipsRead,
-            ),
-            (
-                Scope::PartnershipsWrite,
-                CredentialCapability::PartnershipsWrite,
-            ),
-            (
-                Scope::AdminOverviewRead,
-                CredentialCapability::AdminOverviewRead,
-            ),
-            (
-                Scope::SearchFiltersRead,
-                CredentialCapability::SearchFiltersRead,
-            ),
-            (
-                Scope::NotificationsRead,
-                CredentialCapability::NotificationsRead,
-            ),
-            (
-                Scope::NotificationsWrite,
-                CredentialCapability::NotificationsWrite,
-            ),
-            (Scope::UsersRead, CredentialCapability::UsersRead),
-            (Scope::UsersWrite, CredentialCapability::UsersWrite),
-            (
-                Scope::AccessTokensRead,
-                CredentialCapability::AccessTokensRead,
-            ),
-            (
-                Scope::AccessTokensWrite,
-                CredentialCapability::AccessTokensWrite,
-            ),
-            (
-                Scope::SearchFiltersWrite,
-                CredentialCapability::SearchFiltersWrite,
-            ),
-            (Scope::WatchlistRead, CredentialCapability::WatchlistRead),
-            (Scope::WatchlistWrite, CredentialCapability::WatchlistWrite),
-        ];
-
-        for (scope, capability) in cases {
-            assert_eq!(capability, credential_capability(scope));
-        }
-        let scopes = cases.iter().map(|(scope, _)| *scope).collect();
-        let capabilities = cases
-            .iter()
-            .map(|(_, capability)| *capability)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(capabilities, capabilities_from_scopes(&scopes));
-    }
-
     #[tokio::test]
     async fn should_map_temporary_access_token_failure() {
         let (use_case, _calls) = use_case(FakeTokenOutcome::TemporarilyUnavailable);
@@ -388,7 +256,12 @@ mod tests {
 
         let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
+        assert!(matches!(
+            result,
+            Err(AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::TemporarilyUnavailable { .. }
+            ))
+        ));
     }
 
     #[tokio::test]
@@ -404,7 +277,68 @@ mod tests {
 
             let result = authenticator.authenticate(&token, &metadata()).await;
 
-            assert!(matches!(result, Err(AuthError::Internal(_))));
+            assert!(matches!(
+                result,
+                Err(AuthError::AuraAccessToken(
+                    AccessTokenAuthenticationError::Internal { .. }
+                ))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_preserve_technical_causes_through_rest_authentication_and_error_mapping() {
+        use crate::error::{AUTH_INTERNAL_ERROR, AUTH_TEMPORARILY_UNAVAILABLE, ApiError};
+        use axum::{http::StatusCode, response::IntoResponse};
+        use std::error::Error;
+
+        for (outcome, status, code) in [
+            (
+                FakeTokenOutcome::TemporarilyUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                AUTH_TEMPORARILY_UNAVAILABLE,
+            ),
+            (
+                FakeTokenOutcome::Conflict,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+            (
+                FakeTokenOutcome::InvalidPersistedState,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+            (
+                FakeTokenOutcome::Internal,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AUTH_INTERNAL_ERROR,
+            ),
+        ] {
+            let (use_case, _) = use_case(outcome);
+            let authenticator = AuraAccessTokenAuthenticator::new(use_case);
+            let token = String::from(RawAccessToken::new());
+            let error = authenticator
+                .authenticate(&token, &metadata())
+                .await
+                .unwrap_err();
+            let error = ApiError::from(error);
+            let mut source = error.source().expect("authentication error source");
+            while let Some(cause) = source.source() {
+                source = cause;
+            }
+            assert!(source.is::<std::io::Error>());
+            assert_eq!("boom", source.to_string());
+            assert!(!error.to_string().contains("boom"));
+
+            let response = error.into_response();
+            assert_eq!(status, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(code.to_string(), body["error"]);
+            assert!(!String::from_utf8_lossy(&bytes).contains("boom"));
+            assert!(!String::from_utf8_lossy(&bytes).contains(&token));
         }
     }
 }

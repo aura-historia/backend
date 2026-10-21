@@ -73,17 +73,9 @@ use billing_service::use_cases::{
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use embedding::VertexAiEmbeddingConfig;
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use notification_postgres::{
-    SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
-    SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
 };
-use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
-use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
-use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
-use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
-use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
-use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
@@ -166,24 +158,13 @@ use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
     UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
-};
-use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
-    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
-};
-use search_filter_service::use_cases::{
-    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
-    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
-    UpdateSearchFilterMatchFeedbackHandler,
 };
 
 use sqlx::PgPool;
@@ -230,11 +211,6 @@ use user_service::use_cases::{
     RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
     SuspendUserHandler, UnsuspendUserHandler,
 };
-use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
-use watchlist_service::use_cases::{
-    ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
-    WatchProductListingHandler,
-};
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
@@ -261,6 +237,7 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
@@ -279,6 +256,7 @@ const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
+    oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
@@ -309,6 +287,10 @@ impl ApiConfig {
                     source,
                 })?;
 
+        let oauth_resource_policy = oauth_core::resource::AuraResourcePolicy::from_issuer(
+            &required_config(&mut get, OAUTH_ISSUER_URL_ENV)?,
+        )
+        .map_err(ApiConfigError::InvalidOAuthIssuer)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -379,6 +361,7 @@ impl ApiConfig {
         Ok(Self {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
+            oauth_resource_policy,
             cognito_user_pool_id,
             product_listings,
             stripe_billing,
@@ -393,6 +376,10 @@ impl ApiConfig {
 
     pub const fn bind_addr(&self) -> SocketAddr {
         self.bind_addr
+    }
+
+    pub fn oauth_resource_policy(&self) -> oauth_core::resource::AuraResourcePolicy {
+        self.oauth_resource_policy
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -504,6 +491,8 @@ where
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiConfigError {
+    #[error("OAUTH_ISSUER_URL is not a configured Aura issuer")]
+    InvalidOAuthIssuer(#[source] oauth_core::resource::InvalidResource),
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -776,6 +765,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(oauth) = state.oauth {
         routes = routes.merge(
             Router::new()
+                .route(
+                    "/.well-known/oauth-authorization-server",
+                    get(oauth::discovery::discovery),
+                )
                 .route(
                     "/v1/admin/oauth-clients",
                     get(oauth::list_clients::list_clients)
@@ -1186,7 +1179,6 @@ async fn app_state_from_config_and_runtime(
     );
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listing_history = runtime.public_product_listing_history();
-    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
     let opensearch_client = listing_dependencies.opensearch.clone();
     let embeddings = Arc::clone(&listing_dependencies.embeddings);
@@ -1228,12 +1220,7 @@ async fn app_state_from_config_and_runtime(
         auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
     ));
     let public_auctions = runtime.public_auctions();
-    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
-        unit_of_work.clone(),
-        user_postgres::SqlxAddressBookFactory,
-        geo_postgres::SqlxResolutionRepositoryFactory,
-    ));
-    let shipping = runtime.listing_shipping().clone();
+    let address_book = runtime.private_addresses();
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -1268,8 +1255,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceSearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let get_own_user =
-        GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
+    let get_own_user = runtime.user_profile().get.clone();
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
         .map_err(ApiStateError::StripeBilling)?;
     let billing_prices = config.billing_prices().clone();
@@ -1308,11 +1294,7 @@ async fn app_state_from_config_and_runtime(
         SqlxPartySearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let update_user_profile = UpdateUserProfileHandler::new(
-        unit_of_work.clone(),
-        SqlxUserRepositoryFactory::new(),
-        SqlxUserAdminReaderFactory::new(),
-    );
+    let update_user_profile = runtime.user_profile().update.clone();
     let admin_update_user_profile = UpdateUserProfileHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
@@ -1373,25 +1355,6 @@ async fn app_state_from_config_and_runtime(
         loops_consent_provider,
         loops_webhook_target_list_id,
     );
-    let watch_product = WatchProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-    );
-    let update_watchlist_product = UpdateWatchlistProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-        SqlxProductListingDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-    let unwatch_product =
-        UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1535,13 +1498,6 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&submit_product_listing_ingestion),
         authorize_woocommerce_product,
     );
-    let list_watchlist = ListWatchlistHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingWatchlistDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
     let resolve_cognito_user =
@@ -1561,25 +1517,14 @@ async fn app_state_from_config_and_runtime(
         authenticate_user,
     )
     .map_err(ApiStateError::CognitoJwt)?;
+    let notifications = runtime.notifications();
     let notifications_state = NotificationsState::new(
-        Arc::new(ListNotificationsHandler::new(
-            SqlxNotificationListReader::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateAllNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationsHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
+        notifications.list.clone(),
+        notifications.update_notification_seen.clone(),
+        notifications.update_notifications_seen.clone(),
+        notifications.update_all_notifications_seen.clone(),
+        notifications.delete_notification.clone(),
+        notifications.delete_notifications.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let billing_state = BillingState::new(
@@ -1861,10 +1806,10 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let users_state = UsersState {
-        get_own_user: Arc::new(get_own_user),
+        get_own_user,
         admin_get_user: Arc::new(admin_get_user),
         search_users: Arc::new(search_users),
-        update_user_profile: Arc::new(update_user_profile),
+        update_user_profile,
         admin_update_user_profile: Arc::new(admin_update_user_profile),
         change_user_role: Arc::new(change_user_role),
         change_user_tier: Arc::new(change_user_tier),
@@ -1924,60 +1869,27 @@ async fn app_state_from_config_and_runtime(
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
     let search_filters_state = SearchFiltersState::new(
-        Arc::new(ListOwnedSearchFiltersHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            CreateSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(GetOwnedSearchFilterHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            UpdateOwnedSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                search_filter_reader.clone(),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(DeleteOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-        )),
-        Arc::new(ListSearchFilterMatchesHandler::new(
-            unit_of_work.clone(),
-            search_filter_reader.clone(),
-            SqlxProductListingDetailsBatchReader::new(pool.clone()),
-            SqlxFxRateSnapshotRepositoryFactory,
-            shipping.clone(),
-        )),
-        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            SqlxSearchFilterMatchRepositoryFactory,
-        )),
+        Arc::clone(&saved_searches.list),
+        Arc::clone(&saved_searches.create),
+        Arc::clone(&saved_searches.get),
+        Arc::clone(&saved_searches.update),
+        Arc::clone(&saved_searches.delete),
+        Arc::clone(&saved_searches.matches),
+        Arc::clone(&saved_searches.feedback),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let watchlist = runtime.watchlist();
     let watchlist_state = WatchlistState {
-        list_watchlist: Arc::new(list_watchlist),
-        watch_product: Arc::new(watch_product),
-        update_watchlist_product: Arc::new(update_watchlist_product),
-        unwatch_product: Arc::new(unwatch_product),
+        list_watchlist: Arc::clone(&watchlist.list),
+        watch_product: Arc::clone(&watchlist.add),
+        update_watchlist_product: Arc::clone(&watchlist.update),
+        unwatch_product: Arc::clone(&watchlist.remove),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let oauth_state = OAuthState {
+        resource_policy: config.oauth_resource_policy(),
         create_client: Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -2008,6 +1920,7 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
@@ -2015,6 +1928,7 @@ async fn app_state_from_config_and_runtime(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
             unit_of_work.clone(),
@@ -2061,8 +1975,8 @@ async fn app_state_from_config_and_runtime(
     });
 
     let user_addresses_state = state::UserAddressesState {
-        commands: address_book.clone(),
-        queries: address_book.clone(),
+        commands: address_book.commands.clone(),
+        queries: address_book.queries.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
@@ -2323,6 +2237,10 @@ mod tests {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
                 "aura-historia-ephemeral-email".to_owned(),
             ),
+            (
+                OAUTH_ISSUER_URL_ENV,
+                "https://api.aura-historia.com".to_owned(),
+            ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
             (
@@ -2330,6 +2248,39 @@ mod tests {
                 "http://127.0.0.1:3000".to_owned(),
             ),
         ])
+    }
+
+    #[test]
+    fn should_select_only_exact_oauth_issuers_and_require_explicit_configuration() {
+        for policy in [
+            oauth_core::resource::AuraResourcePolicy::production(),
+            oauth_core::resource::AuraResourcePolicy::stage(),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, policy.issuer().to_owned());
+            let config = ApiConfig::from_getter(|name| values.get(name).cloned()).unwrap();
+            assert_eq!(policy, config.oauth_resource_policy());
+        }
+        for issuer in [
+            "https://foreign.example",
+            "https://api.aura-historia.com/",
+            "https://mcp.aura-historia.com/v1",
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, issuer.to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|name| values.get(name).cloned()),
+                Err(ApiConfigError::InvalidOAuthIssuer(_))
+            ));
+        }
+        let mut values = valid_api_config_values();
+        values.remove(OAUTH_ISSUER_URL_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| values.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: OAUTH_ISSUER_URL_ENV
+            })
+        ));
     }
 
     #[test]

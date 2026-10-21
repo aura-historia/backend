@@ -65,6 +65,7 @@ struct ProductListingDiscoveryHistoryData {
     availability: Option<ListingAvailability>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
+    #[schemars(range(max = u64::MAX))]
     image_count: u64,
     auction: Option<ProductListingAuctionData>,
 }
@@ -110,7 +111,9 @@ enum ProductListingHistoryChangeData {
         current: Url,
     },
     ImagesChanged {
+        #[schemars(range(max = u64::MAX))]
         previous_count: u64,
+        #[schemars(range(max = u64::MAX))]
         current_count: u64,
     },
     AuctionChanged {

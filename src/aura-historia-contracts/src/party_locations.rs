@@ -121,6 +121,7 @@ impl From<PublicPartyLocation> for PublicPartyLocationData {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoverPartyLocationsResultData {
     items: Vec<PublicPartyLocationData>,
+    #[schemars(range(max = usize::MAX))]
     size: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     search_after: Option<PartyLocationCursorData>,

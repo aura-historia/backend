@@ -276,6 +276,7 @@ pub(crate) const OAUTH_INVALID_CODE_VERIFIER: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_CODE_VERIFIER");
 pub(crate) const OAUTH_INVALID_REDIRECT_URI: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_REDIRECT_URI");
+pub(crate) const OAUTH_INVALID_RESOURCE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_RESOURCE");
 pub(crate) const OAUTH_INVALID_SCOPE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_SCOPE");
 pub(crate) const OAUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("OAUTH_TEMPORARILY_UNAVAILABLE");
@@ -401,6 +402,11 @@ impl ApiError {
         self
     }
 
+    pub(crate) fn with_cause(mut self, cause: application::error::BoxError) -> Self {
+        self.cause = Some(cause);
+        self
+    }
+
     fn status_code(&self) -> StatusCode {
         match StatusCode::from_u16(self.status) {
             Ok(status) => status,
@@ -415,24 +421,31 @@ impl Display for ApiError {
         if let Some(detail) = &self.detail {
             write!(f, ": {detail}")?;
         }
-        if let Some(cause) = &self.cause {
-            write!(f, ": {cause}")?;
-        }
         Ok(())
     }
 }
 
-impl Error for ApiError {}
+impl Error for ApiError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref().map(|cause| cause as &dyn Error)
+    }
+}
 
 impl From<AuthError> for ApiError {
     fn from(error: AuthError) -> Self {
-        match error {
-            AuthError::TemporarilyUnavailable => {
-                ApiError::service_unavailable(AUTH_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Authentication is temporarily unavailable.")
+        use aura_historia_auth::AccessTokenAuthenticationError;
+
+        let mut response = match &error {
+            AuthError::TemporarilyUnavailable
+            | AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::TemporarilyUnavailable { .. },
+            ) => ApiError::service_unavailable(AUTH_TEMPORARILY_UNAVAILABLE)
+                .with_detail("Authentication is temporarily unavailable."),
+            AuthError::Internal(_)
+            | AuthError::AuraAccessToken(AccessTokenAuthenticationError::Internal { .. }) => {
+                ApiError::internal_server_error(AUTH_INTERNAL_ERROR)
+                    .with_detail("Authentication failed internally.")
             }
-            AuthError::Internal(_) => ApiError::internal_server_error(AUTH_INTERNAL_ERROR)
-                .with_detail("Authentication failed internally."),
             AuthError::MissingCredentials
             | AuthError::InvalidAuthorizationHeader
             | AuthError::MalformedCredentials
@@ -440,10 +453,16 @@ impl From<AuthError> for ApiError {
             | AuthError::MissingClaim(_)
             | AuthError::InvalidClaimType(_)
             | AuthError::JwksKeyNotFound
-            | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
+            | AuthError::JwksFetch(_)
+            | AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::MalformedCredentials { .. }
+                | AccessTokenAuthenticationError::InvalidCredentials,
+            ) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
-        }
+        };
+        response.cause = Some(application::error::box_error(error));
+        response
     }
 }
 
@@ -604,9 +623,10 @@ impl From<ListNotificationsError> for ApiError {
             ListNotificationsError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListNotificationsError::ReadFailed(_) => {
+            ListNotificationsError::ReadFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -625,9 +645,10 @@ impl From<UpdateNotificationSeenError> for ApiError {
             }
             UpdateNotificationSeenError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
                 .with_detail("Notification was not found."),
-            UpdateNotificationSeenError::UpdateFailed(_) => {
+            UpdateNotificationSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -648,9 +669,10 @@ impl From<UpdateNotificationsSeenError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE)
                     .with_detail("notificationIds must contain at least one Notification ID.")
             }
-            UpdateNotificationsSeenError::UpdateFailed(_) => {
+            UpdateNotificationsSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -667,9 +689,10 @@ impl From<UpdateAllNotificationsSeenError> for ApiError {
             UpdateAllNotificationsSeenError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateAllNotificationsSeenError::UpdateFailed(_) => {
+            UpdateAllNotificationsSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -688,9 +711,10 @@ impl From<DeleteNotificationError> for ApiError {
             }
             DeleteNotificationError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
                 .with_detail("Notification was not found."),
-            DeleteNotificationError::DeleteFailed(_) => {
+            DeleteNotificationError::DeleteFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -707,9 +731,10 @@ impl From<DeleteNotificationsError> for ApiError {
             DeleteNotificationsError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            DeleteNotificationsError::DeleteFailed(_) => {
+            DeleteNotificationsError::DeleteFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -892,6 +917,15 @@ impl From<DeleteOwnedSearchFilterError> for ApiError {
                     .with_detail("Search filter could not be deleted right now.")
             }
         }
+    }
+}
+
+impl From<aura_historia_contracts::saved_searches::MatchCursorOutputError> for ApiError {
+    fn from(error: aura_historia_contracts::saved_searches::MatchCursorOutputError) -> Self {
+        let mut response = Self::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+            .with_detail("Search-filter match cursor failed internally.");
+        response.cause = Some(application::error::box_error(error));
+        response
     }
 }
 
@@ -1726,15 +1760,18 @@ impl From<GetOwnUserError> for ApiError {
             GetOwnUserError::NotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            GetOwnUserError::TemporarilyUnavailable { .. }
+            error @ (GetOwnUserError::TemporarilyUnavailable { .. }
             | GetOwnUserError::BeginTransactionFailed(_)
-            | GetOwnUserError::CommitTransactionFailed(_) => {
+            | GetOwnUserError::CommitTransactionFailed(_)) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
-            GetOwnUserError::InvalidReadModel { .. } | GetOwnUserError::Internal { .. } => {
+            error @ (GetOwnUserError::InvalidReadModel { .. }
+            | GetOwnUserError::Internal { .. }) => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User details failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -1964,19 +2001,23 @@ impl From<UpdateUserProfileError> for ApiError {
             }
             UpdateUserProfileError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
-            UpdateUserProfileError::InvalidUserState { .. } => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
+            error @ UpdateUserProfileError::InvalidUserState { .. } => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("User update is invalid.")
+                    .with_cause(Box::new(error))
             }
-            UpdateUserProfileError::TemporarilyUnavailable { .. }
+            error @ (UpdateUserProfileError::TemporarilyUnavailable { .. }
             | UpdateUserProfileError::BeginTransactionFailed(_)
-            | UpdateUserProfileError::CommitTransactionFailed(_) => {
+            | UpdateUserProfileError::CommitTransactionFailed(_)) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
+                    .with_cause(Box::new(error))
             }
-            UpdateUserProfileError::InvalidPersistedState { .. }
-            | UpdateUserProfileError::Internal { .. } => {
+            error @ (UpdateUserProfileError::InvalidPersistedState { .. }
+            | UpdateUserProfileError::Internal { .. }) => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User update failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -3009,6 +3050,9 @@ impl From<OAuthServiceError> for ApiError {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
             }
             OAuthServiceError::InvalidScope => ApiError::bad_request(OAUTH_INVALID_SCOPE),
+            OAuthServiceError::InvalidResource | OAuthServiceError::AuthorizationCodeResourceMismatch => {
+                ApiError::bad_request(OAUTH_INVALID_RESOURCE)
+            }
             OAuthServiceError::AuthorizationCodeNotFound => {
                 ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
             }
@@ -3195,6 +3239,146 @@ impl From<party_service::use_cases::party_locations::PartyLocationError> for Api
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn should_preserve_account_failure_causes_without_changing_public_problems() {
+        use application::{error::static_error, transaction::TransactionError};
+        use geo_service::resolution::ResolutionError;
+        use user_service::address_book::AddressBookError;
+
+        let cause = || static_error("private account storage failure");
+        let transaction = || TransactionError::CommitFailed(cause());
+        for error in [
+            GetOwnUserError::TemporarilyUnavailable { source: cause() },
+            GetOwnUserError::BeginTransactionFailed(cause()),
+            GetOwnUserError::CommitTransactionFailed(cause()),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User details are temporarily unavailable."),
+            );
+        }
+        for error in [
+            GetOwnUserError::InvalidReadModel { source: cause() },
+            GetOwnUserError::Internal { source: cause() },
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User details failed internally."),
+            );
+        }
+        for error in [
+            UpdateUserProfileError::TemporarilyUnavailable { source: cause() },
+            UpdateUserProfileError::BeginTransactionFailed(cause()),
+            UpdateUserProfileError::CommitTransactionFailed(cause()),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be updated right now."),
+            );
+        }
+        for error in [
+            UpdateUserProfileError::InvalidPersistedState { source: cause() },
+            UpdateUserProfileError::Internal { source: cause() },
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User update failed internally."),
+            );
+        }
+        assert_account_problem(
+            UpdateUserProfileError::InvalidUserState { source: cause() }.into(),
+            ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid."),
+        );
+        for error in [
+            AddressBookError::Storage(cause()),
+            AddressBookError::Transaction(transaction()),
+            AddressBookError::Resolution(ResolutionError::Storage(cause())),
+            AddressBookError::Resolution(ResolutionError::Transaction(transaction())),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE),
+            );
+        }
+        for error in [
+            AddressBookError::InvalidState(cause()),
+            AddressBookError::Resolution(ResolutionError::InvalidState(cause())),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR),
+            );
+        }
+    }
+
+    fn assert_account_problem(actual: ApiError, expected: ApiError) {
+        let mut cause = actual.source().expect("technical account cause");
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert_eq!("private account storage failure", cause.to_string());
+        assert_eq!(expected.status_code(), actual.status_code());
+        assert_eq!(expected.to_string(), actual.to_string());
+        assert_eq!(
+            serde_json::to_value(expected).unwrap(),
+            serde_json::to_value(actual).unwrap()
+        );
+    }
+
+    #[test]
+    fn should_preserve_notification_failure_causes_without_changing_public_problems() {
+        use application::error::static_error;
+        use notification_service::ports::{
+            notification_deleter::NotificationDeleteError,
+            notification_list_reader::NotificationListReadError,
+            notification_seen_writer::NotificationSeenWriteError,
+        };
+
+        let seen = || NotificationSeenWriteError::UpdateFailed {
+            source: static_error("private notification storage failure"),
+        };
+        let delete = || NotificationDeleteError::DeleteFailed {
+            source: static_error("private notification storage failure"),
+        };
+        for error in [
+            ApiError::from(ListNotificationsError::ReadFailed(
+                NotificationListReadError::ReadFailed {
+                    source: static_error("private notification storage failure"),
+                },
+            )),
+            ApiError::from(ListNotificationsError::ReadFailed(
+                NotificationListReadError::InvalidReadModel {
+                    source: static_error("private notification storage failure"),
+                },
+            )),
+            ApiError::from(UpdateNotificationSeenError::UpdateFailed(seen())),
+            ApiError::from(UpdateNotificationsSeenError::UpdateFailed(seen())),
+            ApiError::from(UpdateAllNotificationsSeenError::UpdateFailed(seen())),
+            ApiError::from(DeleteNotificationError::DeleteFailed(delete())),
+            ApiError::from(DeleteNotificationsError::DeleteFailed(delete())),
+        ] {
+            let mut cause = error.source().expect("technical notification cause");
+            while let Some(source) = cause.source() {
+                cause = source;
+            }
+            assert_eq!("private notification storage failure", cause.to_string());
+            assert_eq!(StatusCode::SERVICE_UNAVAILABLE, error.status_code());
+            assert_eq!(
+                json!({
+                    "status": 503,
+                    "title": "Service Unavailable",
+                    "error": NOTIFICATION_TEMPORARILY_UNAVAILABLE.to_string(),
+                    "detail": "Notifications are temporarily unavailable."
+                }),
+                serde_json::to_value(error).unwrap()
+            );
+        }
+    }
 
     #[tokio::test]
     async fn should_map_woocommerce_forwarding_outcomes_to_bounded_errors()

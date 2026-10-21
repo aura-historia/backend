@@ -11,7 +11,7 @@ use crate::{
     metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
 };
-use application::operation_context::{CorrelationId, OperationContext, RequestId};
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     Router,
     body::{Body, Bytes, to_bytes},
@@ -80,6 +80,14 @@ pub fn router(
     let response_limit = state.config.max_response_bytes;
     Ok(Router::new()
         .route("/v1", any(handle))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/v1",
+            get(protected_resource),
+        )
         .route("/health", get(probe))
         .route("/ready", get(probe))
         .with_state(state)
@@ -90,6 +98,20 @@ pub fn router(
 
 async fn probe() -> impl IntoResponse {
     StatusCode::NO_CONTENT
+}
+
+async fn protected_resource(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_origin_and_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    let policy = state.config.resource_policy;
+    axum::Json(json!({
+        "resource": policy.mcp_resource(),
+        "authorization_servers": [policy.issuer()],
+        "bearer_methods_supported": ["header"],
+        "scopes_supported": ["users:read"],
+    }))
+    .into_response()
 }
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {
@@ -163,17 +185,20 @@ async fn admitted_request(
         .then(|| body.pointer("/params/name").and_then(Value::as_str))
         .flatten()
         .and_then(|name| state.registry.get(name));
+    let operation_context = match request_operation_context(&parts.headers, request_id, &id) {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
     let context = match admit(
         state,
         AdmissionRequest {
             headers: &parts.headers,
             method: &method,
+            context: &operation_context,
             operation,
             deadline,
             cancellation,
         },
-        request_id,
-        &id,
     )
     .await
     {
@@ -379,10 +404,8 @@ fn decode_message(bytes: Bytes) -> Result<DecodedMessage, Box<Response>> {
 async fn admit(
     state: &HttpState,
     request: AdmissionRequest<'_>,
-    request_id: &str,
-    id: &Value,
 ) -> Result<InvocationContext, Box<Response>> {
-    let headers = request.headers;
+    let mut operation = request.context.clone();
     let deadline = request.deadline;
     let cancellation = request.cancellation.clone();
     let principal = match state.gate.admit(request).await {
@@ -393,6 +416,20 @@ async fn admit(
             return Err(Box::new(response));
         }
     };
+    operation.principal = principal;
+    Ok(InvocationContext {
+        operation,
+        deadline,
+        cancellation,
+        max_response_bytes: state.config.max_response_bytes,
+    })
+}
+
+fn request_operation_context(
+    headers: &HeaderMap,
+    request_id: &str,
+    id: &Value,
+) -> Result<OperationContext, Box<Response>> {
     let correlation = match optional_header(headers, "x-correlation-id") {
         Ok(Some(value)) if valid_identifier(value) => value.to_owned(),
         Ok(None) => request_id.to_owned(),
@@ -405,15 +442,10 @@ async fn admit(
             )));
         }
     };
-    Ok(InvocationContext {
-        operation: OperationContext {
-            principal,
-            request_id: RequestId::new(request_id),
-            correlation_id: CorrelationId::new(correlation),
-        },
-        deadline,
-        cancellation,
-        max_response_bytes: state.config.max_response_bytes,
+    Ok(OperationContext {
+        principal: Principal::Anonymous,
+        request_id: RequestId::new(request_id),
+        correlation_id: CorrelationId::new(correlation),
     })
 }
 

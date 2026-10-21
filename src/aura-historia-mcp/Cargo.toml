@@ -8,6 +8,7 @@ application = { workspace = true }
 async-trait = { workspace = true }
 auction-core = { workspace = true }
 auction-service = { workspace = true }
+aura-historia-auth = { workspace = true }
 aura-historia-contracts = { workspace = true }
 aura-historia-runtime = { workspace = true }
 axum = { workspace = true }
@@ -17,6 +18,9 @@ geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
 listing-source-service = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
+oauth-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
@@ -24,6 +28,8 @@ product-listing-core = { workspace = true }
 product-listing-service = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shipping-service = { workspace = true }
@@ -32,10 +38,14 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "sig
 tokio-util = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 url = { workspace = true }
+user-core = { workspace = true }
 user-service = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
+watchlist-service = { workspace = true }
+
 [dev-dependencies]
+embedding = { workspace = true }
 platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
@@ -46,6 +56,10 @@ localization = { workspace = true }
 money = { workspace = true }
 party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+serial_test = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
+sqlx = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["test-util"] }
+watchlist-core = { workspace = true }

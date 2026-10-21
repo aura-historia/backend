@@ -277,7 +277,9 @@ dependencies = [
  "auction-core",
  "auction-postgres",
  "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
+ "aura-historia-mcp",
  "aura-historia-runtime",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
@@ -303,6 +305,7 @@ dependencies = [
  "http 1.5.0",
  "httpdate",
  "indexmap 2.14.2",
+ "jsonschema",
  "jsonwebtokens",
  "lambda_http",
  "listing-source-core",
@@ -337,6 +340,7 @@ dependencies = [
  "product-service",
  "reqwest 0.12.28",
  "rstest",
+ "schemars 1.2.3",
  "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
@@ -373,6 +377,16 @@ dependencies = [
  "watchlist-service",
  "wiremock",
  "woocommerce-service",
+]
+
+[[package]]
+name = "aura-historia-auth"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "thiserror 2.0.21",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]
@@ -421,13 +435,17 @@ dependencies = [
  "localization",
  "money",
  "notification-core",
+ "notification-service",
+ "partnership-core",
  "party-core",
  "party-service",
  "product-listing-core",
  "product-listing-service",
  "schemars 1.2.3",
  "search-filter-core",
+ "search-filter-service",
  "serde",
+ "serde-email",
  "serde_json",
  "shipping-core",
  "shipping-json",
@@ -436,6 +454,10 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
+ "user-core",
+ "user-service",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -464,11 +486,13 @@ dependencies = [
  "async-trait",
  "auction-core",
  "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
  "aura-historia-runtime",
  "axum",
  "base64 0.23.1",
  "domain-primitives",
+ "embedding",
  "fxrate-core",
  "fxrate-service",
  "geo",
@@ -480,6 +504,9 @@ dependencies = [
  "listing-source-service",
  "localization",
  "money",
+ "notification-core",
+ "notification-service",
+ "oauth-core",
  "party-core",
  "party-service",
  "platform-lambda-bootstrap",
@@ -489,18 +516,26 @@ dependencies = [
  "product-listing-service",
  "rmcp",
  "schemars 1.2.3",
+ "search-filter-core",
+ "search-filter-service",
  "serde",
  "serde_json",
+ "serial_test",
  "shipping-core",
  "shipping-service",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-util",
  "tower",
  "url",
+ "user-core",
  "user-service",
  "uuid",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -526,6 +561,8 @@ dependencies = [
  "listing-source-core",
  "listing-source-postgres",
  "listing-source-service",
+ "notification-postgres",
+ "notification-service",
  "opensearch",
  "party-postgres",
  "party-service",
@@ -535,6 +572,8 @@ dependencies = [
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
+ "search-filter-postgres",
+ "search-filter-service",
  "serial_test",
  "shipping-postgres",
  "shipping-service",
@@ -546,6 +585,8 @@ dependencies = [
  "user-postgres",
  "user-service",
  "uuid",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]

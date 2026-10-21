@@ -1,3 +1,4 @@
+use oauth_core::resource::AuraResourcePolicy;
 use std::{net::SocketAddr, time::Duration};
 use url::Url;
 
@@ -8,6 +9,7 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 #[derive(Clone)]
 pub struct TransportConfig {
     pub bind_addr: SocketAddr,
+    pub resource_policy: AuraResourcePolicy,
     pub allowed_hosts: Vec<String>,
     pub allowed_origins: Vec<String>,
     pub max_request_bytes: usize,
@@ -20,6 +22,7 @@ impl Default for TransportConfig {
     fn default() -> Self {
         Self {
             bind_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
+            resource_policy: AuraResourcePolicy::production(),
             allowed_hosts: vec!["localhost:8080".into(), "127.0.0.1:8080".into()],
             allowed_origins: Vec::new(),
             max_request_bytes: MAX_REQUEST_BYTES,
@@ -32,7 +35,13 @@ impl Default for TransportConfig {
 
 impl TransportConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let mut config = Self::default();
+        let mut config = Self {
+            resource_policy: AuraResourcePolicy::from_issuer(
+                &env("OAUTH_ISSUER_URL")?.ok_or(ConfigError::Issuer)?,
+            )
+            .map_err(|_| ConfigError::Issuer)?,
+            ..Default::default()
+        };
         if let Some(value) = env("MCP_BIND_ADDR")? {
             config.bind_addr = value.parse().map_err(ConfigError::BindAddress)?;
         }
@@ -111,6 +120,8 @@ fn env(name: &'static str) -> Result<Option<String>, ConfigError> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error("OAUTH_ISSUER_URL must identify the configured Aura production or stage issuer")]
+    Issuer,
     #[error("invalid MCP bind address")]
     BindAddress(#[source] std::net::AddrParseError),
     #[error("MCP allowed hosts must be explicit HTTP authorities")]

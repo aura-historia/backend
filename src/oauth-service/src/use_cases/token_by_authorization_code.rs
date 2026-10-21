@@ -6,7 +6,11 @@ use crate::ports::{
 use crate::use_cases::support::{THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client, verify_s256};
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
-use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
+use oauth_core::authorization_code::{
+    AuthorizationCode, OAuthAuthorizationCode, OAuthCodeVerifier,
+};
+use oauth_core::client::OAuthClient;
+use oauth_core::resource::AuraResourcePolicy;
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -32,6 +36,7 @@ pub struct TokenByAuthorizationCodeRequest {
     pub grant_type: OAuthGrantType,
     pub code: OAuthAuthorizationCode,
     pub redirect_uri: url::Url,
+    pub resource: Option<String>,
     pub client_id: OAuthClientId,
     pub client_secret: RawOAuthClientSecret,
     pub code_verifier: OAuthCodeVerifier,
@@ -60,15 +65,24 @@ pub struct TokenByAuthorizationCodeHandler<U, C, A, T, R> {
     codes: A,
     exchange_codes: T,
     access_tokens: R,
+    resource_policy: AuraResourcePolicy,
 }
 impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
-    pub fn new(unit_of_work: U, clients: C, codes: A, exchange_codes: T, access_tokens: R) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        clients: C,
+        codes: A,
+        exchange_codes: T,
+        access_tokens: R,
+        resource_policy: AuraResourcePolicy,
+    ) -> Self {
         Self {
             unit_of_work,
             clients,
             codes,
             exchange_codes,
             access_tokens,
+            resource_policy,
         }
     }
 }
@@ -86,6 +100,12 @@ where
         &self,
         request: TokenByAuthorizationCodeRequest,
     ) -> Result<TokenResponse, OAuthServiceError> {
+        let requested_resource = request
+            .resource
+            .as_deref()
+            .map(|resource| self.resource_policy.resolve(Some(resource)))
+            .transpose()
+            .map_err(|_| OAuthServiceError::InvalidResource)?;
         let mut tx = self.unit_of_work.begin().await?;
         let client = authenticate_client(
             &mut self.clients.in_transaction(&mut tx),
@@ -111,10 +131,38 @@ where
             tx.commit().await?;
             return Err(OAuthServiceError::AuthorizationCodeRedirectUriMismatch);
         }
+        let granted_resource = self
+            .resource_policy
+            .resolve(code.resource().map(|resource| resource.as_str()))
+            .map_err(|source| OAuthServiceError::InvalidPersistedState {
+                source: application::error::box_error(source),
+            })?;
+        if requested_resource.is_some_and(|resource| resource != granted_resource) {
+            tx.commit().await?;
+            return Err(OAuthServiceError::AuthorizationCodeResourceMismatch);
+        }
         if !verify_s256(&request.code_verifier, code.code_challenge()) {
             tx.commit().await?;
             return Err(OAuthServiceError::InvalidCodeVerifier);
         }
+        let response = self.issue_credentials(&mut tx, &client, &code).await?;
+        tx.commit().await?;
+        Ok(response)
+    }
+}
+
+impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R>
+where
+    U: UnitOfWork,
+    T: ThirdPartyExchangeCodeRepositoryFactory<U::Tx>,
+    R: AccessTokenRepositoryFactory<U::Tx>,
+{
+    async fn issue_credentials(
+        &self,
+        tx: &mut U::Tx,
+        client: &OAuthClient,
+        code: &AuthorizationCode,
+    ) -> Result<TokenResponse, OAuthServiceError> {
         let raw_access_token = RawAccessToken::new();
         let issued_at = OffsetDateTime::now_utc();
         let access_token = AccessToken::create(NewAccessToken {
@@ -131,7 +179,7 @@ where
             expires: None,
         });
         self.access_tokens
-            .in_transaction(&mut tx)
+            .in_transaction(tx)
             .insert(&access_token)
             .await?;
         let third_party_exchange_code =
@@ -144,10 +192,9 @@ where
                 expires: issued_at + THIRD_PARTY_EXCHANGE_CODE_TTL,
             });
         self.exchange_codes
-            .in_transaction(&mut tx)
+            .in_transaction(tx)
             .insert(third_party_exchange_code.clone())
             .await?;
-        tx.commit().await?;
         Ok(TokenResponse {
             access_token: raw_access_token,
             token_type: OAuthTokenType::Bearer,

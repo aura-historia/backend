@@ -10,6 +10,7 @@ pub struct CatalogueQuery {
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
     pub currency: money::Currency,
+    #[schemars(range(max = u64::MAX))]
     pub page_size: Option<u64>,
     pub search_after: Option<String>,
 }
@@ -18,6 +19,7 @@ pub struct CatalogueQuery {
 pub struct CatalogueCursorData {
     #[schemars(schema_with = "crate::wire::schema::auction_id")]
     pub auction_id: String,
+    #[schemars(range(max = u32::MAX))]
     pub catalogue_position: Option<u32>,
     #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     pub product_listing_id: String,
@@ -53,6 +55,7 @@ pub fn parse_catalogue_cursor(
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueData {
     pub items: Vec<crate::product_listings::product_data::PersonalizedProductListingDetailsData>,
+    #[schemars(range(max = u64::MAX))]
     pub page_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_after: Option<CatalogueCursorData>,

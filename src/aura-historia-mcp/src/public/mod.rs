@@ -1,5 +1,4 @@
-//! The selected anonymous catalogue. Family modules own transport mappings and use-case calls.
-mod runtime;
+//! The public subset of the hybrid catalogue. Family modules own transport mappings and use-case calls.
 use crate::{
     Registry, RegistryError, auctions, product_listing_history, product_listings, public_discovery,
 };
@@ -8,7 +7,6 @@ use aura_historia_runtime::{
     PublicListingSources, PublicOverview, PublicPartyLocations, PublicProductListingHistory,
     PublicProductListings, Runtime,
 };
-pub use runtime::{PublicStartupError, RotatingPublicRouter, public_router};
 
 /// Typed handles allow native/Lambda composition and isolated protocol fixtures to use one registry.
 pub struct PublicServices {
@@ -43,6 +41,12 @@ impl PublicServices {
 /// Registers exactly the public release families; private, write and control-plane operations
 /// have no registration path here. The committed manifest is checked against this catalogue.
 pub fn registry(services: PublicServices) -> Result<Registry, RegistryError> {
+    Registry::new(operations(services)?)
+}
+
+pub fn operations(
+    services: PublicServices,
+) -> Result<Vec<crate::OperationDefinition>, RegistryError> {
     let mut operations = product_listings::operations(services.listings)?;
     operations.extend(product_listing_history::operations(services.history)?);
     operations.extend(auctions::operations(services.auctions)?);
@@ -52,7 +56,7 @@ pub fn registry(services: PublicServices) -> Result<Registry, RegistryError> {
         services.locations,
         services.overview,
     )?);
-    Registry::new(operations)
+    Ok(operations)
 }
 
 #[cfg(test)]

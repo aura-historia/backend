@@ -78,6 +78,18 @@ async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
     let lambda = RotatingRuntime::from_env().await?;
     let lease = lambda.current().await?;
     for runtime in [&native, lease.value()] {
+        let profile = runtime.user_profile();
+        assert!(Arc::ptr_eq(&profile.get, &runtime.user_profile().get));
+        assert!(Arc::ptr_eq(&profile.update, &runtime.user_profile().update));
+        let addresses = runtime.private_addresses();
+        assert!(Arc::ptr_eq(
+            &addresses.commands,
+            &runtime.private_addresses().commands
+        ));
+        assert!(Arc::ptr_eq(
+            &addresses.queries,
+            &runtime.private_addresses().queries
+        ));
         let family = runtime.public_listing_sources();
         let same = runtime.public_listing_sources();
         assert!(Arc::ptr_eq(&family.search, &same.search));

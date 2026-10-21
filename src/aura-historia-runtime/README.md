@@ -42,6 +42,17 @@ let services = lease.value().public_listing_sources();
 let result = services.search.execute(&context, request).await?;
 ```
 
+`Runtime::watchlist()` composes the four existing watchlist use cases once for the warm pool.
+REST and MCP reuse these typed handles, including transactional tier/quota enforcement,
+listing presentation and shared shipping enrichment. Selecting this family requires PostgreSQL
+without loading search, embedding, billing or identity-provider configuration.
+
+`Runtime::access_token_authentication()` composes the existing opaque-token authentication
+use case against the same environment pool. REST and MCP can reuse its typed handle without
+loading Cognito or unrelated provider configuration. The handle is reusable; authentication
+results are never cached. The PostgreSQL reader preserves database revocation and suspension
+checks on each request. Transport adapters own parsing, principal mapping and challenges.
+
 `Runtime::from_pool()` supports caller-owned fixture pools. `postgres_pool()` remains a composition
 interface for REST families awaiting extraction; request handlers must call service use cases.
 `PublicListingSourceReadBudget` supplies the shared non-queuing permit pool and per-read
@@ -56,3 +67,14 @@ The runtime unit suite checks clean-environment anonymous startup, warm reuse, c
 replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment
 configuration without mutating a multithreaded test process. PostgreSQL integration tests use the
 repository's isolated Docker fixture and business migrations.
+
+`Runtime::saved_searches(embeddings)` supplies the seven saved-search and match-feedback inbound
+handles. REST and MCP reuse this family with the same PostgreSQL pool, shipping enrichment and
+existing lazy embedding provider. Selecting the family requires only its explicit embedding
+handle; it does not load unrelated provider settings. Services own tier/ownership checks,
+transactions, destination acceptance and materialized match semantics.
+
+`Runtime::notifications()` supplies the six existing notification inbox use-case handles against
+one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
+configuration. Notification ownership, delegated scopes and presentation preferences stay with
+the existing services; transport adapters share notification DTOs and pagination conversions.

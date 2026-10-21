@@ -1,0 +1,88 @@
+{
+  "name": "Cabinets 🏛️",
+  "acceptShippingDestination": {
+    "kind": "PREFERENCE"
+  },
+  "search": {
+    "geography": {
+      "countries": [
+        "DE"
+      ],
+      "subdivisions": [
+        "DE-BY"
+      ],
+      "origin": {
+        "latitude": 48.137,
+        "longitude": 11.575
+      },
+      "radius": {
+        "amount": 25.0,
+        "unit": "MILES"
+      },
+      "mode": "APPROXIMATE",
+      "distanceOrder": "ASC"
+    },
+    "shipping": {
+      "destination": {
+        "kind": "COUNTRY",
+        "country": "DE"
+      },
+      "referenceRelease": "iso-codes-4.20.1",
+      "service": "STANDARD",
+      "maximumPerItem": {
+        "amount": 9223372036854775807,
+        "currency": "EUR"
+      },
+      "collectionOffered": true,
+      "interpretation": "WHOLE_COUNTRY_PER_ITEM_FX_V1"
+    },
+    "language": "de-CH",
+    "currency": "JPY",
+    "productQuery": [
+      "cabinet",
+      "oak"
+    ],
+    "enhancedSearchDescription": "An ornate antique oak cabinet",
+    "excludeProductListingId": [
+      "pl_01k6k0w000e008000000000001"
+    ],
+    "listingSourceId": [
+      "ls_01k6k0w000e008000000000002"
+    ],
+    "excludeListingSourceId": [
+      "ls_01k6k0w000e008000000000003"
+    ],
+    "auctionId": [
+      "auc_01k6k0w000e008000000000004"
+    ],
+    "price": {
+      "min": 0,
+      "max": 18446744073709551615
+    },
+    "availability": [
+      "IN_STOCK",
+      "BACK_ORDER"
+    ],
+    "orderability": [
+      "ORDERABLE_NOW",
+      "ORDERABLE_CONDITIONALLY"
+    ],
+    "includeUnspecifiedAvailability": true,
+    "created": {
+      "min": "2024-01-01T00:00:00Z",
+      "max": "2025-01-01T00:00:00Z"
+    },
+    "updated": {
+      "min": "2025-01-01T00:00:00Z",
+      "max": "2026-01-01T00:00:00Z"
+    },
+    "lotBiddingOpens": {
+      "min": "2026-01-01T00:00:00Z",
+      "max": "2026-02-01T00:00:00Z"
+    },
+    "lotScheduledCloses": {
+      "min": "2026-02-01T00:00:00Z",
+      "max": "2026-03-01T00:00:00Z"
+    }
+  }
+}

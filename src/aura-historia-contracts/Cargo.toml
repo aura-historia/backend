@@ -16,12 +16,15 @@ listing-source-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
+notification-service = { workspace = true }
+partnership-core = { workspace = true }
 party-core = { workspace = true }
 party-service = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-service = { workspace = true }
 schemars = { workspace = true }
 search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shipping-core = { workspace = true }
@@ -31,6 +34,11 @@ strum = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["serde", "serde-well-known"] }
 url = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+serde-email = { workspace = true }
+watchlist-core = { workspace = true }
+watchlist-service = { workspace = true }
 
 [dev-dependencies]
 jsonschema = { version = "0.59.0", default-features = false }

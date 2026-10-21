@@ -16,6 +16,14 @@ use user_core::{
 const PKCE_CODE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 const PKCE_CODE_VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 
+fn assert_credential_headers(response: &reqwest::Response) {
+    assert_eq!(
+        "no-store",
+        response.headers()[reqwest::header::CACHE_CONTROL]
+    );
+    assert_eq!("no-cache", response.headers()[reqwest::header::PRAGMA]);
+}
+
 fn assert_opaque_oauth_string(value: &str) {
     assert!(!value.is_empty());
     assert!(value.parse::<OAuthClientId>().is_err());
@@ -225,6 +233,7 @@ async fn exchange_code_response(
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to exchange OAuth token: {error}"));
+    assert_credential_headers(&response);
     json_response(response).await
 }
 
@@ -615,12 +624,8 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 
     let (status, body) = exchange_code_response(&client, &credentials, &pending_code).await;
-    api_support::assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::NOT_FOUND,
-        "OAUTH_CLIENT_NOT_FOUND",
-    );
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, status);
+    assert_eq!(serde_json::json!({"error": "invalid_client"}), body);
 
     let client_id = credentials.client_id.to_string();
     let response = client
@@ -640,12 +645,8 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
             panic!("failed to reject authorization for deleted client: {error}")
         });
     let (status, body) = json_response(response).await;
-    api_support::assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::NOT_FOUND,
-        "OAUTH_CLIENT_NOT_FOUND",
-    );
+    assert_eq!(reqwest::StatusCode::BAD_REQUEST, status);
+    assert_eq!(serde_json::json!({"error": "invalid_request"}), body);
 
     let response = client
         .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
@@ -891,14 +892,8 @@ async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
                 });
             let (status, body) = json_response(response).await;
 
-            api_support::assert_problem(
-                status,
-                &body,
-                reqwest::StatusCode::BAD_REQUEST,
-                "INVALID_OBJECT_ID",
-            );
-            assert_eq!("client_id", body["source"]["field"]);
-            assert_eq!("BODY", body["source"]["type"]);
+            assert_eq!(reqwest::StatusCode::UNAUTHORIZED, status);
+            assert_eq!(serde_json::json!({"error": "invalid_client"}), body);
         }
     }
 }
@@ -946,14 +941,8 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
                 panic!("failed to validate authorization client query ID: {error}")
             });
         let (status, body) = json_response(response).await;
-        api_support::assert_problem(
-            status,
-            &body,
-            reqwest::StatusCode::BAD_REQUEST,
-            "INVALID_OBJECT_ID",
-        );
-        assert_eq!("client_id", body["source"]["field"]);
-        assert_eq!("QUERY", body["source"]["type"]);
+        assert_eq!(reqwest::StatusCode::BAD_REQUEST, status);
+        assert_eq!(serde_json::json!({"error": "invalid_request"}), body);
     }
 }
 
@@ -1772,6 +1761,8 @@ async fn should_exchange_authorization_code_for_access_token() {
     let code = authorize_code(&client, &token, &credentials).await;
     let body = exchange_code(&client, &credentials, &code).await;
     assert_eq!(serde_json::json!("Bearer"), body["token_type"]);
+    assert!(body.get("expires_in").is_none());
+    assert!(body.get("refresh_token").is_none());
     assert!(
         body["access_token"]
             .as_str()
@@ -1942,6 +1933,7 @@ async fn should_introspect_and_revoke_oauth_access_token() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to introspect token: {error}"));
+    assert_credential_headers(&response);
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(true), body["active"]);
@@ -1972,5 +1964,12 @@ async fn should_introspect_and_revoke_oauth_access_token() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to revoke token: {error}"));
+    assert_credential_headers(&response);
     assert_eq!(reqwest::StatusCode::OK, response.status());
 }
+
+#[path = "oauth_resource.rs"]
+mod resource;
+
+#[path = "oauth_discovery.rs"]
+mod discovery;

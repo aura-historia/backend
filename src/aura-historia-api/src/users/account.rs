@@ -2,7 +2,6 @@ use super::types::{OwnUserData, PatchOwnUserData};
 use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
 use crate::error::ApiError;
-use crate::patch_value::{clearable, non_nullable_patch};
 use crate::state::UsersState;
 use axum::Json;
 use axum::extract::State;
@@ -10,7 +9,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use user_core::user_id::UserId;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
-use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand;
 use user_service::use_cases::queries::get_own_user::GetOwnUserRequest;
 
 pub async fn get_me(State(state): State<UsersState>, headers: HeaderMap) -> Response {
@@ -60,9 +58,9 @@ pub(crate) async fn patch_user(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let command = match into_command(data, user_id) {
+    let command = match data.into_command(user_id) {
         Ok(command) => command,
-        Err(error) => return error.into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
     };
     match state.update_user_profile.execute(&ctx, command).await {
         Ok(result) => no_store(Json(OwnUserData::from(result.view)).into_response()),
@@ -70,20 +68,10 @@ pub(crate) async fn patch_user(
     }
 }
 
-fn into_command(
-    data: PatchOwnUserData,
-    user_id: UserId,
-) -> Result<UpdateUserProfileCommand, ApiError> {
-    Ok(UpdateUserProfileCommand {
-        user_id,
-        first_name: clearable(data.first_name),
-        last_name: clearable(data.last_name),
-        language: clearable(data.language),
-        currency: clearable(data.currency),
-        measurement_unit: clearable(data.measurement_unit),
-        show_unassessed_or_sensitive_content: non_nullable_patch(
-            data.show_unassessed_or_sensitive_content,
-            "showUnassessedOrSensitiveContent",
-        )?,
-    })
+impl From<aura_historia_contracts::users::account::NullSensitiveContentPreference> for ApiError {
+    fn from(
+        error: aura_historia_contracts::users::account::NullSensitiveContentPreference,
+    ) -> Self {
+        Self::bad_request(crate::error::BAD_BODY_VALUE).with_detail(error.to_string())
+    }
 }

@@ -1,6 +1,5 @@
 //! Public advertised terms and private assessment fields on existing listing responses.
 use crate::error::{ApiError, FORBIDDEN, SHIPPING_STORAGE_ERROR, SHIPPING_TEMPORARILY_UNAVAILABLE};
-pub(crate) use aura_historia_contracts::shipping::listing::ShippingMatchValuationData;
 use product_listing_service::shipping::AdvertisedShipping;
 #[cfg(test)]
 use serde_json::Value;

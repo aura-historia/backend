@@ -40,6 +40,7 @@ pub struct DirectoryQuery {
     #[serde(default, with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     pub to: Option<OffsetDateTime>,
+    #[schemars(range(max = u64::MAX))]
     pub page_size: Option<u64>,
     pub search_after: Option<String>,
 }
@@ -330,6 +331,7 @@ fn schedule_role_code(value: AuctionSchedulePoint) -> &'static str {
 #[serde(rename_all = "camelCase")]
 pub struct PublicAuctionDirectoryData {
     pub items: Vec<PublicAuctionDirectoryItemData>,
+    #[schemars(range(max = u64::MAX))]
     pub page_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_after: Option<DirectoryCursorData>,

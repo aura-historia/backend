@@ -1,0 +1,400 @@
+{
+  "endpoint": "https://mcp.aura-historia.com/v1",
+  "schemaSource": {
+    "method": "tools/list",
+    "input": "inputSchema",
+    "output": "outputSchema"
+  },
+  "operations": [
+    {
+      "name": "addWatchlistProduct",
+      "operationId": "addWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "createUserAddress",
+      "operationId": "createUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "createUserSearchFilter",
+      "operationId": "createUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteNotification",
+      "operationId": "deleteNotification",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteNotifications",
+      "operationId": "deleteNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteUserAddress",
+      "operationId": "deleteUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteUserSearchFilter",
+      "operationId": "deleteUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteWatchlistProduct",
+      "operationId": "deleteWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getBrowsingDestination",
+      "operationId": "getBrowsingDestination",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserAccount",
+      "operationId": "getUserAccount",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserAddress",
+      "operationId": "getUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserSearchFilter",
+      "operationId": "getUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserSearchFilters",
+      "operationId": "getUserSearchFilters",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getWatchlistProductListings",
+      "operationId": "getWatchlistProductListings",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listNotifications",
+      "operationId": "listNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listSearchFilterMatches",
+      "operationId": "listSearchFilterMatches",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listUserAddresses",
+      "operationId": "listUserAddresses",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "patchWatchlistProduct",
+      "operationId": "patchWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "setBrowsingDestination",
+      "operationId": "setBrowsingDestination",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateAllNotificationsSeen",
+      "operationId": "updateAllNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationSeen",
+      "operationId": "updateNotificationSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationsSeen",
+      "operationId": "updateNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateSearchFilterMatchFeedback",
+      "operationId": "updateSearchFilterMatchFeedback",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateUserAccount",
+      "operationId": "updateUserAccount",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateUserAddress",
+      "operationId": "updateUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateUserSearchFilter",
+      "operationId": "updateUserSearchFilter",
+      "family": "saved_searches",
+      "access": "protected",
+      "requiredScopes": [
+        "search-filters:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

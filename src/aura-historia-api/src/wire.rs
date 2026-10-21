@@ -1,5 +1,6 @@
 use crate::error::{ApiError, INVALID_OBJECT_ID};
 use crate::patch_value::PatchValue;
+pub(crate) use aura_historia_contracts::wire::{measurement_unit, user_role, user_tier};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -85,36 +86,6 @@ where
     parse(&value).ok_or_else(|| invalid_code(&value, expected))
 }
 
-fn serialize_option_code<T, S>(
-    value: &Option<T>,
-    serializer: S,
-    code: fn(T) -> &'static str,
-) -> Result<S::Ok, S::Error>
-where
-    T: Copy,
-    S: Serializer,
-{
-    match value {
-        Some(value) => serializer.serialize_some(code(*value)),
-        None => serializer.serialize_none(),
-    }
-}
-
-fn deserialize_option_code<'de, T, D>(
-    deserializer: D,
-    parse: fn(&str) -> Option<T>,
-    expected: Option<&'static [&'static str]>,
-) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer)?.map_or(Ok(None), |value| {
-        parse(&value)
-            .map(Some)
-            .ok_or_else(|| invalid_code(&value, expected))
-    })
-}
-
 fn serialize_set_code<T, S>(
     values: &HashSet<T>,
     serializer: S,
@@ -157,24 +128,6 @@ where
     })
 }
 
-fn deserialize_patch_set_code<'de, T, D>(
-    deserializer: D,
-    parse: fn(&str) -> Option<T>,
-    expected: Option<&'static [&'static str]>,
-) -> Result<PatchValue<HashSet<T>>, D::Error>
-where
-    T: Eq + Hash,
-    D: Deserializer<'de>,
-{
-    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
-        values
-            .into_iter()
-            .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, expected)))
-            .collect::<Result<HashSet<_>, D::Error>>()
-            .map(PatchValue::Value)
-    })
-}
-
 fn invalid_code<E>(value: &str, expected: Option<&'static [&'static str]>) -> E
 where
     E: serde::de::Error,
@@ -185,79 +138,7 @@ where
     }
 }
 
-pub(crate) mod currency {
-    use super::*;
-    use money::Currency;
-
-    pub(crate) use aura_historia_contracts::wire::currency::{deserialize, serialize};
-
-    pub(crate) mod option {
-        pub(crate) use aura_historia_contracts::wire::currency::option::{deserialize, serialize};
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PatchValue<Currency>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, Currency::from_code, None)
-        }
-    }
-}
-
-pub(crate) mod language {
-    use super::*;
-    use aura_historia_contracts::wire::language::parse;
-    use localization::Language;
-
-    pub(crate) use aura_historia_contracts::wire::language::{deserialize, serialize};
-
-    pub(crate) mod option {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            value: &Option<Language>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_option_code(value, serializer, Language::as_str)
-        }
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<Language>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_option_code(deserializer, parse, None)
-        }
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PatchValue<Language>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, parse, None)
-        }
-    }
-}
-
-pub(crate) mod notification_kind {
-    use super::*;
-    use notification_core::notification_kind::NotificationKind;
-
-    pub(crate) fn serialize<S>(value: &NotificationKind, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, NotificationKind::as_str)
-    }
-}
+pub(crate) use aura_historia_contracts::wire::{currency, language};
 
 pub(crate) mod listing_availability {
     use super::*;
@@ -268,22 +149,7 @@ pub(crate) mod listing_availability {
     }
 
     pub(crate) mod option {
-        pub(crate) use aura_historia_contracts::wire::listing::availability_option::{
-            deserialize, serialize,
-        };
-    }
-
-    pub(crate) mod patch_set {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<PatchValue<HashSet<ListingAvailability>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_set_code(deserializer, parse, None)
-        }
+        pub(crate) use aura_historia_contracts::wire::listing::availability_option::deserialize;
     }
 
     pub(crate) mod patch {
@@ -297,108 +163,6 @@ pub(crate) mod listing_availability {
         {
             deserialize_patch_code(deserializer, parse, None)
         }
-    }
-}
-
-pub(crate) mod measurement_unit {
-    use super::*;
-    use user_core::measurement_unit::MeasurementUnit;
-
-    pub(crate) mod option {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            value: &Option<MeasurementUnit>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_option_code(value, serializer, MeasurementUnit::as_str)
-        }
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<PatchValue<MeasurementUnit>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, MeasurementUnit::from_code, None)
-        }
-    }
-}
-
-pub(crate) mod user_tier {
-    use super::*;
-    use user_core::tier::UserTier;
-
-    pub(crate) fn serialize<S>(value: &UserTier, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, UserTier::as_str)
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PatchValue<UserTier>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, UserTier::from_code, None)
-        }
-    }
-}
-
-pub(crate) mod user_role {
-    use super::*;
-    use user_core::role::UserRole;
-
-    pub(crate) fn serialize<S>(value: &UserRole, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, UserRole::as_str)
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PatchValue<UserRole>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, UserRole::from_code, None)
-        }
-    }
-}
-
-pub(crate) mod search_filter_state {
-    use super::*;
-    use search_filter_core::search_filter_state::SearchFilterState;
-
-    pub(crate) fn serialize<S>(value: &SearchFilterState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, SearchFilterState::as_str)
-    }
-}
-
-pub(crate) mod watchlist_state {
-    use super::*;
-    use watchlist_core::watchlist_state::WatchlistState;
-
-    pub(crate) fn serialize<S>(value: &WatchlistState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, WatchlistState::as_str)
     }
 }
 
@@ -447,28 +211,6 @@ pub(crate) mod ingestion_method {
                 Some(&["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE", "PARTNER_API"]),
             )
         }
-    }
-}
-
-pub(crate) mod partnership_application_decision {
-    use super::*;
-    use notification_core::notification::PartnershipApplicationDecision;
-
-    fn code(value: PartnershipApplicationDecision) -> &'static str {
-        match value {
-            PartnershipApplicationDecision::Approved => "APPROVED",
-            PartnershipApplicationDecision::Rejected => "REJECTED",
-        }
-    }
-
-    pub(crate) fn serialize<S>(
-        value: &PartnershipApplicationDecision,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, code)
     }
 }
 
