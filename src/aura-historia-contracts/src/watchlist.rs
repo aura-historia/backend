@@ -106,6 +106,7 @@ pub struct ListWatchlistQueryData {
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
     pub currency: money::Currency,
+    #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
     /// JSON encoded [RFC3339 watchlist creation timestamp, ProductListing ID].
     pub search_after: Option<String>,
@@ -146,11 +147,13 @@ impl ListWatchlistQueryData {
 #[serde(rename_all = "camelCase")]
 pub struct CursoredWatchlistData {
     pub items: Vec<crate::product_listings::product_data::PersonalizedProductListingDetailsData>,
+    #[schemars(range(max = u64::MAX))]
     pub size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<(String, String)>")]
     pub search_after: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = u64::MAX))]
     pub total: Option<u64>,
 }
 

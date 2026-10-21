@@ -21,6 +21,8 @@ async fn should_match_advertised_input_schemas_for_required_optional_and_nullabl
                 (json!({"language":"xx"}), false),
                 (json!({"currency":"XXX"}), false),
                 (json!({"size":-1}), false),
+                (json!({"size":18446744073709551616_f64}), false),
+                (json!({"size":1.5}), false),
                 (json!({"size":"1"}), false),
                 (json!({"searchAfter":[]}), false),
                 (json!({"userId":user}), false),

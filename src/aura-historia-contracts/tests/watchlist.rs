@@ -157,6 +157,58 @@ fn should_preserve_list_defaults_clamping_and_timestamp_identifier_cursor() {
 }
 
 #[test]
+fn should_bound_list_size_to_the_exact_unsigned_range_without_changing_clamping() {
+    let schema = schema::<ListWatchlistQueryData>(true);
+    assert_eq!(
+        Some(u64::MAX),
+        schema["properties"]["size"]["maximum"].as_u64()
+    );
+    for (value, expected_size) in [
+        (json!({}), 21),
+        (json!({"size":null}), 21),
+        (json!({"size":0}), 1),
+        (json!({"size":u64::MAX}), 100),
+    ] {
+        assert!(jsonschema::is_valid(&schema, &value), "{value}");
+        let request = serde_json::from_value::<ListWatchlistQueryData>(value)
+            .unwrap()
+            .into_request(UserId::new())
+            .unwrap();
+        assert_eq!(expected_size, request.cursor.size);
+        assert_eq!(Language::En, request.language);
+        assert_eq!(Currency::Eur, request.currency);
+    }
+    let overflow: Value = serde_json::from_str(r#"{"size":18446744073709551616}"#).unwrap();
+    assert!(serde_json::from_value::<ListWatchlistQueryData>(overflow.clone()).is_err());
+    assert!(!jsonschema::is_valid(&schema, &overflow));
+}
+
+#[test]
+fn should_bound_output_page_counts_to_exact_unsigned_integers() {
+    let schema = schema::<CursoredWatchlistData>(false);
+    let overflow: Value = serde_json::from_str("18446744073709551616").unwrap();
+    for field in ["size", "total"] {
+        let property = &schema["properties"][field];
+        assert_eq!(Some(u64::MAX), property["maximum"].as_u64());
+        assert!(jsonschema::is_valid(property, &json!(u64::MAX)));
+        assert!(!jsonschema::is_valid(property, &overflow));
+    }
+    let page = CursoredWatchlistData::try_from(CursoredResult {
+        items: vec![],
+        cursor: Cursor {
+            size: 21,
+            search_after: None,
+        },
+        total: Some(u64::MAX),
+    })
+    .unwrap();
+    let value = serde_json::to_value(page).unwrap();
+    assert_eq!(Some(u64::MAX), value["total"].as_u64());
+    assert_eq!(json!({"items":[],"size":0,"total":u64::MAX}), value);
+    assert!(jsonschema::is_valid(&schema, &value));
+}
+
+#[test]
 fn should_serialize_entry_states_and_optional_timestamps_in_the_existing_shape() {
     let user = UserId::new();
     let product = ProductListingId::new();
