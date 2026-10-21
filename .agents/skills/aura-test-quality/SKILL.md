@@ -26,7 +26,7 @@ If a required local reference is missing, report `blocked`; do not invent a repl
    credentials before cleanup. Test state sequences, not only isolated happy paths.
 3. Check whether mocks omit DB constraints, row mapping, real transaction semantics,
    serialization/provider signatures or actual HTTP route/auth behavior. Identify where
-   isolated PostgreSQL, OpenSearch or LocalStack tests add necessary evidence. Never silently
+   isolated PostgreSQL, OpenSearch or Floci tests add necessary evidence. Never silently
    replace these with mocks to make the suite pass. Library tests may use infrastructure.
 4. Audit test discovery: library vs integration/binary/doctest targets, affected-crate
    selection, reverse dependents, CI path filters, generated resources and supported feature

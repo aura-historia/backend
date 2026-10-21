@@ -67,7 +67,8 @@ DTOs and constructors; transport wrappers may assemble path/query/body inputs
 but must not duplicate business fields or business behavior.
 
 Input schemas use Schemars deserialization direction; output schemas use
-serialization direction. Inputs must be objects, including tagged unions whose
+serialization direction. Unsigned integer schemas include the exact bounds of their wire
+types. Inputs must be objects, including tagged unions whose
 variants are all objects. Object results retain their shared DTO shape. Array,
 scalar, nullable or otherwise non-object root schemas use
 `{ "result": <shared response> }`, because legacy MCP output schemas
@@ -267,7 +268,8 @@ Credential management, billing and account deletion have no tools in this family
 ## Saved searches and match feedback
 
 All seven saved-search operations use the trusted delegated user's identity. Read and write
-capabilities remain independent; a write grant does not disclose saved searches or matches.
+capabilities remain independent; read operations require their read capability even when a
+write grant is present.
 Services enforce ownership, tier quotas, restricted criteria and shipping-destination acceptance.
 The family shares its [contracts and mappings](../src/aura-historia-contracts/src/saved_searches/mod.rs)
 with REST and calls the same inbound services directly.

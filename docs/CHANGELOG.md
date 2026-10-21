@@ -2,36 +2,14 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
-## 2026-10-21 — Scoped personalization on public MCP tools (#2247)
+## 2026-10-21 — Authenticated MCP and Aura OAuth (#2228)
 
-- The existing ten public listing, history, auction and source tools now pass validated Aura delegated credentials to the same service use cases as REST. Anonymous access, names and complete contracts remain available. Private listing sections follow their individual read scopes; hidden-item, tier and sensitive-image policy applies independently. Location discovery and public overview remain anonymous. See the [public MCP contract](mcp.md#public-catalogue).
-
-## 2026-10-21 — Aura OAuth discovery and protocol errors (#2241)
-
-- Publish public RFC 8414 metadata at `/.well-known/oauth-authorization-server` on the production/stage issuer. It advertises the corresponding webapp consent URL, canonical `/v1/oauth/token`, authorization code, S256 and `client_secret_post`, with the relevant ordinary-user scopes. Refresh grants, dynamic registration, CIMD, revocation/introspection discovery and authorization-response `iss` support are omitted.
-- OAuth authorization input and token/revocation/introspection failures now return standard OAuth JSON errors (`invalid_request`, `invalid_client`, `invalid_grant`, `unsupported_grant_type`, `unsupported_response_type`, `invalid_scope`, `invalid_target`) with fixed secret-free bodies. Invalid clients now uniformly return `401`; unknown authorize clients return `400 invalid_request`. REST client-management and first-party authentication/authority errors retain their existing vocabulary.
-- Reject duplicate parameters and malformed form/query encoding; keep standard form-urlencoded token/revocation requests. Credential responses and protocol errors include `Cache-Control: no-store` and `Pragma: no-cache`. Nonexpiring tokens omit `expires_in` and no refresh token is issued. See [OAuth](oauth.md) for fixed-client registration and exact callbacks.
-
-## 2026-10-21 — MCP notification inbox (#2246)
-
-- Add the six own-inbox tools using existing notification scopes, complete payloads and pagination. Selected-ID seen updates, all-seen updates and destructive single/delete-all operations preserve REST semantics and bodyless business acknowledgments. See the [notification MCP contract](mcp.md#notification-inbox).
-
-## 2026-10-21 — Authenticated MCP account and address tools (#2243)
-
-- Add all nine own-account, address-book and browsing-destination operations to the existing MCP endpoint. The tools reuse complete REST contracts and service authorization, including profile patch states, geographic resolution/attribution, pagination, address ownership and version conflicts. Reads require `users:read`; mutations require `users:write`. Address creation remains non-idempotent. See the [account tool contract](mcp.md#own-account-addresses-and-browsing-destination) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).
-
-## 2026-10-21 — Saved-search MCP tools (#2244)
-
-- Add all seven own saved-search and match-feedback operations with independent read/write scopes, complete shared REST criteria and patch semantics, existing tier/ownership checks, JSON match continuations and listing presentation. Matching remains scheduled and eventual; mutations are never automatically retried. See the [saved-search MCP contract](mcp.md#saved-searches-and-match-feedback).
-
-## 2026-10-21 — Shared Aura OAuth resource indicators (#2240)
-
-- `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource`. Use `https://mcp.aura-historia.com/v1` for MCP clients, or the corresponding stage identifier. Only exact configured REST/MCP identifiers are accepted; foreign, other-environment, empty and repeated values return `400 OAUTH_INVALID_RESOURCE`.
-- Authorization codes retain the selected identifier. Token requests can repeat it or omit it to inherit the binding; substituting another identifier fails. Existing integrations omitting `resource` retain the shared Aura default. Opaque access tokens remain valid across REST/MCP subject to their existing scopes and database revocation, with no blanket token migration or change to first-party default no-expiry approval. See the [OAuth contract](oauth.md).
-
-## 2026-10-21 — Per-request MCP Aura authentication (#2242)
-
-- The stable MCP endpoint accepts opaque Aura credentials, revalidates revocation, expiry and user suspension on every request, and challenges protected calls with HTTP `401`/`403` and their complete required scope set. Invalid supplied credentials never fall back to public execution; token-store outages return `503`. Both protected-resource metadata paths advertise the configured Aura issuer. Public tools permit anonymous access and scoped delegated behavior. See the [MCP authentication contract](mcp.md#operation-families-and-admission).
+- The stable MCP endpoint now exposes 38 operations: the existing 12 public tools plus 9 own-account/address/destination, 7 saved-search/match-feedback, 4 watchlist and 6 notification tools. Protected families retain complete shared REST contracts, independent read/write scopes, ownership, quotas, pagination and version conflicts. Mutations preserve their existing retry semantics and are never automatically retried. See the [MCP contract](mcp.md) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).
+- Ten public listing, history, auction and source tools accept validated delegated context. Private listing sections follow their individual read scopes; hidden-item, tier and sensitive-image policy applies independently. Anonymous access remains available, and location discovery and public overview remain anonymous. Published integer schemas include unsigned bounds matching the existing wire types.
+- MCP revalidates opaque Aura credentials, expiry, revocation and user suspension on every request. Protected calls use HTTP `401`/`403` challenges with resource metadata and complete required scope sets; invalid supplied credentials never become anonymous. Authentication-store outages return `503`. Both protected-resource metadata paths identify the exact MCP resource and matching Aura issuer.
+- `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource` from the configured environment's exact REST/MCP identifiers. Authorization codes retain that binding; exchange may repeat it or omit it to inherit the binding. Foreign, other-environment, empty, repeated or substituted resources return `400 invalid_target`. Existing integrations omitting `resource` retain the shared Aura default, and opaque tokens remain usable across both transports with their existing scopes and revocation.
+- Public RFC 8414 metadata at `/.well-known/oauth-authorization-server` advertises the matching browser consent URL, canonical `/v1/oauth/token`, authorization code, S256 and `client_secret_post`. It omits refresh grants, dynamic registration, CIMD, revocation/introspection discovery and authorization-response `iss` support. First-party approval still defaults to nonexpiring tokens, which omit `expires_in`; no token migration or refresh token is introduced.
+- OAuth authorization input and token/revocation/introspection failures use standard, secret-free OAuth JSON errors. Invalid clients return `401 invalid_client`; unknown authorization clients return `400 invalid_request`. Duplicate parameters and malformed form/query encoding are rejected. Credential responses, redirects and protocol errors carry `Cache-Control: no-store` and `Pragma: no-cache`. REST client-management and first-party authentication/authority errors retain their existing vocabulary. See the [OAuth contract](oauth.md).
 
 ## 2026-10-20 — Complete listing-search filter documentation (#2235)
 
