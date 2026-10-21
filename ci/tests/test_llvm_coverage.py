@@ -245,6 +245,8 @@ class CompiledCoverageObjects(unittest.TestCase):
             managed = coverage_environment(base, "managed")
             doctests = coverage_environment(managed, "doctests")
             self.assertNotEqual(managed["LLVM_PROFILE_FILE"], doctests["LLVM_PROFILE_FILE"])
+            self.assertEqual(pathlib.Path(managed["LLVM_PROFILE_FILE"]).name, "%b-%4m.profraw")
+            self.assertEqual(pathlib.Path(doctests["LLVM_PROFILE_FILE"]).name, "%b-%4m.profraw")
             self.assertEqual(managed["AWS_ACCESS_KEY_ID"], "test")
             self.assertEqual(managed["RUSTFLAGS"], doctests["RUSTFLAGS"])
             self.assertTrue(pathlib.Path(doctests["LLVM_PROFILE_FILE"]).parent.is_dir())

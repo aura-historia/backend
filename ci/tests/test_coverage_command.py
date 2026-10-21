@@ -71,7 +71,7 @@ if not os.environ.get('FIXTURE_EMPTY'):
         self.environment["FIXTURE_EMPTY"] = "1"
         self.assertNotEqual(self.collect().returncode, 0)
 
-    def test_lane_and_legacy_configuration_emit_distinct_bounded_profile_namespaces(self):
+    def test_lane_and_legacy_configuration_reset_fresh_bounded_profile_namespaces(self):
         action = SCRIPT.parents[1] / '.github/actions/test-lane/action.yml'
         block = action.read_text().split('      run: |\n', 1)[1].split('\n    - name:', 1)[0]
         script = textwrap.dedent(block)
@@ -80,16 +80,25 @@ if not os.environ.get('FIXTURE_EMPTY'):
             with self.subTest(lane=lane, attempt=attempt):
                 destination = self.root / (lane + '-' + attempt + '.env')
                 temporary = self.root / 'runner temp'
+                namespace = temporary / 'coverage' / lane
+                stale = namespace / 'profiles/discovery/stale.profraw'
+                stale.parent.mkdir(parents=True, exist_ok=True)
+                stale.write_bytes(b'previous invocation')
+                previous_report = namespace / (lane + '.lcov')
+                previous_report.write_text('previous report')
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], env=dict(self.environment,
                     LANE_ID=lane, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT=attempt,
                     GITHUB_ENV=str(destination), RUNNER_TEMP=str(temporary), GITHUB_WORKSPACE=str(self.root)),
                     text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 emitted = dict(line.split('=', 1) for line in destination.read_text().splitlines())
-                expected = str(temporary / 'coverage' / lane / 'profraw' / f'123-{attempt}-{lane}-%b-%4m.profraw')
+                expected = str(namespace / 'profiles/discovery/%b-%4m.profraw')
                 self.assertEqual(emitted['LLVM_PROFILE_FILE'], expected)
+                self.assertFalse(stale.exists())
+                self.assertFalse(previous_report.exists())
                 profiles.append(expected)
-        self.assertEqual(len(set(profiles)), len(profiles))
+        self.assertEqual(profiles[0], profiles[1])
+        self.assertNotEqual(profiles[0], profiles[2])
 
 
 if __name__ == "__main__":

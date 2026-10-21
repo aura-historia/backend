@@ -46,7 +46,7 @@ class LaneMeasurementCommands(unittest.TestCase):
         self.assertEqual(environment["RUSTFLAGS"], "-C instrument-coverage -Zcoverage-options=branch")
         self.assertEqual(environment["RUSTDOCFLAGS"], environment["RUSTFLAGS"])
         self.assertEqual(environment["AURA_CI_RUSTDOC"], "/nightly/rustdoc")
-        self.assertEqual(environment["LLVM_PROFILE_FILE"], "/evidence/profiles/discovery/%p-%m.profraw")
+        self.assertEqual(environment["LLVM_PROFILE_FILE"], "/evidence/profiles/discovery/%b-%4m.profraw")
         self.assertEqual(environment["CARGO_PROFILE_TEST_DEBUG"], environment["CARGO_PROFILE_DEV_DEBUG"])
         with patch.object(execution, "optional_command", return_value="selected-toolchain") as command:
             record = execution.environment_metadata(self.root, environment)

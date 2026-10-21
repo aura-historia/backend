@@ -90,8 +90,12 @@ object metadata, including child binaries, the supervisor and repository
 proc-macro shared libraries. Rustdoc retains
 objects separately per crate so merged doctests cannot overwrite another crate's
 executable. The driver requires every lane-owned doctest target to complete.
-Fresh phase profile directories retain process/module identity. Compilation and
-discovery profiles preserve macro-expansion coverage separately from test execution;
+Required lanes, legacy controls and lane diagnostics use fresh phase profile
+directories with binary/module identity and LLVM's `%b-%4m`
+[online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program).
+Up to four locked files per build ID/module signature limit profile multiplication
+from test processes within each phase; they do not bound total workspace bytes.
+Compilation and discovery profiles preserve macro-expansion coverage separately from test execution;
 they cannot replace required execution profiles. Cached builds contribute only the
 compiler work actually performed. Object paths, profiles and compiler versions
 are retained with test diagnostics. Each Nextest invocation preserves its JUnit
@@ -122,12 +126,6 @@ diagnostics use the same pinned nightly coverage configuration. Historical stabl
 grcov measurements retain their original source/configuration and cannot establish
 equivalence with this instrumentation. The original package baseline collector
 remains available for historical diagnostics.
-
-Current lanes, legacy controls and lane diagnostics use LLVM's `%b-%4m`
-[online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program):
-up to four locked profile files per build ID/module signature within each fresh
-phase or diagnostic output namespace. This limits file multiplication from separate
-test processes; it does not bound the workspace's total profile bytes.
 
 `--discover` refreshes `cargo nextest list --locked --workspace --all-features
 --all-targets`, compares every case and ignored flag with each binary's libtest

@@ -101,5 +101,5 @@ def coverage_environment(environment, phase):
     if directory := result.get("AURA_CI_COVERAGE_DIR"):
         profiles = pathlib.Path(directory) / "profiles" / phase
         profiles.mkdir(parents=True, exist_ok=True)
-        result["LLVM_PROFILE_FILE"] = str(profiles / "%p-%m.profraw")
+        result["LLVM_PROFILE_FILE"] = str(profiles / "%b-%4m.profraw")
     return result
