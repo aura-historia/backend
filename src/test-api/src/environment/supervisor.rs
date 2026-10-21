@@ -132,6 +132,23 @@ async fn cleanup(run: &str, dir: &Path) -> Result<()> {
     result
 }
 
+fn initialize_run(root: &Path, run: &str) -> Result<(PathBuf, File)> {
+    // Publish the directory only after its lock and ownership record exist. Concurrent
+    // GC must never observe a half-initialized live invocation.
+    let pending = root.join(format!(".pending-{run}"));
+    directory(&pending)?;
+    let lock = lock(&pending)?.ok_or_else(|| invalid("new run lock unexpectedly held"))?;
+    let dir = root.join(run);
+    let owner = Owner {
+        schema_version: 1,
+        run_id: run.into(),
+        uid: unsafe { libc::geteuid() },
+    };
+    std::fs::write(pending.join("owner.json"), serde_json::to_vec(&owner)?)?;
+    std::fs::rename(&pending, &dir)?;
+    Ok((dir, lock))
+}
+
 pub(super) async fn run(
     profile: Profile,
     slots: u16,
@@ -150,19 +167,7 @@ pub(super) async fn run(
     let mut signals = process::Signals::install()?;
     gc(root).await?;
     let run = uuid::Uuid::new_v4().simple().to_string();
-    // Publish the directory only after its lock and ownership record exist. Concurrent
-    // GC must never observe a half-initialized live invocation.
-    let pending = root.join(format!(".pending-{run}"));
-    directory(&pending)?;
-    let _lock = lock(&pending)?.ok_or_else(|| invalid("new run lock unexpectedly held"))?;
-    let dir = root.join(&run);
-    let owner = Owner {
-        schema_version: 1,
-        run_id: run.clone(),
-        uid: unsafe { libc::geteuid() },
-    };
-    std::fs::write(pending.join("owner.json"), serde_json::to_vec(&owner)?)?;
-    std::fs::rename(&pending, &dir)?;
+    let (dir, _lock) = initialize_run(root, &run)?;
     let started = Instant::now();
     let result = tokio::select! {
         result=services::bootstrap(&run,profile,slots,&dir)=>result,
