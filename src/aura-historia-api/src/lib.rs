@@ -73,7 +73,6 @@ use billing_service::use_cases::{
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use embedding::VertexAiEmbeddingConfig;
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -1229,7 +1228,6 @@ async fn app_state_from_config_and_runtime(
     ));
     let public_auctions = runtime.public_auctions();
     let address_book = runtime.private_addresses();
-    let shipping = runtime.listing_shipping().clone();
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
