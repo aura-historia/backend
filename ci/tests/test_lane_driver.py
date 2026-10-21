@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 CI = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CI))
+from ci_inventory import process as process_owner
 SPEC = importlib.util.spec_from_file_location("lane_driver", CI / "run-test-lane.py")
 DRIVER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DRIVER)
@@ -62,6 +63,21 @@ class LaneDriverExecution(unittest.TestCase):
             source.write_text("stale")
             DRIVER.execute([sys.executable, "-c", "pass"], root, environment, junit=root / "output/empty-junit.xml")
             self.assertFalse((root / "output/empty-junit.xml").exists())
+
+    def test_junit_stat_or_copy_errors_preserve_the_original_child_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "target/nextest/default/junit.xml"
+            source.parent.mkdir(parents=True)
+            child = "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('report'); raise SystemExit(37)"
+            for method in ("is_file", "copyfile"):
+                target = pathlib.Path if method == "is_file" else process_owner.shutil
+                with self.subTest(method=method), patch.object(target, method, side_effect=PermissionError("diagnostic denied")) as preserve:
+                    with self.assertRaises(SystemExit) as failure:
+                        DRIVER.execute([sys.executable, "-c", child, str(source)], root, os.environ,
+                                       junit=root / "retained.xml")
+                    self.assertEqual(failure.exception.code, 37)
+                    preserve.assert_called_once()
 
     def test_spawn_failure_restores_signal_handlers(self):
         before = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
@@ -225,6 +241,7 @@ class LaneDriverPhases(unittest.TestCase):
             DRIVER.managed_phase(self.args, self.root, self.selection, {})
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0][:3], ['cargo', 'nextest', 'run'])
+
     def test_missing_doctest_completion_marker_fails_and_complete_markers_use_separate_profiles(self):
         self.selection["doctest_targets"] = ["example::lib::example"]
         coverage = self.root / "coverage"

@@ -11,13 +11,15 @@ import time
 
 
 def preserve_junit(report, destination):
-    if destination is not None and report.is_file():
-        try:
+    if destination is None:
+        return None
+    try:
+        if report.is_file():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(report, destination)
-        except OSError as error:
-            print(f"test lane: could not preserve JUnit: {error}", file=sys.stderr)
-            return error
+    except OSError as error:
+        print(f"test lane: could not preserve JUnit: {error}", file=sys.stderr)
+        return error
     return None
 
 
