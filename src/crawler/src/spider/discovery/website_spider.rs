@@ -705,33 +705,31 @@ struct RobotsBlockedTracker {
     first_url: OnceLock<String>,
 }
 
-/// Decodes HTML character references in the links Spider finds, as a browser does for an
-/// `href`. Spider reads attribute values raw, so `?c=&amp;id=113` would otherwise be requested
-/// with an `amp;id` parameter and answered with the wrong page.
+/// Decodes HTML character references in the links Spider finds. Spider reads `href` values
+/// raw, so `?c=&amp;id=113` would otherwise be requested with an `amp;id` parameter and
+/// answered with the wrong page. Spider has already resolved the link against the page URL, so
+/// this fixes references in the query and path text, not references that encode URL structure.
 ///
 /// Spider admits a link (host whitelist, URL blacklist, robots.txt) on that raw text before it
 /// calls the decoder, so the decoded URL is only handed back when it passes the same rules;
 /// otherwise Spider fetches the raw link it admitted.
 struct FoundLinkDecoder {
     host_whitelist: Regex,
-    /// Set from Spider's own parser before the crawl starts; while unset, nothing is decoded.
-    robots: OnceLock<Box<RobotFileParser>>,
+    /// Spider's own parser, absent when Spider does not enforce robots.txt for the crawl.
+    robots: Option<Box<RobotFileParser>>,
 }
 
 impl FoundLinkDecoder {
-    fn new(host_whitelist: &str) -> Result<Self, SpiderDiscoveryError> {
-        let host_whitelist = Regex::new(host_whitelist).map_err(|_| {
-            SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
-        })?;
-        Ok(Self {
-            host_whitelist,
-            robots: OnceLock::new(),
-        })
-    }
-
     fn decode(&self, link: CaseInsensitiveString) -> CaseInsensitiveString {
-        match html_escape::decode_html_entities(link.inner()) {
-            Cow::Owned(decoded) if self.admits(&decoded) => decoded.into(),
+        let Cow::Owned(decoded) = html_escape::decode_html_entities(link.inner()) else {
+            return link;
+        };
+        // Spider judges the resolved text and reqwest requests the parsed form, which
+        // can differ (parsing turns `\` into `/` and collapses `..`), so both must pass.
+        match Url::parse(&decoded) {
+            Ok(url) if self.admits(&decoded) && self.admits(url.as_str()) => {
+                String::from(url).into()
+            }
             _ => link,
         }
     }
@@ -741,8 +739,8 @@ impl FoundLinkDecoder {
             && !CrawledUrl::is_blacklisted_url(url)
             && self
                 .robots
-                .get()
-                .is_some_and(|robots| robots.can_fetch(CRAWLER_USER_AGENT, url))
+                .as_ref()
+                .is_none_or(|robots| robots.can_fetch(CRAWLER_USER_AGENT, url))
     }
 }
 
@@ -777,7 +775,9 @@ impl SpiderImpl {
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
-        let link_decoder = Arc::new(FoundLinkDecoder::new(&host_whitelist)?);
+        let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
+            SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
+        })?;
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client.clone());
 
@@ -815,10 +815,6 @@ impl SpiderImpl {
                 robots_callback.count.fetch_add(1, Ordering::Relaxed);
                 let _ = robots_callback.first_url.set(url);
             }))
-            .with_on_link_find_callback(Some({
-                let link_decoder = Arc::clone(&link_decoder);
-                Arc::new(move |link, html| (link_decoder.decode(link), html))
-            }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
 
@@ -828,12 +824,18 @@ impl SpiderImpl {
         let max_pages_per_crawl = self.config.max_pages_per_crawl;
         tokio::spawn(async move {
             let started = tokio::time::Instant::now();
-            // Spider skips its own robots.txt fetch once the parser is loaded, so the
-            // decoder checks decoded links against the rules Spider enforces.
-            website.configure_robots_parser(&client).await;
-            if let Some(robots) = website.get_robots_parser() {
-                let _ = link_decoder.robots.set(robots.clone());
+            // Load robots.txt the way Spider's setup would, which then skips its own fetch,
+            // so the decoder checks decoded links against the rules Spider enforces.
+            if !website.single_page() {
+                website.configure_robots_parser(&client).await;
             }
+            let link_decoder = FoundLinkDecoder {
+                host_whitelist: host_whitelist_regex,
+                robots: website.get_robots_parser().clone(),
+            };
+            website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
+                (link_decoder.decode(link), html)
+            })));
             website.crawl().await;
             let outcome = LibraryOutcome {
                 completion: crawl_completion(
@@ -1575,12 +1577,13 @@ mod tests {
 
     fn link_decoder_with_robots(robots_txt: &str) -> FoundLinkDecoder {
         let root = Url::parse("https://www.example.com/").unwrap();
-        let decoder = FoundLinkDecoder::new(&configured_host_whitelist(&root).unwrap()).unwrap();
         let mut robots = RobotFileParser::new();
         robots.parse(&robots_txt.lines().collect::<Vec<_>>());
         robots.modified();
-        let _ = decoder.robots.set(robots);
-        decoder
+        FoundLinkDecoder {
+            host_whitelist: Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
+            robots: Some(robots),
+        }
     }
 
     fn decode_link(decoder: &FoundLinkDecoder, link: &str) -> String {
@@ -1603,6 +1606,11 @@ mod tests {
             (
                 "https://www.example.com/index.php?category=26245&amp;page=3",
                 "https://www.example.com/index.php?category=26245&page=3",
+            ),
+            // The decoded URL is returned in the form reqwest requests.
+            (
+                "https://www.example.com/caf&eacute;?a=1&amp;b=2",
+                "https://www.example.com/caf%C3%A9?a=1&b=2",
             ),
             (
                 "https://www.example.com/literal?x=1&y=2",
@@ -1631,15 +1639,6 @@ mod tests {
         ] {
             assert_eq!(decode_link(&decoder, link), link);
         }
-    }
-
-    #[test]
-    fn link_decoder_should_keep_raw_link_until_robots_txt_is_loaded() {
-        let root = Url::parse("https://www.example.com/").unwrap();
-        let decoder = FoundLinkDecoder::new(&configured_host_whitelist(&root).unwrap()).unwrap();
-        let link = "https://www.example.com/shop?currency=EUR&amp;page=8";
-
-        assert_eq!(decode_link(&decoder, link), link);
     }
 
     #[test]
