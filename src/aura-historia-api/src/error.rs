@@ -909,6 +909,15 @@ impl From<DeleteOwnedSearchFilterError> for ApiError {
     }
 }
 
+impl From<aura_historia_contracts::saved_searches::MatchCursorOutputError> for ApiError {
+    fn from(error: aura_historia_contracts::saved_searches::MatchCursorOutputError) -> Self {
+        let mut response = Self::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+            .with_detail("Search-filter match cursor failed internally.");
+        response.cause = Some(application::error::box_error(error));
+        response
+    }
+}
+
 impl From<ListSearchFilterMatchesError> for ApiError {
     fn from(error: ListSearchFilterMatchesError) -> Self {
         match error {

@@ -2,7 +2,7 @@ use super::types::{SearchFilterMatchesData, SearchFilterMatchesQuery};
 use super::util::{no_store, parse_json_query, parse_search_filter_id};
 use crate::{
     auth::protected_context,
-    error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR},
+    error::{ApiError, BAD_QUERY_PARAMETER_VALUE},
     state::SearchFiltersState,
 };
 use axum::{
@@ -82,9 +82,7 @@ pub(super) async fn list_search_filter_matches(
     {
         Ok(result) => match SearchFilterMatchesData::try_from(result) {
             Ok(data) => no_store(Json(data).into_response()),
-            Err(_) => ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
-                .with_detail("Search-filter match cursor failed internally.")
-                .into_response(),
+            Err(error) => ApiError::from(error).into_response(),
         },
         Err(error) => ApiError::from(error).into_response(),
     }
@@ -163,6 +161,74 @@ mod tests {
             let parsed: ListSearchFilterMatchesQuery = crate::wire::from_query_str(raw).unwrap();
             assert_eq!(expected, parsed.size.unwrap().0);
         }
+    }
+
+    #[test]
+    fn should_decode_all_match_query_members_with_form_encoded_continuation() {
+        let product_listing_id = ProductListingId::new();
+        let created = "2026-10-21T12:00:00.123456789+02:00";
+        let cursor = json!([created, product_listing_id]).to_string();
+        let raw = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("language", "de-CH")
+            .append_pair("currency", "JPY")
+            .append_pair("size", &u64::MAX.to_string())
+            .append_pair("searchAfter", &cursor)
+            .finish();
+        let mut parsed: ListSearchFilterMatchesQuery = crate::wire::from_query_str(&raw).unwrap();
+        parsed.query.size = parsed.size.map(|size| size.0);
+        let search_after = parsed
+            .search_after
+            .map(|raw| parse_json_query(&raw, "searchAfter").unwrap());
+        let request = parsed
+            .query
+            .into_request(Default::default(), Default::default(), search_after)
+            .unwrap();
+        assert_eq!(Language::De, request.language);
+        assert_eq!(Currency::Jpy, request.currency);
+        let cursor = request.cursor.unwrap();
+        assert_eq!(100, cursor.size);
+        let cursor = cursor.search_after.unwrap();
+        assert_eq!(product_listing_id, cursor.product_listing_id);
+        assert_eq!(
+            OffsetDateTime::parse(created, &Rfc3339).unwrap(),
+            cursor.created
+        );
+    }
+
+    #[test]
+    fn should_preserve_match_cursor_formatting_cause_without_changing_safe_http_error() {
+        use std::error::Error;
+
+        let cursor = search_filter_service::ports::SearchFilterMatchCursor {
+            created: time::Date::from_calendar_date(-1, time::Month::January, 1)
+                .unwrap()
+                .midnight()
+                .assume_utc(),
+            product_listing_id: ProductListingId::new(),
+        };
+        let error = ApiError::from(matches_cursor_value(cursor).unwrap_err());
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .source()
+                .unwrap()
+                .downcast_ref::<time::error::Format>()
+                .is_some()
+        );
+        assert_eq!(
+            "HTTP 500 - SEARCH_FILTER_INTERNAL_ERROR: Search-filter match cursor failed internally.",
+            error.to_string()
+        );
+        assert_eq!(
+            json!({
+                "status": 500,
+                "title": "Internal Server Error",
+                "error": "SEARCH_FILTER_INTERNAL_ERROR",
+                "detail": "Search-filter match cursor failed internally."
+            }),
+            serde_json::to_value(error).unwrap()
+        );
     }
 
     #[test]
