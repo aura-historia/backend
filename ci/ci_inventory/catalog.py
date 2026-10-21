@@ -108,6 +108,15 @@ def package_owners(manifest, expected):
     return owners
 
 
+def select_packages(manifest, packages):
+    """Project already validated package owners into Cargo arguments and targets."""
+    targets = [target for name in packages for target in manifest["packages"][name]["targets"]]
+    return {"packages": packages,
+            "package_args": [argument for name in packages for argument in ("--package", name)],
+            "targets": sorted(target["id"] for target in targets),
+            "doctest_targets": sorted(target["id"] for target in targets if target["doctest"])}
+
+
 def lane_selection(manifest, expected, lane):
     """Emit package arguments and complete target ownership for one lane."""
     if lane not in LANES:
@@ -116,11 +125,7 @@ def lane_selection(manifest, expected, lane):
     packages = sorted(name for name, owner in owners.items() if owner == lane)
     if not packages:
         raise ValueError(f"Test lane has no packages: {lane}")
-    targets = [target for name in packages for target in manifest["packages"][name]["targets"]]
-    return {"lane": lane, "packages": packages,
-            "package_args": [argument for name in packages for argument in ("--package", name)],
-            "targets": sorted(target["id"] for target in targets),
-            "doctest_targets": sorted(target["id"] for target in targets if target["doctest"])}
+    return {"lane": lane, **select_packages(manifest, packages)}
 
 
 def tree_features(argv, cwd, output):
