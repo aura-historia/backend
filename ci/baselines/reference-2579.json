@@ -1,0 +1,463 @@
+{
+  "controlled_cold_warm": false,
+  "coverage": {
+    "expanded_bytes": 85557806,
+    "per_report_record_sum": {
+      "branches": {
+        "found": 0,
+        "hit": 0
+      },
+      "functions": {
+        "found": 283865,
+        "hit": 43394
+      },
+      "lines": {
+        "found": 1600710,
+        "hit": 337890
+      }
+    },
+    "record_sum_method": "Sum per-report distinct records. This is the concatenated LCOV record population, not unique source coverage.",
+    "report_count": 110,
+    "run_id": 39579788255,
+    "sonar_reported_totals": null,
+    "source_record_count": 17176,
+    "sources_in_multiple_reports": 589,
+    "union": {
+      "branches": {
+        "found": 0,
+        "hit": 0,
+        "percent": null
+      },
+      "functions": {
+        "found": 38600,
+        "hit": 26996,
+        "percent": 69.937824
+      },
+      "lines": {
+        "found": 255404,
+        "hit": 235806,
+        "percent": 92.326667
+      }
+    },
+    "union_method": "Any positive hit across reports; line=(SF,line), function=(SF,name), branch=(SF,line,block,branch). Branch identifiers are producer identifiers and may not be comparable across separately compiled binaries.",
+    "unique_source_files": 1132
+  },
+  "evidence_hashes": {
+    "raw/jobs-39579788255-all.json": "284c4ac2bd8d790eb16e711ba6538914bc77727dc17dec6ae6f8d3befdf83491",
+    "raw/logs-39579788255.zip": "4b4e40b809f90fcea8291e9d68f94383128acd2a8953e8f910701d769afe0e7c",
+    "raw/run-39579788255.json": "70f387679207a2331a251d3dc25c76cef183bf267dd1684bc2f853b6ef6be1f0"
+  },
+  "harness_totals": {
+    "failed": 0,
+    "ignored": 5,
+    "passed": 5543
+  },
+  "job_count": 113,
+  "kind": "HISTORICAL_OBSERVATIONS",
+  "limitations": [
+    "These observations are not controlled cold/warm pairs or repeated same-SHA samples.",
+    "Step times have one-second API resolution; cargo compile/link times use Cargo output rounding.",
+    "Dependency-ready-to-start includes scheduler overhead and runner availability, not an isolated runner queue measurement.",
+    "Harness time includes fixture work and scheduling; it is not isolated test body time.",
+    "Only selected non-reference job logs were downloaded; absent log observations are null.",
+    "Coverage union here is an explicitly described derived metric, not SonarCloud native totals."
+  ],
+  "missing_measurements": [
+    "REPEATED_SAME_REVISION_PAIRS",
+    "FIXTURE_STARTUP_RESET",
+    "BODY_WITHOUT_FIXTURES",
+    "PEAK_RSS_DISK",
+    "EXECUTED_CONTAINER_DIGESTS"
+  ],
+  "run": {
+    "category": "workspace-fixture",
+    "created_at": "2026-10-21T09:48:20Z",
+    "event": "pull_request",
+    "jobs_with_checkout_observed": 113,
+    "last_job_completed_at": "2026-10-21T10:14:40Z",
+    "observed_checkout_revisions": [
+      "cd92443039846187a96ae0113d7b991aeeb4127d"
+    ],
+    "revision": "cd92443039846187a96ae0113d7b991aeeb4127d",
+    "run_attempt": 1,
+    "run_head_revision": "080d2b2c4a07b280f8a10a1fc8018b4041fea746",
+    "run_id": 39579788255,
+    "run_number": 2579,
+    "test_job_count": 110,
+    "title": "feat(#2327): replace LocalStack Pro integration fixtures with Floci",
+    "url": "https://github.com/aura-historia/backend/actions/runs/39579788255",
+    "workflow_created_to_last_job_seconds": 1580.0
+  },
+  "schema_version": 1,
+  "selected_package_observations": [
+    {
+      "job_id": 119154663188,
+      "name": "Test src/aura-historia-api",
+      "observations": {
+        "cache": {
+          "classification": "restored-exact-key",
+          "controlled_cold_warm": false,
+          "restored_key": "v0-rust-test-Linux-x64-9e3f499c-3b1c3aaf",
+          "size_bytes": 274697193
+        },
+        "cargo_reported_compile_link_seconds": [
+          370.0
+        ],
+        "executed_checkout_revision": "cd92443039846187a96ae0113d7b991aeeb4127d",
+        "executed_container_image_digests": null,
+        "fixture_reset_seconds": null,
+        "fixture_startup_seconds": null,
+        "harness_totals": {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 929,
+          "seconds": 615.47
+        },
+        "peak_disk_bytes": null,
+        "peak_rss_kib": null,
+        "runner": {
+          "cpu_count": null,
+          "image": "ubuntu-24.04",
+          "image_version": "20261012.334.1",
+          "memory_bytes": null,
+          "version": "2.337.0"
+        },
+        "source_log": "raw/job-119154663188.log",
+        "source_sha256": "86823815b26a6f972f4e15ac973a9b85c80ae1c3301fac97ebb8a262f09b956e",
+        "test_body_without_fixture_seconds": null,
+        "toolchain": "1.98.0-x86_64-unknown-linux-gnu"
+      },
+      "seconds": 1063.0,
+      "stages": [
+        {
+          "name": "Set up job",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "seconds": 2.0,
+          "status": "success"
+        },
+        {
+          "name": "Log in to GHCR",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Install Toolchain",
+          "seconds": 11.0,
+          "status": "success"
+        },
+        {
+          "name": "Run Swatinem/rust-cache@v2",
+          "seconds": 4.0,
+          "status": "success"
+        },
+        {
+          "name": "Create coverage output directory",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Test src/aura-historia-api",
+          "seconds": 990.0,
+          "status": "success"
+        },
+        {
+          "name": "Add Cargo bin to PATH",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Install grcov",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Generate coverage for src/aura-historia-api",
+          "seconds": 47.0,
+          "status": "success"
+        },
+        {
+          "name": "Upload coverage for src/aura-historia-api",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Prune Docker volumes",
+          "seconds": 3.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Log in to GHCR",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Complete job",
+          "seconds": 0.0,
+          "status": "success"
+        }
+      ]
+    },
+    {
+      "job_id": 119154663271,
+      "name": "Test src/money",
+      "observations": {
+        "cache": {
+          "classification": "restored-exact-key",
+          "controlled_cold_warm": false,
+          "restored_key": "v0-rust-test-Linux-x64-9e3f499c-3b1c3aaf",
+          "size_bytes": 274697193
+        },
+        "cargo_reported_compile_link_seconds": [
+          16.73
+        ],
+        "executed_checkout_revision": "cd92443039846187a96ae0113d7b991aeeb4127d",
+        "executed_container_image_digests": null,
+        "fixture_reset_seconds": null,
+        "fixture_startup_seconds": null,
+        "harness_totals": {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 4,
+          "seconds": 0.0
+        },
+        "peak_disk_bytes": null,
+        "peak_rss_kib": null,
+        "runner": {
+          "cpu_count": null,
+          "image": "ubuntu-24.04",
+          "image_version": "20261012.334.1",
+          "memory_bytes": null,
+          "version": "2.337.0"
+        },
+        "source_log": "raw/job-119154663271.log",
+        "source_sha256": "b7d94951a2ed3b46e59dc2acefc40767bb35217d2f39b0c40b04a4dbf25d4217",
+        "test_body_without_fixture_seconds": null,
+        "toolchain": "1.98.0-x86_64-unknown-linux-gnu"
+      },
+      "seconds": 41.0,
+      "stages": [
+        {
+          "name": "Set up job",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Log in to GHCR",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Install Toolchain",
+          "seconds": 11.0,
+          "status": "success"
+        },
+        {
+          "name": "Run Swatinem/rust-cache@v2",
+          "seconds": 4.0,
+          "status": "success"
+        },
+        {
+          "name": "Create coverage output directory",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Test src/money",
+          "seconds": 17.0,
+          "status": "success"
+        },
+        {
+          "name": "Add Cargo bin to PATH",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Install grcov",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Generate coverage for src/money",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Upload coverage for src/money",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Prune Docker volumes",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Log in to GHCR",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Complete job",
+          "seconds": 0.0,
+          "status": "success"
+        }
+      ]
+    },
+    {
+      "job_id": 119154668040,
+      "name": "Test src/test-api",
+      "observations": {
+        "cache": {
+          "classification": "restored-exact-key",
+          "controlled_cold_warm": false,
+          "restored_key": "v0-rust-test-Linux-x64-9e3f499c-3b1c3aaf",
+          "size_bytes": 274697193
+        },
+        "cargo_reported_compile_link_seconds": [
+          158.0
+        ],
+        "executed_checkout_revision": "cd92443039846187a96ae0113d7b991aeeb4127d",
+        "executed_container_image_digests": null,
+        "fixture_reset_seconds": null,
+        "fixture_startup_seconds": null,
+        "harness_totals": {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 40,
+          "seconds": 99.9
+        },
+        "peak_disk_bytes": null,
+        "peak_rss_kib": null,
+        "runner": {
+          "cpu_count": null,
+          "image": "ubuntu-24.04",
+          "image_version": "20261012.334.1",
+          "memory_bytes": null,
+          "version": "2.337.0"
+        },
+        "source_log": "raw/job-119154668040.log",
+        "source_sha256": "0abfa63b40c8759de40ae24fc487199f82b3d21ff42124e89460aca0f2d7b02f",
+        "test_body_without_fixture_seconds": null,
+        "toolchain": "1.98.0-x86_64-unknown-linux-gnu"
+      },
+      "seconds": 306.0,
+      "stages": [
+        {
+          "name": "Set up job",
+          "seconds": 2.0,
+          "status": "success"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Log in to GHCR",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Install Toolchain",
+          "seconds": 11.0,
+          "status": "success"
+        },
+        {
+          "name": "Run Swatinem/rust-cache@v2",
+          "seconds": 4.0,
+          "status": "success"
+        },
+        {
+          "name": "Create coverage output directory",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Test src/test-api",
+          "seconds": 262.0,
+          "status": "success"
+        },
+        {
+          "name": "Add Cargo bin to PATH",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Install grcov",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Generate coverage for src/test-api",
+          "seconds": 21.0,
+          "status": "success"
+        },
+        {
+          "name": "Upload coverage for src/test-api",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Prune Docker volumes",
+          "seconds": 1.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Log in to GHCR",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "seconds": 0.0,
+          "status": "success"
+        },
+        {
+          "name": "Complete job",
+          "seconds": 1.0,
+          "status": "success"
+        }
+      ]
+    }
+  ]
+}

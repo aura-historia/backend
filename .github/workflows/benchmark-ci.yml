@@ -1,0 +1,108 @@
+name: CI Baseline Measurements
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full immutable commit SHA to measure (must contain this workflow and collector)
+        required: true
+        type: string
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  baseline:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'ci/benchmark' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    name: Baseline ${{ matrix.scenario.id }} ${{ matrix.repeat }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        scenario:
+          - { id: LEAF, package: money }
+          - { id: API, package: aura-historia-api }
+          - { id: FIXTURE, package: test-api }
+        repeat: [1, 2]
+    env:
+      CARGO_BUILD_JOBS: 4
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Validate immutable revision
+        id: revision
+        env:
+          REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.revision }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          printf 'sha=%s\n' "$REVISION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.revision.outputs.sha }}
+          persist-credentials: false
+
+      - name: Verify checkout and toolchain
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          rustup show
+          mkdir -p "$RUNNER_TEMP/baseline/tools"
+
+      - name: Install verified grcov 0.10.7
+        run: |
+          curl --fail --location --silent --show-error --retry 3 https://github.com/mozilla/grcov/releases/download/v0.10.7/grcov-x86_64-unknown-linux-gnu.tar.bz2 -o "$RUNNER_TEMP/baseline/tools/grcov.tar.bz2"
+          printf '%s  %s\n' f9d0de258c737659fbf2c88e861784f392a784b52425b23f901d5e0cecdfd581 "$RUNNER_TEMP/baseline/tools/grcov.tar.bz2" | sha256sum --check
+          tar -xjf "$RUNNER_TEMP/baseline/tools/grcov.tar.bz2" -C "$RUNNER_TEMP/baseline/tools" grcov
+          echo "$RUNNER_TEMP/baseline/tools" >> "$GITHUB_PATH"
+
+      - name: Fetch fixed fixture image policy
+        if: matrix.scenario.id != 'LEAF'
+        run: |
+          python3 -c 'import pathlib,sys; sys.path.insert(0,"ci"); from ci_benchmark.execution import fixture_references; print("\n".join(fixture_references(pathlib.Path.cwd())))' > "$RUNNER_TEMP/baseline/fixture-images.txt"
+          while IFS= read -r image; do docker pull "$image"; done < "$RUNNER_TEMP/baseline/fixture-images.txt"
+
+      - name: Record scheduling metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: Baseline ${{ matrix.scenario.id }} ${{ matrix.repeat }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | select(.name == env.JOB_NAME) | {id, created_at, started_at, runner_name, labels}' > "$RUNNER_TEMP/baseline/job.json"
+          test -s "$RUNNER_TEMP/baseline/job.json"
+
+      - name: Measure cold Cargo target
+        env:
+          BENCHMARK_PACKAGE: ${{ matrix.scenario.package }}
+          BENCHMARK_SCENARIO: ${{ matrix.scenario.id }}
+          BENCHMARK_REPEAT: ${{ matrix.repeat }}
+        run: |
+          ci/bench-ci.sh --package "$BENCHMARK_PACKAGE" --scenario "$BENCHMARK_SCENARIO" --repeat "$BENCHMARK_REPEAT" --cache COLD_TARGET --target-dir "$RUNNER_TEMP/baseline/target" --output "$RUNNER_TEMP/baseline/cold" --job-metadata "$RUNNER_TEMP/baseline/job.json"
+
+      - name: Measure warm Cargo target
+        env:
+          BENCHMARK_PACKAGE: ${{ matrix.scenario.package }}
+          BENCHMARK_SCENARIO: ${{ matrix.scenario.id }}
+          BENCHMARK_REPEAT: ${{ matrix.repeat }}
+        run: |
+          ci/bench-ci.sh --package "$BENCHMARK_PACKAGE" --scenario "$BENCHMARK_SCENARIO" --repeat "$BENCHMARK_REPEAT" --cache WARM_TARGET --target-dir "$RUNNER_TEMP/baseline/target" --output "$RUNNER_TEMP/baseline/warm" --job-metadata "$RUNNER_TEMP/baseline/job.json"
+
+      - name: Preserve measurements and raw evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: baseline-${{ matrix.scenario.id }}-${{ matrix.repeat }}
+          path: |
+            ${{ runner.temp }}/baseline/cold/
+            ${{ runner.temp }}/baseline/warm/
+            ${{ runner.temp }}/baseline/job.json
+          if-no-files-found: error
+          retention-days: 14

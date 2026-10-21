@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura-historia.com/ci/workflow.schema.json",
+  "title": "Completed workflow timing envelope",
+  "type": "object",
+  "required": ["schema_version", "kind", "repository", "run_id", "attempt", "head_sha", "url", "created_at", "run_started_at", "updated_at", "conclusion", "workflow_seconds", "duration_method", "jobs"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "WORKFLOW_TIMING" },
+    "run_id": { "type": "integer", "minimum": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "workflow_seconds": { "type": ["number", "null"], "minimum": 0 },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "conclusion", "runner_name", "labels", "created_at", "started_at", "completed_at", "scheduling_delay_seconds", "seconds", "steps"],
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "scheduling_delay_seconds": { "type": ["number", "null"], "minimum": 0 },
+          "seconds": { "type": ["number", "null"], "minimum": 0 },
+          "steps": { "type": "array" }
+        }
+      }
+    }
+  }
+}
