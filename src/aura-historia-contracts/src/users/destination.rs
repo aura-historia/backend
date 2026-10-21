@@ -68,6 +68,7 @@ pub struct SetDestinationData {
 }
 #[derive(Serialize, JsonSchema)]
 pub struct DestinationResponse {
+    #[schemars(range(max = u64::MAX))]
     pub version: u64,
     pub destination: DestinationData,
 }

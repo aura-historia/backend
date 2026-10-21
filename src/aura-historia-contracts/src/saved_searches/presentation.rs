@@ -102,8 +102,11 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
 #[serde(rename_all = "camelCase")]
 pub struct PaginatedData<T> {
     pub items: Vec<T>,
+    #[schemars(range(max = u64::MAX))]
     pub from: u64,
+    #[schemars(range(max = u64::MAX))]
     pub size: u64,
+    #[schemars(range(max = u64::MAX))]
     pub total: Option<u64>,
 }
 

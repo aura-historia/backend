@@ -34,6 +34,46 @@ fn output_schema<T: JsonSchema>() -> Value {
 }
 
 #[test]
+fn should_bound_auction_paging_and_cursor_integers_to_the_wire_types() {
+    for schema in [
+        input_schema::<DirectoryQuery>(),
+        input_schema::<CatalogueQuery>(),
+    ] {
+        assert_eq!(
+            Some(u64::MAX),
+            schema["properties"]["pageSize"]["maximum"].as_u64()
+        );
+        for size in [json!(0), json!(u64::MAX), Value::Null] {
+            let input = json!({"pageSize": size});
+            assert!(jsonschema::is_valid(&schema, &input));
+            assert!(serde_json::from_value::<DirectoryQuery>(input.clone()).is_ok());
+            assert!(serde_json::from_value::<CatalogueQuery>(input).is_ok());
+        }
+        for size in [json!(-1), json!(1.5), json!(1e20)] {
+            let input = json!({"pageSize": size});
+            assert!(!jsonschema::is_valid(&schema, &input));
+            assert!(serde_json::from_value::<DirectoryQuery>(input.clone()).is_err());
+            assert!(serde_json::from_value::<CatalogueQuery>(input).is_err());
+        }
+    }
+    let schema = input_schema::<CatalogueCursorData>();
+    assert_eq!(
+        Some(u64::from(u32::MAX)),
+        schema["properties"]["cataloguePosition"]["maximum"].as_u64()
+    );
+    let mut cursor = json!({
+        "auctionId": AuctionId::new(),
+        "productListingId": product_listing_core::product_listing_id::ProductListingId::new(),
+        "cataloguePosition": u32::MAX
+    });
+    assert!(jsonschema::is_valid(&schema, &cursor));
+    assert!(serde_json::from_value::<CatalogueCursorData>(cursor.clone()).is_ok());
+    cursor["cataloguePosition"] = json!(u64::from(u32::MAX) + 1);
+    assert!(!jsonschema::is_valid(&schema, &cursor));
+    assert!(serde_json::from_value::<CatalogueCursorData>(cursor).is_err());
+}
+
+#[test]
 fn should_preserve_optional_directory_fields_when_query_values_are_omitted()
 -> Result<(), Box<dyn std::error::Error>> {
     for input in [

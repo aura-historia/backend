@@ -43,7 +43,9 @@ pub struct DisplaySchema {
 #[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RateSchema {
+    #[schemars(range(max = usize::MAX))]
     pub zone_index: usize,
+    #[schemars(range(max = usize::MAX))]
     pub service_index: usize,
     pub price: Option<PriceSchema>,
     pub basis: Option<String>,
@@ -99,6 +101,7 @@ pub struct ReasonSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = usize::MAX))]
     pub index: Option<usize>,
 }
 #[derive(Serialize, JsonSchema)]
@@ -108,6 +111,7 @@ pub struct PersonalizedShippingSchema {
     pub attribution: Option<AttributionSchema>,
     pub evaluated_at: String,
     pub eligibility: Option<String>,
+    #[schemars(range(max = usize::MAX))]
     pub selected_zone: Option<usize>,
     pub options: Vec<ServiceSchema>,
     pub reasons: Vec<ReasonSchema>,
@@ -132,6 +136,7 @@ pub struct AttributionSchema {
 #[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceSchema {
+    #[schemars(range(max = usize::MAX))]
     pub service_index: usize,
     pub applicability: String,
     pub eligibility: Option<String>,

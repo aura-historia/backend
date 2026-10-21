@@ -19,7 +19,9 @@ pub struct PublicAuctionData {
     pub schedule: super::AuctionScheduleResponseData,
     #[schemars(schema_with = "super::status_schema")]
     pub reported_status: Option<&'static str>,
+    #[schemars(range(max = u32::MAX))]
     pub reported_lot_count: Option<u32>,
+    #[schemars(range(max = u64::MAX))]
     pub visible_listing_count: u64,
 }
 impl TryFrom<PublicAuctionDetails> for PublicAuctionData {

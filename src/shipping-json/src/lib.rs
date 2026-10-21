@@ -253,7 +253,9 @@ struct LeadTimesData {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TimeData {
+    #[schemars(range(max = u32::MAX))]
     minimum: u32,
+    #[schemars(range(max = u32::MAX))]
     maximum: u32,
     #[schemars(schema_with = "schema::time_unit")]
     unit: String,

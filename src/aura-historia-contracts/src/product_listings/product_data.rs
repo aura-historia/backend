@@ -299,6 +299,7 @@ pub struct ProductListingAuctionData {
     #[schemars(schema_with = "crate::wire::schema::optional_auction_id")]
     auction_id: Option<AuctionId>,
     lot_number: Option<String>,
+    #[schemars(range(max = u32::MAX))]
     catalogue_position: Option<u32>,
     #[serde(with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
@@ -351,6 +352,7 @@ impl From<ProductListingDetailsView> for ProductListingDetailsData {
 #[serde(rename_all = "camelCase")]
 struct ProductListingLotData {
     lot_number: Option<String>,
+    #[schemars(range(max = u32::MAX))]
     catalogue_position: Option<u32>,
     #[serde(with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]

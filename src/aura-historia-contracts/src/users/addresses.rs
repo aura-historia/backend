@@ -48,7 +48,9 @@ pub struct AddressData {
     pub label: String,
     #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
+    #[schemars(range(max = u64::MAX))]
     pub input_revision: u64,
+    #[schemars(range(max = u64::MAX))]
     pub version: u64,
     pub preferred: bool,
     pub resolution: AddressResolutionData,
