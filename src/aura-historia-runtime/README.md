@@ -67,3 +67,8 @@ The runtime unit suite checks clean-environment anonymous startup, warm reuse, c
 replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment
 configuration without mutating a multithreaded test process. PostgreSQL integration tests use the
 repository's isolated Docker fixture and business migrations.
+
+`Runtime::notifications()` supplies the six existing notification inbox use-case handles against
+one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
+configuration. Notification ownership, delegated scopes and presentation preferences stay with
+the existing services; transport adapters share notification DTOs and pagination conversions.

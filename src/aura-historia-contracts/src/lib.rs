@@ -15,5 +15,6 @@ pub mod shipping_search;
 pub mod auctions;
 
 pub mod geography;
+pub mod notifications;
 pub mod users;
 pub mod watchlist;

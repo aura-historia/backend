@@ -37,6 +37,36 @@
       }
     },
     {
+      "name": "deleteNotification",
+      "operationId": "deleteNotification",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteNotifications",
+      "operationId": "deleteNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "deleteUserAddress",
       "operationId": "deleteUserAddress",
       "family": "account",
@@ -127,6 +157,21 @@
       }
     },
     {
+      "name": "listNotifications",
+      "operationId": "listNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "listUserAddresses",
       "operationId": "listUserAddresses",
       "family": "account",
@@ -163,6 +208,51 @@
       "access": "protected",
       "requiredScopes": [
         "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateAllNotificationsSeen",
+      "operationId": "updateAllNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationSeen",
+      "operationId": "updateNotificationSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationsSeen",
+      "operationId": "updateNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
       ],
       "annotations": {
         "readOnlyHint": false,

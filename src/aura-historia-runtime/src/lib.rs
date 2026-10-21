@@ -5,6 +5,7 @@
 //! with their existing owners. Extract further families only when a transport needs them.
 
 mod access_token_authentication;
+mod notifications;
 mod postgres;
 mod private_addresses;
 pub mod product_listing_config;
@@ -20,6 +21,7 @@ mod rotation;
 mod user_profile;
 mod watchlist;
 
+pub use notifications::Notifications;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
@@ -42,6 +44,7 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
     postgres: PgPool,
+    notifications: OnceLock<Notifications>,
     user_profile: OnceLock<UserProfile>,
     private_addresses: OnceLock<PrivateAddresses>,
     access_token_authentication: OnceLock<Arc<dyn AuthenticateAccessTokenUseCase>>,
@@ -59,6 +62,7 @@ impl Runtime {
     pub fn from_pool(postgres: PgPool) -> Self {
         Self {
             postgres,
+            notifications: OnceLock::new(),
             user_profile: OnceLock::new(),
             private_addresses: OnceLock::new(),
             access_token_authentication: OnceLock::new(),
@@ -143,6 +147,11 @@ impl Runtime {
     pub fn watchlist(&self) -> &Watchlist {
         self.watchlist
             .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
+    }
+
+    pub fn notifications(&self) -> &Notifications {
+        self.notifications
+            .get_or_init(|| Notifications::compose(&self.postgres))
     }
 
     pub fn public_overview(&self) -> &PublicOverview {

@@ -22,6 +22,9 @@ pub fn mcp_router(
     definitions.extend(crate::tools::watchlist::operations(
         runtime.watchlist().clone(),
     )?);
+    definitions.extend(crate::tools::notifications::operations(
+        runtime.notifications().clone(),
+    )?);
     let registry = crate::Registry::new(definitions)?;
     let gate = AuraTokenGate::new(
         runtime.access_token_authentication().clone(),
