@@ -1,5 +1,6 @@
 pub mod policy;
 pub mod robots;
+mod tls;
 
 /// The one user agent every crawler request sends: spider pages and
 /// robots.txt, scraper HTML fetches and image probes.

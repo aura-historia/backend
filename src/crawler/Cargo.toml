@@ -40,6 +40,10 @@ httpdate = { workspace = true }
 mockall = { workspace = true }
 kuchiki = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+# Crawler clients verify certificates against the OS trust store, like Spider's
+# reqwest 0.13 client; see `src/network/tls.rs`.
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7.0"
 imagesize = { workspace = true }
 indexmap = { workspace = true }
 tokio = { workspace = true, features = ["full", "macros"] }
