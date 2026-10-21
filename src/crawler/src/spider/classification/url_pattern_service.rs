@@ -599,9 +599,9 @@ mod tests {
         .unwrap_or_else(|error| panic!("read reviews and LLM calls: {error}"))
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_review_when_authoring_is_manual() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
         let service = UrlPatternServiceImpl::new(
@@ -629,9 +629,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_inference_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -657,9 +657,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_reclassify_stored_pattern_the_crawl_already_used_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/product/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
