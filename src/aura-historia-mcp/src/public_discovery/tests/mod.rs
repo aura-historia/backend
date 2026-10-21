@@ -580,7 +580,7 @@ async fn should_serve_family_manifests_and_shared_results_through_streamable_htt
 }
 
 #[tokio::test]
-async fn should_use_anonymous_context_for_public_sources_and_overview() {
+async fn should_preserve_source_context_and_keep_overview_anonymous() {
     let fixture = Arc::new(Fixture::default());
     let registry = fixture.registry(PublicListingSourceReadBudget::default());
     for (name, arguments) in operation_arguments()
@@ -597,12 +597,12 @@ async fn should_use_anonymous_context_for_public_sources_and_overview() {
             .unwrap();
     }
     for request in fixture.requests.lock().unwrap().iter() {
-        let context = match request {
-            Request::Search(context, _)
-            | Request::Detail(context, _)
-            | Request::Overview(context) => context,
+        match request {
+            Request::Search(context, _) | Request::Detail(context, _) => {
+                assert_eq!(Principal::System, context.principal);
+            }
+            Request::Overview(context) => assert_eq!(Principal::Anonymous, context.principal),
             Request::Location(_) => unreachable!(),
-        };
-        assert_eq!(Principal::Anonymous, context.principal);
+        }
     }
 }
