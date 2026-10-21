@@ -292,3 +292,46 @@ async fn should_authenticate_mcp_tokens_with_shared_authentication_and_apply_dat
         Err(AuthenticateAccessTokenError::NotFound)
     ));
 }
+
+#[tokio::test]
+async fn should_reject_an_unregistered_callback_even_for_the_configured_mcp_resource() {
+    let ports = FakePorts::default();
+    let secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&secret);
+    lock(&ports.0).client = Some(client.clone());
+    let mut request = authorize_request(
+        client.client_id(),
+        HashSet::from([Scope::ProductListingsWrite]),
+    );
+    request.resource = Some(AuraResourcePolicy::production().mcp_resource().to_owned());
+    request.redirect_uri = url("https://client.example/other-callback");
+    let result = authorize_handler(&ports, AuraResourcePolicy::production())
+        .execute(&first_party_context(), request)
+        .await;
+    assert!(matches!(result, Err(OAuthServiceError::InvalidRedirectUri)));
+    let state = lock(&ports.0);
+    assert!(state.code.is_none());
+    assert!(state.issued.is_none());
+    assert_eq!(0, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_authenticate_the_client_before_consuming_an_mcp_authorization_code() {
+    let ports = FakePorts::default();
+    let policy = AuraResourcePolicy::production();
+    authorize(&ports, policy, Some(policy.mcp_resource())).await;
+    let request = token_request(
+        &ports,
+        RawOAuthClientSecret::new(),
+        Some(policy.mcp_resource()),
+    );
+    let result = token_handler(&ports, policy).execute(request).await;
+    assert!(matches!(
+        result,
+        Err(OAuthServiceError::InvalidClientSecret)
+    ));
+    let state = lock(&ports.0);
+    assert!(state.code.is_some());
+    assert!(state.issued.is_none());
+    assert_eq!(1, state.transaction_commits);
+}
