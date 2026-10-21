@@ -289,9 +289,10 @@ state and run/job IDs are part of each record. GitHub's workflow ref and SHA als
 identify the workflow definition when dispatching a different measured source SHA.
 grcov is pinned and its downloaded archive checksum is verified; the test toolchain
 comes from `rust-toolchain.toml`.
-This historical [collector](../ci/collect-coverage.sh) uses one grcov parser thread
-and one Rayon worker, which control separate worker pools. Its export logs record
-GNU time's elapsed time and peak RSS.
+The retained standalone legacy helper [`collect-coverage.sh`](../ci/collect-coverage.sh)
+bounds grcov to one parser thread and one Rayon worker and emits GNU time resource
+logs; the frozen baseline invokes grcov directly in [`bench-ci.py`](../ci/bench-ci.py)
+and does not use that helper or its worker bounds.
 
 To reproduce a pair locally, choose a new target directory and two new output
 directories, retain the same checkout and flags, and install the workflow's grcov:
