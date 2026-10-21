@@ -138,7 +138,8 @@ class LaneDriverPhases(unittest.TestCase):
             supervisor=pathlib.Path("/fixture/aura-test-env"), profile="api", slots=2, features=[],
             harness="nextest", lane=["INFRASTRUCTURE"], list_only=False)
         self.selection = {"packages": ["database-migration-lambda", "test-api"],
-                          "package_args": ["--package", "database-migration-lambda", "--package", "test-api"]}
+                          "package_args": ["--package", "database-migration-lambda", "--package", "test-api"],
+                          "doctest_targets": ['test-api::lib::test_api']}
         self.suites = {DRIVER.PRISTINE_TARGET: {}}
 
     def test_pristine_precedes_ordinary_and_unmanaged_controls_preserve_coverage(self):
@@ -195,6 +196,13 @@ class LaneDriverPhases(unittest.TestCase):
             DRIVER.managed_phase(self.args, self.root, self.selection, {'money::lib::money': suite})
         self.assertEqual(execute.call_args_list[0].args[0][-1], '--nocapture')
         self.assertEqual(execute.call_args_list[1].args[0][-2:], ['--', '--nocapture'])
+
+    def test_binary_only_package_runs_tests_without_invalid_cargo_doc_invocation(self):
+        self.selection['doctest_targets'] = []
+        with patch.object(DRIVER, 'execute') as execute:
+            DRIVER.managed_phase(self.args, self.root, self.selection, {})
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0][:3], ['cargo', 'nextest', 'run'])
 
     def test_invalid_capacity_or_service_profile_fails_before_discovery(self):
         base = ["run-test-lane.py", "--lane", "INFRASTRUCTURE", "--harness", "nextest",
