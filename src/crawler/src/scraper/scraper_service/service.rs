@@ -260,11 +260,11 @@ impl ReqwestHtmlFetcher {
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return crawler_client_builder(self.attempt_timeout, true)
+            return crawler_client_builder(self.attempt_timeout)
                 .build()
                 .map_err(reqwest_fetch_error);
         }
-        public_http_client(url, self.attempt_timeout, true)
+        public_http_client(url, self.attempt_timeout)
             .await
             .map_err(public_target_fetch_error)
     }

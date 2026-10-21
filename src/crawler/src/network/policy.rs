@@ -134,30 +134,26 @@ pub async fn resolve_public_http_target(
     Ok(PublicTarget { host, addresses })
 }
 
-/// Client settings every crawler request shares: the crawler identity, no
-/// automatic redirects and bounded timeouts. [`public_http_client`] adds the
-/// pinned public addresses; tests build local clients from the same base.
-pub fn crawler_client_builder(timeout: Duration, http1_only: bool) -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder()
+/// Client settings every crawler request shares: the crawler identity,
+/// HTTP/1.1, no automatic redirects and bounded timeouts.
+/// [`public_http_client`] adds the pinned public addresses; tests build local
+/// clients from the same base.
+pub fn crawler_client_builder(timeout: Duration) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
         .user_agent(crate::network::CRAWLER_USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .connect_timeout(timeout)
-        .no_proxy();
-    if http1_only {
-        builder.http1_only()
-    } else {
-        builder
-    }
+        .no_proxy()
+        .http1_only()
 }
 
 pub async fn public_http_client(
     url: &Url,
     timeout: Duration,
-    http1_only: bool,
 ) -> Result<reqwest::Client, PublicTargetError> {
     let target = resolve_public_http_target(url, timeout).await?;
-    crawler_client_builder(timeout, http1_only)
+    crawler_client_builder(timeout)
         .resolve_to_addrs(&target.host, &target.addresses)
         .build()
         .map_err(|_| PublicTargetError::InvalidUrl)
@@ -459,7 +455,7 @@ mod tests {
             String::from_utf8_lossy(&request[..read]).into_owned()
         });
 
-        let client = crawler_client_builder(Duration::from_secs(5), true)
+        let client = crawler_client_builder(Duration::from_secs(5))
             .build()
             .unwrap();
         client

@@ -185,7 +185,7 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {
-        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT, true).await {
+        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT).await {
             Ok(client) => client,
             Err(error) => {
                 tracing::debug!("Image dimension probe rejected target");
