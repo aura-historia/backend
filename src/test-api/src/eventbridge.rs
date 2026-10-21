@@ -1,4 +1,4 @@
-use crate::localstack::get_aws_config;
+use crate::aws::get_aws_config;
 use tokio::sync::OnceCell;
 
 static EVENTBRIDGE_CLIENT: OnceCell<aws_sdk_eventbridge::Client> = OnceCell::const_new();
