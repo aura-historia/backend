@@ -279,7 +279,7 @@ jobs:
         env:
           CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
         run: node ci/release.cjs prepare "$RELEASE_SCOPE"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: release-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: .release/
