@@ -270,6 +270,7 @@ dependencies = [
 name = "aura-historia-api"
 version = "0.1.0"
 dependencies = [
+ "aura-historia-auth",
  "admin-overview-postgres",
  "admin-overview-service",
  "application",
@@ -373,6 +374,16 @@ dependencies = [
  "watchlist-service",
  "wiremock",
  "woocommerce-service",
+]
+
+[[package]]
+name = "aura-historia-auth"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "thiserror 2.0.21",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

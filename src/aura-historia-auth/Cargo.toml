@@ -1,0 +1,10 @@
+[package]
+name = "aura-historia-auth"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+thiserror = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
