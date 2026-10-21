@@ -41,6 +41,28 @@ class LaneDriverExecution(unittest.TestCase):
         self.assertEqual(failure.exception.code, 37)
         self.assertEqual({number: signal.getsignal(number) for number in before}, before)
 
+    def test_each_invocation_retains_its_junit_even_when_the_child_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "target/nextest/ci/junit.xml"
+            source.parent.mkdir(parents=True)
+            environment = dict(os.environ, NEXTEST_PROFILE="ci")
+            for phase, exit_code in (("pristine", 0), ("managed", 37)):
+                child = "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text(sys.argv[2]); raise SystemExit(int(sys.argv[3]))"
+                destination = root / "output" / f"{phase}-junit.xml"
+                arguments = [sys.executable, "-c", child, str(source), phase, str(exit_code)]
+                if exit_code:
+                    with self.assertRaises(SystemExit) as failure:
+                        DRIVER.execute(arguments, root, environment, junit=destination)
+                    self.assertEqual(failure.exception.code, exit_code)
+                else:
+                    DRIVER.execute(arguments, root, environment, junit=destination)
+                self.assertEqual(destination.read_text(), phase)
+            self.assertEqual((root / "output/pristine-junit.xml").read_text(), "pristine")
+            source.write_text("stale")
+            DRIVER.execute([sys.executable, "-c", "pass"], root, environment, junit=root / "output/empty-junit.xml")
+            self.assertFalse((root / "output/empty-junit.xml").exists())
+
     def test_spawn_failure_restores_signal_handlers(self):
         before = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(FileNotFoundError):
@@ -203,6 +225,18 @@ class LaneDriverPhases(unittest.TestCase):
             DRIVER.managed_phase(self.args, self.root, self.selection, {})
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0][:3], ['cargo', 'nextest', 'run'])
+    def test_missing_doctest_completion_marker_fails_and_complete_markers_use_separate_profiles(self):
+        self.selection["doctest_targets"] = ["example::lib::example"]
+        coverage = self.root / "coverage"
+        with patch.object(DRIVER, "execute") as execute, patch.dict(os.environ, {"AURA_CI_COVERAGE_DIR": str(coverage)}):
+            with self.assertRaisesRegex(ValueError, "Executed doctest targets differ"):
+                DRIVER.managed_phase(self.args, self.root, self.selection, {})
+            managed, doctests = [call.args[2]["LLVM_PROFILE_FILE"] for call in execute.call_args_list]
+            self.assertNotEqual(managed, doctests)
+            directory = coverage / "doctests/example"
+            directory.mkdir(parents=True)
+            (directory / "result.json").write_text(json.dumps({"crate": "example", "exit_code": 0}))
+            DRIVER.managed_phase(self.args, self.root, self.selection, {})
 
     def test_invalid_capacity_or_service_profile_fails_before_discovery(self):
         base = ["run-test-lane.py", "--lane", "INFRASTRUCTURE", "--harness", "nextest",

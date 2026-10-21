@@ -58,7 +58,9 @@ targets in a second lane. Package-local and lane-selected feature graphs and cas
 sets must be compared when changing this configuration.
 
 [`test-lane`](../.github/actions/test-lane/action.yml) configures coverage before
-cache restoration and uses checksum-verified, pinned Nextest and grcov archives.
+cache restoration and installs checksum-verified, pinned Nextest. Coverage jobs use
+a dated nightly and its bundled LLVM tools; lint, compatibility and release builds
+keep the stable repository toolchain.
 The job supervisor owns service cleanup, including cancellation; no job prunes
 shared Docker resources. Failure retains test/compile diagnostics and any coverage
 produced without allowing a failed lane to pass the final gate.
@@ -81,22 +83,37 @@ through the same process owner, preserving time and space for cleanup/diagnostic
 it cannot guarantee capacity against a sudden large allocation. Directory/Docker
 size sampling is less frequent and bounded, and stops below the floor; missing
 observations remain null.
-The same periodic record includes nullable host memory total/available KiB. Export
-logs record GNU time's peak RSS, which is a maximum for the command and individual
-children rather than their combined simultaneous memory; interrupted runs can lack it.
+The same periodic record includes nullable host memory total/available KiB.
 
-Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
-The shared exporter uses one grcov parser thread and one Rayon worker so LLVM
-exports run sequentially; these control different worker pools.
+[`export-coverage.py`](../ci/export-coverage.py) uses compiled Nextest/Cargo
+executable metadata, including child binaries and the supervisor. Rustdoc retains
+objects separately per crate so merged doctests cannot overwrite another crate's
+executable. The driver requires every lane-owned doctest target to complete.
+Fresh phase profile directories retain process/module identity; discovery profiles
+are excluded from execution coverage. Object paths, profiles and compiler versions
+are retained with test diagnostics. Each Nextest invocation preserves its JUnit
+report before the next phase, including failures; slowest cases and stage timings
+remain alongside the phase logs. Cargo control outcomes remain in those logs.
+
+Coverage preserves the Sonar source/exclusion policy. LLVM entry counters are
+normalized to repository source paths; branch records use block zero and branch ID
+`2 * condition_start_column + outcome` (`0` for true, `1` for false), preserving
+condition identity when other conditions are absent from a lane build. Duplicate
+source/line/branch records are unioned,
+zero branch outcomes remain zero, and summaries are recomputed from the merged
+entries. Ambiguous branch locations and invalid source lines fail export.
+[`merge-coverage.py`](../ci/merge-coverage.py) requires the exact nonempty, valid
+lane reports before emitting one deterministic source record per file. Missing
+lanes, failed tests or invalid coverage fail mandatory CI before the existing
+Sonar gate. Historical reports had no branch records, so they provide no numeric
+branch baseline. Frozen benchmark scripts retain their original stable/grcov path;
+changing instrumentation requires a new equivalent comparison.
+
 Current lanes, legacy controls and lane diagnostics use LLVM's `%b-%4m`
 [online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program):
-up to four locked profile files per build ID/module signature within each run/lane or
-diagnostic output namespace. This limits file multiplication from separate test
-processes; it does not bound the workspace's total profile bytes. Each lane writes
-one named LCOV artifact. [`merge-coverage.py`](../ci/merge-coverage.py) rejects missing, extra,
-empty or malformed reports using the existing LCOV validator, then concatenates
-them in deterministic order. This does not reconcile branch identities across
-builds or provide nightly doctest instrumentation.
+up to four locked profile files per build ID/module signature within each fresh
+phase or diagnostic output namespace. This limits file multiplication from separate
+test processes; it does not bound the workspace's total profile bytes.
 
 `--discover` refreshes `cargo nextest list --locked --workspace --all-features
 --all-targets`, compares every case and ignored flag with each binary's libtest
@@ -256,6 +273,9 @@ state and run/job IDs are part of each record. GitHub's workflow ref and SHA als
 identify the workflow definition when dispatching a different measured source SHA.
 grcov is pinned and its downloaded archive checksum is verified; the test toolchain
 comes from `rust-toolchain.toml`.
+This historical [collector](../ci/collect-coverage.sh) uses one grcov parser thread
+and one Rayon worker, which control separate worker pools. Its export logs record
+GNU time's elapsed time and peak RSS.
 
 To reproduce a pair locally, choose a new target directory and two new output
 directories, retain the same checkout and flags, and install the workflow's grcov:
@@ -275,7 +295,8 @@ explicit uninstrumented diagnostic and cannot substitute for a coverage baseline
 
 The collector preserves command logs and separate compile/link, test/fixture and
 coverage timings. GNU `time` reports maximum RSS for a command and its children,
-not aggregate simultaneous process memory. Logical target size is sampled at
+not aggregate simultaneous process memory; interrupted commands can lack it.
+Logical target size is sampled at
 most every ten seconds and before/after each stage; brief peaks, profile output
 and Docker storage are outside that sampled size. Sampling itself adds filesystem
 work, so use the same collection policy for both sides of a comparison.
@@ -336,9 +357,10 @@ required before claiming end-to-end CI improvements.
 
 The previous determinator excluded the root and nested `test-api-macros` packages.
 Lane ownership includes both. Package `cargo test` invocations include doctests;
-the driver preserves them separately because Nextest alone omits them. Coverage
-files are concatenated for Sonar, so repeated dependency source records can occur;
-the baseline collector exposes sums and identity unions without changing that merge.
+the driver preserves them separately because Nextest alone omits them. The old
+workflow concatenated repeated dependency source records for Sonar.
+The baseline collector retains those original sums and identity unions; the native
+coverage path described above emits a normalized union.
 
 Historical [run 2579](https://github.com/aura-historia/backend/actions/runs/39579788255)
 spanned 1,580 seconds from creation to the last job completion and had 110 test

@@ -1,5 +1,7 @@
 """Explicit exceptional selections and stock harness commands for test lanes."""
 
+import pathlib
+
 from .catalog import lane_selection
 
 
@@ -92,3 +94,12 @@ def unmanaged_commands(selection, features):
 
 def unmanaged_environment(environment):
     return {key: value for key, value in environment.items() if key not in RUNNER_ENV}
+
+
+def coverage_environment(environment, phase):
+    result = dict(environment)
+    if directory := result.get("AURA_CI_COVERAGE_DIR"):
+        profiles = pathlib.Path(directory) / "profiles" / phase
+        profiles.mkdir(parents=True, exist_ok=True)
+        result["LLVM_PROFILE_FILE"] = str(profiles / "%p-%m.profraw")
+    return result

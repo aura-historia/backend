@@ -13,7 +13,7 @@ from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
 from ci_inventory.discovery import attach_suites
 from ci_inventory.io import command, write_json
 from ci_inventory.process import execute
-from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection,
+from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection, coverage_environment,
                                  libtest_commands, nextest_command, suite_identity,
                                  unmanaged_commands, unmanaged_environment, validate_special_cases)
 
@@ -86,9 +86,10 @@ def supervised(args, profile, slots, phase, argv):
 
 
 def managed_phase(args, root, selection, suites):
-    environment = dict(os.environ)
+    environment = coverage_environment(os.environ, "managed")
     if args.harness == "nextest":
-        execute(nextest_command(selection, args.slots, args.features), root, environment)
+        execute(nextest_command(selection, args.slots, args.features), root, environment,
+                junit=args.output / "managed-junit.xml")
     else:
         rust_libdir = command(["rustc", "--print", "target-libdir"], root).strip()
         for identity, suite in sorted(suites.items()):
@@ -98,7 +99,15 @@ def managed_phase(args, root, selection, suites):
                 execute([*argv, *(["--nocapture"] if args.legacy_package else [])], suite["cwd"], local)
     if selection["doctest_targets"]:
         execute(["cargo", "test", *cargo_args(selection, args.features), "--doc",
-                 *(["--", "--nocapture"] if args.legacy_package else [])], root, environment)
+                 *(["--", "--nocapture"] if args.legacy_package else [])], root,
+                coverage_environment(environment, "doctests"))
+    if directory := environment.get("AURA_CI_COVERAGE_DIR"):
+        expected = {identity.split("::")[-1] for identity in selection["doctest_targets"]}
+        if len(expected) != len(selection["doctest_targets"]):
+            raise ValueError("Ambiguous doctest crate names in the lane inventory")
+        results = [json.loads(path.read_text()) for path in (pathlib.Path(directory) / "doctests").glob("*/result.json")]
+        if {result["crate"] for result in results} != expected or any(result["exit_code"] for result in results):
+            raise ValueError("Executed doctest targets differ from the lane inventory")
 
 
 def main():
@@ -119,14 +128,15 @@ def main():
         pristine = dict(selection, package_args=["--package", "database-migration-lambda"])
         argv = ["cargo", "nextest", "run", *cargo_args(pristine, args.features), "--test-threads", "1",
                 "--retries", "0", "--no-tests", "fail", "-E", f"binary(=database-migration-lambda) and test(={PRISTINE_CASE})"]
-        execute(supervised(args, "postgres", 1, "pristine", argv), root, environment)
+        execute(supervised(args, "postgres", 1, "pristine", argv), root, coverage_environment(environment, "pristine"),
+                junit=args.output / "pristine-junit.xml")
     child = [sys.executable, str(pathlib.Path(__file__).resolve()), *sys.argv[1:], "--phase", "managed"]
     if args.profile == "none":
         execute(child, root, environment)
     else:
         execute(supervised(args, args.profile, args.slots, "managed", child), root, environment)
-    for argv in unmanaged_commands(selection, args.features):
-        execute(argv, root, environment)
+    for index, argv in enumerate(unmanaged_commands(selection, args.features)):
+        execute(argv, root, coverage_environment(environment, f"unmanaged-{index}"))
 
 
 if __name__ == "__main__":
