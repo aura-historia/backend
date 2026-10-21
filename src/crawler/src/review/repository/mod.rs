@@ -1,3 +1,4 @@
+use crate::network::policy::url_matches_configured_domain;
 use crate::review::model::*;
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema::{
@@ -7,6 +8,7 @@ use crate::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
@@ -21,10 +23,12 @@ use url::Url;
 mod reviewer_page_url;
 mod schema_payload;
 
-use reviewer_page_url::{is_allowed_reviewer_page_url, reviewer_page_url, without_credentials};
+use reviewer_page_url::{
+    is_allowed_reviewer_page_url, is_same_review_page, reviewer_page_url, without_credentials,
+};
 use schema_payload::{
-    approval_product_schemas, parse_schemas_payload, update_schema_field_payload,
-    validate_product_schemas,
+    approval_product_schemas, decode_stored_schemas_payload, parse_schemas_payload,
+    update_schema_field_payload, validate_product_schemas,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -61,19 +65,22 @@ pub enum ReviewRepositoryError {
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
     DuplicateReviewPage(String),
-    #[error("review {0} already has the maximum of {MAX_REVIEW_PAGES} pages")]
+    #[error(
+        "review {0} already has the maximum of {MAX_REVIEWER_ADDED_PAGES} reviewer-added pages"
+    )]
     ReviewPageLimitReached(CrawlerReviewId),
+    #[error("URL redirected to `{0}`, which is not a product page")]
+    RedirectedToNonProductPage(String),
     #[error("review page not found: {0}")]
     ReviewPageNotFound(CrawlerReviewPageId),
     #[error("review page {0} was not added by a reviewer and cannot be removed")]
     NotReviewerAddedPage(CrawlerReviewPageId),
 }
 
-/// Upper bound on pages per review. A live schema-matrix refresh refetches every page one by
-/// one from the same throttled shop, at a second or more each, and must finish within the
-/// review API's 30-second request deadline; the bound leaves room for the seed pages plus a few
-/// reviewer-added ones.
-pub const MAX_REVIEW_PAGES: usize = 8;
+/// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
+/// every page, seed pages included, one by one from the same throttled shop within the review
+/// API's 30-second request deadline, so reviewer pages may only add a few fetches.
+pub const MAX_REVIEWER_ADDED_PAGES: usize = 4;
 
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
@@ -575,17 +582,26 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
-    /// Stores a fetched page the reviewer chose as a `REVIEWER_ADDED` review page and drops
-    /// the cached schema matrix, which does not cover the new page yet.
+    /// Stores a page the reviewer chose, fetched from `requested_url` and served from
+    /// `fetched_url`, as a `REVIEWER_ADDED` review page and drops the cached schema matrix, which
+    /// does not cover the new page yet. A redirect to a page that is not a product page, such as
+    /// a sold listing the shop sends to its homepage, is refused.
     pub async fn add_reviewer_page(
         &self,
         review_id: CrawlerReviewId,
-        url: &Url,
+        requested_url: &Url,
+        fetched_url: &Url,
         raw_html: &str,
     ) -> Result<CrawlerReviewPage, ReviewRepositoryError> {
-        let url = reviewer_page_url(url);
+        let url = reviewer_page_url(fetched_url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+        let product_url_pattern =
+            lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+        if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
+            return Err(ReviewRepositoryError::RedirectedToNonProductPage(
+                url.to_string(),
+            ));
+        }
         let page = sqlx::query(
             "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
              VALUES ($1, $2, $3, $4, $5) \
@@ -1116,9 +1132,9 @@ async fn persist_approved_schema_edit(
     candidate_payload: serde_json::Value,
     validation_summary: serde_json::Value,
 ) -> Result<(), ReviewRepositoryError> {
-    let stored_schemas = parse_schemas_payload(stored_candidate_payload)?;
+    let stored_schemas = decode_stored_schemas_payload(stored_candidate_payload);
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
-    if live.is_none_or(|live| live.product_schemas != stored_schemas) {
+    if live.is_none_or(|live| stored_schemas.as_ref() != Some(&live.product_schemas)) {
         return Err(ReviewRepositoryError::StaleApprovedReview(review_id));
     }
     persist_product_schemas(transaction, listing_source_id, schemas).await?;
@@ -1154,12 +1170,13 @@ async fn drop_cached_schema_matrix(
 
 /// Locks the review and checks that `url` may become a reviewer page of it: the review is a
 /// pending or approved product schema review, `url` is an http(s) URL on a domain of the
-/// review's ListingSource, it is not a page of the review yet, and the page limit is not reached.
+/// review's ListingSource, it is not a page of the review yet, and the reviewer page limit is not
+/// reached. Returns the product URL pattern of the domain `url` is on, once one is decided.
 async fn lock_reviewer_page_target(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     url: &Url,
-) -> Result<(), ReviewRepositoryError> {
+) -> Result<Option<String>, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT listing_source_id, artifact_type, status \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
@@ -1180,31 +1197,46 @@ async fn lock_reviewer_page_target(
         return Err(ReviewRepositoryError::NotPending(review_id));
     }
 
-    let domains = sqlx::query_scalar::<_, String>(
-        "SELECT listing_source_domain FROM listing_source_domains WHERE listing_source_id = $1",
+    let domains = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT listing_source_domain, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
+         FROM listing_source_domains WHERE listing_source_id = $1",
     )
     .bind(review.try_get::<uuid::Uuid, _>("listing_source_id")?)
     .fetch_all(&mut **transaction)
     .await?;
-    if !is_allowed_reviewer_page_url(url, &domains) {
+    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
+        domains.into_iter().unzip();
+    if !is_allowed_reviewer_page_url(url, &domain_names) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
 
-    let page_urls = sqlx::query_scalar::<_, String>(
-        "SELECT url FROM crawler_review_pages WHERE review_id = $1",
+    let pages = sqlx::query_as::<_, (String, String)>(
+        "SELECT url, role FROM crawler_review_pages WHERE review_id = $1",
     )
     .bind(review_id.as_uuid())
     .fetch_all(&mut **transaction)
     .await?;
-    if page_urls.iter().any(|page_url| page_url == url.as_str()) {
+    if pages
+        .iter()
+        .any(|(page_url, _)| is_same_review_page(page_url, url))
+    {
         return Err(ReviewRepositoryError::DuplicateReviewPage(url.to_string()));
     }
-    if page_urls.len() >= MAX_REVIEW_PAGES {
+    let reviewer_pages = pages
+        .iter()
+        .filter(|(_, role)| role == PAGE_ROLE_REVIEWER_ADDED)
+        .count();
+    if reviewer_pages >= MAX_REVIEWER_ADDED_PAGES {
         return Err(ReviewRepositoryError::ReviewPageLimitReached(review_id));
     }
-    Ok(())
+    Ok(domain_names
+        .iter()
+        .zip(product_url_patterns)
+        .find(|(domain, _)| url_matches_configured_domain(url, domain))
+        .and_then(|(_, pattern)| pattern))
 }
 
 fn log_approved_schema_edit(

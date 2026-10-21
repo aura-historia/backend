@@ -595,6 +595,45 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
 }
 
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_report_approved_review_as_stale_when_its_stored_candidate_no_longer_decodes() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = review_repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1.first")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    review_repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE crawler_reviews SET candidate_payload = '{\"legacy_schema\": {}}' \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let replaced = review_repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.fixed")] }))
+        .await;
+
+    assert!(matches!(
+        replaced,
+        Err(ReviewRepositoryError::StaleApprovedReview(id)) if id == review_id
+    ));
+}
+
+#[aura_integration_test(services = [POSTGRES])]
 async fn schema_review_creation_rejects_invalid_typed_schema() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());

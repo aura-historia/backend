@@ -1,4 +1,5 @@
 use crate::network::policy::url_matches_configured_domain;
+use crate::spider::utils::url::CrawledUrl;
 use url::Url;
 
 /// The URL a reviewer page is checked and stored under: the fragment never reaches the shop,
@@ -20,6 +21,14 @@ pub(super) fn is_allowed_reviewer_page_url(url: &Url, listing_source_domains: &[
         && listing_source_domains
             .iter()
             .any(|domain| url_matches_configured_domain(url, domain))
+}
+
+/// Whether a stored review page URL names the same page as `url`, under the crawler's URL
+/// normalization (trailing slash, fragment, default port and similar spellings).
+pub(super) fn is_same_review_page(stored_url: &str, url: &Url) -> bool {
+    Url::parse(stored_url).is_ok_and(|stored_url| {
+        CrawledUrl::new(stored_url).as_url() == CrawledUrl::new(url.clone()).as_url()
+    })
 }
 
 pub(super) fn without_credentials(url: &Url) -> Url {
@@ -87,6 +96,18 @@ mod tests {
         let reported = without_credentials(&url("https://user:secret@example.com/products/1"));
 
         assert_eq!(reported.as_str(), "https://example.com/products/1");
+    }
+
+    #[test]
+    fn should_treat_review_page_as_same_when_url_differs_only_by_trailing_slash() {
+        assert!(is_same_review_page(
+            "https://example.com/products/1",
+            &url("https://example.com/products/1/")
+        ));
+        assert!(!is_same_review_page(
+            "https://example.com/products/1",
+            &url("https://example.com/products/2")
+        ));
     }
 
     #[test]
