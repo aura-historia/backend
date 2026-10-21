@@ -38,11 +38,29 @@ def commands(args, root, target, output):
               *[value for feature in args.features for value in ("--features", feature)],
               "--supervisor", str(target / "debug/aura-test-env"),
               "--state-dir", str(output / "state"), "--output", str(output / "discovery")]
-    result = [("COMPILE_LINK", [*driver, "--list-only"])]
+    compile = list(driver)
+    compile[compile.index("--output") + 1] = str(output / "compile-discovery")
+    result = [("COMPILE_LINK", [*compile, "--list-only"])]
+    artifacts = [output / "compile-discovery/compile.jsonl", output / "discovery/compile.jsonl"]
     if args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"}:
-        result.append(("SUPERVISOR_COMPILE", ["cargo", "build", "--locked", "--package", "test-api", "--all-features", "--bin", "aura-test-env"]))
-    return [*result, ("TESTS_AND_FIXTURES", driver), ("COVERAGE", ["bash", str(root / "ci/collect-coverage.sh"),
-            str(output / "profraw"), str(target / "debug/deps"), str(output / "coverage.lcov")])]
+        artifacts.append(output / "supervisor.jsonl")
+        result.append(("SUPERVISOR_COMPILE", ["bash", "-c",
+            'cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics > "$1"',
+            "_", str(artifacts[-1])]))
+    return [*result, ("TESTS_AND_FIXTURES", driver), ("COVERAGE", [sys.executable, str(root / "ci/export-coverage.py"),
+            "--profiles", str(output / "profiles"), "--nextest", str(output / "discovery/nextest.json"),
+            "--doctests", str(output / "doctests"), *[value for artifact in artifacts for value in ("--cargo-artifacts", str(artifact))],
+            "--output", str(output / "coverage.lcov")])]
+
+
+def measurement_environment(root, target, output):
+    return dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_INCREMENTAL="0", CARGO_PROFILE_TEST_DEBUG="1", CARGO_PROFILE_DEV_DEBUG="1", CARGO_TERM_COLOR="never",
+        RUSTUP_TOOLCHAIN="nightly-2026-10-20", RUSTFLAGS="-C instrument-coverage -Zcoverage-options=branch",
+        RUSTDOCFLAGS="-C instrument-coverage -Zcoverage-options=branch", RUSTDOC=str(root / "ci/coverage-rustdoc.py"),
+        AURA_CI_RUSTDOC=subprocess.check_output(["rustup", "which", "--toolchain", "nightly-2026-10-20", "rustdoc"], text=True).strip(),
+        AURA_CI_COVERAGE_DIR=str(output), LLVM_PROFILE_FILE=str(output / "profiles/discovery/%b-%4m.profraw"), NEXTEST_PROFILE="ci",
+        AURA_CI_BENCHMARK_TIMING="1", NEXTEST_SUCCESS_OUTPUT="final", AWS_ACCESS_KEY_ID="test", AWS_SECRET_ACCESS_KEY="test", AWS_SESSION_TOKEN="test",
+        AWS_EC2_METADATA_DISABLED="true", AWS_DEFAULT_REGION="eu-central-1", AWS_REGION="eu-central-1")
 
 
 def main():
@@ -53,11 +71,8 @@ def main():
     if any(target.iterdir()) != (args.cache == "WARM_TARGET"):
         raise ValueError("COLD_TARGET needs an empty target; WARM_TARGET needs a previously built target")
     output.mkdir(parents=True, exist_ok=False)
-    (output / "profraw").mkdir()
-    environment = dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_INCREMENTAL="0", CARGO_PROFILE_TEST_DEBUG="1", CARGO_PROFILE_DEV_DEBUG="1", CARGO_TERM_COLOR="never",
-        RUSTFLAGS="-C instrument-coverage", LLVM_PROFILE_FILE=str(output / "profraw/%b-%4m.profraw"),
-        AURA_CI_BENCHMARK_TIMING="1", NEXTEST_SUCCESS_OUTPUT="final", AWS_ACCESS_KEY_ID="test", AWS_SECRET_ACCESS_KEY="test", AWS_SESSION_TOKEN="test",
-        AWS_EC2_METADATA_DISABLED="true", AWS_DEFAULT_REGION="eu-central-1", AWS_REGION="eu-central-1")
+    (output / "profiles/discovery").mkdir(parents=True)
+    environment = measurement_environment(root, target, output)
     started = time.monotonic()
     report = {"kind": "FIXED_LANE_COMPARISON", "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
@@ -69,7 +84,7 @@ def main():
     try:
         for name, argv in commands(args, root, target, output):
             guarded = [sys.executable, str(root / 'ci/guard-disk.py'), '--target', str(target),
-                       '--profiles', str(output / 'profraw'), '--log', str(output / 'disk.jsonl'), '--', *argv]
+                       '--profiles', str(output / 'profiles'), '--log', str(output / 'disk.jsonl'), '--', *argv]
             report["stages"].append(measure(name, guarded, root, environment, output, target))
             if report["stages"][-1]["exit_code"]:
                 break

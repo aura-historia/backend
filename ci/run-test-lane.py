@@ -136,9 +136,9 @@ def main():
                 junit=args.output / "pristine-junit.xml")
     child = [sys.executable, str(pathlib.Path(__file__).resolve()), *sys.argv[1:], "--phase", "managed"]
     if args.profile == "none":
-        execute(child, root, environment)
+        execute(child, root, coverage_environment(environment, "managed"))
     else:
-        execute(supervised(args, args.profile, args.slots, "managed", child), root, environment)
+        execute(supervised(args, args.profile, args.slots, "managed", child), root, coverage_environment(environment, "managed"))
     for index, argv in enumerate(unmanaged_commands(selection, args.features)):
         execute(argv, root, coverage_environment(environment, f"unmanaged-{index}"))
 

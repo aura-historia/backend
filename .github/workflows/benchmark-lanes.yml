@@ -169,8 +169,8 @@ jobs:
           REVISION: ${{ needs.plan.outputs.revision }}
         run: |
           test "$(git rev-parse HEAD)" = "$REVISION"
-          rustup show
-          bash ci/install-test-tools.sh "$RUNNER_TEMP/tools"
+          rustup toolchain install nightly-2026-10-20 --profile minimal --component llvm-tools-preview
+          bash ci/install-test-tools.sh "$RUNNER_TEMP/tools" nextest
           printf '%s\n' "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
       - name: Prepare the same hosted runner disk capacity
         run: |
@@ -221,6 +221,7 @@ jobs:
             test "$(git rev-parse HEAD)" = "$source"
             python3 ci/bench-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
               --cache "$cache" --target-dir "$RUNNER_TEMP/measurement/target" --output "$RUNNER_TEMP/measurement/$cache"
+            test -s "$RUNNER_TEMP/measurement/$cache/coverage.objects.json"
           done
       - name: Upload successful warm coverage for aggregation
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -109,8 +109,11 @@ entries. Ambiguous branch locations and invalid source lines fail export.
 lane reports before emitting one deterministic source record per file. Missing
 lanes, failed tests or invalid coverage fail mandatory CI before the existing
 Sonar gate. Historical reports had no branch records, so they provide no numeric
-branch baseline. Frozen benchmark scripts retain their original stable/grcov path;
-changing instrumentation requires a new equivalent comparison.
+branch baseline. Required lanes, the legacy scheduling control and layout
+diagnostics use the same pinned nightly coverage configuration. Historical stable/
+grcov measurements retain their original source/configuration and cannot establish
+equivalence with this instrumentation. The original package baseline collector
+remains available for historical diagnostics.
 
 Current lanes, legacy controls and lane diagnostics use LLVM's `%b-%4m`
 [online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program):
@@ -188,6 +191,10 @@ collector and current coverage export, retaining case lists, raw profiles, logs,
 runner hardware/image, flags and image identities. It reports supervisor compilation
 separately and includes startup/cleanup within test time. Successful Nextest output
 is retained for fixture timing observations.
+Compile and execution discovery metadata remain separate. Each invocation starts
+with fresh profiles; in-job warm target reuse can skip macro expansion and therefore
+cannot reproduce cold compilation counters. No profiles are replayed from the cold
+run. Ordinary hosted dependency caches exclude workspace outputs by default.
 
 Before this workflow is registered on the default branch, add `ci/lanes-four`,
 `ci/lanes-three` or `ci/lanes-one` to a same-repository pull request. The guarded
