@@ -10,6 +10,7 @@ mod protocol;
 pub mod public;
 pub mod public_discovery;
 mod registry;
+mod runtime;
 
 pub use admission::{AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate};
 pub use config::{
@@ -20,6 +21,7 @@ pub use http::router;
 pub use metadata::InvocationContext;
 pub use protocol::SUPPORTED_PROTOCOL_VERSIONS;
 pub use registry::{AccessClass, OperationDefinition, OperationPolicy, Registry, RegistryError};
+pub use runtime::{McpStartupError, RotatingMcpRouter, mcp_router};
 
 pub mod product_listing_history;
 pub mod product_listings;

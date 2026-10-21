@@ -1,4 +1,4 @@
-use super::{PublicServices, registry};
+use crate::public::{PublicServices, operations};
 use crate::{AnonymousGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
     ProductListingConfig, ProductListingDependencies, ProductListingProviderError, RotatingRuntime,
@@ -8,26 +8,29 @@ use axum::Router;
 use platform_lambda_bootstrap::VersionedCompositionCache;
 use std::sync::Arc;
 
-pub fn public_router(
+pub fn mcp_router(
     transport: TransportConfig,
     listings: &ProductListingConfig,
     runtime: &Runtime,
-) -> Result<Router, PublicStartupError> {
+) -> Result<Router, McpStartupError> {
     let dependencies = ProductListingDependencies::from_env(listings)?;
-    let registry = registry(PublicServices::from_runtime(runtime, dependencies))?;
+    let registry = crate::Registry::new(operations(PublicServices::from_runtime(
+        runtime,
+        dependencies,
+    ))?)?;
     Ok(router(transport, registry, Arc::new(AnonymousGate))?)
 }
 
 /// Credential refresh precedes every invocation, including discovery and warm catalogue calls.
 /// Cached routers own their service handles; replacing a version leaves in-flight handles alive.
-pub struct RotatingPublicRouter {
+pub struct RotatingMcpRouter {
     runtime: RotatingRuntime,
     routers: VersionedCompositionCache<Router>,
     transport: TransportConfig,
     listings: ProductListingConfig,
 }
 
-impl RotatingPublicRouter {
+impl RotatingMcpRouter {
     pub fn new(
         runtime: RotatingRuntime,
         transport: TransportConfig,
@@ -41,12 +44,12 @@ impl RotatingPublicRouter {
         }
     }
 
-    pub async fn current(&self) -> Result<Router, PublicStartupError> {
+    pub async fn current(&self) -> Result<Router, McpStartupError> {
         let runtime = self.runtime.current().await?;
         let app = self
             .routers
             .get_or_try_build(runtime.version_id(), || async {
-                public_router(self.transport.clone(), &self.listings, runtime.value())
+                mcp_router(self.transport.clone(), &self.listings, runtime.value())
             })
             .await?;
         Ok(app.value().clone())
@@ -54,7 +57,7 @@ impl RotatingPublicRouter {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum PublicStartupError {
+pub enum McpStartupError {
     #[error("public runtime unavailable")]
     Runtime(#[from] RuntimeError),
     #[error("public listing providers unavailable")]

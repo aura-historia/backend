@@ -1,4 +1,5 @@
 use super::*;
+use crate::{McpStartupError, RotatingMcpRouter};
 use aura_historia_runtime::{ProductListingConfig, RotatingRuntime};
 use platform_lambda_bootstrap::LambdaPostgresConfig;
 use platform_postgres::{
@@ -81,7 +82,7 @@ async fn rotation_probe() -> Result<(), TestError> {
         calls: AtomicUsize::new(0),
     });
     let runtime = RotatingRuntime::new(LambdaPostgresConfig::from_env()?, credentials.clone());
-    let app = RotatingPublicRouter::new(
+    let app = RotatingMcpRouter::new(
         runtime,
         TransportConfig {
             allowed_hosts: vec!["mcp.example.test".into()],
@@ -111,7 +112,7 @@ async fn rotation_probe() -> Result<(), TestError> {
     };
     assert!(matches!(
         error,
-        PublicStartupError::Runtime(aura_historia_runtime::RuntimeError::CredentialsRefresh(_))
+        McpStartupError::Runtime(aura_historia_runtime::RuntimeError::CredentialsRefresh(_))
     ));
     assert!(error.source().is_some());
     // A request already holding the old router can still complete after replacement.

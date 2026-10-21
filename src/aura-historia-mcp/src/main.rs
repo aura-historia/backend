@@ -1,7 +1,4 @@
-use aura_historia_mcp::{
-    TransportConfig,
-    public::{RotatingPublicRouter, public_router},
-};
+use aura_historia_mcp::{RotatingMcpRouter, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, RotatingRuntime, Runtime};
 use platform_lambda_bootstrap::materialize_google_application_credentials_from_env;
 use platform_observability::{LoggingConfig, init_with_directives};
@@ -24,7 +21,7 @@ fn main() -> Result<(), MainError> {
         .build()?
         .block_on(async move {
             if is_lambda {
-                let app = Arc::new(RotatingPublicRouter::new(
+                let app = Arc::new(RotatingMcpRouter::new(
                     RotatingRuntime::from_env().await?,
                     transport,
                     listing_config,
@@ -37,7 +34,7 @@ fn main() -> Result<(), MainError> {
             } else {
                 let address = transport.bind_addr;
                 let runtime = Runtime::from_env().await?;
-                let app = public_router(transport, &listing_config, &runtime)?;
+                let app = mcp_router(transport, &listing_config, &runtime)?;
                 let listener = tokio::net::TcpListener::bind(address).await?;
                 axum::serve(listener, app)
                     .with_graceful_shutdown(shutdown())
