@@ -54,9 +54,10 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
 four mutation/retry/open-world annotations. The
-[public](../src/aura-historia-mcp/public-operations.json) and
-[authenticated](../src/aura-historia-mcp/authenticated-operations.json) manifests together record
-the exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
+[public manifest](../src/aura-historia-mcp/public-operations.json) and
+[authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json) record
+disjoint subsets of the same endpoint and registry, including family mappings, access policy,
+annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
 captures narrow service handles and calls the shared
 inbound application use case directly. Use shared `aura-historia-contracts`
@@ -182,6 +183,45 @@ contract/operation suites retain detailed input, mapping, validation and error p
 Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
+
+## Own account, addresses and browsing destination
+
+The account family acts only for the user in the validated delegated context. Read operations
+require `users:read`; mutations require `users:write`. Services enforce these capabilities and
+current ownership independently of transport admission. No argument selects another account.
+
+| Tool / source operation ID | Shared contract |
+| --- | --- |
+| `getUserAccount` | Complete own-account response, including profile, language/currency/unit, content preference, consent, tier and role. |
+| `updateUserAccount` | First/last name, language, currency, measurement unit and sensitive-content display preference; returns the complete own account. |
+| `createUserAddress` | Label and complete geography; returns server-generated identity, input revision, version, preferred status and resolution. |
+| `listUserAddresses` | `after` and `limit` (default 25, 1–100); returns every item on the page and `next`, including explicit null on the last page. |
+| `getUserAddress` | `addressId`; returns the complete owned-address view. |
+| `updateUserAddress` | `addressId`, `expectedVersion`, label and complete geography; replaces editable content while retaining identity and owner. |
+| `deleteUserAddress` | `addressId` and `expectedVersion`; deletes only that address and returns `{ "result": null }`. |
+| `getBrowsingDestination` | Complete version and selected `NONE`, `ADDRESS` or `COUNTRY_POSTAL` choice. |
+| `setBrowsingDestination` | `expectedVersion` and the complete destination choice; returns the resulting version and destination. |
+
+Profile patches retain omission as unchanged, null as clearing an optional member, and a value
+as replacement. `showUnassessedOrSensitiveContent` accepts a boolean and rejects null. Existing
+locale aliases normalize to canonical language codes. Profile fields outside the editable
+contract have no effect, as on REST. Address and destination objects reject unknown members.
+Geography retains its reference release, address text, country, subdivision and postal code and
+uses the same validated constructors as REST. Address bookmarks require non-null `addressText`.
+Address resolution includes status, eligible derived geography and point precision/accuracy,
+and provider attribution URL.
+
+Pass the address page's `next` unchanged as `after` to continue; no transport cap truncates a
+page. Versioned writes preserve stale-version conflicts. `NONE` clears the destination;
+`ADDRESS` requires an owned entry; `COUNTRY_POSTAL` accepts an optional postal code. Deleting
+the selected address clears the preference atomically. The [private geography contract](geography.md#private-user-address-books-and-browsing-destinations-2005)
+owns resolution, privacy and erasure rules.
+
+Address creation assigns a new identity on every accepted call, including equal content.
+Its annotations mark it non-idempotent; an ambiguous timeout requires reconciliation before a
+retry, as described in [command retries](command-retries.md). Replacements/deletion advertise
+destructive effects and preserve service CAS behavior. The transport does not retry mutations.
+Credential management, billing and account deletion have no tools in this family.
 
 ## Notification inbox
 

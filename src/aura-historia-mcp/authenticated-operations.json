@@ -7,6 +7,21 @@
   },
   "operations": [
     {
+      "name": "createUserAddress",
+      "operationId": "createUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "deleteNotification",
       "operationId": "deleteNotification",
       "family": "notifications",
@@ -37,6 +52,66 @@
       }
     },
     {
+      "name": "deleteUserAddress",
+      "operationId": "deleteUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getBrowsingDestination",
+      "operationId": "getBrowsingDestination",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserAccount",
+      "operationId": "getUserAccount",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getUserAddress",
+      "operationId": "getUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "listNotifications",
       "operationId": "listNotifications",
       "family": "notifications",
@@ -47,6 +122,36 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listUserAddresses",
+      "operationId": "listUserAddresses",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "setBrowsingDestination",
+      "operationId": "setBrowsingDestination",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       }
@@ -95,6 +200,42 @@
         "idempotentHint": true,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "updateUserAccount",
+      "operationId": "updateUserAccount",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateUserAddress",
+      "operationId": "updateUserAddress",
+      "family": "account",
+      "access": "protected",
+      "requiredScopes": [
+        "users:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     }
+  ],
+  "excludedClasses": [
+    "OAuth protocol/control plane",
+    "access-token issuance/management",
+    "billing",
+    "account deletion"
   ]
 }

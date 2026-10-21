@@ -15,6 +15,10 @@ pub fn mcp_router(
 ) -> Result<Router, McpStartupError> {
     let dependencies = ProductListingDependencies::from_env(listings)?;
     let mut definitions = operations(PublicServices::from_runtime(runtime, dependencies))?;
+    definitions.extend(crate::tools::account::operations(
+        runtime.user_profile().clone(),
+        runtime.private_addresses().clone(),
+    )?);
     definitions.extend(crate::tools::notifications::operations(
         runtime.notifications().clone(),
     )?);

@@ -33,6 +33,9 @@ strum = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["serde", "serde-well-known"] }
 url = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+serde-email = { workspace = true }
 
 [dev-dependencies]
 jsonschema = { version = "0.59.0", default-features = false }
