@@ -40,6 +40,7 @@ runs:
       run: rustup show
 
     - name: Restore lane compilation cache
+      id: cache
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: test-${{ inputs.id }}-coverage
@@ -50,6 +51,31 @@ runs:
       run: |
         bash ci/install-test-tools.sh "$RUNNER_TEMP/test-tools"
         printf '%s\n' "$RUNNER_TEMP/test-tools" >> "$GITHUB_PATH"
+
+    - name: Record source, runner and cache provenance
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        CACHE_KEY: test-${{ inputs.id }}-coverage
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        python3 - <<'PY'
+        import json, os, pathlib, subprocess, sys
+        sys.path.insert(0, 'ci')
+        from ci_benchmark.execution import environment_metadata
+        root = pathlib.Path.cwd()
+        record = {
+            'checkout_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'checkout_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+            'run': {key: os.environ.get(key) for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF', 'RUNNER_NAME')},
+            'runner': environment_metadata(root, os.environ),
+            'cache': {'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': os.environ.get('CACHE_HIT') or None,
+                      'limitation': 'Resolved and fallback cache keys are retained in the cache action log.'},
+        }
+        path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'job.json'
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
+        print(json.dumps(record, sort_keys=True))
+        PY
 
     - name: Log in to GHCR
       if: inputs.profile != 'none'
