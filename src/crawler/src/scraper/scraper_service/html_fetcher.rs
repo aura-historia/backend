@@ -1,10 +1,10 @@
 #[cfg(test)]
 use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
-    network_error_kind_for_public_target_error, parse_retry_after, public_http_client,
-    redirect_target,
+    CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy,
+    action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
+    is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
+    public_http_client, redirect_target,
 };
 use crate::network::robots::RobotsRefusal;
 use crate::scraper::scraper_service::auto_throttle::{
@@ -386,13 +386,14 @@ impl ReqwestHtmlFetcher {
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return crawler_client_builder(self.attempt_timeout, true)
+            return crawler_client_builder(self.attempt_timeout)
+                .map_err(client_fetch_error)?
                 .build()
                 .map_err(reqwest_fetch_error);
         }
-        public_http_client(url, self.attempt_timeout, true)
+        public_http_client(url, self.attempt_timeout)
             .await
-            .map_err(public_target_fetch_error)
+            .map_err(client_fetch_error)
     }
 
     #[cfg(test)]
@@ -459,6 +460,20 @@ fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
     }
 }
 
+fn client_fetch_error(error: CrawlerClientError) -> FetchAttemptError {
+    match error {
+        CrawlerClientError::Target(error) => public_target_fetch_error(error),
+        error @ (CrawlerClientError::TrustStore(_) | CrawlerClientError::Build(_)) => {
+            FetchAttemptError {
+                error: FetchError::Network {
+                    kind: NetworkErrorKind::Unknown,
+                    details: error_with_sources(&error),
+                },
+            }
+        }
+    }
+}
+
 fn total_timeout_error() -> FetchError {
     FetchError::Network {
         kind: NetworkErrorKind::Timeout,
@@ -493,7 +508,7 @@ fn reqwest_fetch_error(error: reqwest::Error) -> FetchAttemptError {
     FetchAttemptError {
         error: FetchError::Network {
             kind: classify_reqwest_error(&error),
-            details: error.to_string(),
+            details: error_with_sources(&error),
         },
     }
 }
@@ -581,8 +596,8 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 
 #[cfg(test)]
 mod tests {
-    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
-    use crate::network::policy::{NetworkErrorKind, RetryPolicy};
+    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error};
+    use crate::network::policy::{CrawlerClientError, NetworkErrorKind, RetryPolicy};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
@@ -689,6 +704,47 @@ mod tests {
             alpha: 0.15,
             enabled: true,
         }
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_rejects_an_ip_literal_target_before_connecting() {
+        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher
+            .fetch(&Url::parse("http://127.0.0.1/product").unwrap())
+            .await
+            .expect_err("an IP literal is never a public crawl target");
+
+        assert!(matches!(
+            error,
+            FetchError::Network {
+                kind: NetworkErrorKind::UnsafeTarget,
+                ..
+            }
+        ));
+    }
+
+    /// A client that cannot be built says nothing about the target: it must
+    /// neither mark the URL unsafe nor hide the cause.
+    #[test]
+    fn client_fetch_error_should_keep_the_cause_of_an_unavailable_trust_store() {
+        let error = client_fetch_error(CrawlerClientError::TrustStore(rustls::Error::General(
+            "no CA certificates were loaded".to_owned(),
+        )))
+        .error;
+
+        let FetchError::Network { kind, details } = error else {
+            panic!("expected a network fetch error, got {error:?}");
+        };
+        assert_eq!(kind, NetworkErrorKind::Unknown);
+        assert!(
+            details.contains("platform TLS trust store is unavailable")
+                && details.contains("no CA certificates were loaded"),
+            "{details}"
+        );
     }
 
     #[tokio::test]

@@ -15,6 +15,12 @@ This prevents a request from following DNS rebinding to a private address. Autom
 
 Crawler domain ownership is a local canonical hostname: lowercase, no trailing dot, and at most one leading `www.` removed. Repeated `www.` prefixes and equivalent ownership by different ListingSources are rejected. The crawl-root host is retained separately so spider navigation remains exact-host constrained.
 
+## TLS trust
+
+Every crawler request verifies certificates against the operating system's trust store, through the platform verifier Spider's client also uses. The spider and the scraper therefore accept the same shops. A shop whose chain ends at a root the host does not trust fails as a connect error, and the logged details name the cause, for example `UnknownIssuer`.
+
+On Linux the trust store is the system CA bundle (`SSL_CERT_FILE`/`SSL_CERT_DIR` or the distribution's default paths), read once per process. An image without a CA bundle fails closed: the crawler logs once that the trust store is unavailable, and every HTTPS request fails. Windows and macOS use the OS certificate engine, which can also accept roots that the Mozilla-derived Linux bundles do not include yet.
+
 ## Crawler identity
 
 Every crawler request (spider pages and robots.txt, scraper HTML fetches, image probes, and review live inspection) sends the single user agent `AuraHistoriaBot/<version> (+https://aura-historia.com)`, defined once in the crawler's network module.
