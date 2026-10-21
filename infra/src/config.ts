@@ -117,6 +117,7 @@ export interface StageConfig {
   readonly removalPolicy: cdk.RemovalPolicy;
   readonly workerQueues: WorkerQueueSettings;
   readonly apiEndpointUrl: string | undefined;
+  readonly oauthIssuerUrl: string;
   readonly apiDomainName: string | undefined;
   readonly apiGatewayCertificateArn: string | undefined;
   readonly apiCloudFrontCertificateArn: string | undefined;
@@ -184,6 +185,7 @@ export function stageConfig(stage: StageName): StageConfig {
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,
     apiEndpointUrl: `https://${apiDomainName}`,
+    oauthIssuerUrl: `https://${apiDomainName}`,
     apiDomainName,
     apiGatewayCertificateArn: ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),

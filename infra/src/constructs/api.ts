@@ -84,6 +84,7 @@ const apiRoutes = (
  * entry here cannot expose it through API Gateway.
  */
 export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-authorization-server", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 

@@ -609,6 +609,7 @@ impl SearchFiltersState {
 
 #[derive(Clone)]
 pub struct OAuthState {
+    pub(crate) resource_policy: oauth_core::resource::AuraResourcePolicy,
     pub(crate) create_client: Arc<dyn CreateOAuthClientUseCase>,
     pub(crate) list_clients: Arc<dyn ListOAuthClientsUseCase>,
     pub(crate) get_client: Arc<dyn GetOAuthClientUseCase>,
@@ -638,8 +639,10 @@ impl OAuthState {
         revoke: Arc<dyn RevokeTokenUseCase>,
         introspect: Arc<dyn IntrospectTokenUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
+        resource_policy: oauth_core::resource::AuraResourcePolicy,
     ) -> Self {
         Self {
+            resource_policy,
             create_client,
             list_clients,
             get_client,

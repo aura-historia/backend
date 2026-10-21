@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-21 — Aura OAuth discovery and protocol errors (#2241)
+
+- Publish public RFC 8414 metadata at `/.well-known/oauth-authorization-server` on the production/stage issuer. It advertises the corresponding webapp consent URL, canonical `/v1/oauth/token`, authorization code, S256 and `client_secret_post`, with the relevant ordinary-user scopes. Refresh grants, dynamic registration, CIMD, revocation/introspection discovery and authorization-response `iss` support are omitted.
+- OAuth authorization input and token/revocation/introspection failures now return standard OAuth JSON errors (`invalid_request`, `invalid_client`, `invalid_grant`, `unsupported_grant_type`, `unsupported_response_type`, `invalid_scope`, `invalid_target`) with fixed secret-free bodies. Invalid clients now uniformly return `401`; unknown authorize clients return `400 invalid_request`. REST client-management and first-party authentication/authority errors retain their existing vocabulary.
+- Reject duplicate parameters and malformed form/query encoding; keep standard form-urlencoded token/revocation requests. Credential responses and protocol errors include `Cache-Control: no-store` and `Pragma: no-cache`. Nonexpiring tokens omit `expires_in` and no refresh token is issued. See [OAuth](oauth.md) for fixed-client registration and exact callbacks.
+
 ## 2026-10-21 — Shared Aura OAuth resource indicators (#2240)
 
 - `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource`. Use `https://mcp.aura-historia.com/v1` for MCP clients, or the corresponding stage identifier. Only exact configured REST/MCP identifiers are accepted; foreign, other-environment, empty and repeated values return `400 OAUTH_INVALID_RESOURCE`.

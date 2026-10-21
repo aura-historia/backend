@@ -66,6 +66,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "NEWSLETTER_CONFIRMATION_EMAIL_FROM",
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO",
     "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN",
+    "OAUTH_ISSUER_URL",
     "OPENSEARCH_ENDPOINT_URL",
     "PRODUCT_LISTING_INGESTION_QUEUE_URL",
     "POSTGRES_DATABASE",
@@ -118,6 +119,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     });
     expect(JSON.stringify(functionResource.Properties.Code)).toContain(`aura-historia-api-${stage}-`);
     expect(environment.Variables.STAGE).toBe(stage);
+    expect(environment.Variables.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });
     expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-mail-templates-eu-central-1");
     expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_FROM)

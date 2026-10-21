@@ -1,9 +1,12 @@
 #![allow(clippy::result_large_err)]
 
+pub(crate) mod discovery;
+mod error;
 mod form;
 
 pub(crate) use form::{
-    parse_form, required_form, required_form_access_token, required_form_client_secret,
+    OAuthForm, OAuthQuery, required_form, required_form_access_token, required_form_client_id,
+    required_form_client_secret,
 };
 
 pub mod authorize;
@@ -28,6 +31,9 @@ pub(crate) fn no_store(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     response
 }
 
@@ -122,7 +128,7 @@ fn parse_scope_with_field(
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use axum::response::Response;
+    use axum::response::IntoResponse;
 
     pub(crate) const SECRET_MARKER: &str = "qa-synthetic-credential-marker-not-real";
 
@@ -136,9 +142,15 @@ pub(crate) mod test_support {
     /// Returns the status and parsed problem body after asserting that no
     /// part of the response reflects `secret`.
     pub(crate) async fn secret_free_problem(
-        response: Response,
+        response: impl IntoResponse,
         secret: &str,
     ) -> (u16, serde_json::Value) {
+        let response = response.into_response();
+        assert_eq!(
+            "no-store",
+            response.headers()[axum::http::header::CACHE_CONTROL]
+        );
+        assert_eq!("no-cache", response.headers()[axum::http::header::PRAGMA]);
         let status = response.status().as_u16();
         for (name, value) in response.headers() {
             assert!(
@@ -262,42 +274,5 @@ mod tests {
             );
             assert_eq!(value, scope_string(&expected));
         }
-    }
-}
-
-/// Reject ambiguous grant bindings before query/form values enter a map.
-pub(crate) fn reject_duplicate_resource(encoded: &str) -> Result<(), Response> {
-    if url::form_urlencoded::parse(encoded.as_bytes())
-        .filter(|(key, _)| key == "resource")
-        .count()
-        > 1
-    {
-        return Err(ApiError::bad_request(crate::error::OAUTH_INVALID_RESOURCE)
-            .with_detail("Exactly one resource parameter is supported.")
-            .into_response());
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod resource_tests {
-    use super::*;
-
-    #[test]
-    fn should_reject_duplicate_resource_fields_in_either_order_before_map_collection() {
-        for encoded in [
-            "resource=https%3A%2F%2Fforeign.example&resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1",
-            "resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1&%72esource=https%3A%2F%2Fforeign.example",
-            "resource=&resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1",
-        ] {
-            assert_eq!(
-                400,
-                reject_duplicate_resource(encoded).unwrap_err().status()
-            );
-        }
-        assert!(
-            reject_duplicate_resource("resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1").is_ok()
-        );
-        assert!(reject_duplicate_resource("client_id=test").is_ok());
     }
 }
