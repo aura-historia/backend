@@ -1,5 +1,4 @@
 use super::*;
-use oauth_core::resource::AuraResource;
 use user_service::use_cases::queries::authenticate_access_token::{
     AuthenticateAccessTokenError, AuthenticateAccessTokenHandler, AuthenticateAccessTokenRequest,
     AuthenticateAccessTokenUseCase,
@@ -64,6 +63,18 @@ async fn authorize(
         .await
         .unwrap();
     (secret, user_id)
+}
+
+fn legacy_grant() -> (FakePorts, RawOAuthClientSecret) {
+    let ports = FakePorts::default();
+    let secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&secret);
+    lock(&ports.0).code = Some(authorization_code(
+        client.client_id(),
+        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+    ));
+    lock(&ports.0).client = Some(client);
+    (ports, secret)
 }
 
 #[tokio::test]
@@ -146,19 +157,55 @@ async fn should_inherit_the_mcp_binding_when_token_resource_is_omitted() {
 
 #[tokio::test]
 async fn should_redeem_outstanding_codes_without_a_resource_using_the_shared_default() {
-    let ports = FakePorts::default();
-    let secret = RawOAuthClientSecret::new();
-    let client = client_with_secret(&secret);
-    lock(&ports.0).code = Some(authorization_code(
-        client.client_id(),
-        OffsetDateTime::now_utc() + time::Duration::minutes(1),
-    ));
-    lock(&ports.0).client = Some(client);
-    token_handler(&ports, AuraResourcePolicy::stage())
-        .execute(token_request(&ports, secret, None))
-        .await
-        .unwrap();
-    assert!(lock(&ports.0).issued.is_some());
+    for policy in [
+        AuraResourcePolicy::production(),
+        AuraResourcePolicy::stage(),
+    ] {
+        for resource in [None, Some(policy.issuer())] {
+            let (ports, secret) = legacy_grant();
+            assert_eq!(None, lock(&ports.0).code.as_ref().unwrap().resource());
+            let response = token_handler(&ports, policy)
+                .execute(token_request(&ports, secret, resource))
+                .await
+                .unwrap();
+            assert_eq!(None, response.expires);
+            assert_eq!(
+                HashSet::from([Scope::ProductListingsWrite]),
+                response.scopes
+            );
+            let state = lock(&ports.0);
+            assert!(state.issued.is_some());
+            assert!(state.code.is_none());
+            assert_eq!(1, state.transaction_commits);
+        }
+    }
+}
+
+#[tokio::test]
+async fn should_consume_a_legacy_code_when_the_mcp_alias_substitutes_the_shared_default() {
+    for policy in [
+        AuraResourcePolicy::production(),
+        AuraResourcePolicy::stage(),
+    ] {
+        let (ports, secret) = legacy_grant();
+        let request = token_request(&ports, secret, Some(policy.mcp_resource()));
+        let result = token_handler(&ports, policy).execute(request.clone()).await;
+        assert!(matches!(
+            result,
+            Err(OAuthServiceError::AuthorizationCodeResourceMismatch)
+        ));
+        {
+            let state = lock(&ports.0);
+            assert!(state.code.is_none());
+            assert!(state.issued.is_none());
+            assert!(state.exchange.is_none());
+            assert_eq!(1, state.transaction_commits);
+        }
+        assert!(matches!(
+            token_handler(&ports, policy).execute(request).await,
+            Err(OAuthServiceError::AuthorizationCodeNotFound)
+        ));
+    }
 }
 
 #[tokio::test]
@@ -228,22 +275,42 @@ async fn should_consume_the_code_and_reject_substituting_another_valid_shared_re
 
 #[tokio::test]
 async fn should_fail_closed_when_a_persisted_code_belongs_to_another_environment() {
-    let ports = FakePorts::default();
-    let policy = AuraResourcePolicy::stage();
-    let (secret, _) = authorize(&ports, policy, Some(policy.mcp_resource())).await;
-    assert_eq!(
-        Some(AuraResource::StageMcp),
-        lock(&ports.0).code.as_ref().unwrap().resource()
-    );
-    let result = token_handler(&ports, AuraResourcePolicy::production())
-        .execute(token_request(&ports, secret, None))
-        .await;
-    assert!(matches!(
-        result,
-        Err(OAuthServiceError::InvalidPersistedState { .. })
-    ));
-    assert!(lock(&ports.0).issued.is_none());
-    assert!(lock(&ports.0).code.is_some());
+    for (granted_policy, exchange_policy) in [
+        (
+            AuraResourcePolicy::stage(),
+            AuraResourcePolicy::production(),
+        ),
+        (
+            AuraResourcePolicy::production(),
+            AuraResourcePolicy::stage(),
+        ),
+    ] {
+        for granted_resource in granted_policy.allowed_resources() {
+            for resource in [
+                None,
+                Some(exchange_policy.issuer()),
+                Some(exchange_policy.mcp_resource()),
+            ] {
+                let ports = FakePorts::default();
+                let (secret, _) = authorize(&ports, granted_policy, Some(granted_resource)).await;
+                let code = lock(&ports.0).code.clone().unwrap();
+                let result = token_handler(&ports, exchange_policy)
+                    .execute(token_request(&ports, secret, resource))
+                    .await;
+                match result {
+                    Err(OAuthServiceError::InvalidPersistedState { source }) => {
+                        assert!(source.is::<oauth_core::resource::InvalidResource>());
+                    }
+                    other => panic!("expected invalid persisted resource, got {other:?}"),
+                }
+                let state = lock(&ports.0);
+                assert!(state.issued.is_none());
+                assert!(state.exchange.is_none());
+                assert_eq!(Some(code), state.code);
+                assert_eq!(1, state.transaction_commits);
+            }
+        }
+    }
 }
 
 #[tokio::test]
