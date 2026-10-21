@@ -195,8 +195,8 @@ fn load(flag: Option<&str>, path: Option<&Path>) -> Result<Option<ManagedEnviron
             if !meta.is_dir()
                 || meta.uid() != unsafe { libc::geteuid() }
                 || meta.permissions().mode() & 0o077 != 0
-                || dir.file_name().and_then(|v| v.to_str()) != Some(config.run_id())
-                || path.file_name().and_then(|v| v.to_str()) != Some("environment.json")
+                || dir.file_name().and_then(std::ffi::OsStr::to_str) != Some(config.run_id())
+                || path.file_name().and_then(std::ffi::OsStr::to_str) != Some("environment.json")
                 || std::fs::symlink_metadata(path)?.file_type().is_symlink()
                 || config
                     .postgres

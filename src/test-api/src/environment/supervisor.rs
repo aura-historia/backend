@@ -65,63 +65,79 @@ pub(super) fn default_state_dir() -> PathBuf {
     std::env::temp_dir().join(format!("aura-test-env-v1-{}", unsafe { libc::geteuid() }))
 }
 
-pub(super) async fn gc(root: &Path) -> Result<()> {
+struct StaleRun {
+    run: String,
+    dir: PathBuf,
+    _lock: File,
+}
+
+fn run_directories(root: &Path) -> Result<Vec<PathBuf>> {
     directory(root)?;
-    for entry in std::fs::read_dir(root)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let pending = name.strip_prefix(".pending-");
-        let run = pending.unwrap_or(name);
-        if !valid_run_id(run) {
-            continue;
-        }
-        let metadata = lock_metadata(root)?;
-        let dir = entry.path();
-        match validate_directory(&dir) {
-            Err(error)
-                if error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
-            {
-                continue;
-            }
-            result => result?,
-        }
-        let _lock = match lock(&dir) {
-            Ok(Some(lock)) => lock,
-            Ok(None) => continue,
-            Err(error)
-                if error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-        if pending.is_some() {
-            if std::fs::read_dir(&dir)?.any(|entry| match entry {
-                Ok(entry) => !matches!(entry.file_name().to_str(), Some("lock" | "owner.json")),
-                Err(_) => true,
-            }) {
-                return Err(invalid("unexpected files in pending run initialization"));
-            }
-            std::fs::remove_dir_all(&dir)?;
-            continue;
-        }
-        drop(metadata);
-        let owner: Owner = serde_json::from_slice(&std::fs::read(dir.join("owner.json"))?)?;
-        if owner.schema_version != 1
-            || owner.run_id != run
-            || owner.uid != unsafe { libc::geteuid() }
+    std::fs::read_dir(root)?
+        .map(|entry| entry.map(|entry| entry.path()).map_err(Into::into))
+        .collect()
+}
+
+fn claim_stale_run(root: &Path, dir: PathBuf) -> Result<Option<StaleRun>> {
+    let Some(name) = dir.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return Ok(None);
+    };
+    let pending = name.strip_prefix(".pending-");
+    let run = pending.unwrap_or(name);
+    if !valid_run_id(run) {
+        return Ok(None);
+    }
+    let metadata = lock_metadata(root)?;
+    match validate_directory(&dir) {
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
         {
-            return Err(invalid("stale run ownership manifest is invalid"));
+            return Ok(None);
         }
-        process::reap_stale_group(&dir)?;
-        cleanup(run, &dir).await?;
+        result => result?,
+    }
+    let lock = match lock(&dir) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => return Ok(None),
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    if pending.is_some() {
+        if std::fs::read_dir(&dir)?.any(|entry| match entry {
+            Ok(entry) => !matches!(entry.file_name().to_str(), Some("lock" | "owner.json")),
+            Err(_) => true,
+        }) {
+            return Err(invalid("unexpected files in pending run initialization"));
+        }
+        std::fs::remove_dir_all(&dir)?;
+        return Ok(None);
+    }
+    drop(metadata);
+    let owner: Owner = serde_json::from_slice(&std::fs::read(dir.join("owner.json"))?)?;
+    if owner.schema_version != 1 || owner.run_id != run || owner.uid != unsafe { libc::geteuid() } {
+        return Err(invalid("stale run ownership manifest is invalid"));
+    }
+    process::reap_stale_group(&dir)?;
+    Ok(Some(StaleRun {
+        run: run.into(),
+        dir,
+        _lock: lock,
+    }))
+}
+
+pub(super) async fn gc(root: &Path) -> Result<()> {
+    for dir in run_directories(root)? {
+        if let Some(stale) = claim_stale_run(root, dir)? {
+            cleanup(&stale.run, &stale.dir).await?;
+        }
     }
     Ok(())
 }
@@ -224,13 +240,7 @@ pub(super) async fn run(
     }
 }
 
-async fn run_child(
-    config: &ManagedEnvironment,
-    dir: &Path,
-    command: &[std::ffi::OsString],
-    signals: &mut process::Signals,
-    started: Instant,
-) -> Result<i32> {
+fn publish_environment(config: &ManagedEnvironment, dir: &Path) -> Result<PathBuf> {
     let path = dir.join("environment.json");
     std::fs::write(
         dir.join("environment.json.tmp"),
@@ -238,6 +248,17 @@ async fn run_child(
     )?;
     std::fs::rename(dir.join("environment.json.tmp"), &path)?;
     std::fs::write(dir.join("empty-aws-config"), [])?;
+    Ok(path)
+}
+
+async fn run_child(
+    config: &ManagedEnvironment,
+    dir: &Path,
+    command: &[std::ffi::OsString],
+    signals: &mut process::Signals,
+    started: Instant,
+) -> Result<i32> {
+    let path = publish_environment(config, dir)?;
     let count = usize::from(config.postgres.is_some())
         + usize::from(config.aws_endpoint.is_some())
         + usize::from(config.opensearch_endpoint.is_some());
