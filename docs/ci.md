@@ -129,6 +129,8 @@ Postgres/OpenSearch startup/migrations; teardown includes resets. These duration
 overlap and must not be summed as wall time. Body records exclude macro setup and
 teardown, but include helpers called by the test. Failed/cancelled phases can lack
 a completion record. Ordinary libtest tests have no separate body measurement.
+Normal timing records are written as complete lines in one buffer; recognized
+records with malformed payloads fail collection instead of silently losing samples.
 
 Coverage artifacts retain raw profiles and LCOV. The JSON reports both LCOV record
 sums and a file/line/function/branch identity union. The union does not reconcile

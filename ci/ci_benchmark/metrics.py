@@ -14,12 +14,15 @@ def observations(path):
     phases = {"SETUP": [], "BODY": [], "TEARDOWN": [], "FLOCI_STARTUP": [], "POSTGRES_STARTUP": [],
               "POSTGRES_MIGRATIONS": [], "POSTGRES_RESET": [], "OPENSEARCH_STARTUP": [], "OPENSEARCH_RESET": []}
     records = []
-    for line in raw.splitlines():
-        match = re.search(r"AURA_CI_TIMING (\{.*\})", line)
-        if match:
-            record = json.loads(match[1])
-            if record["phase"] not in phases or record["elapsed_seconds"] < 0:
-                raise ValueError("Invalid benchmark timing observation")
+    for number, line in enumerate(raw.splitlines(), 1):
+        _, marker, payload = line.partition("AURA_CI_TIMING ")
+        if marker:
+            try:
+                record = json.loads(payload)
+                if record["phase"] not in phases or record["elapsed_seconds"] < 0:
+                    raise ValueError("Invalid benchmark timing observation")
+            except (ValueError, KeyError, TypeError) as error:
+                raise ValueError(f"Malformed benchmark timing record on line {number}") from error
             phases[record["phase"]].append(record["elapsed_seconds"])
             records.append(record)
     return {"tests": {"status": "COLLECTED" if summaries else "UNAVAILABLE", "totals": totals if summaries else None,

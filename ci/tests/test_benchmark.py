@@ -95,6 +95,17 @@ test result: FAILED. 1 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; 
         self.assertEqual(actual["tests"]["status"], "UNAVAILABLE")
         self.assertIsNone(actual["tests"]["totals"])
 
+    def test_recognized_timing_records_with_interleaved_harness_output_fail_closed(self):
+        for raw in ('test sample ... AURA_CI_TIMING ok{\n"phase":"SETUP"}\n',
+                    'AURA_CI_TIMING test should_handle_foreign_key_relations ... {ok"phase":"SETUP"}\n',
+                    'AURA_CI_TIMING {"phase":"SETUP","elapsed_seconds":0.1ok}\n',
+                    'AURA_CI_TIMING {"phase":"SETUP","elapsed_seconds":0.1}\nok\nAURA_CI_TIMING {\n',
+                    'AURA_CI_TIMING {"phase":"SETUP"}\n'):
+            with self.subTest(raw=raw):
+                self.path.write_text(raw)
+                with self.assertRaisesRegex(ValueError, "Malformed benchmark timing record on line"):
+                    observations(self.path)
+
     def test_fixture_image_mapping_requires_review_when_engine_or_emulator_changes(self):
         root = pathlib.Path(self.temporary.name)
         source = root / "src/test-api/src"

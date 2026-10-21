@@ -32,7 +32,10 @@ fn write_timing(
         "pid": std::process::id(),
         "elapsed_seconds": elapsed.as_secs_f64(),
     });
-    let _ = writeln!(writer, "AURA_CI_TIMING {record}");
+    // Keep normal records in one write so libtest's stdout cannot split the
+    // prefix, JSON and newline when both streams share the benchmark log.
+    let line = format!("AURA_CI_TIMING {record}\n");
+    let _ = writer.write_all(line.as_bytes());
 }
 
 #[cfg(test)]
@@ -56,6 +59,40 @@ mod tests {
         assert_eq!(record["owner"], "example::test");
         assert_eq!(record["pid"], std::process::id());
         assert_eq!(record["elapsed_seconds"], 0.125);
+    }
+
+    #[test]
+    fn should_write_complete_newline_terminated_record_in_one_buffer() {
+        #[derive(Default)]
+        struct Writes(Vec<Vec<u8>>);
+        impl Write for Writes {
+            fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                self.0.push(buffer.to_vec());
+                Ok(buffer.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut writer = Writes::default();
+        write_timing(
+            &mut writer,
+            Some("1"),
+            "SETUP",
+            "example::test",
+            Duration::ZERO,
+        );
+        assert_eq!(writer.0.len(), 1);
+        let line = std::str::from_utf8(&writer.0[0]).unwrap();
+        assert!(line.len() < 4096, "normal records fit Linux PIPE_BUF");
+        assert!(line.ends_with('\n'));
+        assert_eq!(line.lines().count(), 1);
+        let record: serde_json::Value =
+            serde_json::from_str(line.strip_prefix("AURA_CI_TIMING ").unwrap()).unwrap();
+        assert_eq!(record["phase"], "SETUP");
+        assert_eq!(record["owner"], "example::test");
     }
 
     #[test]
