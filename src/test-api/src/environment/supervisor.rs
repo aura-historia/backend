@@ -54,6 +54,13 @@ fn lock(dir: &Path) -> Result<Option<File>> {
     }
 }
 
+fn lock_metadata(root: &Path) -> Result<File> {
+    let file = File::open(root)?;
+    file.lock()
+        .map_err(|e| context("cannot lock test supervisor metadata", e))?;
+    Ok(file)
+}
+
 pub(super) fn default_state_dir() -> PathBuf {
     std::env::temp_dir().join(format!("aura-test-env-v1-{}", unsafe { libc::geteuid() }))
 }
@@ -71,6 +78,7 @@ pub(super) async fn gc(root: &Path) -> Result<()> {
         if !valid_run_id(run) {
             continue;
         }
+        let metadata = lock_metadata(root)?;
         let dir = entry.path();
         match validate_directory(&dir) {
             Err(error)
@@ -104,6 +112,7 @@ pub(super) async fn gc(root: &Path) -> Result<()> {
             std::fs::remove_dir_all(&dir)?;
             continue;
         }
+        drop(metadata);
         let owner: Owner = serde_json::from_slice(&std::fs::read(dir.join("owner.json"))?)?;
         if owner.schema_version != 1
             || owner.run_id != run
@@ -120,8 +129,7 @@ pub(super) async fn gc(root: &Path) -> Result<()> {
 async fn cleanup(run: &str, dir: &Path) -> Result<()> {
     let started = Instant::now();
     let result = match docker::cleanup(run).await {
-        Ok(()) => std::fs::remove_dir_all(dir)
-            .map_err(|e| context("cannot remove owned run directory", e)),
+        Ok(()) => remove_run_directory(dir),
         Err(error) => Err(error),
     };
     eprintln!(
@@ -132,9 +140,19 @@ async fn cleanup(run: &str, dir: &Path) -> Result<()> {
     result
 }
 
+fn remove_run_directory(dir: &Path) -> Result<()> {
+    let root = dir
+        .parent()
+        .ok_or_else(|| invalid("owned run directory has no state root"))?;
+    // Preserve the lock inode until GC can no longer discover this directory.
+    let _metadata = lock_metadata(root)?;
+    std::fs::remove_dir_all(dir).map_err(|e| context("cannot remove owned run directory", e))
+}
+
 fn initialize_run(root: &Path, run: &str) -> Result<(PathBuf, File)> {
-    // Publish the directory only after its lock and ownership record exist. Concurrent
-    // GC must never observe a half-initialized live invocation.
+    // GC shares this short metadata lock so it cannot collect a pending directory
+    // before the run lock and ownership record are published.
+    let _initialization = lock_metadata(root)?;
     let pending = root.join(format!(".pending-{run}"));
     directory(&pending)?;
     let lock = lock(&pending)?.ok_or_else(|| invalid("new run lock unexpectedly held"))?;
@@ -256,6 +274,48 @@ async fn run_child(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn should_protect_initialization_before_the_run_lock_exists() {
+        let root = default_state_dir().with_file_name(format!(
+            "aura-test-env-initialization-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        directory(&root).unwrap();
+        let initialization = lock_metadata(&root).unwrap();
+        let pending = root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
+        directory(&pending).unwrap();
+        let gc_root = root.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let collector = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(gc(&gc_root))
+                .unwrap();
+            done_tx.send(()).unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(matches!(
+            done_rx.recv_timeout(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        assert!(pending.exists());
+        let held = lock(&pending).unwrap().unwrap();
+        drop(initialization);
+        collector.join().unwrap();
+        assert!(pending.exists());
+        drop(held);
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(gc(&root))
+            .unwrap();
+        assert!(!pending.exists());
+        std::fs::remove_dir(root).unwrap();
+    }
+
     #[tokio::test]
     async fn should_skip_locked_initialization_and_collect_it_after_owner_exit() {
         let root = default_state_dir().with_file_name(format!(
