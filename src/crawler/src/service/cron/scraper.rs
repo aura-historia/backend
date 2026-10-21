@@ -1100,22 +1100,16 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
     )
 }
 
-fn network_error_kind(error: &ScraperError) -> Option<NetworkErrorKind> {
-    match error {
-        ScraperError::HttpError { kind, .. } => Some(*kind),
-        ScraperError::HttpErrorWithMetadata(metadata) => Some(metadata.kind),
-        _ => None,
-    }
-}
-
 fn is_robots_unreachable(error: &ScraperError) -> bool {
-    network_error_kind(error) == Some(NetworkErrorKind::RobotsUnreachable)
+    error.network_error_kind() == Some(NetworkErrorKind::RobotsUnreachable)
 }
 
 /// robots.txt refusals are the crawler honouring a shop's policy, not a
 /// failure to report as a warning.
 fn is_robots_refusal(error: &ScraperError) -> bool {
-    network_error_kind(error).is_some_and(NetworkErrorKind::is_robots_refusal)
+    error
+        .network_error_kind()
+        .is_some_and(NetworkErrorKind::is_robots_refusal)
 }
 
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {

@@ -143,6 +143,39 @@ enum AttemptError {
     TotalTimeout,
 }
 
+/// When an attempt's network time runs out, and whether that is the whole
+/// fetch's budget.
+#[derive(Clone, Copy)]
+struct AttemptLimit {
+    at: tokio::time::Instant,
+    total: bool,
+}
+
+impl AttemptLimit {
+    fn new(attempt_deadline: tokio::time::Instant, total_deadline: tokio::time::Instant) -> Self {
+        Self {
+            at: attempt_deadline.min(total_deadline),
+            total: attempt_deadline >= total_deadline,
+        }
+    }
+
+    /// Runs a robots.txt load or check within the limit. Its failure ends
+    /// the fetch: retrying would only fetch robots.txt again.
+    async fn robots<T>(
+        self,
+        step: impl Future<Output = Result<T, FetchAttemptError>>,
+    ) -> Result<T, AttemptError> {
+        match tokio::time::timeout_at(self.at, step).await {
+            Ok(result) => result.map_err(|error| AttemptError::Final(error.error)),
+            Err(_) if self.total => Err(AttemptError::TotalTimeout),
+            Err(_) => Err(AttemptError::Final(FetchError::Network {
+                kind: NetworkErrorKind::Timeout,
+                details: "robots.txt fetch exceeded the attempt timeout".to_string(),
+            })),
+        }
+    }
+}
+
 impl From<FetchAttemptError> for AttemptError {
     fn from(error: FetchAttemptError) -> Self {
         Self::Failed(error.error)
@@ -256,25 +289,16 @@ impl ReqwestHtmlFetcher {
         deadline: &mut tokio::time::Instant,
     ) -> Result<FetchedHtml, AttemptError> {
         let mut attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
-        let crawl_delay =
-            match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.check_robots(url))
-                .await
-            {
-                Ok(result) => result.map_err(|error| AttemptError::Final(error.error))?,
-                Err(_) if attempt_deadline >= *deadline => return Err(AttemptError::TotalTimeout),
-                Err(_) => {
-                    return Err(AttemptError::Final(FetchError::Network {
-                        kind: NetworkErrorKind::Timeout,
-                        details: "robots.txt fetch exceeded the attempt timeout".to_string(),
-                    }));
-                }
-            };
+        let crawl_delay = AttemptLimit::new(attempt_deadline, *deadline)
+            .robots(self.check_robots(url))
+            .await?;
         let waited = self.pace(url, crawl_delay).await;
         *deadline += waited;
         attempt_deadline += waited;
-        match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.fetch_once(url)).await {
+        let limit = AttemptLimit::new(attempt_deadline, *deadline);
+        match tokio::time::timeout_at(limit.at, self.fetch_once(url, limit)).await {
             Ok(result) => result,
-            Err(_) if attempt_deadline >= *deadline => Err(AttemptError::TotalTimeout),
+            Err(_) if limit.total => Err(AttemptError::TotalTimeout),
             Err(_) => Err(AttemptError::Failed(FetchError::Network {
                 kind: NetworkErrorKind::Timeout,
                 details: "HTML fetch attempt exceeded timeout".to_string(),
@@ -302,16 +326,18 @@ impl ReqwestHtmlFetcher {
         Ok(())
     }
 
-    async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, AttemptError> {
+    async fn fetch_once(
+        &self,
+        url: &Url,
+        limit: AttemptLimit,
+    ) -> Result<FetchedHtml, AttemptError> {
         let mut current_url = url.clone();
         let original_url = url.clone();
 
         for redirect_count in 0..=HTML_MAX_REDIRECTS {
             let domain = current_url.host_str().map(str::to_owned);
             if redirect_count > 0 {
-                self.admit_redirect(&current_url)
-                    .await
-                    .map_err(|error| AttemptError::Final(error.error))?;
+                limit.robots(self.admit_redirect(&current_url)).await?;
             }
             let started = Instant::now();
             let client = self.http_client_for(&current_url).await?;
@@ -990,6 +1016,41 @@ mod tests {
         let error = fetcher.fetch(&shop.url).await.unwrap_err();
 
         assert_eq!(error.kind(), NetworkErrorKind::Connect);
+        assert_eq!(shop.page_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_a_redirect_whose_robots_txt_stalls() {
+        let stalled = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stalled_port = stalled.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = stalled.accept().await {
+                held.push(socket);
+            }
+        });
+        let redirect: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{stalled_port}/product\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_boxed_str(),
+        );
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![redirect, redirect],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::Timeout);
         assert_eq!(shop.page_requests().len(), 1);
     }
 

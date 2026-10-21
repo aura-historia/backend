@@ -123,8 +123,13 @@ impl AllowTrie {
     fn insert(&mut self, suffix: impl Iterator<Item = (char, bool)>, exact: bool) {
         let mut node = self;
         for (ch, escape_digit) in suffix {
-            node = node.children.entry(ch).or_default();
-            node.escape_digit = escape_digit;
+            node = node.children.entry(ch).or_insert_with(|| AllowTrie {
+                escape_digit,
+                ..Default::default()
+            });
+            // Rules disagreeing on a shared character keep it case-sensitive,
+            // so the carve-out never grows past one of them.
+            node.escape_digit &= escape_digit;
         }
         if exact {
             node.allows_exact = true;
@@ -211,7 +216,8 @@ fn literal_regex(literal: &str) -> String {
 }
 
 /// Each character of `literal`, and whether it is a hex digit of a percent
-/// escape.
+/// escape. An escape cut short by the end of the literal counts too: the
+/// rule still matches a URL that completes it.
 fn escape_digit_flags(literal: &str) -> Vec<(char, bool)> {
     let chars: Vec<char> = literal.chars().collect();
     let mut pending = 0_u8;
@@ -220,10 +226,11 @@ fn escape_digit_flags(literal: &str) -> Vec<(char, bool)> {
         .enumerate()
         .map(|(index, &ch)| {
             let escape_digit = pending > 0;
+            let digits = &chars[index + 1..chars.len().min(index + 3)];
             let starts_escape = ch == '%'
-                && chars
-                    .get(index + 1..index + 3)
-                    .is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit));
+                && !digits.is_empty()
+                && (digits.len() == 2 || index + 1 + digits.len() == chars.len())
+                && digits.iter().all(char::is_ascii_hexdigit);
             pending = if starts_escape {
                 2
             } else {
@@ -341,6 +348,14 @@ mod tests {
                 "/wp-admin/admin-ajax.php?action=x",
                 "/wp-admin/options.php",
             ],
+        );
+    }
+
+    #[test]
+    fn should_deny_an_escape_a_rule_cuts_short_in_either_hex_case() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: /a%A\nDisallow: /b%C*x\n",
+            &["/a%AC", "/a%aC", "/a", "/b%c1x", "/b%C1x", "/b"],
         );
     }
 

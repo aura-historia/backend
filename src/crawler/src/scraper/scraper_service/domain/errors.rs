@@ -103,3 +103,14 @@ pub enum ScraperError {
         review_id: CrawlerReviewId,
     },
 }
+
+impl ScraperError {
+    /// The network failure kind of an HTTP fetch error.
+    pub(crate) fn network_error_kind(&self) -> Option<NetworkErrorKind> {
+        match self {
+            Self::HttpError { kind, .. } => Some(*kind),
+            Self::HttpErrorWithMetadata(metadata) => Some(metadata.kind),
+            _ => None,
+        }
+    }
+}

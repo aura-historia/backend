@@ -246,10 +246,12 @@ pub(crate) fn domain_health_for_fetch_error(
 
 pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFetchHealth {
     match error {
-        ScraperError::HttpError { kind, .. } if kind.is_robots_refusal() => {
-            DomainFetchHealth::NotObserved
-        }
-        ScraperError::HttpErrorWithMetadata(metadata) if metadata.kind.is_robots_refusal() => {
+        // A robots.txt refusal sent nothing to the shop.
+        error
+            if error
+                .network_error_kind()
+                .is_some_and(NetworkErrorKind::is_robots_refusal) =>
+        {
             DomainFetchHealth::NotObserved
         }
         ScraperError::HttpError { kind, .. } => match domain_failure_kind(*kind) {
