@@ -30,8 +30,9 @@ def source_paths(target, package_root, member_roots):
     """
     source = target["src_path"]
     scope = source.parent
+    nested_members = {other for other in member_roots if package_root in other.parents}
     return sorted(path for path in scope.rglob("*.rs") if not any(
-        other != package_root and other in path.parents for other in member_roots
+        other in path.parents for other in nested_members
     ))
 
 

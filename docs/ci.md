@@ -39,10 +39,11 @@ Ignored cases are retained. Platform-dependent and feature-dependent source
 attributes are review evidence; compiled counts apply only to the recorded host,
 toolchain and feature configuration. Other platforms need their own discovery.
 Source subtree scans include sibling modules, inactive cfg branches and comments,
-and can overclassify a target's fixture needs. They record file/line evidence for
-the integration macro, direct serialization, testcontainers, Postgres, persistent
-globals, external effects and cluster-wide DDL/replication. These signals cannot
-prove absence of indirect or dynamically generated effects. In particular,
+and can overclassify a target's fixture needs. Each package retains its own source
+evidence and excludes subtrees owned by nested workspace members. Scans record
+file/line evidence for the integration macro, direct serialization, testcontainers,
+Postgres, persistent globals, external effects and cluster-wide DDL/replication.
+These signals cannot prove absence of indirect or dynamically generated effects. In particular,
 `aura_integration_test` expands to a serial test, and process globals/serial locks
 do not coordinate separate nextest processes. Follow-on scheduling must review
 the fixture boundary before enabling concurrency.
