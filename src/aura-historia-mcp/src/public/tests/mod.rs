@@ -188,6 +188,24 @@ async fn should_publish_exactly_the_selected_operations_with_shared_schemas_and_
             !matches!(name, "discoverPartyLocations" | "getPublicOverview"),
             operation["delegatedContext"].as_bool().unwrap()
         );
+        if matches!(
+            name,
+            "simpleSearchProductListings"
+                | "getProductListing"
+                | "getProductListingByTitleSlug"
+                | "getSimilarProductListings"
+                | "getAuctionCatalogue"
+        ) {
+            let description = tool["description"].as_str().unwrap();
+            for scope in [
+                "watchlist:read",
+                "search-filters:read",
+                "notifications:read",
+                "users:read",
+            ] {
+                assert!(description.contains(scope), "{name}: {scope}");
+            }
+        }
         assert_eq!(
             1,
             swagger

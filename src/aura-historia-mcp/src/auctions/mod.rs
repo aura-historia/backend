@@ -83,7 +83,7 @@ fn catalogue(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getAuctionCatalogue",
-        "Get public auction lots with language, currency, shipping presentation and stable catalogue continuation.",
+        "Get public auction lots with language, currency, shipping presentation and stable catalogue continuation. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
         move |input: CatalogueArguments, invocation| {
             let service = Arc::clone(&service);

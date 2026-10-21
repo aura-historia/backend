@@ -6,7 +6,7 @@ use aura_historia_mcp::{
 use aura_historia_runtime::Runtime;
 use axum::{
     Router,
-    body::Body,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
 use oauth_core::resource::AuraResourcePolicy;
@@ -156,6 +156,16 @@ async fn verify_authoritative_changes() -> TestResult {
     let public_response = app.clone().oneshot(history_request(&token)).await?;
     assert_eq!(StatusCode::OK, public_response.status());
     assert_eq!("no-store", public_response.headers()["cache-control"]);
+    let public_result: serde_json::Value = serde_json::from_slice(
+        &to_bytes(
+            public_response.into_body(),
+            aura_historia_mcp::MAX_RESPONSE_BYTES,
+        )
+        .await?,
+    )?;
+    assert!(public_result.get("error").is_none(), "{public_result}");
+    assert_eq!(true, public_result["result"]["isError"]);
+    assert_eq!("NOT_FOUND", public_result["result"]["content"][0]["text"]);
 
     sqlx::query(
         "UPDATE access_tokens SET scopes=ARRAY['users:read'], \

@@ -84,7 +84,11 @@ pub(super) async fn authenticated_call(app: &Router, name: &str, arguments: Valu
         "{name}: {response}"
     );
     assert!(response.get("error").is_none(), "{name}: {response}");
-    response["result"]["structuredContent"].clone()
+    let output = response["result"]["structuredContent"].clone();
+    let text: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(output, text, "{name}");
+    output
 }
 
 #[tokio::test]

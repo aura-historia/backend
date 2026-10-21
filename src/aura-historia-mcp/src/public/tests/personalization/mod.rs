@@ -207,7 +207,7 @@ async fn should_keep_write_and_unrelated_grants_from_disclosing_private_state() 
 async fn should_enforce_hidden_and_sensitive_image_policy_independently_of_disclosure_scopes() {
     for hidden in [false, true] {
         for consent in [false, true] {
-            for mask in [0, 1, 2, 4, 8, 15] {
+            for mask in 0..16 {
                 let fixture = ListingFixture::new(hidden, consent);
                 let (scopes, mut fields) = scoped_fields(mask);
                 if hidden {
