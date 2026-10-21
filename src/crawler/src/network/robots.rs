@@ -123,6 +123,15 @@ impl RobotsPolicy {
         }
     }
 
+    /// Stable label for diagnostics.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Rules(_) => "rules",
+            Self::Unavailable => "unavailable_allow_all",
+            Self::Unreachable => "unreachable_disallow_all",
+        }
+    }
+
     pub fn crawl_delay(&self) -> Option<Duration> {
         match self {
             Self::Rules(rules) => rules.crawl_delay(),
@@ -177,11 +186,7 @@ impl RobotsRules {
                 .iter()
                 .flat_map(|group| group.rules.iter().cloned())
                 .collect(),
-            crawl_delay: selected
-                .iter()
-                .filter_map(|group| group.crawl_delay)
-                .max()
-                .map(|delay| delay.min(MAX_CRAWL_DELAY)),
+            crawl_delay: selected.iter().filter_map(|group| group.crawl_delay).max(),
         }
     }
 

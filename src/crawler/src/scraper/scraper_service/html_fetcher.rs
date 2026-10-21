@@ -136,11 +136,17 @@ struct FetchAttemptError {
 enum AttemptError {
     /// May be retried when its kind is retryable.
     Failed(FetchError),
-    /// Loading or applying robots.txt failed; retrying would only fetch
-    /// robots.txt again.
+    /// Loading or applying robots.txt failed, for the URL or a redirect
+    /// hop; retrying would only fetch robots.txt again.
     Final(FetchError),
     /// The whole fetch ran out of its network-time budget; no retry follows.
     TotalTimeout,
+}
+
+impl From<FetchAttemptError> for AttemptError {
+    fn from(error: FetchAttemptError) -> Self {
+        Self::Failed(error.error)
+    }
 }
 
 impl Default for ReqwestHtmlFetcher {
@@ -267,7 +273,7 @@ impl ReqwestHtmlFetcher {
         *deadline += waited;
         attempt_deadline += waited;
         match tokio::time::timeout_at(attempt_deadline.min(*deadline), self.fetch_once(url)).await {
-            Ok(result) => result.map_err(|error| AttemptError::Failed(error.error)),
+            Ok(result) => result,
             Err(_) if attempt_deadline >= *deadline => Err(AttemptError::TotalTimeout),
             Err(_) => Err(AttemptError::Failed(FetchError::Network {
                 kind: NetworkErrorKind::Timeout,
@@ -296,14 +302,16 @@ impl ReqwestHtmlFetcher {
         Ok(())
     }
 
-    async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, FetchAttemptError> {
+    async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, AttemptError> {
         let mut current_url = url.clone();
         let original_url = url.clone();
 
         for redirect_count in 0..=HTML_MAX_REDIRECTS {
             let domain = current_url.host_str().map(str::to_owned);
             if redirect_count > 0 {
-                self.admit_redirect(&current_url).await?;
+                self.admit_redirect(&current_url)
+                    .await
+                    .map_err(|error| AttemptError::Final(error.error))?;
             }
             let started = Instant::now();
             let client = self.http_client_for(&current_url).await?;
@@ -316,18 +324,16 @@ impl ReqwestHtmlFetcher {
             if response.status().is_redirection() {
                 self.record_domain_success_latency(domain.as_deref(), started.elapsed());
                 if redirect_count == HTML_MAX_REDIRECTS {
-                    return Err(FetchAttemptError {
-                        error: unsafe_fetch_error("redirect limit exceeded"),
-                    });
+                    return Err(AttemptError::Failed(unsafe_fetch_error(
+                        "redirect limit exceeded",
+                    )));
                 }
                 let next_url =
                     redirect_target(&current_url, &response).map_err(public_target_fetch_error)?;
                 if !is_same_or_www_host(&original_url, &next_url) {
-                    return Err(FetchAttemptError {
-                        error: unsafe_fetch_error(
-                            "redirect target host does not match configured host",
-                        ),
-                    });
+                    return Err(AttemptError::Failed(unsafe_fetch_error(
+                        "redirect target host does not match configured host",
+                    )));
                 }
                 current_url = next_url;
                 continue;
@@ -336,7 +342,7 @@ impl ReqwestHtmlFetcher {
             let status = response.status();
             if !status.is_success() {
                 self.record_domain_failure_latency(domain.as_deref(), started.elapsed());
-                return Err(http_status_fetch_error(response));
+                return Err(http_status_fetch_error(response).into());
             }
             self.record_domain_success_latency(domain.as_deref(), started.elapsed());
             let final_url = response.url().clone();
@@ -344,9 +350,9 @@ impl ReqwestHtmlFetcher {
             return Ok(FetchedHtml::new(html, final_url, status));
         }
 
-        Err(FetchAttemptError {
-            error: unsafe_fetch_error("redirect limit exceeded"),
-        })
+        Err(AttemptError::Failed(unsafe_fetch_error(
+            "redirect limit exceeded",
+        )))
     }
 
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
@@ -957,6 +963,34 @@ mod tests {
 
         assert_eq!(error.kind(), NetworkErrorKind::RobotsUnreachable);
         assert!(shop.page_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_a_redirect_whose_robots_txt_fails_to_load() {
+        let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed_port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let redirect: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{closed_port}/product\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_boxed_str(),
+        );
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![redirect, redirect],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::Connect);
+        assert_eq!(shop.page_requests().len(), 1);
     }
 
     #[tokio::test]

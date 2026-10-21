@@ -1,5 +1,5 @@
 use crate::CrawlerDomainId;
-use crate::network::policy::{NetworkErrorKind, domain_failure_kind};
+use crate::network::policy::domain_failure_kind;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
@@ -113,10 +113,7 @@ impl ScraperServiceImpl {
                         );
                         return Err(error);
                     }
-                    if matches!(
-                        err.kind(),
-                        NetworkErrorKind::RobotsDisallowed | NetworkErrorKind::RobotsUnreachable
-                    ) {
+                    if err.kind().is_robots_refusal() {
                         debug!(
                             error = %err,
                             sample_url = %sample_url,

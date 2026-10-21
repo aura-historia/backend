@@ -1115,10 +1115,7 @@ fn is_robots_unreachable(error: &ScraperError) -> bool {
 /// robots.txt refusals are the crawler honouring a shop's policy, not a
 /// failure to report as a warning.
 fn is_robots_refusal(error: &ScraperError) -> bool {
-    matches!(
-        network_error_kind(error),
-        Some(NetworkErrorKind::RobotsDisallowed | NetworkErrorKind::RobotsUnreachable)
-    )
+    network_error_kind(error).is_some_and(NetworkErrorKind::is_robots_refusal)
 }
 
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {
@@ -2647,9 +2644,11 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
-        assert!(!matches!(
+        // Nothing reached the shop: the refusal must neither open nor close
+        // the domain circuit.
+        assert!(matches!(
             outcome.domain_health,
-            DomainFetchHealth::CircuitFailure { .. }
+            DomainFetchHealth::NotObserved
         ));
     }
 

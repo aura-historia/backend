@@ -38,6 +38,7 @@ pub(super) async fn admit_crawl(
     timeout: Duration,
 ) -> Result<CrawlRobots, SpiderDiscoveryError> {
     let policy = fetch_robots_policy(transport, root, root_client, timeout).await?;
+    let label = policy.label();
     match policy {
         RobotsPolicy::Unreachable => Err(SpiderDiscoveryError::preflight(
             CrawlFailureKind::ServerError,
@@ -46,17 +47,17 @@ pub(super) async fn admit_crawl(
         RobotsPolicy::Unavailable => Ok(CrawlRobots {
             deny_list: DenyList::default(),
             crawl_delay: None,
-            policy: "unavailable_allow_all",
+            policy: label,
         }),
         RobotsPolicy::Rules(rules) if !rules.allows(root) => Err(SpiderDiscoveryError::preflight(
             CrawlFailureKind::RobotsBlocked,
             "robots.txt disallows the crawl root",
         )),
-        RobotsPolicy::Rules(rules) => Ok(crawl_robots(root, &rules)),
+        RobotsPolicy::Rules(rules) => Ok(crawl_robots(root, &rules, label)),
     }
 }
 
-fn crawl_robots(root: &Url, rules: &RobotsRules) -> CrawlRobots {
+fn crawl_robots(root: &Url, rules: &RobotsRules, policy: &'static str) -> CrawlRobots {
     let deny_list = rules.deny_list();
     if !deny_list.failing_closed.is_empty() {
         info!(
@@ -69,7 +70,7 @@ fn crawl_robots(root: &Url, rules: &RobotsRules) -> CrawlRobots {
     CrawlRobots {
         deny_list,
         crawl_delay: rules.crawl_delay(),
-        policy: "rules",
+        policy,
     }
 }
 

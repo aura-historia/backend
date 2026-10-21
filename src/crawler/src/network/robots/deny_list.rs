@@ -170,15 +170,12 @@ fn is_literal(pattern: &str) -> bool {
 /// Two rules can only match one path when their literal leads, the parts
 /// before the first wildcard, agree.
 fn may_overlap(left: &str, right: &str) -> bool {
-    let lead = |pattern: &str| {
-        pattern
-            .split(['*', '$'])
-            .next()
-            .unwrap_or_default()
-            .to_owned()
-    };
-    let (left, right) = (lead(left), lead(right));
-    left.starts_with(&right) || right.starts_with(&left)
+    let (left, right) = (literal_lead(left), literal_lead(right));
+    left.starts_with(right) || right.starts_with(left)
+}
+
+fn literal_lead(pattern: &str) -> &str {
+    pattern.split(['*', '$']).next().unwrap_or_default()
 }
 
 /// A rule pattern as a regex anchored at the path start: `*` matches any

@@ -384,6 +384,13 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
     }
 }
 
+impl NetworkErrorKind {
+    /// robots.txt refused the request, so nothing reached the shop.
+    pub fn is_robots_refusal(self) -> bool {
+        matches!(self, Self::RobotsDisallowed | Self::RobotsUnreachable)
+    }
+}
+
 pub fn is_retryable_network_failure(kind: NetworkErrorKind) -> bool {
     action_for(kind) == NetworkAction::Retry
 }

@@ -93,7 +93,7 @@ impl ReqwestHtmlFetcher {
         info!(
             event = "crawler.scraper.robots_loaded",
             origin = %origin_key,
-            policy = robots_policy_label(&loaded.policy),
+            policy = loaded.policy.label(),
             crawl_delay_ms = loaded.policy.crawl_delay().map(|delay| delay.as_millis() as u64),
             "Loaded robots.txt for scraper origin"
         );
@@ -164,12 +164,4 @@ async fn read_robots_body(mut response: reqwest::Response) -> Result<Vec<u8>, Fe
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
-}
-
-fn robots_policy_label(policy: &RobotsPolicy) -> &'static str {
-    match policy {
-        RobotsPolicy::Rules(_) => "rules",
-        RobotsPolicy::Unavailable => "unavailable_allow_all",
-        RobotsPolicy::Unreachable => "unreachable_disallow_all",
-    }
 }
