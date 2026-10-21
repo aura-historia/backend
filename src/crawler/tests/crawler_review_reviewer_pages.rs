@@ -456,19 +456,28 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_by_trailing_slash() {
+async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_spelling() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
 
-    let duplicate = repository
-        .check_reviewer_page_target(review_id, &url("https://www.example.com/products/1/"))
-        .await;
+    for raw in [
+        "https://www.example.com/products/1/",
+        "https://example.com/products/1",
+        "http://www.example.com/products/1",
+    ] {
+        let duplicate = repository
+            .check_reviewer_page_target(review_id, &url(raw))
+            .await;
 
-    assert!(matches!(
-        duplicate,
-        Err(ReviewRepositoryError::DuplicateReviewPage(_))
-    ));
+        assert!(
+            matches!(
+                duplicate,
+                Err(ReviewRepositoryError::DuplicateReviewPage(_))
+            ),
+            "{raw} names the primary page"
+        );
+    }
 }
 
 #[aura_integration_test(services = [POSTGRES])]

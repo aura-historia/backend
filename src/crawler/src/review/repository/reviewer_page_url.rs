@@ -1,4 +1,4 @@
-use crate::network::policy::url_matches_configured_domain;
+use crate::network::policy::{canonical_crawler_domain, url_matches_configured_domain};
 use crate::spider::utils::url::CrawledUrl;
 use url::Url;
 
@@ -11,8 +11,8 @@ pub(super) fn reviewer_page_url(url: &Url) -> Url {
 }
 
 /// A reviewer page must be a plain http(s) URL on the default port of one of the ListingSource's
-/// domains, so the console never probes other services on a shop's host. URLs with credentials
-/// are refused so they are never fetched, logged or stored.
+/// domains, so a reviewer cannot point the console at other services on a shop's host. URLs with
+/// credentials are refused so they are never fetched, logged or stored.
 pub(super) fn is_allowed_reviewer_page_url(url: &Url, listing_source_domains: &[String]) -> bool {
     matches!(url.scheme(), "http" | "https")
         && url.port().is_none()
@@ -23,12 +23,30 @@ pub(super) fn is_allowed_reviewer_page_url(url: &Url, listing_source_domains: &[
             .any(|domain| url_matches_configured_domain(url, domain))
 }
 
-/// Whether a stored review page URL names the same page as `url`, under the crawler's URL
-/// normalization (trailing slash, fragment, default port and similar spellings).
-pub(super) fn is_same_review_page(stored_url: &str, url: &Url) -> bool {
-    Url::parse(stored_url).is_ok_and(|stored_url| {
-        CrawledUrl::new(stored_url).as_url() == CrawledUrl::new(url.clone()).as_url()
-    })
+/// Which shop page a review page URL names: the crawler's URL normalization (trailing slash,
+/// fragment, default port and similar spellings) on the crawler's ownership host, which treats
+/// `www.` and the bare host as one domain, regardless of http or https.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ReviewPageIdentity {
+    host: Option<String>,
+    path: String,
+    query: Option<String>,
+}
+
+impl ReviewPageIdentity {
+    pub(super) fn of(url: &Url) -> Self {
+        let normalized = CrawledUrl::new(url.clone());
+        let normalized = normalized.as_url();
+        Self {
+            host: normalized.host_str().map(canonical_crawler_domain),
+            path: normalized.path().to_owned(),
+            query: normalized.query().map(str::to_owned),
+        }
+    }
+
+    pub(super) fn of_stored(stored_url: &str) -> Option<Self> {
+        Url::parse(stored_url).ok().map(|url| Self::of(&url))
+    }
 }
 
 pub(super) fn without_credentials(url: &Url) -> Url {
@@ -99,15 +117,22 @@ mod tests {
     }
 
     #[test]
-    fn should_treat_review_page_as_same_when_url_differs_only_by_trailing_slash() {
-        assert!(is_same_review_page(
+    fn should_identify_same_review_page_when_url_differs_only_in_spelling() {
+        let stored = ReviewPageIdentity::of_stored("https://www.example.com/products/1");
+
+        for raw in [
+            "https://www.example.com/products/1/",
             "https://example.com/products/1",
-            &url("https://example.com/products/1/")
-        ));
-        assert!(!is_same_review_page(
-            "https://example.com/products/1",
-            &url("https://example.com/products/2")
-        ));
+            "http://www.example.com/products/1",
+        ] {
+            assert_eq!(stored, Some(ReviewPageIdentity::of(&url(raw))), "{raw}");
+        }
+        for raw in [
+            "https://www.example.com/products/2",
+            "https://www.example.com/products/1?variant=sold",
+        ] {
+            assert_ne!(stored, Some(ReviewPageIdentity::of(&url(raw))), "{raw}");
+        }
     }
 
     #[test]

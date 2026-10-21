@@ -24,7 +24,7 @@ mod reviewer_page_url;
 mod schema_payload;
 
 use reviewer_page_url::{
-    is_allowed_reviewer_page_url, is_same_review_page, reviewer_page_url, without_credentials,
+    ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
 };
 use schema_payload::{
     approval_product_schemas, decode_stored_schemas_payload, parse_schemas_payload,
@@ -1219,9 +1219,10 @@ async fn lock_reviewer_page_target(
     .bind(review_id.as_uuid())
     .fetch_all(&mut **transaction)
     .await?;
+    let identity = ReviewPageIdentity::of(url);
     if pages
         .iter()
-        .any(|(page_url, _)| is_same_review_page(page_url, url))
+        .any(|(page_url, _)| ReviewPageIdentity::of_stored(page_url).as_ref() == Some(&identity))
     {
         return Err(ReviewRepositoryError::DuplicateReviewPage(url.to_string()));
     }
