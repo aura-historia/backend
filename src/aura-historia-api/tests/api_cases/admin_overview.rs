@@ -24,7 +24,7 @@ async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, O
     (status, body, cache_control)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_empty_admin_overview_with_no_store() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(
@@ -78,7 +78,7 @@ async fn should_return_empty_admin_overview_with_no_store() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_aggregate_representative_admin_overview_counts() {
     let admin_id = seed_user("ADMIN").await;
     let pro_user = seed_user_with_tier("USER", UserTier::Pro).await;
@@ -144,7 +144,7 @@ async fn should_aggregate_representative_admin_overview_counts() {
     assert_eq!(json!(0), body["productListings"]["total"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_non_admin_overview_request() {
     let user_id = seed_user("USER").await;
     let token = String::from(

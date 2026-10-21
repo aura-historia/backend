@@ -44,7 +44,7 @@ async fn refresh() -> PublicCatalogueOverview {
     .overview
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
     let (status, body, cache_control) = get_overview("/v1/overview", None).await;
 
@@ -56,7 +56,7 @@ async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_share_the_stored_overview_regardless_of_query_strings() {
     seed_product().await;
     let calculated = refresh().await;
@@ -100,7 +100,7 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
     assert_eq!(representations[0], representations[1]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_authorization_bearing_overview_requests_private() {
     refresh().await;
 

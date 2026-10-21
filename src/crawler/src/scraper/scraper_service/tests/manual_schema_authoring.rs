@@ -4,8 +4,8 @@ use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PA
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
-use crate::test_support::migrated_crawler_database;
 use sqlx::PgPool;
+use test_api::IntegrationTestService as _;
 
 async fn insert_listing_source(pool: &PgPool) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
@@ -71,9 +71,9 @@ fn pending_review_id(
     }
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_open_manual_schema_review_instead_of_generating_initial_schema() {
-    let (_admin_pool, pool) = migrated_crawler_database().await;
+    let pool = test_api::get_postgres_client().await;
     let id = insert_listing_source(&pool).await;
     let url = product_url();
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -101,9 +101,9 @@ async fn should_open_manual_schema_review_instead_of_generating_initial_schema()
     assert_eq!(review.pages[0].url, url.as_str());
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_keep_cached_schemas_in_manual_review_when_they_stop_matching() {
-    let (_admin_pool, pool) = migrated_crawler_database().await;
+    let pool = test_api::get_postgres_client().await;
     let id = insert_listing_source(&pool).await;
     let url = product_url();
     let mut stale_schema = minimal_schema();
@@ -136,9 +136,9 @@ async fn should_keep_cached_schemas_in_manual_review_when_they_stop_matching() {
     assert_eq!(review.pages[0].role, PAGE_ROLE_TRIGGERING_GENERATION_PAGE);
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_review() {
-    let (_admin_pool, pool) = migrated_crawler_database().await;
+    let pool = test_api::get_postgres_client().await;
     let id = insert_listing_source(&pool).await;
     let url = product_url();
     let repository = CrawlerReviewRepository::new(pool.clone());

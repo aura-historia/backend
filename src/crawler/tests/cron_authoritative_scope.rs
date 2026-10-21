@@ -14,7 +14,6 @@ use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
 use crawler::{CrawlerDomainId, scraper};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
-use serial_test::serial;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -95,8 +94,7 @@ fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredLi
     }
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
@@ -177,7 +175,7 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
             started: Arc::clone(&raw_capture_started),
         }),
     );
-    let scheduler = tokio::spawn(job.run_loop());
+    let scheduler = test_api::spawn_owned(job.run_loop());
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     let enabled = loop {

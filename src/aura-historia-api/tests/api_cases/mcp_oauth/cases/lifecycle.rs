@@ -3,7 +3,7 @@ use aura_historia_contracts::{public_overview::PublicOverviewData, users::accoun
 use mcp::assert_shared_output;
 use reqwest::Method;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_link_reauthorize_and_disconnect_at_the_same_public_url() {
     let client = GenericClient::registered().await;
@@ -181,7 +181,7 @@ async fn assert_public_overview(mcp: &McpServer) {
     assert!(public["liveObjects"].is_number());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_handle_denial_and_untrusted_callback_without_issuing_a_credential() {
     let client = GenericClient::registered().await;
@@ -223,7 +223,7 @@ async fn should_handle_denial_and_untrusted_callback_without_issuing_a_credentia
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter() {
     let client = GenericClient::registered().await;

@@ -44,7 +44,7 @@ async fn seed_listing_source_for_search(
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
     let (listing_source_id, _party_id, slug_id) = seed_listing_source_for_search(
         "Müller Public Auction",
@@ -106,7 +106,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
     assert_eq!(item, &detail);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_supplied_authentication_for_public_listing_source_collection() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -133,7 +133,7 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
     assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_terminal_empty_public_collection_for_insufficient_query() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -160,7 +160,7 @@ async fn should_return_terminal_empty_public_collection_for_insufficient_query()
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_malformed_public_listing_source_collection_queries() {
     let client = reqwest::Client::new();
 
@@ -190,7 +190,7 @@ async fn should_reject_malformed_public_listing_source_collection_queries() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_page_all_public_listing_source_search_results_without_duplicates() {
     let mut expected_ids = Vec::new();
     for suffix in ["A", "B", "C", "D", "E"] {
@@ -256,7 +256,7 @@ async fn should_page_all_public_listing_source_search_results_without_duplicates
     assert_eq!(received_ids.len(), unique_ids.len());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_supplied_authentication_for_public_listing_source_slug() {
     let (_, _, slug_id) = seed_listing_source_for_search(
         "Public Slug Authentication",
@@ -290,7 +290,7 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
     assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_public_slug_route_errors_with_private_no_store() {
     let client = reqwest::Client::new();
     let missing = client
@@ -341,7 +341,7 @@ async fn should_return_public_slug_route_errors_with_private_no_store() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_unused_listing_source_and_reject_a_repeat() {
     let listing_source_id = seed_listing_source().await;
     let unrelated_listing_source_id = seed_listing_source().await;
@@ -469,7 +469,7 @@ async fn should_delete_unused_listing_source_and_reject_a_repeat() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_preserve_live_and_withdrawn_product_listing_source_dependencies_when_delete_is_blocked()
  {
     let product_listing_id = seed_product().await;
@@ -538,7 +538,7 @@ async fn should_preserve_live_and_withdrawn_product_listing_source_dependencies_
     assert!(product.2 > 1);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache_control() {
     let (listing_source_id, operator_party_id, listing_source_slug_id) =
         seed_listing_source_for_search(
@@ -611,7 +611,7 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
     assert!(!serialized.contains("provider-secret"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_identity() {
     let (matching_id, matching_operator_id, matching_slug) = seed_listing_source_for_search(
         "Filtered Listing Source",
@@ -678,7 +678,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
     let (first_id, _, _) = seed_listing_source_for_search(
         "Cursor Listing Source A",
@@ -760,7 +760,7 @@ async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
     assert!(second_body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_empty_listing_source_collection_when_no_source_matches() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
@@ -781,7 +781,7 @@ async fn should_return_empty_listing_source_collection_when_no_source_matches() 
     assert!(body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_listing_source_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
@@ -874,7 +874,7 @@ async fn should_reject_invalid_listing_source_search_query_values() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_listing_source_collection_for_non_admin() {
     let user_id = seed_user("USER").await;
     let token = listing_sources_token(user_id).await;
@@ -892,7 +892,7 @@ async fn should_reject_listing_source_collection_for_non_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_listing_source_detail_for_admin_without_provider_secrets() {
     let (listing_source_id, operator_party_id, listing_source_slug_id) =
         seed_listing_source_for_search(
@@ -946,7 +946,7 @@ async fn should_return_listing_source_detail_for_admin_without_provider_secrets(
     assert!(!serialized.contains("provider-secret"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_listing_source_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
@@ -981,7 +981,7 @@ async fn should_reject_noncanonical_listing_source_detail_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_listing_source_detail() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
@@ -1006,7 +1006,7 @@ async fn should_return_not_found_for_missing_listing_source_detail() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_for_listing_source_detail() {
     let listing_source_id = seed_listing_source().await;
     let client = reqwest::Client::new();
@@ -1045,7 +1045,7 @@ async fn should_require_admin_for_listing_source_detail() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_listing_source_for_existing_party_at_admin_route() {
     let party_id = seed_party("Existing Listing Source Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -1111,7 +1111,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
@@ -1148,7 +1148,7 @@ async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_listing_source_with_new_party_without_echoing_webhook_secret() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
@@ -1213,7 +1213,7 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
     assert!(!body.to_string().contains("provider-secret"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_nested_woocommerce_secret_on_admin_create() {
     let party_id = seed_party("Missing WooCommerce Secret Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -1240,7 +1240,7 @@ async fn should_require_nested_woocommerce_secret_on_admin_create() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_listing_source_create_for_non_admin() {
     let party_id = seed_party("Unauthorized Listing Source Operator", None, None).await;
     let user_id = seed_user("USER").await;
@@ -1264,7 +1264,7 @@ async fn should_reject_listing_source_create_for_non_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_source() {
     let party_id = seed_party("Invalid Secret Listing Source Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -1293,7 +1293,7 @@ async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_sou
     assert!(!body.to_string().contains("must-not-be-stored"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
     let party_id = seed_party("Shopify Conflict Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -1340,7 +1340,7 @@ async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     let listing_source_id = seed_listing_source().await;
     let admin_id = seed_user("ADMIN").await;
@@ -1583,7 +1583,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     assert!(!configuration_exists);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_listing_source_update_when_configuration_is_invalid() {
     let listing_source_id = seed_listing_source().await;
     let admin_id = seed_user("ADMIN").await;
@@ -1620,7 +1620,7 @@ async fn should_reject_listing_source_update_when_configuration_is_invalid() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     let listing_source_id = seed_listing_source().await;
     let user_id = seed_user("USER").await;
@@ -1823,7 +1823,7 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, shopify_same.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_partner_provider_put_payloads() {
     let listing_source_id = seed_listing_source().await;
     let user_id = seed_user("USER").await;
@@ -1895,7 +1895,7 @@ async fn should_reject_invalid_partner_provider_put_payloads() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_duplicate_shopify_domain_on_partner_put() {
     let user_id = seed_user("USER").await;
     let first_source = seed_listing_source().await;
@@ -1941,7 +1941,7 @@ async fn should_reject_duplicate_shopify_domain_on_partner_put() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_serialize_concurrent_identical_provider_puts_idempotently() {
     let listing_source_id = seed_listing_source().await;
     let user_id = seed_user("USER").await;
@@ -1991,7 +1991,7 @@ async fn should_serialize_concurrent_identical_provider_puts_idempotently() {
     assert_eq!((1, 1), counts);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_listing_source_scope_and_partnership_access_for_provider_put() {
     let listing_source_id = seed_listing_source().await;
     let user_id = seed_user("USER").await;
@@ -2091,7 +2091,7 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_map_listing_source_update_provider_conflict_to_conflict() {
     let party_id = seed_party("ListingSource Update Conflict Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -2159,7 +2159,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_listing_source_update() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
@@ -2185,7 +2185,7 @@ async fn should_return_not_found_for_missing_listing_source_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_for_listing_source_update() {
     let listing_source_id = seed_listing_source().await;
     let path = format!(
@@ -2228,7 +2228,7 @@ async fn should_require_admin_for_listing_source_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_remove_legacy_listing_source_update_route() {
     let listing_source_id = seed_listing_source().await;
     let response = reqwest::Client::new()
@@ -2246,7 +2246,7 @@ async fn should_remove_legacy_listing_source_update_route() {
     assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_legacy_listing_source_create_method() {
     let response = reqwest::Client::new()
         .post(format!("{}/v1/listing-sources", AURA_API.base_url()))

@@ -12,7 +12,7 @@ use user_core::access_token::{AccessTokenId, Scope};
 use user_core::tier::UserTier;
 use user_core::user_id::UserId;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_current_user_account_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token =
@@ -33,7 +33,7 @@ async fn should_return_current_user_account_when_authenticated() {
     assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_current_user_profile_when_body_is_valid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -74,7 +74,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
     assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_current_user_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -93,7 +93,7 @@ async fn should_delete_current_user_when_authenticated() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_user_when_admin_reads_user() {
     let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
     let admin_id = seed_user("ADMIN").await;
@@ -134,7 +134,7 @@ async fn should_return_user_when_admin_reads_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_admin_reads_missing_user() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -170,7 +170,7 @@ async fn should_return_not_found_when_admin_reads_missing_user() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_authentication_for_admin_user_detail() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -197,7 +197,7 @@ async fn should_require_authentication_for_admin_user_detail() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_search_users_when_actor_is_admin() {
     seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -229,7 +229,7 @@ async fn should_search_users_when_actor_is_admin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
     let user_id = seed_user_with_search_fields(
         "USER",
@@ -281,7 +281,7 @@ async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
     assert!(body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_follow_admin_user_search_cursor() {
     seed_user_with_search_fields(
         "USER",
@@ -367,7 +367,7 @@ async fn should_follow_admin_user_search_cursor() {
     assert!(second_body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_user_search_cursors() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -404,7 +404,7 @@ async fn should_reject_noncanonical_admin_user_search_cursors() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_user_search_when_actor_is_not_admin() {
     let user_id = seed_user("USER").await;
     let token =
@@ -421,7 +421,7 @@ async fn should_reject_admin_user_search_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_admin_user_search_query() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -449,7 +449,7 @@ async fn should_reject_invalid_admin_user_search_query() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_remove_legacy_admin_user_search_route() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -468,7 +468,7 @@ async fn should_remove_legacy_admin_user_search_route() {
     assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_remove_legacy_admin_user_detail_route() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -483,7 +483,7 @@ async fn should_remove_legacy_admin_user_detail_route() {
     assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_user_tier_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -511,7 +511,7 @@ async fn should_update_user_tier_when_actor_is_admin() {
     assert_eq!(serde_json::json!("PRO"), body["tier"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_user_role_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -538,7 +538,7 @@ async fn should_update_user_role_when_actor_is_admin() {
     assert_eq!(serde_json::json!("ADMIN"), body["role"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_user_profile_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -572,7 +572,7 @@ async fn should_update_user_profile_when_actor_is_admin() {
     assert_eq!(serde_json::json!("de"), body["language"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_profile_patch_for_non_admin_actor() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -603,7 +603,7 @@ async fn should_reject_admin_profile_patch_for_non_admin_actor() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_mixed_admin_user_patch_categories() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -640,7 +640,7 @@ async fn should_reject_mixed_admin_user_patch_categories() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_accept_idempotent_admin_user_patch() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -673,7 +673,7 @@ async fn should_accept_idempotent_admin_user_patch() {
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_null_admin_user_role() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -704,7 +704,7 @@ async fn should_reject_null_admin_user_role() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_remove_legacy_admin_user_patch_route() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -725,7 +725,7 @@ async fn should_remove_legacy_admin_user_patch_route() {
     assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_protect_the_last_admin_from_self_demotion() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -754,7 +754,7 @@ async fn should_protect_the_last_admin_from_self_demotion() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_protect_the_last_admin_from_self_deletion() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -774,7 +774,7 @@ async fn should_protect_the_last_admin_from_self_deletion() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_user_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let target_token = String::from(seed_access_token_for(user_id, Default::default()).await);
@@ -834,7 +834,7 @@ async fn should_delete_user_when_actor_is_admin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_admin_deletes_missing_user() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -863,7 +863,7 @@ async fn should_return_not_found_when_admin_deletes_missing_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_user_delete_when_user_id_is_malformed() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -891,7 +891,7 @@ async fn should_reject_admin_user_delete_when_user_id_is_malformed() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_user_delete_when_actor_is_not_admin() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -915,7 +915,7 @@ async fn should_reject_admin_user_delete_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_protect_the_last_admin_from_admin_user_deletion() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -951,7 +951,7 @@ async fn should_protect_the_last_admin_from_admin_user_deletion() {
     assert_eq!(reqwest::StatusCode::OK, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_user_read_when_actor_is_not_admin() {
     let user_id = seed_user("USER").await;
     let token =
@@ -972,7 +972,7 @@ async fn should_reject_admin_user_read_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_user_read_ids() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -1011,7 +1011,7 @@ async fn should_reject_noncanonical_admin_user_read_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
 
@@ -1054,7 +1054,7 @@ async fn should_create_access_token_for_current_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_list_access_tokens_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1089,7 +1089,7 @@ async fn should_list_access_tokens_for_current_user() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
     let target_user_id = seed_user("USER").await;
     // A pre-existing token alongside the two created below gives three pages.
@@ -1194,7 +1194,7 @@ async fn should_list_admin_user_access_tokens_with_cursor_without_secrets() {
     }));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_access_token_cursors() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -1238,7 +1238,7 @@ async fn should_reject_noncanonical_admin_access_token_cursors() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_empty_admin_access_token_page_for_existing_user() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -1272,7 +1272,7 @@ async fn should_return_empty_admin_access_token_page_for_existing_user() {
     assert!(body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_access_token_list_for_non_admin_missing_and_invalid_user() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -1357,7 +1357,7 @@ async fn should_reject_admin_access_token_list_for_non_admin_missing_and_invalid
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1397,7 +1397,7 @@ async fn should_get_access_token_for_current_user() {
     assert_eq!(serde_json::json!("editable token"), body["name"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1438,7 +1438,7 @@ async fn should_update_access_token_for_current_user() {
     assert_eq!(serde_json::json!("renamed token"), body["name"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_access_token_ids_in_update_body() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1478,7 +1478,7 @@ async fn should_reject_noncanonical_access_token_ids_in_update_body() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_access_token_creation_with_delegated_bearer() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1534,7 +1534,7 @@ async fn should_reject_access_token_creation_with_delegated_bearer() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_delegated_access_token_authority_expansion() {
     let user_id = seed_user("USER").await;
     let delegate_token = seed_access_token_for(
@@ -1701,7 +1701,7 @@ async fn should_reject_delegated_access_token_authority_expansion() {
     assert!(body.get("expires").is_none(), "{body}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1725,7 +1725,7 @@ async fn should_delete_access_token_for_current_user() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
     let target_user_id = seed_user("USER").await;
     let target_token_one = seed_access_token_for(
@@ -1814,7 +1814,7 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_bulk_revoke_existing_admin_user_with_no_tokens_idempotently() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -1848,7 +1848,7 @@ async fn should_bulk_revoke_existing_admin_user_with_no_tokens_idempotently() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_bulk_revoke_target_user_is_missing() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -1884,7 +1884,7 @@ async fn should_return_not_found_when_bulk_revoke_target_user_is_missing() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_revoke_admin_target_cognito_sessions_idempotently() {
     let target_user_id = seed_user("USER").await;
     seed_user_cognito_identity(
@@ -1923,7 +1923,7 @@ async fn should_revoke_admin_target_cognito_sessions_idempotently() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_map_temporary_cognito_session_revocation_failure() {
     let target_user_id = seed_user("USER").await;
     seed_user_cognito_identity(
@@ -1959,7 +1959,7 @@ async fn should_map_temporary_cognito_session_revocation_failure() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_session_revocation_for_non_admin_or_missing_target() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -2005,7 +2005,7 @@ async fn should_reject_session_revocation_for_non_admin_or_missing_target() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_bulk_revoke_for_non_admin_actor() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -2036,7 +2036,7 @@ async fn should_reject_bulk_revoke_for_non_admin_actor() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -2107,7 +2107,7 @@ async fn should_reject_bulk_revoke_without_valid_auth_or_user_id() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
     let target_user_id = seed_user("USER").await;
     let (access_token_id, revoked_token) =
@@ -2189,7 +2189,7 @@ async fn should_allow_admin_to_revoke_access_token_and_make_it_unusable() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_not_revoke_another_users_access_token_from_admin_route() {
     let token_owner_id = seed_user("USER").await;
     let (access_token_id, owner_token) =
@@ -2224,7 +2224,7 @@ async fn should_not_revoke_another_users_access_token_from_admin_route() {
     assert_eq!(reqwest::StatusCode::OK, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_access_token_revoke_for_non_admin_and_invalid_auth() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -2268,7 +2268,7 @@ async fn should_reject_admin_access_token_revoke_for_non_admin_and_invalid_auth(
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_validate_both_admin_access_token_revoke_path_ids() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -2351,7 +2351,7 @@ async fn should_validate_both_admin_access_token_revoke_path_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_access_token_revoke_without_admin_scope() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -2372,7 +2372,7 @@ async fn should_reject_admin_access_token_revoke_without_admin_scope() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_access_token_revoke_with_invalid_bearer_credentials() {
     let target_user_id = seed_user("USER").await;
     let response = reqwest::Client::new()
@@ -2397,7 +2397,7 @@ async fn should_reject_access_token_revoke_with_invalid_bearer_credentials() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_access_token_read_ids() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -2436,7 +2436,7 @@ async fn should_reject_noncanonical_access_token_read_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_auth_for_access_tokens() {
     let response = reqwest::Client::new()
         .get(format!("{}/v1/me/access-tokens", AURA_API.base_url()))
@@ -2453,7 +2453,7 @@ async fn should_require_auth_for_access_tokens() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_suspend_user_and_repeat_idempotently_when_actor_is_admin() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -2493,7 +2493,7 @@ async fn should_suspend_user_and_repeat_idempotently_when_actor_is_admin() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_unsuspend_user_idempotently_and_restore_existing_token() {
     let target_user_id = seed_user_with_tier("USER", UserTier::Pro).await;
     let target_token = seed_access_token_for(
@@ -2561,7 +2561,7 @@ async fn should_unsuspend_user_idempotently_and_restore_existing_token() {
     assert_eq!(serde_json::json!("PRO"), body["tier"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_user_reactivation_when_actor_is_not_admin() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -2585,7 +2585,7 @@ async fn should_reject_user_reactivation_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_user_reactivation() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2614,7 +2614,7 @@ async fn should_return_not_found_for_missing_user_reactivation() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_malformed_user_id_for_reactivation() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2642,7 +2642,7 @@ async fn should_reject_malformed_user_id_for_reactivation() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_secret_bearing_user_suspension_reason() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -2672,7 +2672,7 @@ async fn should_reject_secret_bearing_user_suspension_reason() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_user_suspension_when_actor_is_not_admin() {
     let target_user_id = seed_user("USER").await;
     let actor_id = seed_user("USER").await;
@@ -2697,7 +2697,7 @@ async fn should_reject_user_suspension_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_admin_suspends_missing_user() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2727,7 +2727,7 @@ async fn should_return_not_found_when_admin_suspends_missing_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_protect_last_active_admin_from_suspension() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2751,7 +2751,7 @@ async fn should_protect_last_active_admin_from_suspension() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_suspended_user_aura_token_on_later_request() {
     let target_user_id = seed_user("USER").await;
     let target_token = seed_access_token_for(

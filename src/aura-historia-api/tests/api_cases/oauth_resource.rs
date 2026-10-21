@@ -76,7 +76,7 @@ fn authorization_code_from(response: reqwest::Response) -> String {
         .into_owned()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_issue_a_normal_scoped_aura_token_from_an_mcp_resource_grant_and_revoke_it() {
     let admin = oauth_admin().await;
     let credentials = create_oauth_client(&admin.client, &admin.cognito_token).await;
@@ -137,7 +137,7 @@ async fn should_issue_a_normal_scoped_aura_token_from_an_mcp_resource_grant_and_
     assert_eq!(reqwest::StatusCode::UNAUTHORIZED, rejected.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_foreign_ambiguous_and_substituted_resource_indicators() {
     let admin = oauth_admin().await;
     let credentials = create_oauth_client(&admin.client, &admin.cognito_token).await;

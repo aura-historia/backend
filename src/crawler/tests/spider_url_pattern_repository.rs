@@ -37,8 +37,7 @@ async fn insert_domain(
     domain_id
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_none_when_domain_is_missing_for_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -53,8 +52,7 @@ async fn should_return_none_when_domain_is_missing_for_listing_source() {
     assert!(found.is_none());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_save_replace_and_clear_pattern_for_owned_domain() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -121,8 +119,7 @@ async fn should_save_replace_and_clear_pattern_for_owned_domain() {
     assert_eq!(no_pattern.url_pattern_state, UrlPatternState::NoPattern);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_mark_owned_domain_as_crawled() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -152,8 +149,7 @@ async fn should_mark_owned_domain_as_crawled() {
     assert!(crawled.last_crawled.is_some());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_store_patterns_independently_for_domains_of_one_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -208,8 +204,7 @@ async fn should_store_patterns_independently_for_domains_of_one_listing_source()
     assert_eq!(untouched_b.url_pattern.as_deref(), Some(r"/objects/"));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_pattern_write_for_domain_owned_by_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -232,8 +227,7 @@ async fn should_reject_pattern_write_for_domain_owned_by_another_listing_source(
     assert!(stored.is_none());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_crawl_mark_for_domain_owned_by_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());

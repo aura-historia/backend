@@ -7,7 +7,7 @@ use party_core::party_id::PartyId;
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_unused_party_and_return_not_found_when_repeated() {
     let party_id = seed_party("Delete Party", None, None).await;
     let unrelated_id = seed_party("Unrelated Party", None, None).await;
@@ -58,7 +58,7 @@ async fn should_delete_unused_party_and_return_not_found_when_repeated() {
     assert_eq!(reqwest::StatusCode::OK, unrelated.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_party_summary_for_admin_with_no_store_cache_control() {
     let party_id = seed_party(
         "Admin Party",
@@ -106,7 +106,7 @@ async fn should_return_party_summary_for_admin_with_no_store_cache_control() {
     assert!(body["items"][0]["updated"].as_str().is_some());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_parties_by_name_and_contact_query() {
     let matching_id = seed_party(
         "Selector Party",
@@ -140,7 +140,7 @@ async fn should_filter_parties_by_name_and_contact_query() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_follow_party_cursor_with_deterministic_sorting() {
     let first_id = seed_party("Cursor Party A", None, None).await;
     let second_id = seed_party("Cursor Party B", None, None).await;
@@ -203,7 +203,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
     assert!(second_body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_empty_party_collection_when_no_party_matches() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -222,7 +222,7 @@ async fn should_return_empty_party_collection_when_no_party_matches() {
     assert!(body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_party_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -285,7 +285,7 @@ async fn should_reject_invalid_party_search_query_values() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_party_collection_for_non_admin() {
     let user_id = seed_user("USER").await;
     let token = parties_token(user_id).await;
@@ -301,7 +301,7 @@ async fn should_reject_party_collection_for_non_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_party_with_identity_location_and_contact() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -349,7 +349,7 @@ async fn should_create_party_with_identity_location_and_contact() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_party_with_each_optional_contact_variant() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(parties_token(admin_id).await);
@@ -392,7 +392,7 @@ async fn should_create_party_with_each_optional_contact_variant() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_party_create_names() {
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(parties_token(admin_id).await);
@@ -421,7 +421,7 @@ async fn should_reject_invalid_party_create_names() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_party_create_without_admin_authorization() {
     let missing = reqwest::Client::new()
         .post(format!("{}/v1/admin/parties", AURA_API.base_url()))
@@ -455,7 +455,7 @@ async fn should_reject_party_create_without_admin_authorization() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
     let party_id = seed_party(
         "Detailed Party",
@@ -499,7 +499,7 @@ async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
     assert!(body["updated"].as_str().is_some());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_party_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -531,7 +531,7 @@ async fn should_reject_noncanonical_party_detail_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_party_detail() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -556,7 +556,7 @@ async fn should_return_not_found_for_missing_party_detail() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_authentication_for_party_detail() {
     let party_id = seed_party("Protected Detail Party", None, None).await;
     let client = reqwest::Client::new();
@@ -591,7 +591,7 @@ async fn should_require_admin_authentication_for_party_detail() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_party_name_and_contact_with_tri_state_patch() {
     let party_id = seed_party(
         "Original Party",
@@ -669,7 +669,7 @@ async fn should_update_party_name_and_contact_with_tri_state_patch() {
     assert_eq!(clear_body, no_op_body);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_party_update_values() {
     let party_id = seed_party("Patch Validation Party", None, None).await;
     let admin_id = seed_user("ADMIN").await;
@@ -714,7 +714,7 @@ async fn should_reject_invalid_party_update_values() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_party_update() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;
@@ -740,7 +740,7 @@ async fn should_return_not_found_for_missing_party_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_authentication_for_party_update() {
     let party_id = seed_party("Protected Update Party", None, None).await;
     let path = format!("{}/v1/admin/parties/{party_id}", AURA_API.base_url());
@@ -778,7 +778,7 @@ async fn should_require_admin_authentication_for_party_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_malformed_party_update_id() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;

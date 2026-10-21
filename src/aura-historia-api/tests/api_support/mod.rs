@@ -1,10 +1,10 @@
 mod fakes;
 
-use fakes::{
-    COGNITO_SUBJECTS_BY_USER, RecordingWoocommerceIngestionPublisher, SuccessfulUserSessionRevoker,
-    TEST_COGNITO_ISSUER, count_api_request,
-};
 pub use fakes::*;
+use fakes::{
+    RecordingWoocommerceIngestionPublisher, SuccessfulUserSessionRevoker, TEST_COGNITO_ISSUER,
+    api_test_state, count_api_request, record_cognito_subject,
+};
 
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
@@ -160,6 +160,7 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
 
+use fakes::postgres_pool as get_postgres_client;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
@@ -180,8 +181,8 @@ use search_filter_service::use_cases::{
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
-use test_api::{get_opensearch_client, get_postgres_client};
+use std::sync::{Arc, Mutex};
+use test_api::get_opensearch_client;
 use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
@@ -332,7 +333,10 @@ pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
             ProductListingSearchCacheTestPolicy::Disabled,
         )
         .await)
-        .layer(axum::middleware::from_fn(count_api_request))
+        .layer(axum::middleware::from_fn_with_state(
+            api_test_state(),
+            count_api_request,
+        ))
     })
 }
 
@@ -346,6 +350,10 @@ pub fn watchlist_api_app_with_single_connection_pool()
             .connect_with(fixture_pool.connect_options().as_ref().clone())
             .await
             .unwrap_or_else(|error| panic!("failed to create single-connection API pool: {error}"));
+        test_api::TestContext::current()
+            .expect("watchlist context")
+            .register_postgres_pool(pool.clone())
+            .expect("register single-connection pool");
         fixture_pool.close().await;
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let authenticator = Arc::new(UserAuthenticationAuthenticator::new(
@@ -759,17 +767,7 @@ pub async fn seed_user_cognito_identity(
         panic!("failed to seed Cognito identity: {error}");
     }
 
-    let subjects = COGNITO_SUBJECTS_BY_USER.get_or_init(|| Mutex::new(HashMap::new()));
-    match subjects.lock() {
-        Ok(mut subjects) => {
-            subjects.insert(user_id, identity.subject.clone());
-        }
-        Err(poisoned) => {
-            poisoned
-                .into_inner()
-                .insert(user_id, identity.subject.clone());
-        }
-    }
+    record_cognito_subject(user_id, identity.subject.clone());
     identity
 }
 
@@ -1222,6 +1220,10 @@ async fn test_state(
         authenticate_user,
     ));
     let opensearch_client = get_opensearch_client().await;
+    let product_listings_index = test_api::TestContext::current()
+        .expect("search context")
+        .product_listings_index()
+        .expect("search index");
     let auctions_state = AuctionsState::new(
         Arc::new(CreateAuctionHandler::new(
             unit_of_work.clone(),
@@ -1529,14 +1531,20 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+            OpenSearchProductListingSimilarProductListingsReader::with_index(
+                opensearch_client.clone(),
+                product_listings_index.clone(),
+            ),
             SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
             shipping.clone(),
         )),
         Arc::new(SearchProductListingsHandler::new(
-            OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
+            OpenSearchProductListingSearchReader::with_index(
+                opensearch_client.clone(),
+                product_listings_index.clone(),
+            ),
             CachedFxRateSnapshotReader::new(
                 SqlxFxRateSnapshotReader::new(pool.clone()),
                 search_cache_policy.fx_cache_config(),
@@ -1594,7 +1602,7 @@ async fn test_state(
             SqlxListingSourceReaders::new(pool.clone()),
             SqlxListingSourceReaders::new(pool.clone()),
             SubmitPartnerProductListingIngestionHandler::new(
-                RecordingWoocommerceIngestionPublisher,
+                RecordingWoocommerceIngestionPublisher::new(),
             ),
             AuthorizeProductListingRawCaptureHandler::new(
                 unit_of_work.clone(),
@@ -1705,7 +1713,7 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
             user_postgres::SqlxUserCognitoIdentityRegistryFactory::new(),
-            SuccessfulUserSessionRevoker,
+            SuccessfulUserSessionRevoker::new(),
         )),
         Arc::new(CreateAccessTokenHandler::new(
             unit_of_work.clone(),
@@ -1746,7 +1754,7 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let search_filter_reader = SqlxSearchFilterReader::new(get_postgres_client().await);
+    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let search_filters_state = SearchFiltersState::new(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
@@ -2025,7 +2033,7 @@ async fn test_state(
         .with_partner_product_listing_management(partner_product_listing_management_state)
         .with_async_partner_product_listings(AsyncPartnerProductListingsState::new(
             Arc::new(SubmitPartnerProductListingIngestionHandler::new(
-                RecordingWoocommerceIngestionPublisher,
+                RecordingWoocommerceIngestionPublisher::new(),
             )),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))

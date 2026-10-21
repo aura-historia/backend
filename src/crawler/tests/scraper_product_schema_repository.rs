@@ -130,7 +130,7 @@ async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId
 // find_product_schema
 // ---------------------------------------------------------------------------
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_none_when_no_schema_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -143,7 +143,7 @@ async fn should_return_none_when_no_schema_exists_for_find() {
     assert!(result.is_none());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_schema_when_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -166,7 +166,7 @@ async fn should_return_schema_when_exists_for_find() {
     assert_eq!(result.product_schemas[0], minimal_css_schema());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exist_for_find() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -192,7 +192,7 @@ async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exi
 // insert_product_schema
 // ---------------------------------------------------------------------------
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -209,7 +209,7 @@ async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_inse
     assert_eq!(returned.product_schemas[0], minimal_css_schema());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -226,7 +226,7 @@ async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert(
     assert_eq!(returned.product_schemas[0], full_css_schema());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -253,7 +253,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_allow_inserting_schemas_for_different_listing_source_ids_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -293,7 +293,7 @@ async fn should_allow_inserting_schemas_for_different_listing_source_ids_for_ins
     assert_eq!(result_b.product_schemas[0], full_css_schema());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_fail_when_inserting_duplicate_listing_source_id_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -330,7 +330,7 @@ async fn should_fail_when_inserting_duplicate_listing_source_id_for_insert() {
 // update_product_schema
 // ---------------------------------------------------------------------------
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -367,7 +367,7 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -396,7 +396,7 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
     assert_eq!(found.product_schemas[0], full_css_schema());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_row_not_found_when_updating_non_existent_listing_source_id_for_update() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -412,7 +412,7 @@ async fn should_return_row_not_found_when_updating_non_existent_listing_source_i
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_only_update_targeted_listing_source_id_and_leave_others_intact_for_update() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -461,7 +461,7 @@ async fn should_only_update_targeted_listing_source_id_and_leave_others_intact_f
 // round-trip (insert → find → update → find)
 // ---------------------------------------------------------------------------
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -513,7 +513,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     assert_eq!(found_after_update.created, found_after_insert.created);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_delete_product_schema_when_parent_listing_source_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);

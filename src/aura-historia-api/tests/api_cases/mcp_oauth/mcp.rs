@@ -8,7 +8,7 @@ pub struct McpServer {
     pub origin: String,
     pub pool: sqlx::PgPool,
     app: axum::Router,
-    task: tokio::task::JoinHandle<()>,
+    task: test_api::OwnedTask<()>,
 }
 
 impl McpServer {
@@ -28,7 +28,7 @@ impl McpServer {
         )
         .unwrap();
         let native = app.clone();
-        let task = tokio::spawn(async move {
+        let task = test_api::spawn_owned(async move {
             axum::serve(listener, native).await.unwrap();
         });
         Self {

@@ -179,7 +179,7 @@ async fn request_with_keys(
         },
     )
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preferences() {
     let pool = get_postgres_client().await;
     let owner = UserId::new();

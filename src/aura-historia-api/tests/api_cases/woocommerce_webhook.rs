@@ -37,7 +37,7 @@ fn assert_test_result(result: TestResult) {
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -297,7 +297,7 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_forward_machine_decimal_strings_without_running_normalization() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -347,7 +347,7 @@ async fn should_forward_machine_decimal_strings_without_running_normalization() 
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_admit_retries_and_source_order_conflicts_for_later_worker_resolution() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -402,7 +402,7 @@ async fn should_admit_retries_and_source_order_conflicts_for_later_worker_resolu
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_admit_delete_without_immediate_withdrawal() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -436,7 +436,7 @@ async fn should_admit_delete_without_immediate_withdrawal() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_verify_webhooks_against_rotated_secret_using_exact_raw_body() {
     let result: TestResult = async {
         let (source, webhook_token) = webhook_auth().await?;
@@ -517,7 +517,7 @@ async fn should_verify_webhooks_against_rotated_secret_using_exact_raw_body() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_missing_invalid_or_tampered_signatures_before_publication() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -557,7 +557,7 @@ async fn should_reject_missing_invalid_or_tampered_signatures_before_publication
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_write_capability_and_authorize_ignored_webhooks_without_a_source_grant() {
     let result: TestResult = async {
         let source_uuid = seed_listing_source().await;
@@ -614,7 +614,7 @@ async fn should_require_write_capability_and_authorize_ignored_webhooks_without_
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_acknowledge_authorized_ignored_webhook_without_sending() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -638,7 +638,7 @@ async fn should_acknowledge_authorized_ignored_webhook_without_sending() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_paths_and_malformed_inputs_without_sending() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -702,7 +702,7 @@ async fn should_reject_invalid_paths_and_malformed_inputs_without_sending() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_fail_closed_when_woocommerce_secret_or_configuration_is_unavailable() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -738,7 +738,7 @@ async fn should_fail_closed_when_woocommerce_secret_or_configuration_is_unavaila
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_not_acknowledge_unconfirmed_queue_admission() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -768,7 +768,7 @@ async fn should_not_acknowledge_unconfirmed_queue_admission() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_report_publisher_rejections_instead_of_acknowledging_them() {
     let result: TestResult = async {
         for (outcome, expected_status, expected_error) in [

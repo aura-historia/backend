@@ -3,10 +3,65 @@ use super::*;
 
 pub(super) const TEST_COGNITO_ISSUER: &str = "https://issuer.api-acceptance.test/pool";
 
-pub(super) static COGNITO_SUBJECTS_BY_USER: OnceLock<Mutex<HashMap<UserId, CognitoSubject>>> =
-    OnceLock::new();
-static SESSION_REVOCATION_FAILURES: OnceLock<Mutex<HashSet<CognitoSubject>>> = OnceLock::new();
-static NEWSLETTER_CONFIRMATION_TOKENS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+#[derive(Default)]
+pub(super) struct ApiTestState {
+    cognito_subjects_by_user: Mutex<HashMap<UserId, CognitoSubject>>,
+    session_revocation_failures: Mutex<HashSet<CognitoSubject>>,
+    newsletter_confirmation_tokens: Mutex<HashMap<String, String>>,
+    ingestion_messages: Mutex<Vec<ProductListingIngestionMessage>>,
+    publisher_outcomes: Mutex<HashMap<ListingSourceId, ProductListingIngestionOutcome>>,
+    requests: std::sync::atomic::AtomicUsize,
+    postgres_pools: Mutex<HashMap<tokio::runtime::Id, Arc<tokio::sync::OnceCell<sqlx::PgPool>>>>,
+}
+
+pub struct ApiTestStateFixture;
+pub const API_TEST_STATE: ApiTestStateFixture = ApiTestStateFixture;
+
+#[async_trait::async_trait]
+impl test_api::IntegrationTestService for ApiTestStateFixture {
+    fn service_names(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    async fn set_up(&self) {
+        test_api::TestContext::current()
+            .expect("API acceptance context")
+            .insert_api_state(Arc::new(ApiTestState::default()))
+            .expect("initialize API acceptance state before servers");
+    }
+}
+
+pub(super) fn api_test_state() -> Arc<ApiTestState> {
+    test_api::TestContext::current()
+        .expect("API acceptance context")
+        .api_state::<Arc<ApiTestState>>()
+        .expect("API acceptance state fixture")
+}
+
+// A context spans the test runtime and its HTTP server runtime. Reuse within each runtime
+// without keeping one connection per seed helper or moving SQLx sockets between runtimes.
+pub(super) async fn postgres_pool() -> sqlx::PgPool {
+    let state = api_test_state();
+    let runtime = tokio::runtime::Handle::current().id();
+    let pool = state
+        .postgres_pools
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .entry(runtime)
+        .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
+        .clone();
+    pool.get_or_init(test_api::get_postgres_client)
+        .await
+        .clone()
+}
+
+pub(super) fn record_cognito_subject(user_id: UserId, subject: CognitoSubject) {
+    api_test_state()
+        .cognito_subjects_by_user
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(user_id, subject);
+}
 
 #[derive(Clone, Copy)]
 struct NewsletterC09TestAuthenticator;
@@ -22,8 +77,7 @@ impl TokenAuthenticator for NewsletterC09TestAuthenticator {
     }
 }
 
-#[derive(Clone, Copy)]
-struct CapturingNewsletterConfirmationEmailSender;
+struct CapturingNewsletterConfirmationEmailSender(Arc<ApiTestState>);
 
 #[async_trait::async_trait]
 impl user_service::ports::NewsletterConfirmationEmailSender
@@ -33,7 +87,7 @@ impl user_service::ports::NewsletterConfirmationEmailSender
         &self,
         email: user_service::ports::NewsletterConfirmationEmail,
     ) -> user_service::ports::NewsletterConfirmationEmailSendOutcome {
-        let tokens = NEWSLETTER_CONFIRMATION_TOKENS.get_or_init(|| Mutex::new(HashMap::new()));
+        let tokens = &self.0.newsletter_confirmation_tokens;
         tokens
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -43,7 +97,8 @@ impl user_service::ports::NewsletterConfirmationEmailSender
 }
 
 pub fn take_newsletter_confirmation_token(email: &str) -> String {
-    let tokens = NEWSLETTER_CONFIRMATION_TOKENS.get_or_init(|| Mutex::new(HashMap::new()));
+    let state = api_test_state();
+    let tokens = &state.newsletter_confirmation_tokens;
     tokens
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -60,7 +115,7 @@ pub fn newsletter_c09_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + S
             unit_of_work.clone(),
             challenges,
             user_postgres::SqlxNewsletterProfileReader::new(pool),
-            CapturingNewsletterConfirmationEmailSender,
+            CapturingNewsletterConfirmationEmailSender(api_test_state()),
             user_service::ports::OsNewsletterConfirmationTokenGenerator,
             user_service::ports::SystemNewsletterConfirmationClock,
         );
@@ -80,13 +135,14 @@ pub fn newsletter_c09_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + S
 }
 
 pub fn fail_session_revocation_for(user_id: UserId) {
-    let subjects = COGNITO_SUBJECTS_BY_USER.get_or_init(|| Mutex::new(HashMap::new()));
+    let state = api_test_state();
+    let subjects = &state.cognito_subjects_by_user;
     let subject = match subjects.lock() {
         Ok(subjects) => subjects.get(&user_id).cloned(),
         Err(poisoned) => poisoned.into_inner().get(&user_id).cloned(),
     }
     .unwrap_or_else(|| panic!("missing Cognito identity fixture for {user_id}"));
-    let failures = SESSION_REVOCATION_FAILURES.get_or_init(|| Mutex::new(HashSet::new()));
+    let failures = &state.session_revocation_failures;
     match failures.lock() {
         Ok(mut failures) => {
             failures.insert(subject);
@@ -97,8 +153,12 @@ pub fn fail_session_revocation_for(user_id: UserId) {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct SuccessfulUserSessionRevoker;
+pub(super) struct SuccessfulUserSessionRevoker(Arc<ApiTestState>);
+impl SuccessfulUserSessionRevoker {
+    pub(super) fn new() -> Self {
+        Self(api_test_state())
+    }
+}
 
 #[async_trait::async_trait]
 impl UserSessionRevoker for SuccessfulUserSessionRevoker {
@@ -106,7 +166,7 @@ impl UserSessionRevoker for SuccessfulUserSessionRevoker {
         &self,
         identity: &CognitoIdentity,
     ) -> Result<(), UserSessionRevocationError> {
-        let failures = SESSION_REVOCATION_FAILURES.get_or_init(|| Mutex::new(HashSet::new()));
+        let failures = &self.0.session_revocation_failures;
         let should_fail = match failures.lock() {
             Ok(mut failures) => failures.remove(&identity.subject),
             Err(poisoned) => poisoned.into_inner().remove(&identity.subject),
@@ -120,16 +180,6 @@ impl UserSessionRevoker for SuccessfulUserSessionRevoker {
     }
 }
 
-static WOOCOMMERCE_INGESTION_MESSAGES: OnceLock<Mutex<Vec<ProductListingIngestionMessage>>> =
-    OnceLock::new();
-static WOOCOMMERCE_PUBLISHER_OUTCOMES: OnceLock<
-    Mutex<HashMap<ListingSourceId, ProductListingIngestionOutcome>>,
-> = OnceLock::new();
-
-fn woocommerce_messages() -> &'static Mutex<Vec<ProductListingIngestionMessage>> {
-    WOOCOMMERCE_INGESTION_MESSAGES.get_or_init(|| Mutex::new(Vec::new()))
-}
-
 pub fn woocommerce_ingestion_messages(
     listing_source_id: ListingSourceId,
 ) -> Vec<ProductListingIngestionMessage> {
@@ -139,7 +189,8 @@ pub fn woocommerce_ingestion_messages(
 pub fn captured_ingestion_messages(
     listing_source_id: ListingSourceId,
 ) -> Vec<ProductListingIngestionMessage> {
-    woocommerce_messages()
+    api_test_state()
+        .ingestion_messages
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .iter()
@@ -152,14 +203,19 @@ pub fn set_woocommerce_publisher_outcome(
     listing_source_id: ListingSourceId,
     outcome: ProductListingIngestionOutcome,
 ) {
-    WOOCOMMERCE_PUBLISHER_OUTCOMES
-        .get_or_init(|| Mutex::new(HashMap::new()))
+    api_test_state()
+        .publisher_outcomes
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .insert(listing_source_id, outcome);
 }
 
-pub(super) struct RecordingWoocommerceIngestionPublisher;
+pub(super) struct RecordingWoocommerceIngestionPublisher(Arc<ApiTestState>);
+impl RecordingWoocommerceIngestionPublisher {
+    pub(super) fn new() -> Self {
+        Self(api_test_state())
+    }
+}
 
 #[async_trait::async_trait]
 impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher {
@@ -168,7 +224,7 @@ impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher
         commands: Vec<ProductListingIngestionMessage>,
     ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
         tokio::task::yield_now().await;
-        let outcomes = WOOCOMMERCE_PUBLISHER_OUTCOMES.get_or_init(|| Mutex::new(HashMap::new()));
+        let outcomes = &self.0.publisher_outcomes;
         let outcomes = outcomes.lock().unwrap_or_else(|error| error.into_inner());
         let items = commands
             .iter()
@@ -181,7 +237,8 @@ impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher
                     .unwrap_or(ProductListingIngestionOutcome::Accepted),
             })
             .collect();
-        woocommerce_messages()
+        self.0
+            .ingestion_messages
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .extend(commands);
@@ -189,16 +246,19 @@ impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher
     }
 }
 
-static API_REQUESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
 pub fn api_request_count() -> usize {
-    API_REQUESTS.load(std::sync::atomic::Ordering::SeqCst)
+    api_test_state()
+        .requests
+        .load(std::sync::atomic::Ordering::SeqCst)
 }
 
 pub(super) async fn count_api_request(
+    axum::extract::State(state): axum::extract::State<Arc<ApiTestState>>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    API_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    state
+        .requests
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     next.run(request).await
 }
