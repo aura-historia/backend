@@ -1,5 +1,8 @@
 use aws_config::{BehaviorVersion, SdkConfig};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+mod topology;
+
+use self::topology::LocalStackTopology;
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -83,52 +86,6 @@ pub async fn get_aws_config() -> &'static SdkConfig {
 struct LocalStackFixture {
     container: ContainerAsync<LocalStackPro>,
     topology: LocalStackTopology,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct LocalStackTopology {
-    services: BTreeSet<String>,
-    env: BTreeMap<String, String>,
-}
-
-impl LocalStackTopology {
-    fn new(services: &[&str], extra_env_vars: &[(&str, &str)]) -> Self {
-        let services = services
-            .iter()
-            .map(|service| service.trim().to_ascii_lowercase())
-            .collect();
-        let env = extra_env_vars
-            .iter()
-            .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
-            .collect();
-        Self { services, env }
-    }
-
-    fn assert_compatible_with(&self, active: &Self) {
-        let missing_services = self
-            .services
-            .difference(&active.services)
-            .cloned()
-            .collect::<Vec<_>>();
-        assert!(
-            missing_services.is_empty(),
-            "LocalStack topology requests services not enabled by the process fixture: requested={:?}, active={:?}, missing={missing_services:?}",
-            self.services,
-            active.services,
-        );
-        for (key, value) in &self.env {
-            match active.env.get(key) {
-                Some(active_value) if active_value == value => {}
-                Some(active_value) => panic!(
-                    "LocalStack topology has conflicting environment value for {key}: requested={value:?}, active={active_value:?}"
-                ),
-                None => panic!(
-                    "LocalStack topology requests environment variable {key} after the process fixture started; active environment is {:?}",
-                    active.env
-                ),
-            }
-        }
-    }
 }
 
 static LOCALSTACK: OnceCell<LocalStackFixture> = OnceCell::const_new();
