@@ -583,26 +583,17 @@ impl CrawlerReviewRepository {
         }
 
         let schemas = parse_schemas_payload(&candidate_payload)?;
-        persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
-        let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
-        sqlx::query(
-            "UPDATE crawler_reviews \
-             SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
-             WHERE review_id = $1",
+        persist_approved_schema_edit(
+            &mut transaction,
+            review_id,
+            &listing_source_id,
+            &schemas,
+            candidate_payload,
+            validation_summary,
         )
-        .bind(review_id.as_uuid())
-        .bind(candidate_payload)
-        .bind(validation_summary)
-        .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-
-        info!(
-            review_id = %review_id,
-            listing_source_id = %listing_source_id,
-            schema_count = schemas.len(),
-            "Approved product schema edited from review console"
-        );
+        log_approved_schema_edit(review_id, &listing_source_id, schemas.len());
         Ok(())
     }
 
@@ -647,25 +638,8 @@ impl CrawlerReviewRepository {
             ) {
             let reviewed_schemas = parse_schemas_payload(&candidate_payload)?;
             if reviewed_schemas.len() == 1 {
-                let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
-                    "SELECT product_schema FROM listing_source_product_schemas \
-                     WHERE listing_source_id = $1 FOR UPDATE",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .fetch_optional(&mut *transaction)
-                .await?;
-                let existing = existing_payload
-                    .map(|payload| {
-                        parse_product_schema_payload(payload).map(|product_schemas| {
-                            ListingSourceProductSchema {
-                                listing_source_id,
-                                product_schemas,
-                                created: OffsetDateTime::UNIX_EPOCH,
-                                updated: OffsetDateTime::UNIX_EPOCH,
-                            }
-                        })
-                    })
-                    .transpose()?;
+                let existing =
+                    lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
                 json!({
                     "schemas": approval_product_schemas(
                         &reason,
@@ -683,17 +657,14 @@ impl CrawlerReviewRepository {
         let candidate_payload = json!({ "schemas": schemas });
 
         if status == STATUS_APPROVED {
-            persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
-            let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
-            sqlx::query(
-                "UPDATE crawler_reviews \
-                 SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
-                 WHERE review_id = $1",
+            persist_approved_schema_edit(
+                &mut transaction,
+                review_id,
+                &listing_source_id,
+                &schemas,
+                candidate_payload,
+                validation_summary,
             )
-            .bind(review_id.as_uuid())
-            .bind(candidate_payload)
-            .bind(validation_summary)
-            .execute(&mut *transaction)
             .await?;
         } else {
             sqlx::query(
@@ -709,12 +680,7 @@ impl CrawlerReviewRepository {
         transaction.commit().await?;
 
         if status == STATUS_APPROVED {
-            info!(
-                review_id = %review_id,
-                listing_source_id = %listing_source_id,
-                schema_count = schemas.len(),
-                "Approved product schema edited from review console"
-            );
+            log_approved_schema_edit(review_id, &listing_source_id, schemas.len());
         }
         Ok(())
     }
@@ -771,25 +737,8 @@ impl CrawlerReviewRepository {
             }
             ARTIFACT_PRODUCT_SCHEMA => {
                 let reviewed_schemas = parse_schemas_payload(&candidate_payload)?;
-                let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
-                    "SELECT product_schema FROM listing_source_product_schemas \
-                     WHERE listing_source_id = $1 FOR UPDATE",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .fetch_optional(&mut *transaction)
-                .await?;
-                let existing = existing_payload
-                    .map(|payload| {
-                        parse_product_schema_payload(payload).map(|product_schemas| {
-                            ListingSourceProductSchema {
-                                listing_source_id,
-                                product_schemas,
-                                created: OffsetDateTime::UNIX_EPOCH,
-                                updated: OffsetDateTime::UNIX_EPOCH,
-                            }
-                        })
-                    })
-                    .transpose()?;
+                let existing =
+                    lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
                 let schemas =
                     approval_product_schemas(&reason, existing.as_ref(), reviewed_schemas)?;
                 persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
@@ -981,6 +930,69 @@ impl CrawlerReviewRepository {
         }
         Ok(())
     }
+}
+
+/// Locks and reads the ListingSource's live product schemas for the rest of the transaction.
+async fn lock_live_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
+    let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT product_schema FROM listing_source_product_schemas \
+         WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_optional(&mut **transaction)
+    .await?;
+    existing_payload
+        .map(|payload| {
+            parse_product_schema_payload(payload).map(|product_schemas| {
+                ListingSourceProductSchema {
+                    listing_source_id: *listing_source_id,
+                    product_schemas,
+                    created: OffsetDateTime::UNIX_EPOCH,
+                    updated: OffsetDateTime::UNIX_EPOCH,
+                }
+            })
+        })
+        .transpose()
+}
+
+/// Writes an edit of an approved review to the live schemas and records it on the review.
+async fn persist_approved_schema_edit(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    schemas: &[ProductCssSelectorSchema],
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+) -> Result<(), ReviewRepositoryError> {
+    persist_product_schemas(transaction, listing_source_id, schemas).await?;
+    let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
+    sqlx::query(
+        "UPDATE crawler_reviews \
+         SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .bind(candidate_payload)
+    .bind(validation_summary)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+fn log_approved_schema_edit(
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    schema_count: usize,
+) {
+    info!(
+        review_id = %review_id,
+        listing_source_id = %listing_source_id,
+        schema_count,
+        "Approved product schema edited from review console"
+    );
 }
 
 async fn persist_product_schemas(
