@@ -51,14 +51,16 @@ cargo build --locked --workspace
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=eu-central-1
-export LOCALSTACK_AUTH_TOKEN=[your_localstack_pro_token]
 
-# Run library tests (some require Docker and LocalStack)
+# Run library tests (some require Docker and Floci)
 cargo test --locked --workspace --lib --all-features
 
-# Run all test targets, including integration tests (requires Docker and LocalStack)
+# Run all test targets, including integration tests (requires Docker and Floci)
 cargo test --locked --workspace --tests --all-features
 ```
+
+The test fixtures start Floci automatically; no emulator account or license token is required.
+See [integration test infrastructure](src/test-api/README.md) for requirements and benchmarks.
 
 ## Architecture and contracts
 
@@ -78,5 +80,5 @@ an [externally operated service](docs/opensearch-stage.md#release-and-schema-cha
 ---
 
 <p align="center">
-  <img src="https://aura-historia-public.s3.eu-central-1.amazonaws.com/branding/banner_twitter_slogan.png" alt="Aura Historia — Where antiques find their story" />
+  <img src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia — Where your antiques find you." />
 </p>

@@ -42,7 +42,7 @@
 
 ## Validation
 
-Start with focused checks and tests for changed crates. Use `--locked` so validation does not update dependencies. Library tests can use real local infrastructure; check their fixtures and Docker/LocalStack requirements before running them. Use isolated test resources and test credentials, never deployed services or live credentials.
+Start with focused checks and tests for changed crates. Use `--locked` so validation does not update dependencies. Library tests can use real local infrastructure; check their fixtures and Docker/Floci requirements before running them. Use isolated test resources and test credentials, never deployed services or live credentials.
 
 Run broader validation when the change warrants it:
 
