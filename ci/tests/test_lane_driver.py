@@ -147,6 +147,7 @@ class LaneDriverPhases(unittest.TestCase):
                 os.environ, {"AURA_TEST_ENV_MANAGED": "1", "NEXTEST": "1", "LLVM_PROFILE_FILE": "/fixture/%p-%m.profraw"}, clear=True):
             DRIVER.main()
         commands = [call.args[0] for call in execute.call_args_list]
+        self.assertTrue(self.args.state_dir.is_dir())
         self.assertEqual(len(commands), 4)
         self.assertEqual(commands[0][:6], ["/fixture/aura-test-env", "run", "--profile", "postgres", "--slots", "1"])
         self.assertIn(str(self.args.state_dir / "pristine"), commands[0])

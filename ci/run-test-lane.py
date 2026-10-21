@@ -131,6 +131,7 @@ def main():
     selection, suites = discover_lane(args, root)
     if args.list_only:
         return
+    args.state_dir.mkdir(parents=True, exist_ok=True)
     environment = unmanaged_environment(os.environ)
     if PRISTINE_TARGET in suites:
         pristine = dict(selection, package_args=["--package", "database-migration-lambda"])
