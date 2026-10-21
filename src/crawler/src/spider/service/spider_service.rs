@@ -204,6 +204,7 @@ impl SpiderServiceImpl {
                 listing_source_id,
                 domain_id,
                 crawl_root_url,
+                state.pattern.as_regex(),
                 &state.inference_sample,
             )
             .await
@@ -744,7 +745,7 @@ mod service_tests {
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
 
@@ -798,7 +799,7 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -849,7 +850,7 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
@@ -909,7 +910,8 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _| {
+            .withf(|_, _, _, crawl_pattern, _| crawl_pattern.is_none())
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
 
@@ -953,7 +955,12 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .withf(|_, _, _, crawl_pattern, _| {
+                crawl_pattern.map(Regex::as_str) == Some(r"/product/")
+            })
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) })
+            });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
