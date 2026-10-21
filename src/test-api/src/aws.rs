@@ -128,7 +128,7 @@ pub async fn get_aws_emulator(
 
 fn docker_remove(name: &str) {
     let _ = Command::new("docker")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", "-v", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();

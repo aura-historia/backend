@@ -271,7 +271,7 @@ fn copy_from_container(
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
     Command::new("docker")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", "-v", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
