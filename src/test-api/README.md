@@ -223,6 +223,13 @@ python3 ci/test-context-smoke.py --binary ./target/debug/aura-test-env \
   --fixture-binary <isolated_context-executable> --output /tmp/aura-context-check
 ```
 
+Ordinary all-feature `cargo test` runs the same driver with two slots through
+`isolated_context::should_verify_managed_context_isolation_and_recovery`, including
+cleanup-failure recovery. This case owns its supervisor and must run in the unmanaged
+control phase, separately from managed fixture lanes. It reuses Cargo's compiled
+executables and preserves the inherited coverage profile destination for all children.
+The driver's optional `--slots 1|2|4` selects one round; its default remains all three.
+
 This runs 1/2/4 slots on actual PostgreSQL/Floci/OpenSearch, competing invocations,
 killed-holder recovery, restored seeds/DDL, thread-bound HTTP factories, an untouched
 SES sentinel and a filtered real Nextest retry. It records full TRUNCATE versus

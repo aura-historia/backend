@@ -11,6 +11,37 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use test_api::{IntegrationTestService, Isolation, TestContext};
 
+#[test]
+fn should_verify_managed_context_isolation_and_recovery() {
+    assert!(
+        test_api::environment::managed_environment().is_none(),
+        "context acceptance owns its supervisor and must run in the unmanaged control phase"
+    );
+    let directory =
+        std::env::temp_dir().join(format!("aura-context-acceptance-{}", uuid::Uuid::new_v4()));
+    let result = std::process::Command::new("python3")
+        .arg(concat!(
+            env!("CARGO_WORKSPACE_DIR"),
+            "ci/test-context-smoke.py"
+        ))
+        .args(["--binary", env!("CARGO_BIN_EXE_aura-test-env")])
+        .arg("--fixture-binary")
+        .arg(std::env::current_exe().unwrap())
+        .args(["--slots", "2", "--output"])
+        .arg(&directory)
+        .output()
+        .expect("context acceptance driver should execute");
+    assert!(
+        result.status.success(),
+        "{}\n{}\ncontext acceptance evidence: {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+        directory.display()
+    );
+    println!("{}", String::from_utf8_lossy(&result.stdout));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 struct ApiState {
     marker: String,
     starts: std::sync::atomic::AtomicUsize,

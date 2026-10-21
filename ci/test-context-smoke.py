@@ -22,6 +22,13 @@ def wait_file(path, process):
 def inside(fixture, output):
     config = json.loads(pathlib.Path(os.environ["AURA_TEST_ENV_CONFIG"]).read_text())
     slots = config["slots"]
+    required = ["context_fixture_child", "mail_sentinel_child", "cleanup_failure_child"]
+    if slots == 4:
+        required.append("reset_benchmark_child")
+    listing = subprocess.run([fixture, "--list"], capture_output=True, text=True,
+                             check=True, timeout=30).stdout.splitlines()
+    missing = [name for name in required if f"{name}: test" not in listing]
+    assert not missing, f"fixture executable is missing required probes: {missing}"
     children = []
     streams = []
 
@@ -101,6 +108,8 @@ def inside(fixture, output):
             wait_file(seed_report, seed)
             finish(seed)
 
+        single("cleanup_failure_child", {"AURA_CONTEXT_CLEANUP_FAILURE": "1"})
+
         # Real Nextest exercises its own invocation/attempt/slot contract and a filtered retry.
         if slots == 4:
             retry_report = output / "nextest-retry.json"
@@ -135,6 +144,7 @@ def main():
     parser.add_argument("--fixture-binary", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--inside", action="store_true")
+    parser.add_argument("--slots", type=int, choices=[1, 2, 4])
     args = parser.parse_args()
     output = pathlib.Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -144,7 +154,7 @@ def main():
     assert args.binary, "--binary is required outside a managed supervisor"
     binary = str(pathlib.Path(args.binary).resolve())
     state = output / "state"
-    for slots in [1, 2, 4]:
+    for slots in [args.slots] if args.slots else [1, 2, 4]:
         directory = output / f"slots-{slots}"
         directory.mkdir()
         command = [binary, "run", "--profile", "api", "--slots", str(slots), "--state-dir", str(state), "--",
