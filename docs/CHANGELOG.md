@@ -2,6 +2,14 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-20 — Complete listing-search filter documentation (#2235)
+
+- OpenAPI now documents the existing `orderability` and `includeUnspecifiedAvailability` query filters on `GET /v1/product-listings`. They retain the same availability-query semantics as saved searches.
+
+## 2026-10-20 — Anonymous MCP catalogue (#2239)
+
+- Add twelve anonymous listing, history, auction, source, location and overview tools at the canonical MCP endpoint, using the existing operation IDs and complete shared contracts. Search retains its full filters and continuations; listing history remains complete and unpaginated. Newsletter, private/write/admin and control-plane operations are excluded. See the [public MCP contract](mcp.md#public-catalogue) and [selected-operation manifest](../src/aura-historia-mcp/public-operations.json).
+
 ## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
 
 - `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.

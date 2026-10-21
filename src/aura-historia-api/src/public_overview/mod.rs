@@ -4,44 +4,16 @@ use crate::{
     state::PublicOverviewState,
     transport::cache,
 };
+use aura_historia_contracts::public_overview::PublicOverviewData;
 use axum::{
     Json,
     extract::State,
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use product_listing_service::use_cases::PublicCatalogueOverview;
-use serde::Serialize;
-use time::OffsetDateTime;
 
-/// The shared discovery policy ceiling: reads only return the stored calculation, so a short
-/// edge lifetime costs little and keeps figures close to their `asOf`.
+/// Reads only return the stored calculation; keep figures close to their `asOf`.
 const PUBLIC_OVERVIEW_SHARED_TTL_SECONDS: u32 = 900;
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PublicOverviewData {
-    #[serde(with = "time::serde::rfc3339")]
-    as_of: OffsetDateTime,
-    sources_indexed: u64,
-    live_objects: u64,
-    countries: u64,
-    languages: u64,
-    new_objects_last_7_days: u64,
-}
-
-impl From<PublicCatalogueOverview> for PublicOverviewData {
-    fn from(value: PublicCatalogueOverview) -> Self {
-        Self {
-            as_of: value.as_of,
-            sources_indexed: value.sources_indexed,
-            live_objects: value.live_objects,
-            countries: value.countries,
-            languages: value.languages,
-            new_objects_last_7_days: value.new_objects_last_7_days,
-        }
-    }
-}
 
 /// The representation has no inputs: query strings and credentials are never evaluated, so
 /// they cannot change it. A request carrying `Authorization` is still answered privately.
@@ -74,6 +46,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{Request, StatusCode, header},
     };
+    use product_listing_service::use_cases::PublicCatalogueOverview;
     use product_listing_service::use_cases::{
         GetPublicCatalogueOverviewError, GetPublicCatalogueOverviewUseCase,
     };

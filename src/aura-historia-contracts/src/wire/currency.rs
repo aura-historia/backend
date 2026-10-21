@@ -24,3 +24,32 @@ pub fn schema(_generator: &mut SchemaGenerator) -> Schema {
         "enum": Currency::iter().map(Currency::as_str).collect::<Vec<_>>()
     })
 }
+
+/// Canonical optional currency input and output used by existing query contracts.
+pub mod option {
+    use money::Currency;
+    use schemars::{Schema, SchemaGenerator, json_schema};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Currency>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.map(Currency::as_str).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Currency>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(|value| {
+                Currency::from_code(&value)
+                    .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            })
+            .transpose()
+    }
+
+    pub fn schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({"anyOf": [super::schema(generator), {"type": "null"}]})
+    }
+}

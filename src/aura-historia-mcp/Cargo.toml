@@ -6,24 +6,46 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
+auction-core = { workspace = true }
+auction-service = { workspace = true }
+aura-historia-contracts = { workspace = true }
+aura-historia-runtime = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
+fxrate-service = { workspace = true }
+geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
+listing-source-service = { workspace = true }
+party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-service = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+shipping-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tokio-util = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 url = { workspace = true }
+user-service = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
-aura-historia-contracts = { workspace = true }
+platform-postgres = { workspace = true }
+domain-primitives = { workspace = true }
+fxrate-core = { workspace = true }
+geo = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
+listing-source-core = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+shipping-core = { workspace = true, features = ["test-data"] }
+time = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["test-util"] }

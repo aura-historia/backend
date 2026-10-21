@@ -4,19 +4,38 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+auction-postgres = { workspace = true }
+auction-service = { workspace = true }
+application = { workspace = true }
+async-trait = { workspace = true }
+google-cloud-auth = { workspace = true }
+embedding = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-service = { workspace = true }
+geo-postgres = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
+opensearch = { workspace = true }
+party-postgres = { workspace = true }
+party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+shipping-postgres = { workspace = true }
+shipping-service = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+url = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
 
 [dev-dependencies]
-serial_test = { workspace = true }
-application = { workspace = true }
-async-trait = { workspace = true }
 listing-source-core = { workspace = true }
+serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 uuid = { workspace = true, features = ["v7"] }

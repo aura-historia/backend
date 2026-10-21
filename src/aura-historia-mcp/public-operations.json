@@ -1,0 +1,91 @@
+{
+  "endpoint": "https://mcp.aura-historia.com/v1",
+  "access": "public",
+  "requiredScopes": [],
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "schemaSource": {
+    "method": "tools/list",
+    "input": "inputSchema",
+    "output": "outputSchema"
+  },
+  "operations": [
+    {
+      "name": "discoverPartyLocations",
+      "operationId": "discoverPartyLocations",
+      "family": "public_discovery"
+    },
+    {
+      "name": "getAuction",
+      "operationId": "getAuction",
+      "family": "auctions"
+    },
+    {
+      "name": "getAuctionCatalogue",
+      "operationId": "getAuctionCatalogue",
+      "family": "auctions"
+    },
+    {
+      "name": "getProductListing",
+      "operationId": "getProductListing",
+      "family": "product_listings"
+    },
+    {
+      "name": "getProductListingByTitleSlug",
+      "operationId": "getProductListingByTitleSlug",
+      "family": "product_listings"
+    },
+    {
+      "name": "getProductListingHistory",
+      "operationId": "getProductListingHistory",
+      "family": "product_listing_history"
+    },
+    {
+      "name": "getPublicListingSourceBySlug",
+      "operationId": "getPublicListingSourceBySlug",
+      "family": "public_discovery"
+    },
+    {
+      "name": "getPublicOverview",
+      "operationId": "getPublicOverview",
+      "family": "public_discovery"
+    },
+    {
+      "name": "getSimilarProductListings",
+      "operationId": "getSimilarProductListings",
+      "family": "product_listings"
+    },
+    {
+      "name": "listAuctions",
+      "operationId": "listAuctions",
+      "family": "auctions"
+    },
+    {
+      "name": "searchPublicListingSources",
+      "operationId": "searchPublicListingSources",
+      "family": "public_discovery"
+    },
+    {
+      "name": "simpleSearchProductListings",
+      "operationId": "simpleSearchProductListings",
+      "family": "product_listings"
+    }
+  ],
+  "excludedOperationIds": [
+    "putNewsletterSubscription",
+    "confirmNewsletterSubscription"
+  ],
+  "excludedClasses": [
+    "private reads",
+    "writes",
+    "administrator operations",
+    "health/readiness",
+    "provider webhooks/simulation",
+    "OAuth protocol/control plane",
+    "vendor-specific wrapper aliases"
+  ]
+}

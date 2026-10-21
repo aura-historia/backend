@@ -3660,6 +3660,23 @@ paths:
           example:
             - IN_STOCK
             - LIMITED_AVAILABILITY
+        - name: orderability
+          in: query
+          required: false
+          description: Optional derived orderability groups. Values are ORed and combine with exact availability assertions.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ListingOrderabilityData"
+            uniqueItems: true
+        - name: includeUnspecifiedAvailability
+          in: query
+          required: false
+          description: Include listings without an availability assertion. Defaults to false when any availability or orderability predicate is supplied.
+          schema:
+            type: boolean
         - name: created
           in: query
           required: false

@@ -92,8 +92,7 @@ use search_filter_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
-use std::{sync::Arc, time::Duration};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use std::sync::Arc;
 use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
@@ -691,28 +690,7 @@ impl ProductListingsState {
     }
 }
 
-#[derive(Clone)]
-pub struct PublicListingSourceReadBudget {
-    permits: Arc<Semaphore>,
-    request_timeout: Duration,
-}
-
-impl PublicListingSourceReadBudget {
-    pub fn new(max_in_flight: usize, request_timeout: Duration) -> Self {
-        Self {
-            permits: Arc::new(Semaphore::new(max_in_flight)),
-            request_timeout,
-        }
-    }
-
-    pub(crate) fn try_acquire(&self) -> Option<OwnedSemaphorePermit> {
-        self.permits.clone().try_acquire_owned().ok()
-    }
-
-    pub(crate) const fn request_timeout(&self) -> Duration {
-        self.request_timeout
-    }
-}
+pub use aura_historia_runtime::PublicListingSourceReadBudget;
 
 #[derive(Clone)]
 pub struct ListingSourcesState {
@@ -733,6 +711,7 @@ pub struct ListingSourcesState {
 #[cfg(test)]
 mod public_listing_source_read_budget_tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn should_share_non_queuing_permits_and_release_after_drop() {

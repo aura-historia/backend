@@ -1,0 +1,45 @@
+{
+  "sourceSearchInputs": [
+    {},
+    {"query": null},
+    {"query": "   ", "size": 1},
+    {"query": "a", "size": 21},
+    {"query": "museum", "size": 50}
+  ],
+  "invalidSourceSearchShapes": [
+    {"size": "21"},
+    {"size": -1},
+    {"size": 256},
+    {"query": true},
+    {"searchAfter": {}},
+    {"grants": []}
+  ],
+  "locationInputs": [
+    {"geography": {"countries": ["DE"]}},
+    {"geography": {"subdivisions": ["DE-BY"]}, "size": 1},
+    {
+      "geography": {
+        "countries": ["DE"],
+        "subdivisions": ["DE-BY"],
+        "origin": {"latitude": 48.137, "longitude": 11.575},
+        "radius": {"amount": 25.0, "unit": "KILOMETERS"},
+        "mode": "APPROXIMATE",
+        "distanceOrder": "DESC"
+      },
+      "size": 100,
+      "searchAfter": {"locationId": "ploc_01h455vb4pex5vy7enb1p677vn", "distanceKm": 42.25}
+    },
+    {"geography": {"origin": {"latitude": 0, "longitude": 0}, "distanceOrder": "ASC"}}
+  ],
+  "invalidLocationShapes": [
+    {},
+    {"geography": {"origin": {"address": "Munich"}}},
+    {"geography": {"origin": {"latitude": 0, "longitude": 0, "userAddressId": "primary"}}},
+    {"geography": {"countries": ["DE"], "evidence": {}}},
+    {"geography": {"countries": ["DE"]}, "size": -1},
+    {"geography": {"countries": ["DE"]}, "size": 18446744073709551616},
+    {"geography": {"countries": ["DE"]}, "searchAfter": {"locationId": "ls_01h455vb4pex5vy7enb1p677vn"}},
+    {"geography": {"countries": ["DE"]}, "searchAfter": {"locationId": "ploc_01h455vb4pex5vy7enb1p677vn", "privateEvidence": []}},
+    {"geography": {"countries": ["DE"]}, "manager": true}
+  ]
+}

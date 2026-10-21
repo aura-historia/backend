@@ -82,12 +82,30 @@ async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
         let same = runtime.public_listing_sources();
         assert!(Arc::ptr_eq(&family.search, &same.search));
         assert!(Arc::ptr_eq(&family.get_by_slug, &same.get_by_slug));
+        assert!(Arc::ptr_eq(
+            &runtime.public_party_locations().discover,
+            &runtime.public_party_locations().discover,
+        ));
+        assert!(Arc::ptr_eq(
+            &runtime.public_overview().get,
+            &runtime.public_overview().get,
+        ));
+        let auctions = runtime.public_auctions();
+        let same_auctions = runtime.public_auctions();
+        assert!(Arc::ptr_eq(&auctions.get, &same_auctions.get));
+        assert!(Arc::ptr_eq(&auctions.list, &same_auctions.list));
+        assert!(Arc::ptr_eq(&auctions.catalogue, &same_auctions.catalogue));
         let result = family
             .search
             .execute(&context(), search(Some("a"))?)
             .await?;
         assert!(result.items.is_empty());
         assert!(result.continuation.is_none());
+        let history = runtime.public_product_listing_history();
+        assert!(Arc::ptr_eq(
+            &history.get,
+            &runtime.public_product_listing_history().get
+        ));
         assert_eq!(0, runtime.postgres_pool().size());
         runtime.postgres_pool().close().await;
     }
@@ -206,4 +224,61 @@ async fn should_preserve_transaction_failure_causes_for_both_composed_use_cases(
         }));
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn should_reuse_listing_family_and_shipping_handles_without_provider_io()
+-> Result<(), TestError> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost:9/fixture")?;
+    let runtime = Runtime::from_pool(pool);
+    let dependencies = || -> Result<ProductListingDependencies, TestError> {
+        Ok(ProductListingDependencies {
+            opensearch: opensearch::OpenSearch::new(
+                opensearch::http::transport::Transport::single_node("http://localhost:9")?,
+            ),
+            embeddings: Arc::new(UnusedEmbeddings),
+            fx_cache: fxrate_service::readers::FxSearchCacheConfig::new(
+                true,
+                64,
+                std::time::Duration::from_secs(10),
+            )?,
+            source_cache: product_listing_service::readers::SourceSearchCacheConfig::new(
+                true,
+                64,
+                65_536,
+                std::time::Duration::from_secs(10),
+            )?,
+            read_execution_policy: product_listing_service::use_cases::ProductListingSearchReadExecutionPolicy::Sequential,
+        })
+    };
+    let first = runtime.public_product_listings(dependencies()?);
+    let second = runtime.public_product_listings(dependencies()?);
+    assert!(Arc::ptr_eq(&first.get, &second.get));
+    assert!(Arc::ptr_eq(&first.search, &second.search));
+    assert!(Arc::ptr_eq(&first.similar, &second.similar));
+    assert!(std::ptr::eq(
+        runtime.listing_shipping(),
+        runtime.listing_shipping()
+    ));
+    Ok(())
+}
+
+struct UnusedEmbeddings;
+#[async_trait::async_trait]
+impl embedding::EmbeddingGenerator for UnusedEmbeddings {
+    async fn embed_product(
+        &self,
+        _title: &embedding::EmbeddingText,
+        _additional_text: Option<&embedding::EmbeddingText>,
+        _image_url: Option<&embedding::EmbeddingImageUrl>,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        panic!("composing listing handles must not invoke embedding providers")
+    }
+    async fn embed_search_query(
+        &self,
+        _query: &embedding::EmbeddingText,
+    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
+        panic!("composing listing handles must not invoke embedding providers")
+    }
 }

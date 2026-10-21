@@ -7,6 +7,8 @@ mod http;
 pub mod lambda;
 mod metadata;
 mod protocol;
+pub mod public;
+pub mod public_discovery;
 mod registry;
 
 pub use admission::{AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate};
@@ -18,3 +20,9 @@ pub use http::router;
 pub use metadata::InvocationContext;
 pub use protocol::SUPPORTED_PROTOCOL_VERSIONS;
 pub use registry::{AccessClass, OperationDefinition, OperationPolicy, Registry, RegistryError};
+
+pub mod product_listing_history;
+pub mod product_listings;
+mod shipping_error;
+
+pub mod auctions;
