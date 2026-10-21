@@ -6,7 +6,7 @@ use aura_historia_mcp::{
 use aura_historia_runtime::Runtime;
 use axum::{
     Router,
-    body::Body,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
 use oauth_core::resource::AuraResourcePolicy;
@@ -51,12 +51,17 @@ fn app(runtime: &Runtime, calls: Arc<AtomicUsize>, user: UserId) -> Router {
         },
     )
     .unwrap();
+    let mut operations = aura_historia_mcp::product_listing_history::operations(
+        runtime.public_product_listing_history().clone(),
+    )
+    .unwrap();
+    operations.push(operation);
     router(
         TransportConfig {
             allowed_hosts: vec!["mcp.example.test".into()],
             ..Default::default()
         },
-        Registry::new([operation]).unwrap(),
+        Registry::new(operations).unwrap(),
         Arc::new(AuraTokenGate::new(
             runtime.access_token_authentication().clone(),
             AuraResourcePolicy::production(),
@@ -66,9 +71,23 @@ fn app(runtime: &Runtime, calls: Arc<AtomicUsize>, user: UserId) -> Router {
 }
 
 fn request(token: &str) -> Request<Body> {
+    request_for(token, "protectedFixture", json!({}))
+}
+
+fn history_request(token: &str) -> Request<Body> {
+    request_for(
+        token,
+        "getProductListingHistory",
+        json!({
+            "productListingId": "pl_01k6k0w000e008000000000001",
+        }),
+    )
+}
+
+fn request_for(token: &str, name: &str, arguments: serde_json::Value) -> Request<Body> {
     let body = json!({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "protectedFixture", "arguments": {}}
+        "params": {"name": name, "arguments": arguments}
     });
     Request::builder()
         .method("POST")
@@ -134,6 +153,20 @@ async fn verify_authoritative_changes() -> TestResult {
         StatusCode::FORBIDDEN,
         app.clone().oneshot(request(&token)).await?.status()
     );
+    let public_response = app.clone().oneshot(history_request(&token)).await?;
+    assert_eq!(StatusCode::OK, public_response.status());
+    assert_eq!("no-store", public_response.headers()["cache-control"]);
+    let public_result: serde_json::Value = serde_json::from_slice(
+        &to_bytes(
+            public_response.into_body(),
+            aura_historia_mcp::MAX_RESPONSE_BYTES,
+        )
+        .await?,
+    )?;
+    assert!(public_result.get("error").is_none(), "{public_result}");
+    assert_eq!(true, public_result["result"]["isError"]);
+    assert_eq!("NOT_FOUND", public_result["result"]["content"][0]["text"]);
+
     sqlx::query(
         "UPDATE access_tokens SET scopes=ARRAY['users:read'], \
          expires_at=now()-interval '1 second' WHERE access_token_id=$1",
@@ -162,6 +195,9 @@ async fn verify_authoritative_changes() -> TestResult {
         StatusCode::UNAUTHORIZED,
         app.clone().oneshot(request(&token)).await?.status()
     );
+    let public_response = app.clone().oneshot(history_request(&token)).await?;
+    assert_eq!(StatusCode::UNAUTHORIZED, public_response.status());
+    assert_eq!("no-store", public_response.headers()["cache-control"]);
     pool.close().await;
     let response = app.oneshot(request(&token)).await?;
     assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());

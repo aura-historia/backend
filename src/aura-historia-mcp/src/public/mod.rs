@@ -1,4 +1,4 @@
-//! The selected anonymous catalogue. Family modules own transport mappings and use-case calls.
+//! The public subset of the hybrid catalogue. Family modules own transport mappings and use-case calls.
 use crate::{
     Registry, RegistryError, auctions, product_listing_history, product_listings, public_discovery,
 };

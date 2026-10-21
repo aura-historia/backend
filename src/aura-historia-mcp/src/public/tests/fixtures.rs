@@ -41,6 +41,7 @@ pub enum SearchOutcome {
 
 pub struct Fixture {
     pub calls: Mutex<Vec<&'static str>>,
+    pub principal: Principal,
     pub searches: Mutex<Vec<SearchProductListingsRequest>>,
     pub history_count: usize,
     pub detail_images: usize,
@@ -51,6 +52,7 @@ impl Default for Fixture {
     fn default() -> Self {
         Self {
             calls: Mutex::new(vec![]),
+            principal: Principal::Anonymous,
             searches: Mutex::new(vec![]),
             history_count: 128,
             detail_images: 175,
@@ -85,7 +87,12 @@ impl Fixture {
         }
     }
     fn record(&self, context: &OperationContext, operation: &'static str) {
-        assert!(matches!(context.principal, Principal::Anonymous));
+        let expected = if operation == "getPublicOverview" {
+            &Principal::Anonymous
+        } else {
+            &self.principal
+        };
+        assert_eq!(expected, &context.principal, "{operation}");
         self.calls.lock().unwrap().push(operation);
     }
     pub fn images(&self, count: usize) -> Vec<ProductListingImageView> {
