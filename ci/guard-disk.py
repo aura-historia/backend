@@ -22,6 +22,21 @@ def observe(argv, root):
         return None
 
 
+def memory_kib():
+    result = {'total': None, 'available': None}
+    fields = {'MemTotal': 'total', 'MemAvailable': 'available'}
+    try:
+        lines = pathlib.Path('/proc/meminfo').read_text().splitlines()
+    except (OSError, UnicodeError):
+        return result
+    for line in lines:
+        name, _, value = line.partition(':')
+        parts = value.split()
+        if name in fields and len(parts) == 2 and parts[0].isdecimal() and parts[1] == 'kB':
+            result[fields[name]] = int(parts[0])
+    return result
+
+
 class DiskGuard:
     def __init__(self, root, target, profiles, log, minimum):
         self.root, self.paths, self.log, self.minimum = root, {'target': target, 'profiles': profiles}, log, minimum
@@ -50,6 +65,7 @@ class DiskGuard:
                     self.docker = observe(['docker', 'system', 'df', '--format', '{{json .}}'], self.root)
                 self.last_sizes = now
             record = {'time': time.time(), 'free_bytes': free, 'free_by_path': free_by_path, 'minimum_bytes': self.minimum,
+                      'memory_kib': memory_kib(),
                       'sizes_kib': self.sizes, 'hosted_docker_storage': self.docker,
                       'sizes_sampled_monotonic': None if self.last_sizes == -float('inf') else self.last_sizes,
                       'command': self.command}

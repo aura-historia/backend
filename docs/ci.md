@@ -81,8 +81,13 @@ through the same process owner, preserving time and space for cleanup/diagnostic
 it cannot guarantee capacity against a sudden large allocation. Directory/Docker
 size sampling is less frequent and bounded, and stops below the floor; missing
 observations remain null.
+The same periodic record includes nullable host memory total/available KiB. Export
+logs record GNU time's peak RSS, which is a maximum for the command and individual
+children rather than their combined simultaneous memory; interrupted runs can lack it.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
+The shared exporter uses one grcov parser thread and one Rayon worker so LLVM
+exports run sequentially; these control different worker pools.
 Current lanes, legacy controls and lane diagnostics use LLVM's `%b-%4m`
 [online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program):
 up to four locked profile files per build ID/module signature within each run/lane or

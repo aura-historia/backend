@@ -16,5 +16,7 @@ else
   exit "$status"
 fi
 mkdir -p "$(dirname "$report")"
-grcov "$profiles" --binary-path "$binaries" -s . -t lcov --branch --ignore-not-existing --ignore '/*' --ignore '*/target/*' --ignore '*/.cargo/*' -o "$report"
+printf 'Coverage export: grcov parser_threads=1 rayon_threads=1\n' >&2
+RAYON_NUM_THREADS=1 /usr/bin/time -f 'COVERAGE_RESOURCES elapsed_seconds=%e peak_rss_kib=%M exit_code=%x' \
+  grcov "$profiles" --threads 1 --binary-path "$binaries" -s . -t lcov --branch --ignore-not-existing --ignore '/*' --ignore '*/target/*' --ignore '*/.cargo/*' -o "$report"
 test -s "$report"

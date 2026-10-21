@@ -18,6 +18,18 @@ SPEC.loader.exec_module(GUARD)
 
 
 class BoundedDiskGuard(unittest.TestCase):
+    def test_memory_observations_parse_only_available_kib_fields(self):
+        with patch.object(pathlib.Path, 'read_text', return_value='MemTotal: 1000 kB\nMemAvailable: 200 kB\nCached: 300 kB\n'):
+            self.assertEqual(GUARD.memory_kib(), {'total': 1000, 'available': 200})
+
+    def test_unavailable_or_malformed_memory_observations_remain_null(self):
+        for data in ('MemTotal: unknown\nMemAvailable: -1 kB\n', 'MemTotal: 12 B\n', ''):
+            with self.subTest(data=data), patch.object(pathlib.Path, 'read_text', return_value=data):
+                self.assertEqual(GUARD.memory_kib(), {'total': None, 'available': None})
+        for error in (FileNotFoundError(), UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'invalid')):
+            with self.subTest(error=error), patch.object(pathlib.Path, 'read_text', side_effect=error):
+                self.assertEqual(GUARD.memory_kib(), {'total': None, 'available': None})
+
     def test_low_space_signals_cancellation_and_retains_honest_path_sizes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

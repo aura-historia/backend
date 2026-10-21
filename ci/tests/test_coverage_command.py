@@ -24,6 +24,7 @@ class ExistingCoverageCommand(unittest.TestCase):
         executable.write_text('''#!/usr/bin/env python3
 import json,os,pathlib,sys
 pathlib.Path(os.environ['FIXTURE_ARGUMENTS']).write_text(json.dumps(sys.argv[1:]))
+pathlib.Path(os.environ['FIXTURE_ARGUMENTS']).with_suffix('.environment.json').write_text(json.dumps({'RAYON_NUM_THREADS': os.environ.get('RAYON_NUM_THREADS')}))
 if os.environ.get('FIXTURE_EXIT'): raise SystemExit(int(os.environ['FIXTURE_EXIT']))
 if not os.environ.get('FIXTURE_EMPTY'):
     pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_text('SF:src/example.rs\\nend_of_record\\n')
@@ -40,10 +41,19 @@ if not os.environ.get('FIXTURE_EMPTY'):
         (self.profiles / "case.profraw").write_bytes(b"profile")
         result = self.collect()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(self.record.read_text()), [str(self.profiles), "--binary-path", str(self.binaries),
+        self.assertEqual(json.loads(self.record.read_text()), [str(self.profiles), "--threads", "1", "--binary-path", str(self.binaries),
             "-s", ".", "-t", "lcov", "--branch", "--ignore-not-existing", "--ignore", "/*",
             "--ignore", "*/target/*", "--ignore", "*/.cargo/*", "-o", str(self.report)])
         self.assertTrue(self.report.stat().st_size)
+
+    def test_export_bounds_llvm_workers_independently_from_parser_threads_and_reports_resources(self):
+        (self.profiles / 'case.profraw').write_bytes(b'profile')
+        self.environment['RAYON_NUM_THREADS'] = '9'
+        result = self.collect()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.record.with_suffix('.environment.json').read_text()), {'RAYON_NUM_THREADS': '1'})
+        self.assertIn('COVERAGE_RESOURCES', result.stderr)
+        self.assertIn('exit_code=0', result.stderr)
 
     def test_missing_profiles_fail_before_export(self):
         result = self.collect()
