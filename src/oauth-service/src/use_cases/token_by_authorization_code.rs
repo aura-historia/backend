@@ -6,7 +6,10 @@ use crate::ports::{
 use crate::use_cases::support::{THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client, verify_s256};
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
-use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
+use oauth_core::authorization_code::{
+    AuthorizationCode, OAuthAuthorizationCode, OAuthCodeVerifier,
+};
+use oauth_core::client::OAuthClient;
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -115,6 +118,24 @@ where
             tx.commit().await?;
             return Err(OAuthServiceError::InvalidCodeVerifier);
         }
+        let response = self.issue_credentials(&mut tx, &client, &code).await?;
+        tx.commit().await?;
+        Ok(response)
+    }
+}
+
+impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R>
+where
+    U: UnitOfWork,
+    T: ThirdPartyExchangeCodeRepositoryFactory<U::Tx>,
+    R: AccessTokenRepositoryFactory<U::Tx>,
+{
+    async fn issue_credentials(
+        &self,
+        tx: &mut U::Tx,
+        client: &OAuthClient,
+        code: &AuthorizationCode,
+    ) -> Result<TokenResponse, OAuthServiceError> {
         let raw_access_token = RawAccessToken::new();
         let issued_at = OffsetDateTime::now_utc();
         let access_token = AccessToken::create(NewAccessToken {
@@ -131,7 +152,7 @@ where
             expires: None,
         });
         self.access_tokens
-            .in_transaction(&mut tx)
+            .in_transaction(tx)
             .insert(&access_token)
             .await?;
         let third_party_exchange_code =
@@ -144,10 +165,9 @@ where
                 expires: issued_at + THIRD_PARTY_EXCHANGE_CODE_TTL,
             });
         self.exchange_codes
-            .in_transaction(&mut tx)
+            .in_transaction(tx)
             .insert(third_party_exchange_code.clone())
             .await?;
-        tx.commit().await?;
         Ok(TokenResponse {
             access_token: raw_access_token,
             token_type: OAuthTokenType::Bearer,
