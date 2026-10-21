@@ -587,7 +587,7 @@ async fn counts(pool: &sqlx::PgPool) -> (i64, i64, i64) {
     (products, events, receipts)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn duplicate_create_returns_already_completed_without_second_effect() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -621,7 +621,7 @@ async fn duplicate_create_returns_already_completed_without_second_effect() {
     assert_eq!(persisted, created.product_listing_id.into_uuid());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_deliveries_commit_one_listing_event_and_receipt() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -661,7 +661,7 @@ async fn concurrent_deliveries_commit_one_listing_event_and_receipt() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn reused_command_identity_with_different_fingerprint_is_rejected_without_writes() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -705,7 +705,7 @@ async fn reused_command_identity_with_different_fingerprint_is_rejected_without_
     assert_eq!(rejected_listing, 0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_receipt_insert_rolls_back_listing_and_event_then_can_retry() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -744,7 +744,7 @@ async fn failed_receipt_insert_rolls_back_listing_and_event_then_can_retry() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_event_insert_rolls_back_listing_and_receipt_then_can_retry() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -785,7 +785,7 @@ async fn failed_event_insert_rolls_back_listing_and_receipt_then_can_retry() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn later_failed_command_does_not_undo_previously_committed_command() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -819,7 +819,7 @@ async fn later_failed_command_does_not_undo_previously_committed_command() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn duplicate_create_fails_without_receipt_and_original_completion_is_preserved() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -857,7 +857,7 @@ async fn duplicate_create_fails_without_receipt_and_original_completion_is_prese
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn user_and_delegated_user_with_same_key_replay_one_receipt() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1036,7 +1036,7 @@ async fn user_and_delegated_user_with_same_key_replay_one_receipt() {
     assert_eq!(counts(&pool).await, (2, 2, 2));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn revoked_partner_cannot_apply_new_command_or_insert_receipt() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1098,7 +1098,7 @@ async fn revoked_partner_cannot_apply_new_command_or_insert_receipt() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn completed_update_replay_after_newer_update_does_not_revert_state() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1162,7 +1162,7 @@ async fn completed_update_replay_after_newer_update_does_not_revert_state() {
     assert_eq!(counts(&pool).await, (1, 3, 3));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn distinct_commands_with_one_submission_id_both_execute() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1218,7 +1218,7 @@ async fn distinct_commands_with_one_submission_id_both_execute() {
     assert_eq!(counts(&pool).await, (2, 2, 2));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn committed_command_with_lost_ack_is_recognized_by_new_handler() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1247,7 +1247,7 @@ async fn committed_command_with_lost_ack_is_recognized_by_new_handler() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn new_noop_update_commits_receipt_without_new_event() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1291,7 +1291,7 @@ async fn new_noop_update_commits_receipt_without_new_event() {
     assert_eq!(counts(&pool).await, (1, 1, 2));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn upsert_update_withdraw_and_restore_preserve_one_listing_and_command_receipts() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1389,7 +1389,7 @@ async fn upsert_update_withdraw_and_restore_preserve_one_listing_and_command_rec
     assert_eq!(counts(&pool).await, (1, 4, 5));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn queued_withdrawal_keeps_missing_target_unmodified_and_replays_once_per_command() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1490,7 +1490,7 @@ async fn queued_withdrawal_keeps_missing_target_unmodified_and_replays_once_per_
     assert_eq!(counts(&pool).await, (1, 2, 3));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn raw_capture_distinguishes_noop_stale_provider_duplicate_and_command_replay() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1585,7 +1585,7 @@ async fn raw_capture_distinguishes_noop_stale_provider_duplicate_and_command_rep
     assert_eq!((revisions, provider_receipts, head), (1, 3, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn woocommerce_raw_command_replay_commits_only_one_capture_and_receipt() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1644,7 +1644,7 @@ async fn woocommerce_raw_command_replay_commits_only_one_capture_and_receipt() {
     assert_eq!(raw_counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_of_revisions() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1797,7 +1797,7 @@ async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_o
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn revoked_woocommerce_partner_cannot_mutate_raw_or_insert_new_receipts() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1869,7 +1869,7 @@ fn assert_fresh_receipt_lookup(receipts: &TracingReceiptFactory) {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn create_slug_collision_restarts_with_fresh_receipt_lookup() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1902,7 +1902,7 @@ async fn create_slug_collision_restarts_with_fresh_receipt_lookup() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn upsert_source_race_restarts_and_updates_competing_committed_listing() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1957,7 +1957,7 @@ async fn upsert_source_race_restarts_and_updates_competing_committed_listing() {
     assert_eq!(counts(&pool).await, (1, 2, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn upsert_slug_collision_restarts_with_fresh_receipt_lookup() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -1992,7 +1992,7 @@ async fn upsert_slug_collision_restarts_with_fresh_receipt_lookup() {
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn internal_service_needs_no_partnership_and_invalid_metadata_cannot_execute() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -2020,7 +2020,7 @@ async fn internal_service_needs_no_partnership_and_invalid_metadata_cannot_execu
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn create_with_missing_auction_reference_does_not_commit_or_write_receipt() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;

@@ -271,7 +271,7 @@ fn copy_from_container(
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
     Command::new("docker")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", "-v", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -679,51 +679,72 @@ mod tests {
 
     #[tokio::test]
     async fn should_connect_to_the_fixture_with_verified_tls() {
-        ensure_container_started().await;
-        let mut connection = open_connection().await;
-        let encrypted: bool =
-            sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-                .fetch_one(&mut connection)
-                .await
-                .expect("should read the fixture connection TLS state");
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let mut connection = open_connection().await;
+                let encrypted: bool =
+                    sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+                        .fetch_one(&mut connection)
+                        .await
+                        .expect("should read the fixture connection TLS state");
 
-        assert!(encrypted);
+                assert!(encrypted);
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn should_reject_the_production_rds_bundle_for_the_fixture() {
-        ensure_container_started().await;
-        let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
-            .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
+                    .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
 
-        assert!(
-            postgres_connect_options(&production_bundle)
-                .connect()
-                .await
-                .is_err()
-        );
+                assert!(
+                    postgres_connect_options(&production_bundle)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn should_reject_wrong_hostname_and_missing_root_certificate() {
-        ensure_container_started().await;
-        let root_certificate = get_postgres_tls_root_certificate_path();
-        let missing_certificate = std::env::temp_dir().join(format!(
-            "aura-historia-missing-postgres-ca-{}",
-            std::process::id()
-        ));
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let root_certificate = get_postgres_tls_root_certificate_path();
+                let missing_certificate = std::env::temp_dir().join(format!(
+                    "aura-historia-missing-postgres-ca-{}",
+                    std::process::id()
+                ));
 
-        assert!(
-            postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
-                .connect()
-                .await
-                .is_err()
-        );
-        assert!(
-            postgres_connect_options(&missing_certificate)
-                .connect()
-                .await
-                .is_err()
-        );
+                assert!(
+                    postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+                assert!(
+                    postgres_connect_options(&missing_certificate)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+            })
+            .await;
     }
 }

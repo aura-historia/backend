@@ -61,7 +61,11 @@ async fn main() -> Result<(), Error> {
                                 .connect()
                                 .await
                                 .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
-                            Ok::<_, Error>(compose_projection_use_case(pool, open_search))
+                            Ok::<_, Error>(compose_projection_use_case(
+                                pool,
+                                open_search,
+                                "product-listings",
+                            ))
                         })
                         .await
                 })

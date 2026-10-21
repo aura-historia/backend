@@ -1,5 +1,27 @@
 mod topology;
 
+#[cfg(all(test, feature = "sqs", feature = "ses", feature = "s3"))]
+mod runtime_tests;
+
+// These library regressions share one process-owned fixture under unmanaged libtest.
+#[cfg(all(
+    test,
+    any(
+        feature = "opensearch",
+        all(feature = "sqs", feature = "ses", feature = "s3")
+    )
+))]
+pub(crate) const RUNTIME_TEST_SERVICES: &[&str] = &[
+    #[cfg(feature = "opensearch")]
+    "opensearch",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "sqs",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "sesv2",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "s3",
+];
+
 use self::topology::AwsEmulatorTopology;
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::net::TcpListener;
@@ -35,6 +57,9 @@ pub fn get_endpoint_url() -> &'static str {
 }
 
 /// Uses fixed test credentials and region; never loads live AWS credentials.
+///
+/// The shared configuration leaves the HTTP client unset. Each service client constructs
+/// its own connector, so pooled I/O is owned by that client and its runtime.
 pub async fn get_aws_config() -> &'static SdkConfig {
     CONFIG
         .get_or_init(|| async {
@@ -103,7 +128,7 @@ pub async fn get_aws_emulator(
 
 fn docker_remove(name: &str) {
     let _ = Command::new("docker")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", "-v", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();

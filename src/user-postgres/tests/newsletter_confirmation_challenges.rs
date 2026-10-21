@@ -29,7 +29,7 @@ use user_service::use_cases::commands::coordinate_marketing_consent::MarketingCo
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn email_only_confirmation_persists_profile_for_the_worker_claim() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -101,7 +101,7 @@ async fn email_only_confirmation_persists_profile_for_the_worker_claim() {
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_confirmation_commit_rolls_back_grant_intent_and_challenge_updates() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -280,7 +280,7 @@ async fn create_challenge_with_profile(
     (outcome, id, token)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn issuance_limits_share_locked_budget_and_rejected_sends_still_count() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -364,7 +364,7 @@ async fn issuance_limits_share_locked_budget_and_rejected_sends_still_count() {
     assert_eq!(3, count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn confirmation_binds_exact_target_and_replay_after_withdrawal_is_a_noop() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -451,7 +451,7 @@ async fn confirmation_binds_exact_target_and_replay_after_withdrawal_is_a_noop()
     assert_eq!(1, intents);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn expiry_boundary_and_provider_withdrawal_reject_unconfirmed_proofs_without_consent() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -504,7 +504,7 @@ async fn expiry_boundary_and_provider_withdrawal_reject_unconfirmed_proofs_witho
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn sibling_links_cannot_create_independent_email_only_grants() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -583,7 +583,7 @@ async fn sibling_links_cannot_create_independent_email_only_grants() {
     assert_eq!(0, users);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn email_only_proof_binds_exact_existing_user_but_deleted_binding_never_becomes_anonymous() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -648,7 +648,7 @@ async fn email_only_proof_binds_exact_existing_user_but_deleted_binding_never_be
     assert_eq!(0, intents);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_issuance_is_suppressed_by_the_shared_recipient_lock() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -684,7 +684,7 @@ async fn concurrent_issuance_is_suppressed_by_the_shared_recipient_lock() {
     assert_eq!(1, count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_withdrawal_racing_confirmation_commits_one_coherent_mailbox_decision() {
     let pool = get_postgres_client().await;
     let target_id = UserId::new();
@@ -751,7 +751,7 @@ async fn provider_withdrawal_racing_confirmation_commits_one_coherent_mailbox_de
     assert_eq!(i64::from(challenge_state.0.is_some()), desired_intents);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn unknown_malformed_and_mismatched_user_proofs_fail_without_granting_consent() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -808,7 +808,7 @@ async fn unknown_malformed_and_mismatched_user_proofs_fail_without_granting_cons
     assert_eq!(0, consent_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn expired_cleanup_is_bounded_and_retains_confirmed_replay_rows() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());

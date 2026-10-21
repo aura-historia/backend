@@ -38,7 +38,7 @@ use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_join_watchlisted_product_localization_and_user_state() {
     let pool = get_postgres_client().await;
     let product = persist_product(
@@ -109,7 +109,7 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     assert!(!user_state.search_filter.matched);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_retain_withdrawn_product_in_watchlist_collection() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "watchlist-withdrawn", None, None).await;
@@ -140,7 +140,7 @@ async fn should_retain_withdrawn_product_in_watchlist_collection() {
     assert!(view.item.availability.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_order_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
@@ -174,7 +174,7 @@ async fn should_order_watchlisted_products_by_created_desc_then_product_listing_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_page_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;

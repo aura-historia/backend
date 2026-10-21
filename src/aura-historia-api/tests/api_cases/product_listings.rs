@@ -1812,7 +1812,7 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
 
 async fn index_existing_listing_source_document(document: Value) {
     let client = get_opensearch_client().await;
-    ensure_canonical_product_listing_mapping(client).await;
+    ensure_canonical_product_listing_mapping(&client).await;
     let product_listing_id = document["productListingId"]
         .as_str()
         .unwrap_or_else(|| panic!("search fixture has no productListingId"))
@@ -1840,7 +1840,7 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     seed_current_fx_snapshot(&pool).await;
     seed_search_listing_sources(&pool, &documents).await;
     let client = get_opensearch_client().await;
-    ensure_canonical_product_listing_mapping(client).await;
+    ensure_canonical_product_listing_mapping(&client).await;
     for document in documents {
         let product_listing_id = document["productListingId"]
             .as_str()

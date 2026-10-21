@@ -150,7 +150,7 @@ mod tests {
 
     const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_round_trip_partnership_application_notification_through_repository() {
         let pool = get_postgres_client().await;
         let user_id = UserId::new();

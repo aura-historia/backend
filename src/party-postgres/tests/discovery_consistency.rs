@@ -14,7 +14,7 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation() {
     let pool = get_postgres_client().await;
     let owner = PartyId::new();
@@ -144,7 +144,7 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
         .unwrap();
     let page_request = request.clone();
     let discovery_pool = pool.clone();
-    let discovery = tokio::spawn(async move {
+    let discovery = test_api::spawn_owned(async move {
         DiscoverPartyLocationsHandler::new(
             SqlxUnitOfWork::new(discovery_pool),
             SqlxPartyLocationDiscoveryReaderFactory,

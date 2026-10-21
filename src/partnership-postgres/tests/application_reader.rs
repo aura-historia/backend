@@ -143,7 +143,7 @@ fn existing_proposal(listing_source_id: ListingSourceId) -> serde_json::Value {
     })
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_admin_application_filters_and_inclusive_ranges() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -204,7 +204,7 @@ async fn should_apply_admin_application_filters_and_inclusive_ranges() {
     assert!(result.cursor.search_after.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_follow_descending_cursor_through_tied_created_timestamps() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -273,7 +273,7 @@ async fn should_follow_descending_cursor_through_tied_created_timestamps() {
     assert!(second.cursor.search_after.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_an_empty_admin_application_page() {
     let request = ListAdminPartnershipApplicationsRequest {
         search: PartnershipApplicationSearch::default(),

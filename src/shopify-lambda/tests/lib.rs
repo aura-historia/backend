@@ -45,7 +45,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -122,7 +122,7 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
     assert_eq!(None, revision.source_occurred_at);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_collapse_equal_shopify_state_with_new_delivery_ids() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -156,7 +156,7 @@ async fn should_collapse_equal_shopify_state_with_new_delivery_ids() {
     assert_eq!(0, listing_count(source.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_distinguish_upstream_sqs_message_ids_without_duplicating_provider_evidence() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -216,7 +216,7 @@ async fn should_distinguish_upstream_sqs_message_ids_without_duplicating_provide
     assert_eq!(2, command_receipts);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_distinguish_shopify_webhook_and_eventbridge_delivery_ids_with_same_value() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -275,7 +275,7 @@ async fn should_distinguish_shopify_webhook_and_eventbridge_delivery_ids_with_sa
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -423,7 +423,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_fingerprint() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -482,7 +482,7 @@ async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_finge
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -572,7 +572,7 @@ async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_capture_changed_inventory_and_unknown_shopify_key() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -622,7 +622,7 @@ async fn should_capture_changed_inventory_and_unknown_shopify_key() {
     assert_eq!(0, listing_count(source.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_normalize_shopify_machine_decimal_prices_and_preserve_provider_strings() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -681,7 +681,7 @@ async fn should_normalize_shopify_machine_decimal_prices_and_preserve_provider_s
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_current_shopify_listing_facts_after_asynchronous_normalization() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -755,7 +755,7 @@ async fn should_preserve_current_shopify_listing_facts_after_asynchronous_normal
     assert_eq!(2, product_listing_event_count().await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_capture_delete_without_direct_withdrawal() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -800,7 +800,7 @@ async fn should_capture_delete_without_direct_withdrawal() {
     assert_eq!(0, product_listing_event_count().await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_updated_at_without_capture()
  {
     let mut harness = ShopifyTestHarness::new().await;
@@ -852,7 +852,7 @@ async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_update
     assert!(harness.published().is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_acknowledge_permanently_malformed_shopify_product_without_capture() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -874,7 +874,7 @@ async fn should_acknowledge_permanently_malformed_shopify_product_without_captur
     assert!(harness.published().is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_capture_invalid_shopify_updated_at_without_trigger_timestamp() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
@@ -899,7 +899,7 @@ async fn should_capture_invalid_shopify_updated_at_without_trigger_timestamp() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_retry_unconfirmed_publish_with_stable_command_and_one_durable_capture() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;

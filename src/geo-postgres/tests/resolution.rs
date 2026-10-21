@@ -186,6 +186,10 @@ async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
         .connect_with(pool.connect_options().as_ref().clone())
         .await
         .unwrap();
+    test_api::TestContext::current()
+        .unwrap()
+        .register_postgres_pool(isolated.clone())
+        .unwrap();
     Arc::new(Provider {
         calls: AtomicUsize::new(0),
         pool: isolated,
@@ -203,7 +207,7 @@ async fn complete(pool: &PgPool, c: &ResolutionClaim, e: ResolutionCompletion) -
     done
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn input_failures_regression_do_not_open_the_shared_provider_circuit() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -308,7 +312,7 @@ async fn mutation_before_inspection_lock_order(operation: &'static str) {
         .fetch_one(&mut *writer)
         .await
         .unwrap();
-    let writing = tokio::spawn(async move {
+    let writing = test_api::spawn_owned(async move {
         match operation {
             "bind" => {
                 SqlxResolutionRepositoryFactory::on_connection(&mut writer)
@@ -385,22 +389,22 @@ async fn mutation_before_inspection_lock_order(operation: &'static str) {
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn bind_then_inspect_lock_order_regression() {
     mutation_before_inspection_lock_order("bind").await;
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn select_then_inspect_lock_order_regression() {
     mutation_before_inspection_lock_order("select").await;
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_erasure_then_rebind_lock_order_regression() {
     mutation_before_inspection_lock_order("erasure").await;
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn batch_read_waits_for_provider_control_before_locking_resolution() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -423,7 +427,7 @@ async fn batch_read_waits_for_provider_control_before_locking_resolution() {
         .fetch_one(&mut *reader)
         .await
         .unwrap();
-    let reading = tokio::spawn(async move {
+    let reading = test_api::spawn_owned(async move {
         let result = SqlxResolutionRepositoryFactory::on_connection(&mut reader)
             .inspect_many(&[source.subject])
             .await;
@@ -542,7 +546,7 @@ fn location_binding(v: &PartyLocationView) -> ResolutionBinding {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn creation_disabled_and_then_maintenance_recovery_reuses_unchanged_inputs_without_provider_transactions()
  {
     let pool = get_postgres_client().await;
@@ -645,7 +649,7 @@ async fn creation_disabled_and_then_maintenance_recovery_reuses_unchanged_inputs
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn resolution_claims_and_reuse_allow_independent_binding_invalidation() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -693,7 +697,7 @@ async fn resolution_claims_and_reuse_allow_independent_binding_invalidation() {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn binding_changes_journal_cached_reuse_and_invalidation_of_reviewed_geography() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -755,7 +759,7 @@ async fn binding_changes_journal_cached_reuse_and_invalidation_of_reviewed_geogr
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn inspection_waiting_for_a_resolution_cannot_return_a_replaced_binding() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -772,7 +776,7 @@ async fn inspection_waiting_for_a_resolution_cannot_return_a_replaced_binding() 
     .unwrap();
     let reader_pool = pool.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let reader = tokio::spawn(async move {
+    let reader = test_api::spawn_owned(async move {
         let mut tx = SqlxUnitOfWork::new(reader_pool).begin().await.unwrap();
         let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(tx.connection())
@@ -811,7 +815,7 @@ async fn inspection_waiting_for_a_resolution_cannot_return_a_replaced_binding() 
     assert_eq!(current, inspect(&pool, changed).await.unwrap().work);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn independent_sessions_coalesce_identical_inputs_and_expired_leases_are_fenced() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -845,7 +849,7 @@ async fn independent_sessions_coalesce_identical_inputs_and_expired_leases_are_f
     assert!(matches!(claim(&pool, w1).await, ClaimOutcome::Complete));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn address_retirement_and_manual_corrections_cancel_stale_application() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -923,7 +927,7 @@ async fn address_retirement_and_manual_corrections_cancel_stale_application() {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_derivatives() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1070,7 +1074,7 @@ async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_der
     assert!(matches!(claim(&pool, w).await, ClaimOutcome::Complete));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1130,7 +1134,7 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
     assert_eq!("FAILED", status);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn pending_recovery_skips_exhausted_scopes_and_inactive_provider_profiles() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1208,7 +1212,7 @@ async fn pending_recovery_skips_exhausted_scopes_and_inactive_provider_profiles(
     assert_eq!(exhausted.generation + 1, current as u64);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn maintenance_recovery_preserves_paid_attempts_and_skips_live_or_locked_work() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1289,7 +1293,7 @@ async fn maintenance_recovery_preserves_paid_attempts_and_skips_live_or_locked_w
     assert_eq!(2, next_claim.attempt);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn negative_results_reuse_until_reconsideration_and_terms_revocation_fails_closed() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1354,7 +1358,7 @@ async fn negative_results_reuse_until_reconsideration_and_terms_revocation_fails
     assert_eq!(0, retained);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn force_requeue_fences_an_active_call_and_unchanged_completed_retry_costs_nothing() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1414,7 +1418,7 @@ async fn force_requeue_fences_an_active_call_and_unchanged_completed_retry_costs
     assert_eq!(current.work, inspect(&pool, b).await.unwrap().work);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn accepted_evidence_and_its_signal_roll_back_together_when_journaling_fails() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1465,7 +1469,7 @@ async fn accepted_evidence_and_its_signal_roll_back_together_when_journaling_fai
     assert_eq!(1, signals);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn corrupt_evidence_cannot_invent_an_automatically_accepted_precise_point() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1495,7 +1499,7 @@ async fn corrupt_evidence_cannot_invent_an_automatically_accepted_precise_point(
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn corrupt_persisted_input_is_rejected_through_geography_constructors() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1512,7 +1516,7 @@ async fn corrupt_persisted_input_is_rejected_through_geography_constructors() {
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_postal_assertions_survive_precise_and_administrative_acceptance() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1597,7 +1601,7 @@ async fn private_postal_assertions_survive_precise_and_administrative_acceptance
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1625,7 +1629,7 @@ async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates(
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates() {
     let pool = get_postgres_client().await;
     configure(&pool).await;

@@ -654,7 +654,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_persist_and_read_operator_provider_configuration_and_webcrawl_source() {
         let pool = get_postgres_client().await;
         let operator_party_id = PartyId::new();
@@ -827,7 +827,7 @@ mod tests {
         assert!(!web_crawl_configured);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_explicitly_remove_source_configuration_and_grants_when_deleting_unused_source()
     {
         let pool = get_postgres_client().await;
@@ -951,7 +951,7 @@ mod tests {
         assert!(preserved);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_restrict_direct_source_delete_when_raw_stream_or_product_listing_exists() {
         let pool = get_postgres_client().await;
         let (raw_source_id, _) = insert_basic_source(&pool, "Raw blocker").await;
@@ -1019,7 +1019,7 @@ mod tests {
         ));
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_return_auction_deletion_blocker_and_reject_direct_source_delete_when_auction_exists()
      {
         let pool = get_postgres_client().await;
@@ -1087,7 +1087,7 @@ mod tests {
         ));
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_reject_delayed_existing_source_proposal_after_source_delete_commits() {
         let pool = get_postgres_client().await;
         let (source_id, _) = insert_basic_source(&pool, "Delete race target").await;
@@ -1106,7 +1106,7 @@ mod tests {
         let (proposal_pid_tx, proposal_pid_rx) = tokio::sync::oneshot::channel();
         let proposal_pool = pool.clone();
         let proposal = existing_source_proposal(source_id);
-        let proposal_task = tokio::spawn(async move {
+        let proposal_task = test_api::spawn_owned(async move {
             let mut tx = proposal_pool.begin().await?;
             let backend_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
                 .fetch_one(&mut *tx)
@@ -1157,7 +1157,7 @@ mod tests {
         assert!(!application_exists);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_observe_existing_source_proposal_after_its_key_share_lock_commits() {
         let pool = get_postgres_client().await;
         let (source_id, _) = insert_basic_source(&pool, "Proposal race target").await;
@@ -1166,7 +1166,7 @@ mod tests {
         let (commit_proposal_tx, commit_proposal_rx) = tokio::sync::oneshot::channel();
         let proposal_pool = pool.clone();
         let proposal = existing_source_proposal(source_id);
-        let proposal_task = tokio::spawn(async move {
+        let proposal_task = test_api::spawn_owned(async move {
             let mut tx = proposal_pool.begin().await?;
             sqlx::query(
                 "INSERT INTO partnership_applications (partnership_application_id, applicant_user_id, business_state, proposal) VALUES ($1, $2, 'SUBMITTED', $3)",
@@ -1186,7 +1186,7 @@ mod tests {
 
         let (delete_pid_tx, delete_pid_rx) = tokio::sync::oneshot::channel();
         let delete_pool = pool.clone();
-        let delete_task = tokio::spawn(async move {
+        let delete_task = test_api::spawn_owned(async move {
             let mut tx = delete_pool.begin().await?;
             let backend_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
                 .fetch_one(&mut *tx)
@@ -1232,7 +1232,7 @@ mod tests {
         assert!(source_exists);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_fail_read_when_declared_ingestion_configuration_is_missing() {
         let pool = get_postgres_client().await;
         let unit_of_work = platform_postgres::SqlxUnitOfWork::new(pool.clone());
@@ -1259,7 +1259,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_fail_update_without_recreating_missing_declared_ingestion_configuration() {
         let pool = get_postgres_client().await;
         let unit_of_work = platform_postgres::SqlxUnitOfWork::new(pool.clone());
@@ -1316,7 +1316,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_reject_orphan_web_crawl_configuration() {
         let pool = get_postgres_client().await;
         let operator_party_id = PartyId::new();
@@ -1368,7 +1368,7 @@ mod tests {
         ));
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_reject_wrong_version_persisted_operator_party_id() {
         let pool = get_postgres_client().await;
         let operator_party_id = uuid::Uuid::new_v4();
@@ -1409,7 +1409,7 @@ mod tests {
         ));
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_reject_wrong_version_persisted_listing_source_id() {
         let pool = get_postgres_client().await;
         let operator_party_id = PartyId::new();
@@ -1484,7 +1484,7 @@ mod tests {
             referral_json(Some(&configuration))
         );
     }
-    #[aura_integration_test(services=[BUSINESS_SCHEMA])]
+    #[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
     async fn unrelated_source_edit_preserves_import_authority_and_woocommerce_configuration() {
         let pool = get_postgres_client().await;
         let (id, _) = insert_basic_source(&pool, "Shipping source").await;

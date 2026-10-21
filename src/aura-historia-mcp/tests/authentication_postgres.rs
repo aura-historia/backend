@@ -206,7 +206,7 @@ async fn verify_authoritative_changes() -> TestResult {
     Ok(())
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_database_scope_changes_expiry_suspension_deletion_and_outage_on_next_request()
 {
     let result = verify_authoritative_changes().await;

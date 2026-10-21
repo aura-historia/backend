@@ -29,7 +29,7 @@ use user_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_find_by_id_find_by_hash_and_update_access_token_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -96,7 +96,7 @@ fn assert_access_token_state(expected: &AccessToken, actual: &AccessToken) {
     assert_eq!(expected.expires(), actual.expires());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_access_token_update() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -147,7 +147,7 @@ async fn should_reject_stale_access_token_update() {
     assert!(persisted.version.into_inner() > loaded.version.into_inner());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_delete_access_token_and_report_missing_token() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -188,7 +188,7 @@ async fn should_delete_access_token_and_report_missing_token() {
     assert!(matches!(missing_delete, Ok(false)));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_delete_all_access_tokens_for_target_user_without_touching_other_users() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -268,7 +268,7 @@ async fn should_delete_all_access_tokens_for_target_user_without_touching_other_
     assert_eq!(0, retried);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_access_token_insert_when_transaction_drops() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -301,7 +301,7 @@ async fn should_rollback_access_token_insert_when_transaction_drops() {
     assert!(matches!(missing, Ok(None)));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_access_token_details_list_and_authentication_deterministically() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -384,7 +384,7 @@ async fn should_read_access_token_details_list_and_authentication_deterministica
     assert!(matches!(missing_authentication, Ok(None)));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_authenticate_access_token_for_suspended_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

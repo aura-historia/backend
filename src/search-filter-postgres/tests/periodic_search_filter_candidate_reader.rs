@@ -22,7 +22,7 @@ use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_select_only_filters_eligible_for_closed_window_and_use_creation_fallback() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -59,7 +59,7 @@ async fn should_select_only_filters_eligible_for_closed_window_and_use_creation_
     assert_eq!(eligible_created, candidates[0].matched_through);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_blank_dedicated_description_and_blank_persisted_json() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -97,7 +97,7 @@ async fn should_reject_blank_dedicated_description_and_blank_persisted_json() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_exclude_filter_whose_checkpoint_already_covers_window() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -178,7 +178,7 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
     id
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn ordinary_and_deterministic_active_filters_are_candidates_without_enhanced_intent() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -230,7 +230,7 @@ async fn ordinary_and_deterministic_active_filters_are_candidates_without_enhanc
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn incompatible_persisted_enhanced_intent_fails_closed_instead_of_being_omitted() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "incompatible-intent@example.test").await;

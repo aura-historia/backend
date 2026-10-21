@@ -1,4 +1,4 @@
-use super::{DEFAULT_INDEX, OpenSearchProductListingSearchProjection, paused_write::PausedWrite};
+use super::{OpenSearchProductListingSearchProjection, paused_write::PausedWrite};
 use crate::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
     product_listing_projection_document::product_listing_document,
@@ -33,9 +33,16 @@ use test_api::{
 };
 use time::OffsetDateTime;
 
+fn products_index() -> String {
+    test_api::TestContext::current()
+        .expect("active projection test")
+        .product_listings_index()
+        .expect("scoped product listings index")
+}
+
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [TestOpenSearch()])]
+#[aura_integration_test(services = [TestOpenSearch()], isolated = true)]
 async fn should_fence_in_flight_writes_after_withdrawal_gc_and_restore() {
     let result = withdrawal_race().await;
     assert!(
@@ -45,15 +52,17 @@ async fn should_fence_in_flight_writes_after_withdrawal_gc_and_restore() {
 }
 
 async fn withdrawal_race() -> TestResult {
+    let index = products_index();
     let client = get_opensearch_client().await.clone();
     client
         .indices()
-        .put_settings(IndicesPutSettingsParts::Index(&[DEFAULT_INDEX]))
+        .put_settings(IndicesPutSettingsParts::Index(&[&index]))
         .body(json!({"index.gc_deletes": "60s"}))
         .send()
         .await?
         .error_for_status_code()?;
-    let writer = OpenSearchProductListingSearchProjection::new(client.clone());
+    let writer =
+        OpenSearchProductListingSearchProjection::with_index(client.clone(), products_index());
     let mut source = source()?;
     assert_eq!(
         ProductListingSearchProjectionWriteOutcome::Applied,
@@ -65,9 +74,13 @@ async fn withdrawal_race() -> TestResult {
     source.event_id = EventId::new();
     source.current_event_id = source.event_id;
     let mut paused = PausedWrite::new(client.clone()).await?;
-    let delayed_writer = OpenSearchProductListingSearchProjection::new(paused.client.clone());
+    let delayed_writer = OpenSearchProductListingSearchProjection::with_index(
+        paused.client.clone(),
+        products_index(),
+    );
     let stale_source = source.clone();
-    let delayed = tokio::spawn(async move { delayed_writer.upsert(&stale_source, None).await });
+    let delayed =
+        test_api::spawn_owned(async move { delayed_writer.upsert(&stale_source, None).await });
     paused.wait_until_received().await?;
 
     // Deletion must also fence a write when no prior projection exists.
@@ -75,8 +88,12 @@ async fn withdrawal_race() -> TestResult {
     unseen.product_listing_id = ProductListingId::new();
     let unseen_id = unseen.product_listing_id;
     let mut paused_unseen = PausedWrite::new(client.clone()).await?;
-    let unseen_writer = OpenSearchProductListingSearchProjection::new(paused_unseen.client.clone());
-    let delayed_unseen = tokio::spawn(async move { unseen_writer.upsert(&unseen, None).await });
+    let unseen_writer = OpenSearchProductListingSearchProjection::with_index(
+        paused_unseen.client.clone(),
+        products_index(),
+    );
+    let delayed_unseen =
+        test_api::spawn_owned(async move { unseen_writer.upsert(&unseen, None).await });
     paused_unseen.wait_until_received().await?;
     let (first, duplicate) = tokio::join!(
         writer.delete(source.product_listing_id, 3),
@@ -94,7 +111,7 @@ async fn withdrawal_race() -> TestResult {
     // It carries the marker so the protocol probe cannot pollute supported searches.
     let control_id = ProductListingId::new().to_string();
     client
-        .index(IndexParts::IndexId(DEFAULT_INDEX, &control_id))
+        .index(IndexParts::IndexId(&index, &control_id))
         .version(1)
         .version_type(VersionType::External)
         .body(json!({"projectionDeleted": true}))
@@ -102,14 +119,14 @@ async fn withdrawal_race() -> TestResult {
         .await?
         .error_for_status_code()?;
     client
-        .delete(DeleteParts::IndexId(DEFAULT_INDEX, &control_id))
+        .delete(DeleteParts::IndexId(&index, &control_id))
         .version(3)
         .version_type(VersionType::External)
         .send()
         .await?
         .error_for_status_code()?;
     let control_write = client
-        .index(IndexParts::IndexId(DEFAULT_INDEX, &control_id))
+        .index(IndexParts::IndexId(&index, &control_id))
         .version(2)
         .version_type(VersionType::External)
         .body(json!({"projectionDeleted": true}));
@@ -146,9 +163,12 @@ async fn withdrawal_race() -> TestResult {
 
     // A delayed withdrawal cannot remove a subsequent legitimate restoration.
     let mut paused_delete = PausedWrite::new(client.clone()).await?;
-    let stale_deleter = OpenSearchProductListingSearchProjection::new(paused_delete.client.clone());
+    let stale_deleter = OpenSearchProductListingSearchProjection::with_index(
+        paused_delete.client.clone(),
+        products_index(),
+    );
     let id = source.product_listing_id;
-    let delayed_delete = tokio::spawn(async move { stale_deleter.delete(id, 4).await });
+    let delayed_delete = test_api::spawn_owned(async move { stale_deleter.delete(id, 4).await });
     paused_delete.wait_until_received().await?;
     source.projection_version = 5;
     source.event_id = EventId::new();
@@ -183,7 +203,7 @@ async fn withdrawal_race() -> TestResult {
 async fn stored(id: ProductListingId) -> TestResult<Value> {
     Ok(get_opensearch_client()
         .await
-        .get(GetParts::IndexId(DEFAULT_INDEX, &id.to_string()))
+        .get(GetParts::IndexId(&products_index(), &id.to_string()))
         .send()
         .await?
         .error_for_status_code()?
@@ -195,7 +215,7 @@ async fn assert_visible(
     source: &ProductListingSearchFilterMatchSource,
     expected: usize,
 ) -> TestResult {
-    refresh_index(DEFAULT_INDEX).await;
+    refresh_index(&products_index()).await;
     let client = get_opensearch_client().await.clone();
     let snapshot = NewFxRateSnapshot::capture_eur(
         FxRateId::new(),
@@ -214,21 +234,22 @@ async fn assert_visible(
         sort: None,
         cursor: None,
     };
-    let reader = OpenSearchProductListingSearchReader::new(client.clone());
+    let reader = OpenSearchProductListingSearchReader::with_index(client.clone(), products_index());
     let ordinary = reader.search(&request).await?;
     assert_eq!(expected, ordinary.items.len());
     assert_eq!(Some(expected as u64), ordinary.total);
     let embedding = vec![0.1; 768];
     let hybrid = reader.search_hybrid(&request, &embedding).await?;
     assert_eq!(expected, hybrid.items.len());
-    let similar = OpenSearchProductListingSimilarProductListingsReader::new(client)
-        .find_similar_product_listings(&ProductListingSimilarProductListingsRequest {
-            product_listing_id: ProductListingId::new(),
-            embedding,
-            language: Language::En,
-            price_filter_plan: plan,
-        })
-        .await?;
+    let similar =
+        OpenSearchProductListingSimilarProductListingsReader::with_index(client, products_index())
+            .find_similar_product_listings(&ProductListingSimilarProductListingsRequest {
+                product_listing_id: ProductListingId::new(),
+                embedding,
+                language: Language::En,
+                price_filter_plan: plan,
+            })
+            .await?;
     assert_eq!(expected, similar.len());
     for item in ordinary.items.iter().chain(&hybrid.items).chain(&similar) {
         assert_eq!(source.product_listing_id, item.product_listing_id);
@@ -278,11 +299,11 @@ pub(super) fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
     })
 }
 
-#[aura_integration_test(services=[TestOpenSearch()])]
+#[aura_integration_test(services=[TestOpenSearch()], isolated = true)]
 async fn geography_replacement_fences_old_points_and_preserves_country_only_queries() {
     let result:TestResult=async {
         let client=get_opensearch_client().await.clone();
-        let writer=OpenSearchProductListingSearchProjection::new(client.clone());
+        let writer=OpenSearchProductListingSearchProjection::with_index(client.clone(), products_index());
         let mut source=source()?;
         let dimension=product_listing_service::geography::GeographicDimension {
             location_id:party_core::party_location_id::PartyLocationId::new(),reference_release:geo::reference::ReferenceRelease::CURRENT,
@@ -291,23 +312,23 @@ async fn geography_replacement_fences_old_points_and_preserves_country_only_quer
         };
         source.geography.business=Some(dimension.clone());
         let mut paused=PausedWrite::new(client.clone()).await?;
-        let old_writer=OpenSearchProductListingSearchProjection::new(paused.client.clone());
+        let old_writer=OpenSearchProductListingSearchProjection::with_index(paused.client.clone(), products_index());
         let old=source.clone();
-        let stale=tokio::spawn(async move {old_writer.upsert(&old,None).await});
+        let stale=test_api::spawn_owned(async move {old_writer.upsert(&old,None).await});
         paused.wait_until_received().await?;
         source.projection_version+=1;
         source.geography.business.as_mut().ok_or("missing business")?.position=None;
         assert_eq!(ProductListingSearchProjectionWriteOutcome::Applied,writer.upsert(&source,None).await?);
         assert_eq!(StatusCode::CONFLICT,paused.resume().await?);
         assert_eq!(ProductListingSearchProjectionWriteOutcome::Stale,stale.await??);
-        let document:Value=client.get(GetParts::IndexId(DEFAULT_INDEX,&source.product_listing_id.to_string())).send().await?.json().await?;
+        let document:Value=client.get(GetParts::IndexId(&products_index(),&source.product_listing_id.to_string())).send().await?.json().await?;
         assert_eq!("DE",document["_source"]["businessGeography"]["country"]);
         assert_eq!("DE-BY",document["_source"]["businessGeography"]["subdivision"]);
         assert!(document["_source"]["businessGeography"]["point"].is_null());
         assert!(document["_source"]["inventoryGeography"].is_null());
         // Search assertions synchronize visibility in the test, independently of writer completion.
-        refresh_index(DEFAULT_INDEX).await;
-        let result:Value=client.search(opensearch::SearchParts::Index(&[DEFAULT_INDEX])).body(json!({"query":{"term":{"businessGeography.country":"DE"}},"aggs":{"countries":{"terms":{"field":"businessGeography.country"}}}})).send().await?.json().await?;
+        refresh_index(&products_index()).await;
+        let result:Value=client.search(opensearch::SearchParts::Index(&[&products_index()])).body(json!({"query":{"term":{"businessGeography.country":"DE"}},"aggs":{"countries":{"terms":{"field":"businessGeography.country"}}}})).send().await?.json().await?;
         assert_eq!(1,result["hits"]["total"]["value"]);assert_eq!("DE",result["aggregations"]["countries"]["buckets"][0]["key"]);
         let document=product_listing_document(&product_listing_service::ports::ProductListingSearchFilterMatchSource {geography:product_listing_service::geography::EffectiveListingGeography{business:Some(dimension),inventory:None},..source.clone()},None)?;
         let value=serde_json::to_value(document)?;assert_eq!(48.1,value["businessGeography"]["point"]["lat"]);assert_eq!(11.5,value["businessGeography"]["point"]["lon"]);
@@ -319,7 +340,7 @@ async fn geography_replacement_fences_old_points_and_preserves_country_only_quer
     );
 }
 
-#[aura_integration_test(services=[TestOpenSearch()])]
+#[aura_integration_test(services=[TestOpenSearch()], isolated = true)]
 async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_writes_are_fenced() {
     let result: TestResult = async {
         use product_listing_service::shipping_projection::{
@@ -328,7 +349,8 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
         use shipping_core::terms::{ShippingEligibility, ShippingServiceCode};
 
         let client = get_opensearch_client().await.clone();
-        let writer = OpenSearchProductListingSearchProjection::new(client.clone());
+        let writer =
+            OpenSearchProductListingSearchProjection::with_index(client.clone(), products_index());
         let mut listing = source()?;
         listing.shipping = EffectiveListingShipping {
             collection: Some(ShippingEligibility::Offered),
@@ -348,7 +370,7 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
             ],
         };
         writer.upsert(&listing, None).await?;
-        refresh_index(DEFAULT_INDEX).await;
+        refresh_index(&products_index()).await;
         for (country, amount, count) in [
             (geo::CountryCode::DEU, 6000_u64, 0),
             (geo::CountryCode::FRA, 6000, 1),
@@ -360,7 +382,7 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
                 Some(money::Price::new(amount.into(), Currency::Eur)),
             );
             let response: Value = client
-                .search(opensearch::SearchParts::Index(&[DEFAULT_INDEX]))
+                .search(opensearch::SearchParts::Index(&[&products_index()]))
                 .body(json!({"query":{"bool":{
                     "filter":[predicate],
                     "must_not":[{"term":{"projectionDeleted":true}}]
@@ -377,7 +399,7 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
         poison["shipping"]["countryOffers"][0]["address"] = json!("forbidden");
         let rejected = client
             .index(IndexParts::IndexId(
-                DEFAULT_INDEX,
+                &products_index(),
                 &ProductListingId::new().to_string(),
             ))
             .body(poison)
@@ -386,9 +408,12 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
         assert_eq!(StatusCode::BAD_REQUEST, rejected.status_code());
 
         let mut paused = PausedWrite::new(client.clone()).await?;
-        let old_writer = OpenSearchProductListingSearchProjection::new(paused.client.clone());
+        let old_writer = OpenSearchProductListingSearchProjection::with_index(
+            paused.client.clone(),
+            products_index(),
+        );
         let old = listing.clone();
-        let stale = tokio::spawn(async move { old_writer.upsert(&old, None).await });
+        let stale = test_api::spawn_owned(async move { old_writer.upsert(&old, None).await });
         paused.wait_until_received().await?;
         listing.projection_version = 2;
         listing.shipping = EffectiveListingShipping {
@@ -415,7 +440,7 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
         );
         let current: Value = client
             .get(GetParts::IndexId(
-                DEFAULT_INDEX,
+                &products_index(),
                 &listing.product_listing_id.to_string(),
             ))
             .send()
@@ -434,7 +459,7 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
         );
         let deleted: Value = client
             .get(GetParts::IndexId(
-                DEFAULT_INDEX,
+                &products_index(),
                 &listing.product_listing_id.to_string(),
             ))
             .send()
@@ -445,9 +470,9 @@ async fn shipping_nested_country_price_cannot_cross_match_and_stale_complete_wri
             json!({"productListingId":listing.product_listing_id,"projectionDeleted":true}),
             deleted["_source"]
         );
-        refresh_index(DEFAULT_INDEX).await;
+        refresh_index(&products_index()).await;
         let visible: Value = client
-            .search(opensearch::SearchParts::Index(&[DEFAULT_INDEX]))
+            .search(opensearch::SearchParts::Index(&[&products_index()]))
             .body(json!({"query":{"bool":{"must_not":[{"term":{"projectionDeleted":true}}]}}}))
             .send()
             .await?

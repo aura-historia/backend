@@ -48,7 +48,7 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
 async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_duplicate_is_noop() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -93,7 +93,7 @@ async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_dupli
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
 async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -125,7 +125,7 @@ async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
 async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -258,10 +258,12 @@ async fn provider(
 ) -> Result<(S3Client, SesClient, EmailDeliveryConfig), Box<dyn std::error::Error + Send + Sync>> {
     let aws = test_api::aws::get_aws_config().await;
     let s3 = S3Client::from_conf(S3ConfigBuilder::from(aws).force_path_style(true).build());
-    let bucket = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    let context = test_api::TestContext::current().expect("delivery test context");
+    let bucket = context.bucket_name("delivery").await?;
     let ses = SesClient::new(aws);
-    test_api::verify_sender_identity("no-reply@notify.aura-historia.test").await;
-    let configuration_set = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    let sender = context.sender_email()?;
+    test_api::verify_sender_identity(&sender).await;
+    let configuration_set = context.configuration_set_name("delivery").await?;
     ses.create_configuration_set()
         .configuration_set_name(&configuration_set)
         .send()
@@ -295,7 +297,7 @@ async fn provider(
         ses,
         EmailDeliveryConfig::new(
             bucket,
-            "no-reply@notify.aura-historia.test",
+            sender,
             "contact@aura-historia.test",
             configuration_set,
             stage.to_owned(),

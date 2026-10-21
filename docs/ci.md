@@ -63,6 +63,21 @@ identity is `package::cargo-kind::target-name`; Cargo's canonical names and feat
 identifiers are retained. `API`, `CRAWLER`, `INFRASTRUCTURE` and `REMAINING` describe
 runner/fixture review ownership. All current runner assignments are Ubuntu.
 
+## Managed fixture execution
+
+The [fixture README](../src/test-api/README.md#isolated-test-contexts) owns context,
+resource and shutdown requirements. Each ordinary selected suite runs under one job
+supervisor with Nextest concurrency bounded by its slots. Compile mixed lanes with
+the fixture recovery feature union; keep all targets discoverable and doctests in
+their separate Cargo invocation.
+
+The [exceptional phase contract](../src/test-api/README.md#exceptional-execution-phases)
+owns exact pristine-bootstrap and unmanaged lifecycle selections. Exclude those cases
+from ordinary managed commands, then execute their owning phases. Job-wide exclusive
+leases coordinate global mutation across every group and invocation; a one-thread
+group alone cannot provide that guarantee. Preserve ignored child probes and their
+parent-driven executions in case accounting.
+
 ## Repeatable measurements
 
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.

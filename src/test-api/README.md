@@ -160,6 +160,12 @@ and message-ID filtering on DELETE; an email parameter on DELETE is not scoped
 cleanup. Unfiltered managed deletion is permitted only inside the legacy exclusive
 scope. Test-owned SES configuration sets/identities are removed with the context.
 
+The OpenSearch, SQS and SES client getters return owned clients. Create them on the
+runtime that uses them, including API server and cleanup runtimes; clones may share a
+pool within that runtime. The cached AWS configuration retains fixed fake credentials
+and endpoint settings without an HTTP connector. S3 clients follow the same ownership
+rule when built from that configuration.
+
 Contexts do not propagate automatically through `tokio::spawn` or OS threads.
 Capture resolved resources/pools, explicitly scope a context clone, or use
 `context.spawn()` for abort-and-join ownership. Register external worker/server
@@ -187,6 +193,14 @@ context.spawn(async move {
 // An external JoinHandle/server instead registers stop-and-join with on_shutdown().
 ```
 
+For a result-bearing task, `spawn_owned(future)` returns `OwnedTask<T>`. Awaiting it
+returns the worker's original `Result<T, tokio::task::JoinError>`; `abort()`,
+`is_finished()` and polling through `&mut` remain available. It explicitly scopes the
+worker and registers shutdown before spawning. The context retains the actual worker
+join even if the caller runtime cancels the result waiter or the body drops its handle.
+Use this helper for delayed writes and race-test relays that must retain cancellation
+and panic assertions; see [`owned_task.rs`](src/owned_task.rs).
+
 Normal teardown stops/joins owned tasks and servers, closes pools, removes only
 registered resources, then releases the reservation. Dropping a session transfers its
 reservation and cleanup to a separate runtime thread. A cleanup deadline reports
@@ -197,6 +211,64 @@ run Drop: its persistent slot manifest is recovered before the next holder proce
 Cleanup failure remains visible and retains recovery metadata. Corrupt/foreign
 ownership fails closed. New generation names protect a reused slot from a late old
 request; supervisor GC owns final job cleanup after interruption.
+
+### Exceptional execution phases
+
+Ordinary managed tests use isolated contexts. Role rotation, migration reconstruction
+and concurrent cleanup cases that need exclusion use `exclusive = true`, sharing the
+same gate as ordinary and legacy callers. Two fixture contracts retain the legacy
+exclusive macro path: the SQS purge case checks invisible source/DLQ messages disappear
+while another queue stays intact; the PostgreSQL teardown case checks business rows
+disappear from the same pool. Scoped teardown removes owned resource incarnations at
+session finish. The cancelled long-poll case finishes one context before acquiring the
+next, exercising actual slot reuse with a new queue.
+
+Two kinds of cases require separate invocations:
+
+| Phase | Exact selection | Required environment |
+| --- | --- | --- |
+| Pristine PostgreSQL bootstrap | `database-migration-lambda`, bin `database-migration-lambda`, `tests::should_bootstrap_roles_and_apply_root_schema_as_migrator` | Fresh `postgres` supervisor; no prior business baseline request |
+| Unmanaged lifecycle controls | `test-api`, test targets `aws` and `managed_environment`; target `isolated_context`, exact case `should_verify_managed_context_isolation_and_recovery` | Clear managed and Nextest variables; these cases own/control their own supervisors or fixtures |
+
+Exclude those selections from ordinary managed invocations. The pristine bootstrap
+reserves the exclusive gate but deliberately uses the untouched `postgres` database:
+cloning a migrated database or merely serializing it would invalidate its absent-role,
+ownership and grant assertions. Run it with the supervisor binary built above:
+
+```sh
+./target/debug/aura-test-env run --profile postgres --slots 1 -- \
+  cargo nextest run --locked -p database-migration-lambda --all-features \
+  --test-threads 1 -E 'test(=tests::should_bootstrap_roles_and_apply_root_schema_as_migrator)'
+```
+
+For the lifecycle controls, clear the complete fixture/runner identity before Cargo
+starts. Their subprocesses also clear inherited identities, retain fixed fake credentials
+and coverage output, and test actual unmanaged resource cleanup:
+
+```sh
+env -u AURA_TEST_ENV_MANAGED -u AURA_TEST_ENV_CONFIG \
+  -u NEXTEST -u NEXTEST_RUN_ID -u NEXTEST_TEST_GLOBAL_SLOT -u NEXTEST_EXECUTION_MODE \
+  cargo test --locked -p test-api --all-features \
+  --test aws --test managed_environment -- --test-threads=1
+env -u AURA_TEST_ENV_MANAGED -u AURA_TEST_ENV_CONFIG \
+  -u NEXTEST -u NEXTEST_RUN_ID -u NEXTEST_TEST_GLOBAL_SLOT -u NEXTEST_EXECUTION_MODE \
+  cargo test --locked -p test-api --all-features --test isolated_context \
+  should_verify_managed_context_isolation_and_recovery -- --exact --test-threads=1
+```
+
+Doctests remain a separate `cargo test --locked --workspace --all-features --doc`
+invocation; Nextest does not execute them. Keep ignored child probes discoverable,
+with their existing parent-driven execution, rather than globally enabling ignored
+provider benchmarks. Unmanaged local `cargo test --locked --workspace --all-features`
+continues to work with its process-owned fixtures.
+
+When adding a consumer, declare its actual migration/setup fixture, opt into isolation,
+pass the scoped index/name into adapters, register manual resources before creation,
+and register every delayed worker's real stop/join. Compile each mixed managed lane
+with all fixture features needed to recover any preceding holder's manifest; workspace
+`--all-features` provides that union. A package-only build may need additional
+`test-api` features or a separate supervisor phase. Preserve the existing inventory's
+case identities and add deliberate target changes through its reviewed manifest flow.
 
 ### Smoke verification
 
@@ -225,8 +297,8 @@ python3 ci/test-context-smoke.py --binary ./target/debug/aura-test-env \
 
 Ordinary all-feature `cargo test` runs the same driver with two slots through
 `isolated_context::should_verify_managed_context_isolation_and_recovery`, including
-cleanup-failure recovery. This case owns its supervisor and must run in the unmanaged
-control phase, separately from managed fixture lanes. It reuses Cargo's compiled
+cleanup-failure recovery. Run it in the [unmanaged control phase](#exceptional-execution-phases).
+It reuses Cargo's compiled
 executables and preserves the inherited coverage profile destination for all children.
 The driver's optional `--slots 1|2|4` selects one round; its default remains all three.
 

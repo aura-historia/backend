@@ -15,7 +15,7 @@ use watchlist_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_another_transaction_lock_while_tier_entitlements_are_locked() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -37,7 +37,7 @@ async fn should_reject_another_transaction_lock_while_tier_entitlements_are_lock
     assert!(concurrent_lock.is_err());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reconcile_legacy_newest_first_quotas() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -145,7 +145,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -196,7 +196,7 @@ async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward()
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_user_update_after_tier_reconciliation_wins() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -252,7 +252,7 @@ async fn should_reject_stale_user_update_after_tier_reconciliation_wins() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_active() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -289,7 +289,7 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
     assert_eq!("ACTIVE", state_for_search_filter(&pool, filter_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reconcile_free_auction_id_filter_and_reactivate_for_pro() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -357,7 +357,7 @@ async fn should_reconcile_free_auction_id_filter_and_reactivate_for_pro() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reconcile_geography_and_shipping_across_free_and_paid_tiers() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -455,7 +455,7 @@ async fn should_reconcile_geography_and_shipping_across_free_and_paid_tiers() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn geography_shipping_migration_reconciles_existing_free_filters_and_fences_only_changes() {
     const MIGRATION: &str = include_str!(
         "../../../migrations/20261019130000_restrict_free_search_filter_geography_shipping.sql"
@@ -567,7 +567,7 @@ async fn geography_shipping_migration_reconciles_existing_free_filters_and_fence
     tx.rollback().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

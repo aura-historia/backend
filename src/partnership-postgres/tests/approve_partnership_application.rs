@@ -274,7 +274,7 @@ fn proposed_source() -> serde_json::Value {
     })
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_commit_proposed_source_approval_and_replay_without_duplicate_members_or_grants() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
@@ -408,7 +408,7 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_block_locked_application_lookup_until_lock_released() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
@@ -459,7 +459,7 @@ async fn should_block_locked_application_lookup_until_lock_released() {
     assert!(blocked_lookup.await.is_some());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_replay_concurrent_approval_with_stable_result_ids() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
@@ -486,7 +486,7 @@ async fn should_replay_concurrent_approval_with_stable_result_ids() {
     assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_approve_concurrent_existing_source_applications_with_one_partnership() {
     let pool = get_postgres_client().await;
     let first_user_id = seed_user(&pool).await;
@@ -578,7 +578,7 @@ async fn should_approve_concurrent_existing_source_applications_with_one_partner
     assert_eq!(1, second_notifications.created_count());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_approve_existing_source_and_expose_granted_source_authorization() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
@@ -644,7 +644,7 @@ async fn should_approve_existing_source_and_expose_granted_source_authorization(
     assert_eq!(1, count(&pool, "listing_sources").await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_approve_proposed_source_when_another_party_has_the_same_name() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
@@ -673,7 +673,7 @@ async fn should_approve_proposed_source_when_another_party_has_the_same_name() {
     assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_leave_submitted_application_unchanged_when_approval_is_invalid() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;

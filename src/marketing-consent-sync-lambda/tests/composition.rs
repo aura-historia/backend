@@ -23,7 +23,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const CONTACT_ID: &str = "contact-1939";
 const LIST_ID: &str = "newsletter-test-list";
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn real_postgres_and_fake_loops_finalize_once_and_ignore_late_replay() {
     let pool = get_postgres_client().await;
     let loops = MockServer::start().await;
@@ -130,7 +130,7 @@ async fn real_postgres_and_fake_loops_finalize_once_and_ignore_late_replay() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn definite_loops_rejection_releases_the_same_intent_for_retry() {
     let pool = get_postgres_client().await;
     let loops = MockServer::start().await;

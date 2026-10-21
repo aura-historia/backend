@@ -13,7 +13,7 @@ use time::{OffsetDateTime, macros::datetime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_filter_and_page_directory_by_schedule_role_with_half_open_bounds() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "directory-schedule-source").await;
@@ -91,7 +91,7 @@ async fn should_filter_and_page_directory_by_schedule_role_with_half_open_bounds
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_page_scheduled_directory_in_both_orders_with_nulls_last_and_id_ties() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "directory-scheduled-page-source").await;
@@ -132,7 +132,7 @@ async fn should_page_scheduled_directory_in_both_orders_with_nulls_last_and_id_t
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_page_created_directory_in_both_orders_with_timestamp_ties() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "directory-created-page-source").await;
@@ -177,7 +177,7 @@ async fn should_page_created_directory_in_both_orders_with_timestamp_ties() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_reported_lot_count_separately_from_visible_active_assigned_listing_count() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "details-count-source").await;
@@ -206,7 +206,7 @@ async fn should_return_reported_lot_count_separately_from_visible_active_assigne
     assert_eq!(auction_id, details.auction_id);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_for_missing_public_auction_details() {
     let pool = get_postgres_client().await;
 

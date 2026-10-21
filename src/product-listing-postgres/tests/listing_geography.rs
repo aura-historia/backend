@@ -49,7 +49,7 @@ async fn fixture(
         .await?;
     Ok((id, source, location))
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn geographic_projection_reads_continue_during_unrelated_work_and_expiry_catch_up() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -88,7 +88,7 @@ async fn geographic_projection_reads_continue_during_unrelated_work_and_expiry_c
         "available geographic projection reads: {result:?}"
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn malformed_applicability_and_geography_fail_closed_without_committing_projection() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -120,7 +120,7 @@ async fn malformed_applicability_and_geography_fail_closed_without_committing_pr
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_facts() {
     let result:TestResult=async{
         let pool=get_postgres_client().await;
@@ -155,7 +155,7 @@ async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_fac
     }.await;
     assert!(result.is_ok(), "shared projection: {result:?}");
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn ordinary_ingestion_and_withdrawal_keep_durable_projection_work() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -212,7 +212,7 @@ async fn ordinary_ingestion_and_withdrawal_keep_durable_projection_work() {
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn crashed_leases_and_superseded_claims_recover_without_stale_writes() {
     let result:TestResult=async{
         let pool=get_postgres_client().await;let (id,source,_)=fixture(&pool).await?;
@@ -233,7 +233,7 @@ async fn crashed_leases_and_superseded_claims_recover_without_stale_writes() {
     assert!(result.is_ok(), "claim recovery: {result:?}");
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn assignment_replacement_waits_for_projection_and_old_wakeups_read_current_authority() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -283,7 +283,7 @@ async fn assignment_replacement_waits_for_projection_and_old_wakeups_read_curren
     }.await;
     assert!(result.is_ok(), "assignment replacement fencing: {result:?}");
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn pagination_covers_shared_sources_and_new_listings_and_rebuild_is_equivalent() {
     let result:TestResult=async{
         let pool=get_postgres_client().await;let delayed_id=ProductListingId::try_from(Uuid::parse_str("01900000-0000-7000-8000-000000000001")?)?;let (first,source,_)=fixture(&pool).await?;
@@ -365,7 +365,7 @@ async fn insert_product_with_id(
     Ok((product_listing_id, event_id))
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
     use geo_service::resolution::*;
     let result:TestResult=async{

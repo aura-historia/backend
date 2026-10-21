@@ -32,7 +32,7 @@ struct ProviderSourceOrderStateRow {
     latest_provider_source_observation_sha256: Option<Vec<u8>>,
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_append_only_material_raw_input_changes() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-source").await;
@@ -135,7 +135,7 @@ async fn should_append_only_material_raw_input_changes() {
     assert_eq!(0, event_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_concurrent_equal_captures_into_one_revision() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-concurrent-source").await;
@@ -196,7 +196,7 @@ async fn should_serialize_concurrent_equal_captures_into_one_revision() {
     assert_eq!(1, revision_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_concurrent_different_captures_into_ordered_revisions() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -250,7 +250,7 @@ async fn should_serialize_concurrent_different_captures_into_ordered_revisions()
     assert_eq!(vec![1, 2], stored_revisions);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_detect_source_record_key_hash_collision() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-collision-source").await;
@@ -289,7 +289,7 @@ async fn should_detect_source_record_key_hash_collision() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_a_b_a_for_new_provider_delivery_ids() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-provider-a-b-a-source").await;
@@ -352,7 +352,7 @@ async fn should_preserve_a_b_a_for_new_provider_delivery_ids() {
     assert_eq!(3, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_duplicate_for_provider_receipt_after_later_change() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -403,7 +403,7 @@ async fn should_return_duplicate_for_provider_receipt_after_later_change() {
     assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reuse_expired_provider_receipt_identity() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -478,7 +478,7 @@ async fn should_reuse_expired_provider_receipt_identity() {
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_remove_expired_provider_receipt_without_deleting_raw_provenance() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-physical-cleanup-source").await;
@@ -532,7 +532,7 @@ async fn should_remove_expired_provider_receipt_without_deleting_raw_provenance(
     assert_eq!(0, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reuse_expired_provider_receipt_identity_when_capture_waits_on_stream_lock() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -596,7 +596,7 @@ async fn should_reuse_expired_provider_receipt_identity_when_capture_waits_on_st
     let (start_capture_sender, start_capture_receiver) = tokio::sync::oneshot::channel();
     let capture_unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let capture_factory = SqlxProductListingRawCaptureWriterFactory::new();
-    let capture_task = tokio::spawn(async move {
+    let capture_task = test_api::spawn_owned(async move {
         let mut capture_transaction = capture_unit_of_work
             .begin()
             .await
@@ -709,7 +709,7 @@ async fn should_reuse_expired_provider_receipt_identity_when_capture_waits_on_st
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_duplicate_for_unchanged_provider_receipt_after_later_change() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -789,7 +789,7 @@ async fn should_return_duplicate_for_unchanged_provider_receipt_after_later_chan
     assert_eq!(3, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_provider_receipt_digest_mismatch_before_duplicate_check() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -833,7 +833,7 @@ async fn should_reject_provider_receipt_digest_mismatch_before_duplicate_check()
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_conflicting_provider_delivery_id_with_canonical_evidence() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -880,7 +880,7 @@ async fn should_reject_conflicting_provider_delivery_id_with_canonical_evidence(
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_conflicting_provider_source_order_evidence() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -927,7 +927,7 @@ async fn should_reject_conflicting_provider_source_order_evidence() {
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_collapse_equal_source_payload_with_different_operation() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -965,7 +965,7 @@ async fn should_not_collapse_equal_source_payload_with_different_operation() {
     assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_recording_receipt() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -1069,7 +1069,7 @@ async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_rec
     assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_nanosecond_order_after_postgres_round_trip() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-nanosecond-order-source").await;
@@ -1121,7 +1121,7 @@ async fn should_keep_nanosecond_order_after_postgres_round_trip() {
     assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_unchanged_after_recording_receipt_when_equal_provider_observation_changes_config()
  {
     let pool = get_postgres_client().await;
@@ -1176,7 +1176,7 @@ async fn should_return_unchanged_after_recording_receipt_when_equal_provider_obs
     assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_order_shopify_and_woocommerce_source_timestamps_without_provider_receipts() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -1242,7 +1242,7 @@ async fn should_order_shopify_and_woocommerce_source_timestamps_without_provider
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_stale_provider_receipt_and_return_duplicate_on_retry() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-capture-provider-stale-source").await;
@@ -1299,7 +1299,7 @@ async fn should_persist_stale_provider_receipt_and_return_duplicate_on_retry() {
     assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_concurrent_provider_receipt_retries() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -1345,7 +1345,7 @@ async fn should_serialize_concurrent_provider_receipt_retries() {
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_provider_receipt_with_capture() {
     let pool = get_postgres_client().await;
     let listing_source_id =
@@ -1388,7 +1388,7 @@ async fn should_rollback_provider_receipt_with_capture() {
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_null_required_provider_source_ordering_fields() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -1447,7 +1447,7 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
     assert_provider_source_ordering_check_violation(unknown_delete_with_null_digest);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_accept_valid_provider_source_ordering_shapes() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -1499,7 +1499,7 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_persist_provider_receipt_for_web_crawl() {
     let pool = get_postgres_client().await;
     let listing_source_id =

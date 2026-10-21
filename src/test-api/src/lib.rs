@@ -8,6 +8,8 @@ pub use context::{Isolation, TestContext, TestSession, reserve_exclusive};
 #[doc(hidden)]
 pub mod benchmark;
 pub mod environment;
+mod owned_task;
+pub use owned_task::{OwnedTask, spawn_owned};
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
 #[cfg(feature = "opensearch")]

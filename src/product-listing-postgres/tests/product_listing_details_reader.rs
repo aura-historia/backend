@@ -38,7 +38,7 @@ use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_select_requested_translations_independently_and_preserve_original_text_for_id_lookup()
  {
     let pool = get_postgres_client().await;
@@ -88,7 +88,7 @@ async fn should_select_requested_translations_independently_and_preserve_origina
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-referral", None, None).await;
@@ -121,7 +121,7 @@ async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slug_lookup() {
     let pool = get_postgres_client().await;
     let listing_source_slug = "details-fallback-source";
@@ -167,7 +167,7 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_original_english_text_when_no_translation_has_selected_text() {
     let pool = get_postgres_client().await;
     let product = persist_product(
@@ -201,7 +201,7 @@ async fn should_return_original_english_text_when_no_translation_has_selected_te
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_no_selected_text_when_product_has_no_stored_or_translated_text() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-no-text", None, None).await;
@@ -222,7 +222,7 @@ async fn should_return_no_selected_text_when_product_has_no_stored_or_translated
     assert!(view.description.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_when_product_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -245,7 +245,7 @@ async fn should_return_none_when_product_is_missing() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-user-state", None, None).await;
@@ -316,7 +316,7 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     assert_eq!(Some(true), user_state.search_filter.match_feedback);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_default_postgres_user_state_when_no_watchlist_or_match_exists() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-user-state-default", None, None).await;
@@ -339,7 +339,7 @@ async fn should_return_default_postgres_user_state_when_no_watchlist_or_match_ex
     assert_eq!(None, user_state.search_filter.match_feedback);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_product_personalization_when_authenticated_user_is_missing() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-missing-user", None, None).await;
@@ -355,7 +355,7 @@ async fn should_reject_product_personalization_when_authenticated_user_is_missin
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_hide_the_eleventh_free_tier_match_in_its_month() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
@@ -399,7 +399,7 @@ async fn should_hide_the_eleventh_free_tier_match_in_its_month() {
     assert!(user_state.search_filter.hidden);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_first_tied_free_tier_match_visible() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
@@ -445,7 +445,7 @@ async fn should_keep_first_tied_free_tier_match_visible() {
     assert_eq!(Some(target_filter_id), search_filter.user_search_filter_id);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_hide_matched_product_for_unlimited_tier() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-pro-visible", None, None).await;
@@ -502,7 +502,7 @@ async fn should_not_hide_matched_product_for_unlimited_tier() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_select_earliest_search_filter_match_deterministically() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-match-selection", None, None).await;

@@ -32,7 +32,7 @@ fn sample() -> ProductListingCommandReceiptWrite {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn receipt_is_atomic_immutable_and_retained_without_business_rows() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -103,7 +103,7 @@ async fn receipt_is_atomic_immutable_and_retained_without_business_rows() {
     assert_eq!(completed_at, read.completed_at);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn advisory_lock_waits_for_commit_and_reads_committed_receipt() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -125,7 +125,7 @@ async fn advisory_lock_waits_for_commit_and_reads_committed_receipt() {
         .unwrap();
 
     let (attempting, attempted) = tokio::sync::oneshot::channel();
-    let waiter = tokio::spawn(async move {
+    let waiter = test_api::spawn_owned(async move {
         let mut second = uow.begin().await.unwrap();
         attempting.send(()).unwrap();
         let result = factory
@@ -155,7 +155,7 @@ async fn advisory_lock_waits_for_commit_and_reads_committed_receipt() {
     assert_eq!(read.fingerprint, receipt.fingerprint);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn invalid_identity_is_rejected_before_sql_and_schema_bounds_persisted_data() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());

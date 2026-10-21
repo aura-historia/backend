@@ -123,7 +123,7 @@ async fn read_page(request: &ListAdminPartnershipsRequest) -> ListAdminPartnersh
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_filter_by_party_member_and_listing_source_without_changing_counts() {
     let pool = get_postgres_client().await;
     let matching_party = seed_party(&pool, "Matching party").await;
@@ -201,7 +201,7 @@ async fn should_filter_by_party_member_and_listing_source_without_changing_count
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_partnerships_in_created_descending_order_with_tied_cursor() {
     let pool = get_postgres_client().await;
     let created = datetime!(2026-05-05 12:00 UTC);
@@ -248,7 +248,7 @@ async fn should_return_partnerships_in_created_descending_order_with_tied_cursor
     assert!(second.cursor.search_after.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_exclude_dissolved_partnerships_from_admin_search() {
     let pool = get_postgres_client().await;
     let active_party = seed_party(&pool, "Active partnership party").await;
@@ -287,7 +287,7 @@ async fn should_exclude_dissolved_partnerships_from_admin_search() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_an_empty_partnership_page() {
     let result = read_page(&ListAdminPartnershipsRequest {
         cursor: Some(Cursor {

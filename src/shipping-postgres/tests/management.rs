@@ -142,7 +142,7 @@ async fn signals(p: &PgPool, source: ListingSourceId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn gallery_retries_evidence_and_noops_preserve_independent_revisions() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -261,7 +261,7 @@ async fn gallery_retries_evidence_and_noops_preserve_independent_revisions() {
     .unwrap();
     assert_eq!(3, history);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn concurrent_creations_and_edits_cas_retirement_and_default_tombstones() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -405,7 +405,7 @@ async fn member(p: &PgPool, owner: PartyId, source: ListingSourceId) -> Principa
         .into(),
     }
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn source_isolation_current_grants_suspension_and_caller_scoped_retry_keys() {
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;
@@ -498,7 +498,7 @@ async fn source_isolation_current_grants_suspension_and_caller_scoped_retry_keys
     ));
     assert_eq!(2, signals(&p, source).await);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn source_deletion_retains_profiles_receipts_and_monotonic_default_fence() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -542,7 +542,7 @@ async fn source_deletion_retains_profiles_receipts_and_monotonic_default_fence()
             .is_err()
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn corruption_and_exhaustion_fail_without_effects_including_noop_cas() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -603,7 +603,7 @@ async fn corruption_and_exhaustion_fail_without_effects_including_noop_cas() {
     ));
     assert_eq!(1, signals(&p, source).await);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignment() {
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;
@@ -704,7 +704,7 @@ async fn explicit_location_applicability_checks_owner_lifecycle_and_noop_assignm
         .unwrap();
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn signal_failure_rolls_back_state_history_evidence_and_creation_receipt() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -799,7 +799,7 @@ async fn invalid_expected_revisions_fail_before_opening_transactions() {
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn retired_profiles_require_restoration_before_evidence_correction() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -839,7 +839,7 @@ async fn retired_profiles_require_restoration_before_evidence_correction() {
     assert_eq!(4, signals(&p, source).await);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -922,7 +922,7 @@ async fn default_exhaustion_preserves_noops_and_rolls_back_source_deletion() {
     assert_eq!(2, signals(&p, source).await);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn source_deletion_without_selection_still_creates_a_retained_fence() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -949,7 +949,7 @@ fn import_write(sequence: u64, key: &str) -> shipping_service::imports::Shipping
         observation: Some(shipping_service::imports::ShippingObservation { acquired_at: at }),
     }
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn manual_default_clear_protects_an_initially_absent_assertion() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -990,7 +990,7 @@ async fn manual_default_clear_protects_an_initially_absent_assertion() {
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn repeated_acquisition_with_a_new_request_key_cannot_advance_observation() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -1018,7 +1018,7 @@ async fn repeated_acquisition_with_a_new_request_key_cannot_advance_observation(
     ));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn incremental_profile_identity_replays_observations_manual_edits_and_disconnect() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;
@@ -1230,7 +1230,7 @@ async fn incremental_profile_identity_replays_observations_manual_edits_and_disc
         .unwrap()
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn native_producers_push_shipping_without_domain_configuration() {
     use listing_source_core::ListingIngestionMethod;
     use product_listing_core::delivery::DeliveryIntegration;
@@ -1317,7 +1317,7 @@ async fn native_producers_push_shipping_without_domain_configuration() {
     }
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn native_profile_lifecycle_cannot_cross_integration_scope() {
     use listing_source_core::ListingIngestionMethod;
     use product_listing_core::delivery::DeliveryIntegration;
@@ -1385,7 +1385,7 @@ async fn native_profile_lifecycle_cannot_cross_integration_scope() {
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_observation() {
     let p = get_postgres_client().await;
     let (owner, source) = source(&p).await;
@@ -1458,7 +1458,7 @@ async fn revocation_regrant_and_explicit_removal_keep_import_fences_and_observat
         Err(ShippingError::ImportAuthorityStale)
     ));
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn import_validity_signal_failure_rolls_back_profile_identity_and_request_fences() {
     let p = get_postgres_client().await;
     let (_, source) = source(&p).await;

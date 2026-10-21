@@ -17,7 +17,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn cancelled_uncommitted_assessment_is_retried_and_committed_duplicate_is_a_noop() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -32,7 +32,7 @@ async fn cancelled_uncommitted_assessment_is_retried_and_committed_duplicate_is_
         let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *barrier)
             .await?;
-        let pending = tokio::spawn({
+        let pending = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event("first-attempt", body), use_case.as_ref()).await }
@@ -70,7 +70,7 @@ async fn cancelled_uncommitted_assessment_is_retried_and_committed_duplicate_is_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn overlapping_lambda_invocations_write_only_one_authoritative_assessment() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -82,7 +82,7 @@ async fn overlapping_lambda_invocations_write_only_one_authoritative_assessment(
             .execute(&mut *barrier).await?;
         let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *barrier).await?;
-        let first = tokio::spawn({
+        let first = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event("first", body), use_case.as_ref()).await }
@@ -90,7 +90,7 @@ async fn overlapping_lambda_invocations_write_only_one_authoritative_assessment(
         wait_for_blocked_write(&pool, blocker_pid, 1).await?;
         let first_xid: String = sqlx::query_scalar("SELECT backend_xid::text FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) AND query LIKE '%product_listing_content_assessments%' LIMIT 1")
             .bind(blocker_pid).fetch_one(&pool).await?;
-        let second = tokio::spawn({
+        let second = test_api::spawn_owned({
             let use_case = use_case.clone();
             async move { handler(event("second", body), use_case.as_ref()).await }
         });

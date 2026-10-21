@@ -36,7 +36,7 @@ use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_find_update_read_and_delete_search_filter() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -83,7 +83,7 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_already_exists_when_search_filter_exists() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -104,7 +104,7 @@ async fn should_return_already_exists_when_search_filter_exists() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_count_only_active_search_filters_in_transaction() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -136,7 +136,7 @@ async fn should_count_only_active_search_filters_in_transaction() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_find_and_update_search_filter_match() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -194,7 +194,7 @@ async fn should_insert_find_and_update_search_filter_match() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_one_match_when_single_and_batch_completions_overlap() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -262,7 +262,7 @@ async fn should_persist_one_match_when_single_and_batch_completions_overlap() {
     assert!(result.is_ok(), "concurrent match completion: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_exact_historical_match_source_after_unrelated_newer_product_event() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

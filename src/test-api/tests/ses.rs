@@ -4,8 +4,6 @@ use test_api::{
     get_sent_emails_from, get_ses_client, verify_sender_identity,
 };
 
-const SENDER: &str = "no-reply@notify.aura-historia.com";
-
 async fn send(source: &str) -> String {
     get_ses_client()
         .await
@@ -44,16 +42,20 @@ async fn send(source: &str) -> String {
         .to_owned()
 }
 
-#[aura_integration_test(services = [Ses()])]
+#[aura_integration_test(services = [Ses()], isolated = true)]
 async fn should_capture_message_content_and_clear_it() {
-    verify_sender_identity(SENDER).await;
-    let id = send(SENDER).await;
+    let source = test_api::TestContext::current()
+        .unwrap()
+        .sender_email()
+        .unwrap();
+    verify_sender_identity(&source).await;
+    let id = send(&source).await;
     let emails = get_sent_emails().await;
     assert_eq!(1, emails.len());
     let email = &emails[0];
     assert_eq!(id, email.id);
     assert_eq!("eu-central-1", email.region);
-    assert_eq!(SENDER, email.source);
+    assert_eq!(source, email.source);
     assert_eq!(
         ["recipient@example.test"],
         email.destination.to_addresses.as_slice()
@@ -66,14 +68,16 @@ async fn should_capture_message_content_and_clear_it() {
     assert!(get_sent_emails().await.is_empty());
 }
 
-#[aura_integration_test(services = [Ses()])]
+#[aura_integration_test(services = [Ses()], isolated = true)]
 async fn should_filter_captured_messages_by_source() {
-    let alternate = "alternate@example.test";
-    verify_sender_identity(alternate).await;
-    send(SENDER).await;
-    let id = send(alternate).await;
+    let context = test_api::TestContext::current().unwrap();
+    let source = context.sender_email().unwrap();
+    let alternate = context.register_sender("secondary").await.unwrap();
+    verify_sender_identity(&alternate).await;
+    send(&source).await;
+    let id = send(&alternate).await;
 
-    let emails = get_sent_emails_from(alternate).await;
+    let emails = get_sent_emails_from(&alternate).await;
     assert_eq!(1, emails.len());
     assert_eq!(id, emails[0].id);
     assert_eq!(alternate, emails[0].source);

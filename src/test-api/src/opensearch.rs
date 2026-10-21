@@ -26,11 +26,6 @@ const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
 
-/// A lazily-initialized, globally shared OpenSearch client for integration testing.
-///
-/// This `OnceCell` ensures that the client is only created once during the test lifecycle,
-/// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
-static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
 static OPENSEARCH_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
 
 fn test_access_policies() -> String {
@@ -48,27 +43,19 @@ fn test_access_policies() -> String {
     .to_string()
 }
 
-/// Returns a shared `opensearch::OpenSearch`-Client for interacting with Floci.
+/// Construct an owned client on the calling Tokio runtime.
 ///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
-///
-/// # Returns
-///
-/// A reference to a lazily-initialized `Client` instance.
-pub async fn get_opensearch_client() -> &'static Client {
-    let client = OPENSEARCH_CLIENT
-        .get_or_init(|| async {
-            let endpoint_url = domain_endpoint().await;
-            let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
-                .disable_proxy()
-                .build()
-                .expect("shouldn't fail creating OpenSearch-Transport");
-            opensearch::OpenSearch::new(transport)
-        })
-        .await;
-    debug!("Successfully initialized OpenSearch-Client.");
-    client
+/// HTTP pools contain runtime-owned dispatch tasks. Reusing them after that runtime stops,
+/// including from a context cleanup thread or API server thread, can fail with DispatchGone.
+/// Call this on each owning runtime; clones may share a transport within that runtime.
+pub async fn get_opensearch_client() -> Client {
+    let endpoint_url = domain_endpoint().await;
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
+        .disable_proxy()
+        .build()
+        .expect("shouldn't fail creating OpenSearch-Transport");
+    debug!("Successfully initialized runtime-owned OpenSearch client.");
+    Client::new(transport)
 }
 
 /// Marker type representing the OpenSearch service in Floci-based tests.
@@ -99,7 +86,7 @@ impl IntegrationTestService for OpenSearch {
                 .await
                 .expect("persist scoped index");
             ensure_index_exists(
-                get_opensearch_client().await,
+                &get_opensearch_client().await,
                 &index,
                 PRODUCT_LISTINGS_INDEX_MAPPING_STR,
             )
@@ -175,7 +162,7 @@ async fn set_up_open_search() {
     wait_until_domain_processed(TEST_DOMAIN_NAME)
         .await
         .expect("shouldn't fail waiting for domain  to complete processing");
-    bootstrap_indices(get_opensearch_client().await)
+    bootstrap_indices(&get_opensearch_client().await)
         .await
         .expect("shouldn't fail setting up indices");
     debug!(
@@ -431,3 +418,6 @@ pub async fn refresh_index(index: &str) {
         .error_for_status_code()
         .unwrap();
 }
+
+#[cfg(test)]
+mod runtime_tests;
