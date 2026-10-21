@@ -7,7 +7,6 @@ use crate::scraper::css_selector::product_schema_service::ProductListingSchemaSe
 use crate::scraper::css_selector::removed_page_schema_repository::{
     NullRemovedPageSchemaRepository, RemovedPageSchemaRepository,
 };
-use crate::scraper::normalization::product_normalization_service::ProductListingNormalizationService;
 use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
 use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
 use std::sync::Arc;
@@ -27,7 +26,6 @@ pub struct ScraperServiceImpl {
     pub(crate) html_fetcher: Box<dyn HtmlFetcher>,
     pub(crate) image_validator: Box<dyn ImageValidator>,
     pub(crate) schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
-    pub(crate) normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
     pub(crate) candidate_service: Arc<dyn ScraperCandidateService>,
     pub(crate) removed_page_schema_repository: Box<dyn RemovedPageSchemaRepository + Send + Sync>,
     /// Number of HTML pages to seed first-time schema generation with.
@@ -45,13 +43,11 @@ impl ScraperServiceImpl {
     pub fn new(
         html_fetcher: Box<dyn HtmlFetcher>,
         schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
-        normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
     ) -> Self {
         Self::new_with_schema_seed_pages(
             html_fetcher,
             schema_service,
-            normalization_service,
             candidate_service,
             DEFAULT_SCHEMA_SEED_PAGES,
             DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -61,7 +57,6 @@ impl ScraperServiceImpl {
     pub fn new_with_schema_seed_pages(
         html_fetcher: Box<dyn HtmlFetcher>,
         schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
-        normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
         schema_seed_pages: usize,
         max_llm_calls_per_listing_source: i64,
@@ -70,7 +65,6 @@ impl ScraperServiceImpl {
             html_fetcher,
             image_validator: Box::new(ReqwestImageValidator::new()),
             schema_service,
-            normalization_service,
             candidate_service,
             removed_page_schema_repository: Box::new(NullRemovedPageSchemaRepository),
             schema_seed_pages: schema_seed_pages.max(1),

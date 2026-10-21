@@ -3,8 +3,8 @@ use crate::review::model::{
     CrawlerReviewPage, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
-use crate::scraper::plausibility::contains_markup_tokens;
+use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
 
@@ -196,12 +196,21 @@ fn evaluate_schema_page(
     let apply_result = apply_schema_to_document(schema, &html);
     let fields = evaluate_schema_fields(schema, raw_html);
 
-    let (apply_ok, extracted, error) = match apply_result {
-        Ok(extracted) => match markup_token_rejection(&extracted) {
-            None => (true, Some(extracted), None),
-            Some(reason) => (false, Some(extracted), Some(reason)),
-        },
-        Err(err) => (false, None, Some(err.to_string())),
+    // A page counts as applied only when runtime selection would accept the
+    // extraction, so a rejecting plausibility finding fails the page like an
+    // apply error; every finding stays listed for the reviewer.
+    let (apply_ok, extracted, error, plausibility_findings) = match apply_result {
+        Ok(extracted) => {
+            let findings = PlausibilityFindings::of(&extracted);
+            let rejection = findings.rejection_reason();
+            (rejection.is_none(), Some(extracted), rejection, findings)
+        }
+        Err(err) => (
+            false,
+            None,
+            Some(err.to_string()),
+            PlausibilityFindings::default(),
+        ),
     };
 
     SchemaPageEvaluation {
@@ -211,45 +220,13 @@ fn evaluate_schema_page(
         apply_ok,
         extracted,
         error,
+        plausibility_findings,
         fields,
     }
 }
 
 fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
-    page.apply_ok
-        && page
-            .extracted
-            .as_ref()
-            .is_some_and(raw_extraction_has_required_values)
-}
-
-fn raw_extraction_has_required_values(raw: &RawExtractedProduct) -> bool {
-    !raw.title.trim().is_empty() && !raw.state.trim().is_empty()
-}
-
-/// Rejects extracted values that still carry CSS rules or script source. A selector that
-/// targets a container holding an inline `<style>` or `<script>` block next to the visible
-/// text produces non-empty but useless `title`, `price` and `state` values; the reason is
-/// recorded on the page evaluation so the matrix shows why the candidate failed.
-fn markup_token_rejection(raw: &RawExtractedProduct) -> Option<String> {
-    let fields = [
-        ("title", raw.title.as_str()),
-        ("price", raw.price.as_deref().unwrap_or_default()),
-        ("state", raw.state.as_str()),
-    ];
-    let offending: Vec<&str> = fields
-        .into_iter()
-        .filter(|(_, value)| contains_markup_tokens(value))
-        .map(|(field, _)| field)
-        .collect();
-    if offending.is_empty() {
-        return None;
-    }
-
-    Some(format!(
-        "extracted `{}` contains CSS or script tokens",
-        offending.join("`, `")
-    ))
+    page.apply_ok && page.extracted.is_some()
 }
 
 fn evaluate_schema_fields(
@@ -331,6 +308,7 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
+    use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
 
     fn text_rule(selector: &str) -> ExtractionRule {
         ExtractionRule {
@@ -522,9 +500,18 @@ mod tests {
         assert!(!page.apply_ok);
         assert_eq!(
             page.error.as_deref(),
-            Some("extracted `price`, `state` contains CSS or script tokens")
+            Some(
+                "implausible extraction: `price` contains CSS or script tokens; `state` contains CSS or script tokens"
+            )
         );
         assert!(page.extracted.is_some());
+        assert_eq!(
+            page.plausibility_findings.as_slice(),
+            [
+                finding(PlausibilityField::Price, PlausibilityCheck::MarkupTokens),
+                finding(PlausibilityField::State, PlausibilityCheck::MarkupTokens),
+            ]
+        );
     }
 
     #[test]
@@ -542,7 +529,7 @@ mod tests {
         assert!(!schema_matrix_has_required_coverage(&matrix));
         assert_eq!(
             page.error.as_deref(),
-            Some("extracted `title` contains CSS or script tokens")
+            Some("implausible extraction: `title` contains CSS or script tokens")
         );
     }
 
@@ -604,7 +591,83 @@ mod tests {
         assert!(!page.apply_ok);
         assert_eq!(
             page.error.as_deref(),
-            Some("extracted `price` contains CSS or script tokens")
+            Some("implausible extraction: `price` contains CSS or script tokens")
+        );
+    }
+
+    fn finding(field: PlausibilityField, check: PlausibilityCheck) -> PlausibilityFinding {
+        PlausibilityFinding { field, check }
+    }
+
+    #[test]
+    fn should_report_the_same_per_page_checks_for_every_candidate_on_every_page() {
+        let schemas = vec![schema_with_price("h1"), schema_with_price("h2")];
+        let sold_page = SchemaReviewPageInput {
+            url: "https://example.com/sold".to_string(),
+            role: PAGE_ROLE_SEED.to_string(),
+            raw_html: "<html><body><h1>Title</h1><h2>Title</h2><span id=\"price\">£0.00</span><span id=\"state\">Sold</span><img src=\"a.jpg\"><img src=\"a.jpg\"></body></html>".to_string(),
+        };
+        let pages = vec![
+            page_with_price(PAGE_ROLE_PRIMARY, "h1", Some("£450")),
+            sold_page,
+        ];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+        let findings_of = |candidate: usize, page: usize| {
+            matrix.candidates[candidate].pages[page]
+                .plausibility_findings
+                .as_slice()
+                .to_vec()
+        };
+        assert_eq!(findings_of(0, 0), vec![]);
+        let sold_page_findings = vec![
+            finding(PlausibilityField::SourceListingId, PlausibilityCheck::Blank),
+            finding(PlausibilityField::Price, PlausibilityCheck::AllZeroDigits),
+            finding(
+                PlausibilityField::Images,
+                PlausibilityCheck::DuplicateValues,
+            ),
+        ];
+        assert_eq!(findings_of(0, 1), sold_page_findings);
+        assert_eq!(findings_of(1, 1), sold_page_findings);
+        assert!(
+            matrix.candidates[0].pages[1].apply_ok,
+            "findings that only lower the rank keep the page covered"
+        );
+        assert!(schema_matrix_has_required_coverage(&matrix));
+    }
+
+    #[test]
+    fn should_fail_page_when_state_is_longer_than_a_label() {
+        let schemas = vec![ProductCssSelectorSchema {
+            state: text_rule("#details"),
+            ..schema("h1")
+        }];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: format!(
+                "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"details\">{}</div><img src=\"a.jpg\"></body></html>",
+                "Mahogany chest of drawers with original brass handles. ".repeat(3)
+            ),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let page = &matrix.candidates[0].pages[0];
+
+        assert!(!page.apply_ok);
+        assert!(!schema_matrix_has_required_coverage(&matrix));
+        assert_eq!(
+            page.plausibility_findings.as_slice(),
+            [finding(
+                PlausibilityField::State,
+                PlausibilityCheck::TooLong
+            )]
+        );
+        assert_eq!(
+            page.error.as_deref(),
+            Some("implausible extraction: `state` is longer than a label")
         );
     }
 

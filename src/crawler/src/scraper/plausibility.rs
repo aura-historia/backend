@@ -1,5 +1,312 @@
-//! Plausibility checks on raw extracted values. They inspect the strings a schema
-//! extracted and never convert them into typed values.
+//! Per-page plausibility checks on raw extracted values. They inspect the strings a
+//! schema extracted from one page and never convert them into typed values: price
+//! parsing, currency, availability and language belong to the ProductListing
+//! normalization worker, which reports what it cannot normalize.
+
+use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use crate::scraper::css_selector::rule::split_image_candidate_group;
+use product_listing_core::source_listing_id::SourceListingId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fmt;
+
+/// Longest plausible `state`, price or estimate, in characters after collapsing
+/// whitespace runs. These fields hold labels such as "In stock", "£1,250" or
+/// "POA – please contact us"; a longer value is a selector that captured a container.
+const MAX_LABEL_CHARS: usize = 100;
+
+/// A raw extracted field, named as in the product schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlausibilityField {
+    SourceListingId,
+    Title,
+    Description,
+    Price,
+    PriceEstimateMin,
+    PriceEstimateMax,
+    State,
+    Images,
+}
+
+impl PlausibilityField {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceListingId => "source_listing_id",
+            Self::Title => "title",
+            Self::Description => "description",
+            Self::Price => "price",
+            Self::PriceEstimateMin => "price_estimate_min",
+            Self::PriceEstimateMax => "price_estimate_max",
+            Self::State => "state",
+            Self::Images => "images",
+        }
+    }
+}
+
+/// The check a raw extracted value failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlausibilityCheck {
+    /// Present but empty after trimming. For `source_listing_id` the capture falls back
+    /// to the URL hash, so the identity changes once a later extraction succeeds.
+    Blank,
+    /// Longer than a label.
+    TooLong,
+    /// Has digits and every one is zero, as a sold page rendering `£0.00`.
+    AllZeroDigits,
+    /// Carries CSS rules or script source.
+    MarkupTokens,
+    /// The same value appears more than once.
+    DuplicateValues,
+    /// Cannot be captured as a source listing id.
+    InvalidIdentifier,
+}
+
+impl PlausibilityCheck {
+    const fn description(self) -> &'static str {
+        match self {
+            Self::Blank => "is blank",
+            Self::TooLong => "is longer than a label",
+            Self::AllZeroDigits => "has only zero digits",
+            Self::MarkupTokens => "contains CSS or script tokens",
+            Self::DuplicateValues => "repeats a value",
+            Self::InvalidIdentifier => "is not a valid source listing id",
+        }
+    }
+}
+
+/// What a finding does to a cached schema candidate at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlausibilityImpact {
+    /// The candidate is not used for the page.
+    RejectsCandidate,
+    /// The candidate ranks below every candidate with fewer such findings.
+    LowersRank,
+    /// The candidate is unaffected; the finding is reported to the reviewer.
+    ReportOnly,
+}
+
+/// One failed check on one field of a page's raw extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlausibilityFinding {
+    pub field: PlausibilityField,
+    pub check: PlausibilityCheck,
+}
+
+impl PlausibilityFinding {
+    const fn new(field: PlausibilityField, check: PlausibilityCheck) -> Self {
+        Self { field, check }
+    }
+
+    pub const fn impact(self) -> PlausibilityImpact {
+        use PlausibilityCheck::{InvalidIdentifier, MarkupTokens};
+        use PlausibilityField::{
+            Description, Images, Price, PriceEstimateMax, PriceEstimateMin, SourceListingId, State,
+            Title,
+        };
+        match (self.field, self.check) {
+            (_, MarkupTokens) | (Title | State, _) | (SourceListingId, InvalidIdentifier) => {
+                PlausibilityImpact::RejectsCandidate
+            }
+            (Price | PriceEstimateMin | PriceEstimateMax | Images, _) => {
+                PlausibilityImpact::LowersRank
+            }
+            (SourceListingId | Description, _) => PlausibilityImpact::ReportOnly,
+        }
+    }
+}
+
+impl fmt::Display for PlausibilityFinding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "`{}` {}",
+            self.field.as_str(),
+            self.check.description()
+        )
+    }
+}
+
+/// The failed checks of one page's raw extraction, in schema field order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PlausibilityFindings(Vec<PlausibilityFinding>);
+
+impl PlausibilityFindings {
+    /// Checks every field of `raw` on its own, without comparing it to other pages.
+    pub fn of(raw: &RawExtractedProduct) -> Self {
+        let mut findings = Vec::new();
+        let mut report = |field, checks: Vec<PlausibilityCheck>| {
+            findings.extend(
+                checks
+                    .into_iter()
+                    .map(|check| PlausibilityFinding::new(field, check)),
+            );
+        };
+        report(
+            PlausibilityField::SourceListingId,
+            identity_checks(&raw.source_listing_id),
+        );
+        report(PlausibilityField::Title, title_checks(&raw.title));
+        report(
+            PlausibilityField::Description,
+            description_checks(&raw.description),
+        );
+        for (field, price) in [
+            (PlausibilityField::Price, &raw.price),
+            (PlausibilityField::PriceEstimateMin, &raw.price_estimate_min),
+            (PlausibilityField::PriceEstimateMax, &raw.price_estimate_max),
+        ] {
+            report(
+                field,
+                price.as_deref().map(price_checks).unwrap_or_default(),
+            );
+        }
+        report(PlausibilityField::State, state_checks(&raw.state));
+        report(PlausibilityField::Images, image_checks(&raw.images));
+        Self(findings)
+    }
+
+    pub fn as_slice(&self) -> &[PlausibilityFinding] {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn rejects_candidate(&self) -> bool {
+        self.with_impact(PlausibilityImpact::RejectsCandidate)
+            .next()
+            .is_some()
+    }
+
+    /// The number of findings that lower a candidate's rank.
+    pub fn rank_penalty(&self) -> usize {
+        self.with_impact(PlausibilityImpact::LowersRank).count()
+    }
+
+    /// Why the page's extraction is rejected, or `None` when it is not.
+    pub fn rejection_reason(&self) -> Option<String> {
+        let reasons = self
+            .with_impact(PlausibilityImpact::RejectsCandidate)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        (!reasons.is_empty()).then(|| format!("implausible extraction: {}", reasons.join("; ")))
+    }
+
+    fn with_impact(
+        &self,
+        impact: PlausibilityImpact,
+    ) -> impl Iterator<Item = &PlausibilityFinding> + '_ {
+        self.0
+            .iter()
+            .filter(move |finding| finding.impact() == impact)
+    }
+}
+
+impl fmt::Display for PlausibilityFindings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, finding) in self.0.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{finding}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Runs on the extracted identity, before the URL-hash fallback replaces a blank one.
+fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
+    if source_listing_id.trim().is_empty() {
+        vec![PlausibilityCheck::Blank]
+    } else if SourceListingId::try_from(source_listing_id).is_err() {
+        vec![PlausibilityCheck::InvalidIdentifier]
+    } else {
+        Vec::new()
+    }
+}
+
+fn title_checks(title: &str) -> Vec<PlausibilityCheck> {
+    if title.trim().is_empty() {
+        return vec![PlausibilityCheck::Blank];
+    }
+    markup_check(title).into_iter().collect()
+}
+
+fn description_checks(fragments: &[String]) -> Vec<PlausibilityCheck> {
+    fragments
+        .iter()
+        .find_map(|fragment| markup_check(fragment))
+        .into_iter()
+        .collect()
+}
+
+fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
+    if price.trim().is_empty() {
+        return vec![PlausibilityCheck::Blank];
+    }
+    [
+        length_check(price),
+        markup_check(price),
+        has_only_zero_digits(price).then_some(PlausibilityCheck::AllZeroDigits),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
+    if state.trim().is_empty() {
+        return vec![PlausibilityCheck::Blank];
+    }
+    [length_check(state), markup_check(state)]
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Compares the primary candidate of each ordered image candidate group, so the same
+/// image extracted twice repeats even when its fallback candidates differ.
+fn image_checks(images: &[String]) -> Vec<PlausibilityCheck> {
+    let mut seen = HashSet::new();
+    let repeats_a_value = images
+        .iter()
+        .filter_map(|group| split_image_candidate_group(group).into_iter().next())
+        .map(str::trim)
+        .filter(|image| !image.is_empty())
+        .any(|image| !seen.insert(image));
+    repeats_a_value
+        .then_some(PlausibilityCheck::DuplicateValues)
+        .into_iter()
+        .collect()
+}
+
+fn length_check(value: &str) -> Option<PlausibilityCheck> {
+    (collapsed_char_count(value) > MAX_LABEL_CHARS).then_some(PlausibilityCheck::TooLong)
+}
+
+fn markup_check(value: &str) -> Option<PlausibilityCheck> {
+    contains_markup_tokens(value).then_some(PlausibilityCheck::MarkupTokens)
+}
+
+/// Characters of `value` with each whitespace run counted as one space and outer
+/// whitespace ignored, so markup indentation does not count towards a label's length.
+fn collapsed_char_count(value: &str) -> usize {
+    let (words, chars) = value
+        .split_whitespace()
+        .fold((0_usize, 0_usize), |(words, chars), word| {
+            (words + 1, chars + word.chars().count())
+        });
+    chars + words.saturating_sub(1)
+}
+
+fn has_only_zero_digits(value: &str) -> bool {
+    let mut digits = value.chars().filter(char::is_ascii_digit).peekable();
+    digits.peek().is_some() && digits.all(|digit| digit == '0')
+}
 
 /// Whether an extracted value still carries CSS rules or script source, as a selector
 /// produces when it targets a container holding an inline `<style>` or `<script>` block.
@@ -38,4 +345,230 @@ fn followed_by_identifier(value: &str, token: &str) -> bool {
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlausibilityCheck::{
+        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, TooLong,
+    };
+    use super::PlausibilityField::{
+        Description, Images, Price, PriceEstimateMax, SourceListingId, State, Title,
+    };
+    use super::*;
+    use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
+
+    fn plausible() -> RawExtractedProduct {
+        RawExtractedProduct {
+            source_listing_id: "SKU-42".to_owned(),
+            title: "Biedermeier Chair".to_owned(),
+            description: vec!["Walnut veneer, circa 1830.".to_owned()],
+            price: Some("£1,250".to_owned()),
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: "In stock".to_owned(),
+            images: vec!["/a.jpg".to_owned(), "/b.jpg".to_owned()],
+            raw_attributes: Default::default(),
+        }
+    }
+
+    fn finding(field: PlausibilityField, check: PlausibilityCheck) -> PlausibilityFinding {
+        PlausibilityFinding::new(field, check)
+    }
+
+    mod plausible_extraction {
+        use super::*;
+
+        #[test]
+        fn should_report_nothing_when_every_field_is_plausible() {
+            assert!(PlausibilityFindings::of(&plausible()).is_empty());
+        }
+
+        #[test]
+        fn should_accept_a_free_text_state_and_a_price_on_application_label() {
+            let mut raw = plausible();
+            raw.state = "Viewing by appointment only.".to_owned();
+            raw.price = Some(
+                "POA – Please \n\n   contact us\n\nif you are interested in this product."
+                    .to_owned(),
+            );
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+
+        #[test]
+        fn should_accept_an_absent_price_and_a_price_with_a_non_zero_digit() {
+            let mut raw = plausible();
+            raw.price = None;
+            raw.price_estimate_min = Some("Regular price £0.00 Sale price £450".to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+    }
+
+    mod rejecting_findings {
+        use super::*;
+
+        #[test]
+        fn should_reject_a_blank_title_or_state() {
+            let mut raw = plausible();
+            raw.title = " \n".to_owned();
+            raw.state = "\u{a0}".to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [finding(Title, Blank), finding(State, Blank)]
+            );
+            assert!(findings.rejects_candidate());
+            assert_eq!(
+                findings.rejection_reason().as_deref(),
+                Some("implausible extraction: `title` is blank; `state` is blank")
+            );
+        }
+
+        #[test]
+        fn should_reject_a_state_longer_than_a_label() {
+            let mut raw = plausible();
+            raw.state = "word ".repeat(30);
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(State, TooLong)]);
+            assert!(findings.rejects_candidate());
+        }
+
+        #[test]
+        fn should_reject_inline_css_or_script_in_state_price_or_description() {
+            let mut raw = plausible();
+            raw.state = "Sold .badge { color: red; }".to_owned();
+            raw.price = Some("POA .x{display:none}".to_owned());
+            raw.description = vec!["Oak".to_owned(), "window.dataLayer.push({})".to_owned()];
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [
+                    finding(Description, MarkupTokens),
+                    finding(Price, MarkupTokens),
+                    finding(State, MarkupTokens),
+                ]
+            );
+            assert!(findings.rejects_candidate());
+        }
+
+        #[test]
+        fn should_reject_an_identity_that_cannot_be_captured() {
+            let mut raw = plausible();
+            raw.source_listing_id = "x".repeat(513);
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [finding(SourceListingId, InvalidIdentifier)]
+            );
+            assert!(findings.rejects_candidate());
+        }
+    }
+
+    mod rank_lowering_findings {
+        use super::*;
+
+        #[test]
+        fn should_lower_rank_for_a_zero_price_and_a_blank_estimate() {
+            let mut raw = plausible();
+            raw.price = Some("£0.00".to_owned());
+            raw.price_estimate_max = Some(" ".to_owned());
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [
+                    finding(Price, AllZeroDigits),
+                    finding(PriceEstimateMax, Blank)
+                ]
+            );
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 2);
+        }
+
+        #[test]
+        fn should_lower_rank_for_a_price_longer_than_a_label() {
+            let mut raw = plausible();
+            raw.price = Some("£1,250 ".repeat(20));
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(Price, TooLong)]);
+            assert_eq!(findings.rank_penalty(), 1);
+        }
+
+        #[test]
+        fn should_lower_rank_when_every_image_appears_twice() {
+            let mut raw = plausible();
+            raw.images = vec![
+                "/a.jpg".to_owned(),
+                "/b.jpg".to_owned(),
+                "/a.jpg".to_owned(),
+                "/b.jpg ".to_owned(),
+            ];
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(Images, DuplicateValues)]);
+            assert_eq!(findings.rank_penalty(), 1);
+        }
+
+        #[test]
+        fn should_lower_rank_when_an_image_repeats_with_other_fallback_candidates() {
+            let mut raw = plausible();
+            raw.images = vec![
+                format!("/a.jpg{IMAGE_CANDIDATE_SEPARATOR}/a-300x300.jpg"),
+                format!("/a.jpg{IMAGE_CANDIDATE_SEPARATOR}/a-600x600.jpg"),
+                format!("/b.jpg{IMAGE_CANDIDATE_SEPARATOR}/a-300x300.jpg"),
+            ];
+
+            assert_eq!(
+                PlausibilityFindings::of(&raw).as_slice(),
+                [finding(Images, DuplicateValues)]
+            );
+        }
+    }
+
+    mod report_only_findings {
+        use super::*;
+
+        #[test]
+        fn should_report_a_blank_identity_before_the_url_hash_fallback() {
+            let mut raw = plausible();
+            raw.source_listing_id = "  ".to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(SourceListingId, Blank)]);
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 0);
+            assert_eq!(findings.rejection_reason(), None);
+        }
+    }
+
+    mod serialization {
+        use super::*;
+
+        #[test]
+        fn should_serialize_findings_with_schema_field_names_and_stable_check_codes() {
+            let mut raw = plausible();
+            raw.price_estimate_min = Some("0".to_owned());
+
+            assert_eq!(
+                serde_json::to_value(PlausibilityFindings::of(&raw))
+                    .unwrap_or_else(|error| panic!("findings must serialize: {error}")),
+                serde_json::json!([{ "field": "price_estimate_min", "check": "ALL_ZERO_DIGITS" }])
+            );
+        }
+    }
 }

@@ -1,17 +1,12 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_GENERATION_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::normalization::error::NormalizationFailureScope;
-
-use crate::scraper::normalization::product_normalization_service::{
-    NormalizationFailure, NormalizationSuccess, ProductNormalizationContext,
-};
+use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
-use crate::scraper::scraper_service::pipeline::cached_schema_selection::PreparedSchemaSelection;
+use crate::scraper::scraper_service::pipeline::cached_schema_selection::SelectedSchemaCandidate;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use serde_json::json;
 use tracing::debug;
 use url::Url;
@@ -22,9 +17,7 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) url: &'a Url,
     pub(crate) html: &'a str,
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
-    pub(crate) fallback_currency: Option<Currency>,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
-    pub(crate) source_record_key: &'a str,
 }
 
 impl ScraperServiceImpl {
@@ -40,7 +33,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn generate_fresh_schema_for_page(
         &self,
         ctx: FreshSchemaGenerationContext<'_>,
-    ) -> Result<PreparedSchemaSelection, ScraperError> {
+    ) -> Result<SelectedSchemaCandidate, ScraperError> {
         if let Some(review_repository) = self.manual_schema_review_repository() {
             return Err(self
                 .open_manual_schema_review(
@@ -62,77 +55,50 @@ impl ScraperServiceImpl {
             )
             .await?;
 
-        let mut validated_raw = reapplied.clone();
-        let images = std::mem::take(&mut validated_raw.images);
-        validated_raw.images =
-            filter_valid_image_urls(images, ctx.url, &*self.image_validator).await;
-        let validated_image_urls = validated_raw.images.clone();
+        let findings = PlausibilityFindings::of(&reapplied);
+        if findings.rejects_candidate() {
+            return Err(ScraperError::FreshSchemaImplausible {
+                url: ctx.url.clone(),
+                findings,
+            });
+        }
+        let validated_image_urls =
+            filter_valid_image_urls(reapplied.images.clone(), ctx.url, &*self.image_validator)
+                .await;
 
-        let normalization = self
-            .normalization_service
-            .normalize(
-                validated_raw,
-                ProductNormalizationContext {
-                    effective_url: ctx.url.clone(),
-                    source_record_key: ctx.source_record_key.to_owned(),
-                    fallback_currency: ctx.fallback_currency,
-                },
+        let mut persisted_schemas = ctx.existing_schemas.to_vec();
+        persisted_schemas.push(generated_schema.clone());
+        let pages = vec![triggering_page(&ctx)];
+        match self
+            .handle_generated_schema_review(
+                ctx.listing_source_id,
+                "fresh_schema_generation",
+                persisted_schemas,
+                evaluation,
+                pages,
+                json!({ "schema_applied": true, "fresh_generation": true }),
             )
-            .await;
-        match normalization {
-            Ok(NormalizationSuccess {
-                prepared,
-                llm_calls_used,
-            }) => {
-                self.consume_llm_budget_n_or_err(ctx.listing_source_id, ctx.url, llm_calls_used)
-                    .await?;
-                let mut persisted_schemas = ctx.existing_schemas.to_vec();
-                persisted_schemas.push(generated_schema.clone());
-                let pages = vec![triggering_page(&ctx)];
-                match self
-                    .handle_generated_schema_review(
-                        ctx.listing_source_id,
-                        "fresh_schema_generation",
-                        persisted_schemas,
-                        evaluation,
-                        pages,
-                        json!({ "schema_applied": true, "fresh_generation": true }),
-                    )
-                    .await?
-                {
-                    GeneratedSchemaReviewOutcome::Persisted(_) => {
-                        debug!(domain = ctx.domain, url = %ctx.url, "Freshly generated schema produced valid product");
-                        Ok(PreparedSchemaSelection {
-                            prepared,
-                            raw: reapplied,
-                            validated_image_urls,
-                            fallback_currency: ctx.fallback_currency,
-                            schema: generated_schema,
-                            fresh_schema: true,
-                        })
-                    }
-                    GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
-                        Err(ScraperError::PendingSchemaReview {
-                            url: ctx.url.clone(),
-                            review_id,
-                        })
-                    }
-                }
+            .await?
+        {
+            GeneratedSchemaReviewOutcome::Persisted(_) => {
+                debug!(
+                    domain = ctx.domain,
+                    url = %ctx.url,
+                    plausibility_findings = %findings,
+                    "Freshly generated schema produced a plausible product"
+                );
+                Ok(SelectedSchemaCandidate {
+                    raw: reapplied,
+                    validated_image_urls,
+                    schema: generated_schema,
+                    fresh_schema: true,
+                })
             }
-            Err(NormalizationFailure {
-                error: norm_err,
-                llm_calls_used,
-            }) => {
-                self.consume_llm_budget_n_or_err(ctx.listing_source_id, ctx.url, llm_calls_used)
-                    .await?;
-                if norm_err.failure_scope() == NormalizationFailureScope::CandidateData {
-                    return Err(ScraperError::FreshSchemaNormalizationFailed {
-                        url: ctx.url.clone(),
-                        attempts: 1,
-                        last_norm_error: Box::new(norm_err),
-                    });
-                }
-                Err(ScraperError::NormalizationError(norm_err))
+            GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                Err(ScraperError::PendingSchemaReview {
+                    url: ctx.url.clone(),
+                    review_id,
+                })
             }
         }
     }

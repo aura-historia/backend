@@ -272,7 +272,7 @@ pub trait ScraperCandidateService: Send + Sync {
         Ok(CrawlerUrlWriteOutcome::NoopStale)
     }
 
-    /// Record a non-HTTP scraper failure (schema error, normalization error, etc.).
+    /// Record a non-HTTP scraper failure (schema error, implausible fresh extraction, etc.).
     ///
     /// Unlike [`mark_fetch_failure`] this does **not** increment `failure_count` or
     /// set a `next_retry_at` backoff — these errors are not caused by the remote

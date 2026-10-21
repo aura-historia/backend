@@ -80,13 +80,6 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             Box::pin(async move { Ok(s) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -94,7 +87,6 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -104,10 +96,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
-    );
+    assert_eq!(result.source_listing_id, "SKU-42");
 }
 
 #[tokio::test]
@@ -145,13 +134,6 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
             Box::pin(async move { Ok(s) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     cand_svc
@@ -163,7 +145,6 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -173,10 +154,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
-    );
+    assert_eq!(result.source_listing_id, "SKU-42");
 }
 
 #[tokio::test]
@@ -210,7 +188,6 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
         .expect_find_product_schema()
         .once()
         .returning(|_| Box::pin(async { Ok(None) }));
-    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
     let sample_seed_url_clone = sample_seed_url.clone();
@@ -228,7 +205,6 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -295,13 +271,6 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
             Box::pin(async move { Ok(s) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     let sample_seed_url_clone = sample_seed_url.clone();
@@ -320,7 +289,6 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -334,10 +302,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
-    );
+    assert_eq!(result.source_listing_id, "SKU-42");
 }
 
 #[tokio::test]
@@ -375,13 +340,6 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
             Box::pin(async move { Ok(s) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -389,7 +347,6 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
