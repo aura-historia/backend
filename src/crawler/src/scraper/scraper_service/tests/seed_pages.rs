@@ -1,7 +1,7 @@
 use super::*;
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::candidate_service::SchemaSeedCandidate;
-use crate::scraper::scraper_service::{ScraperError, service::FetchError};
+use crate::scraper::scraper_service::{ScraperError, html_fetcher::FetchError};
 
 #[tokio::test]
 async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_miss() {

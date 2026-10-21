@@ -178,3 +178,90 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
 
     assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
+
+fn scraper_with_redirect_disallowed(final_url: Url) -> ScraperServiceImpl {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let final_url = final_url.clone();
+        Box::pin(async move {
+            Err(
+                crate::scraper::scraper_service::html_fetcher::FetchError::RedirectDisallowed {
+                    final_url,
+                },
+            )
+        })
+    });
+    ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(MockProductListingSchemaService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
+        Arc::new(MockScraperCandidateService::new()),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+}
+
+#[tokio::test]
+async fn should_withdraw_product_when_it_redirects_to_a_non_product_page_robots_txt_disallows() {
+    let id = listing_source_id();
+    let url = Url::parse("https://example.com/items/1").unwrap();
+    let service =
+        scraper_with_redirect_disallowed(Url::parse("https://example.com/sold/").unwrap());
+
+    let err = service
+        .scrape(primary_only_request_with_pattern(&id, &url, r"/items/"))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_refuse_product_when_it_redirects_to_a_product_page_robots_txt_disallows() {
+    let id = listing_source_id();
+    let url = Url::parse("https://example.com/items/1").unwrap();
+    let service =
+        scraper_with_redirect_disallowed(Url::parse("https://example.com/items/1-moved").unwrap());
+
+    let err = service
+        .scrape(primary_only_request_with_pattern(&id, &url, r"/items/"))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            ScraperError::HttpError {
+                kind: crate::network::policy::NetworkErrorKind::RobotsDisallowed,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_report_the_shop_responsive_when_it_redirects_to_a_url_robots_txt_disallows() {
+    let id = listing_source_id();
+    let url = Url::parse("https://example.com/items/1").unwrap();
+    for final_url in [
+        "https://example.com/sold/",
+        "https://example.com/items/1-moved",
+    ] {
+        let service = scraper_with_redirect_disallowed(Url::parse(final_url).unwrap());
+
+        let outcome = with_test_scrape_domain(
+            service.scrape(primary_only_request_with_pattern(&id, &url, r"/items/")),
+        )
+        .await;
+
+        assert_eq!(
+            outcome.domain_health,
+            crate::scraper::scraper_service::domain::product::DomainFetchHealth::Responsive,
+            "{final_url}"
+        );
+    }
+}

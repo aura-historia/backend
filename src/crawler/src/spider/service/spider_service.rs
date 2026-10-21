@@ -169,14 +169,7 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
-        let count = buffer
-            .iter()
-            .filter(|p| {
-                pattern
-                    .as_regex()
-                    .is_some_and(|regex| p.url.matches_pattern(regex))
-            })
-            .count();
+        let count = count_products(buffer, pattern);
         self.persist_url_metadata_batch(listing_source_id, domain_id, buffer, pattern)
             .await?;
         buffer.clear();
@@ -337,8 +330,11 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<(), SpiderServiceError> {
+        // Pages still buffered count too: a crawl smaller than one batch has
+        // flushed nothing yet.
         if state.pattern_loaded_from_store
             && state.products_found == 0
+            && count_products(&state.page_buffer, &state.pattern) == 0
             && !state.inference_sample.is_empty()
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
@@ -509,7 +505,9 @@ impl SpiderServiceImpl {
             rejected_host = diagnostics.rejected_host,
             rejected_blacklist = diagnostics.rejected_blacklist,
             rejected_duplicate = diagnostics.rejected_duplicate,
-            robots_blocked = diagnostics.robots_blocked,
+            robots_policy = ?diagnostics.robots_policy,
+            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+            robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
             lagged = diagnostics.lagged,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
             "{}",
@@ -554,6 +552,15 @@ impl SpiderService for SpiderServiceImpl {
         )
         .await
     }
+}
+
+fn count_products(pages: &[CrawledPage], pattern: &ProductListingPattern) -> usize {
+    pattern.as_regex().map_or(0, |regex| {
+        pages
+            .iter()
+            .filter(|page| page.url.matches_pattern(regex))
+            .count()
+    })
 }
 
 fn crawl_outcome_message(completion: CrawlCompletion) -> &'static str {
@@ -971,6 +978,41 @@ mod service_tests {
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
+        assert_eq!(run_result.product_urls_count, 20);
+    }
+
+    #[tokio::test]
+    async fn should_keep_persisted_pattern_when_crawl_smaller_than_one_batch_matches_it() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        // Fewer pages than one database batch, as a crawl paced by a
+        // robots.txt Crawl-delay delivers.
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
+
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .await
+            .unwrap();
         assert_eq!(run_result.product_urls_count, 20);
     }
 

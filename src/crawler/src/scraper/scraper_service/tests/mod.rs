@@ -37,8 +37,9 @@ use crate::scraper::normalization::product_normalization_service::{
     PreparedProduct,
 };
 use crate::scraper::scraper_service::domain::product::with_scrape_observation;
+use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
 use crate::scraper::scraper_service::service::{
-    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ScraperServiceImpl,
 };
 use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperService};
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
