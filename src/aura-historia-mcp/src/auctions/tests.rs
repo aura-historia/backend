@@ -1,7 +1,7 @@
 use super::error::{catalogue as catalogue_error, get as get_error, list as list_error};
 use super::*;
 use application::{
-    operation_context::{CorrelationId, OperationContext, RequestId},
+    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
     pagination::{Cursor, CursoredResult},
 };
 use auction_core::{AuctionFormat, AuctionSchedule, AuctionSchedulePoint};

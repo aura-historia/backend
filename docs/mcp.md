@@ -144,11 +144,13 @@ contracts and the same typed runtime service family. The
 
 ## Public catalogue
 
-The public catalogue currently maps service calls to `Anonymous`, including calls with valid
-Aura credentials; delegated personalization is activated separately by #2247. These operations
-require no scopes and advertise read-only, idempotent, nondestructive behavior against Aura's
-catalogue. These hints describe behavior; services remain the authorization authority. Private reads, writes and administrator operations
-have no registration in this catalogue. Newsletter opt-in/confirmation, health/readiness,
+The public subset remains callable without credentials. Its ten listing, history, auction and
+source operations forward a supplied, validated `DelegatedUser` directly to the existing service
+use cases, preserving the same tool names, full contracts, filters and continuations. Location
+discovery and public overview remain anonymous. Public operations require no scopes and advertise
+read-only, idempotent, nondestructive behavior against Aura's catalogue. Services remain the
+authorization authority. The public manifest describes this subset of the hybrid endpoint;
+protected families have separate, non-overlapping registrations. Newsletter opt-in/confirmation, health/readiness,
 webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded.
 
 | Tool / source operation ID | Arguments and result |
@@ -171,8 +173,14 @@ availability, orderability and unspecified-availability predicates. Geography in
 subdivisions, numeric origin, radius/unit, mode and distance order. Shared contracts preserve
 presentation defaults, size clamping, localization/fallback, source-local identifiers, full image
 collections and long URLs, content policy, shipping disclosure and withdrawn-listing handling.
-Anonymous results omit `userState`; public source/location/auction output excludes management,
-contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
+Anonymous results omit `userState`. Delegated listing results disclose `watchlist` only with
+`watchlist:read`, `searchFilter` (including saved-search references and match feedback) only with
+`search-filters:read`, `notification` only with `notifications:read`, and `contentVisibility` and
+stored destination-derived `shipping` only with `users:read`. Unauthorized sections are omitted;
+no applicable sections means `userState` itself is omitted. Write scopes do not imply read scopes.
+Stored hidden-item, tier and sensitive-image policy still applies with every scope combination,
+including an empty grant. No stored browsing destination is read without `users:read`.
+Public source/location/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
 exact JSON integers.
 
 Similarity uses the service's fixed neighbor limit. `EMBEDDING_PENDING` means retry the same
@@ -207,6 +215,10 @@ history fails explicitly with no partial result.
 The [combined public acceptance suite](../src/aura-historia-mcp/src/public/tests/mod.rs) uses
 fake inbound services and official SDK clients through the same registry as production. Family
 contract/operation suites retain detailed input, mapping, validation and error parity coverage.
+The [personalization suite](../src/aura-historia-mcp/src/public/tests/personalization/mod.rs)
+exercises real listing and shipping handlers through HTTP, including all read-scope combinations,
+private-section omission and protective policy. The public authentication suite checks all ten
+context paths, including operations with no personalized output.
 Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
