@@ -110,6 +110,38 @@ fn start_cleanup(
 }
 
 async fn clean_context(context: &TestContext, deadline: Duration) -> Result<()> {
+    let mut first = shutdown_owned_work(context, deadline).await.err();
+    #[cfg(feature = "postgres")]
+    {
+        let mut close = Box::pin(context.close_postgres_pools());
+        if let Err(error) =
+            tokio::time::timeout(deadline.min(Duration::from_secs(10)), &mut close).await
+        {
+            first.get_or_insert(error.into());
+            close.await;
+        }
+    }
+    #[cfg(feature = "aura-historia-api")]
+    context
+        .0
+        .api_state
+        .lock()
+        .expect("API test state lock")
+        .clear();
+    let _persistence = context.0.persistence.clone().lock_owned().await;
+    let metadata = context
+        .0
+        .manifest
+        .lock()
+        .expect("context metadata lock")
+        .clone();
+    if let Err(error) = resources::clean(&metadata).await {
+        first.get_or_insert(error);
+    }
+    first.map_or(Ok(()), Err)
+}
+
+async fn shutdown_owned_work(context: &TestContext, deadline: Duration) -> Result<()> {
     let mut first: Option<BoxError> = None;
     let mut pending = futures_util::stream::FuturesUnordered::<super::Cleanup>::new();
     let tasks = std::mem::take(&mut *context.0.tasks.lock().expect("context task lock"));
@@ -152,37 +184,7 @@ async fn clean_context(context: &TestContext, deadline: Duration) -> Result<()> 
             first.get_or_insert(error);
         }
     }
-    #[cfg(feature = "postgres")]
-    {
-        let mut close = Box::pin(context.close_postgres_pools());
-        if let Err(error) =
-            tokio::time::timeout(deadline.min(Duration::from_secs(10)), &mut close).await
-        {
-            first.get_or_insert(error.into());
-            close.await;
-        }
-    }
-    #[cfg(feature = "aura-historia-api")]
-    context
-        .0
-        .api_state
-        .lock()
-        .expect("API test state lock")
-        .clear();
-    let _persistence = context.0.persistence.clone().lock_owned().await;
-    let metadata = context
-        .0
-        .manifest
-        .lock()
-        .expect("context metadata lock")
-        .clone();
-    if let Err(error) = resources::clean(&metadata).await {
-        first.get_or_insert(error);
-    }
-    if let Some(error) = first {
-        return Err(error);
-    }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 
 fn task_result(result: std::result::Result<(), tokio::task::JoinError>) -> Result<()> {
