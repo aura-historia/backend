@@ -50,10 +50,9 @@ pub(super) fn authenticated_app(
     .unwrap()
 }
 
-pub(super) async fn authenticated_call(app: &Router, name: &str, arguments: Value) -> Value {
-    let token = String::from(RawAccessToken::new());
+fn authenticated_request(name: &str, arguments: Value, token: &str) -> Request<Body> {
     let body = body("tools/call", json!({"name":name,"arguments":arguments}));
-    let request = Request::builder()
+    Request::builder()
         .method("POST")
         .uri("/v1")
         .header("host", "mcp.example.test")
@@ -64,7 +63,12 @@ pub(super) async fn authenticated_call(app: &Router, name: &str, arguments: Valu
         .header("mcp-name", name)
         .header("authorization", format!("Bearer {token}"))
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .unwrap()
+}
+
+pub(super) async fn authenticated_call(app: &Router, name: &str, arguments: Value) -> Value {
+    let token = String::from(RawAccessToken::new());
+    let request = authenticated_request(name, arguments, &token);
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(StatusCode::OK, response.status());
     assert_eq!("no-store", response.headers()["cache-control"]);
@@ -153,19 +157,7 @@ async fn should_reject_invalid_or_revoked_credentials_before_any_public_service_
     .unwrap();
     for token in ["invalid".to_owned(), String::from(RawAccessToken::new())] {
         for (name, arguments) in minimal_inputs() {
-            let body = body("tools/call", json!({"name":name,"arguments":arguments}));
-            let request = Request::builder()
-                .method("POST")
-                .uri("/v1")
-                .header("host", "mcp.example.test")
-                .header("content-type", "application/json")
-                .header("accept", "application/json,text/event-stream")
-                .header("mcp-protocol-version", "2026-07-28")
-                .header("mcp-method", "tools/call")
-                .header("mcp-name", name)
-                .header("authorization", format!("Bearer {token}"))
-                .body(Body::from(body.to_string()))
-                .unwrap();
+            let request = authenticated_request(name, arguments, &token);
             let response = app.clone().oneshot(request).await.unwrap();
             assert_eq!(StatusCode::UNAUTHORIZED, response.status(), "{name}");
             assert_eq!("no-store", response.headers()["cache-control"]);
