@@ -291,24 +291,21 @@ fn parse_crawl_delay(value: &str) -> Option<Duration> {
 /// Brings patterns and request paths into one form: non-ASCII characters
 /// percent-encoded and every escape in upper-case hex (RFC 3986 treats
 /// `%2b` and `%2B` as equal), so a literal non-ASCII pattern still matches.
-/// An escape cut short by the end, as a prefix pattern may write it, is
-/// upper-cased too.
+/// An escape's digits are the up to two hex digits after its `%`, so an
+/// escape a prefix pattern cuts short folds the same way wherever it stands.
 fn normalize_percent_encoding(pattern: &str) -> String {
     let mut normalized = String::with_capacity(pattern.len());
     let mut chars = pattern.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '%' {
-            let hex: String = chars.clone().take(2).collect();
-            let complete_or_cut_short = hex.len() == 2 || chars.clone().nth(hex.len()).is_none();
-            if !hex.is_empty()
-                && complete_or_cut_short
-                && hex.chars().all(|c| c.is_ascii_hexdigit())
-            {
-                normalized.push('%');
-                normalized.push_str(&hex.to_ascii_uppercase());
-                chars.nth(hex.len() - 1);
-                continue;
+            normalized.push('%');
+            for _ in 0..2 {
+                let Some(digit) = chars.next_if(char::is_ascii_hexdigit) else {
+                    break;
+                };
+                normalized.push(digit.to_ascii_uppercase());
             }
+            continue;
         }
         if ch.is_ascii() {
             normalized.push(ch);
@@ -449,6 +446,18 @@ mod tests {
         assert!(!rules.allows(&url("/collections/a%2bb")));
         assert!(!rules.allows(&url("/collections/a%2Bb")));
         assert!(rules.allows(&url("/collections/a+b")));
+    }
+
+    #[test]
+    fn should_match_an_escape_a_rule_cuts_short_regardless_of_what_follows_it() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: /x%a\nDisallow: /y%b$\n");
+
+        for path in [
+            "/x%a", "/x%ab", "/x%AB", "/x%a/y", "/x%A/y", "/x%a?p=1", "/x%aZ", "/y%b",
+        ] {
+            assert!(!rules.allows(&url(path)), "{path} is allowed");
+        }
+        assert!(rules.allows(&url("/y%b/z")));
     }
 
     #[test]

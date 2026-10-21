@@ -1057,6 +1057,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_retry_an_attempt_whose_redirect_hop_pacing_outlasts_it() {
+        let redirect = "HTTP/1.1 301 Moved Permanently\r\nLocation: /moved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![redirect, redirect],
+            Duration::ZERO,
+        )
+        .await;
+        // The latency throttle spaces requests further apart than an attempt
+        // may take, so the redirect hop's wait ends the attempt.
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(2),
+            throttle_config(Duration::from_millis(200)),
+            Duration::from_millis(100),
+            Duration::from_secs(5),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::Timeout);
+        assert_eq!(shop.page_requests().len(), 2);
+    }
+
+    #[tokio::test]
     async fn should_bound_a_stalled_robots_txt_by_the_attempt_timeout_without_retrying() {
         // Accepts connections and never answers.
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

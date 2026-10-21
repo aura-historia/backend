@@ -96,9 +96,7 @@ fn carve_exceptions(disallow: &str, exceptions: &[&Rule]) -> Option<String> {
             // The exception's literal starts with the disallow's, so escapes
             // are told apart over the whole literal.
             let literal = format!("{disallow}{suffix}");
-            // Only complete escapes fold case here: an exception may carve
-            // out no more than robots.txt allows.
-            let suffix = escape_digit_flags(&literal, false)
+            let suffix = escape_digit_flags(&literal)
                 .into_iter()
                 .skip(disallow.chars().count());
             allowed.insert(suffix, exact);
@@ -211,32 +209,26 @@ fn pattern_regex(pattern: &str) -> String {
 /// escapes, while crawl engines match URLs with the escapes as written, so
 /// each escape matches either hex case.
 fn literal_regex(literal: &str) -> String {
-    escape_digit_flags(literal, true)
+    escape_digit_flags(literal)
         .into_iter()
         .map(|(ch, escape_digit)| char_regex(ch, escape_digit))
         .collect()
 }
 
 /// Each character of `literal`, and whether it is a hex digit of a percent
-/// escape. With `cut_short`, an escape cut short by the end of the literal
-/// counts too: the rule still matches a URL that completes it.
-fn escape_digit_flags(literal: &str, cut_short: bool) -> Vec<(char, bool)> {
-    let chars: Vec<char> = literal.chars().collect();
+/// escape: one of the up to two hex digits after a `%`, as robots.txt
+/// matching folds them. An escape cut short this way still matches a URL
+/// that completes it.
+fn escape_digit_flags(literal: &str) -> Vec<(char, bool)> {
     let mut pending = 0_u8;
-    chars
-        .iter()
-        .enumerate()
-        .map(|(index, &ch)| {
-            let escape_digit = pending > 0;
-            let digits = &chars[index + 1..chars.len().min(index + 3)];
-            let starts_escape = ch == '%'
-                && !digits.is_empty()
-                && (digits.len() == 2 || cut_short && index + 1 + digits.len() == chars.len())
-                && digits.iter().all(char::is_ascii_hexdigit);
-            pending = if starts_escape {
-                2
-            } else {
-                pending.saturating_sub(1)
+    literal
+        .chars()
+        .map(|ch| {
+            let escape_digit = pending > 0 && ch.is_ascii_hexdigit();
+            pending = match ch {
+                '%' => 2,
+                _ if escape_digit => pending - 1,
+                _ => 0,
             };
             (ch, escape_digit)
         })
@@ -362,17 +354,21 @@ mod tests {
     }
 
     #[test]
-    fn should_not_carve_out_more_than_an_exception_with_a_cut_short_escape_allows() {
-        let rules = RobotsRules::parse("User-agent: *\nDisallow: /x\nAllow: /x%a\n");
-        let set = RegexSet::new(&rules.deny_list().patterns).unwrap();
+    fn should_deny_a_cut_short_escape_followed_by_more_of_the_rule_in_either_hex_case() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: /a%a$\nDisallow: /b%b/c\nDisallow: /c\nAllow: /c%c$\n",
+            &[
+                "/a%a", "/a%A", "/a%a/", "/b%b/c", "/b%B/c1", "/b%bc", "/c%c", "/c", "/c%c1",
+            ],
+        );
+    }
 
-        for path in ["/x%ab", "/x%AB", "/x%aZ", "/x"] {
-            let url = Url::parse(&format!("https://shop.example{path}")).unwrap();
-            assert!(
-                set.is_match(url.as_str()) || rules.allows(&url),
-                "{path} is disallowed but not denied"
-            );
-        }
+    #[test]
+    fn should_carve_out_an_exception_with_a_cut_short_escape_exactly() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: /x\nAllow: /x%a\n",
+            &["/x%ab", "/x%AB", "/x%aZ", "/x%A/y", "/x%", "/x"],
+        );
     }
 
     #[test]
