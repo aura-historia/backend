@@ -20,9 +20,14 @@ impl AuraHistoriaApi {
         }
     }
 
-    pub fn base_url(&self) -> &str {
+    pub fn base_url(&self) -> String {
+        if let Some(context) = crate::TestContext::current() {
+            return context
+                .server_url(self as *const Self as usize)
+                .expect("context API server should be running");
+        }
         match self.base_url.get() {
-            Some(base_url) => base_url,
+            Some(base_url) => base_url.clone(),
             None => panic!("aura-historia-api test server should be running"),
         }
     }
@@ -35,6 +40,10 @@ impl IntegrationTestService for &'static AuraHistoriaApi {
     }
 
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            self.start_scoped(context).await;
+            return;
+        }
         if self.base_url.get().is_some() {
             return;
         }
@@ -93,5 +102,60 @@ impl IntegrationTestService for &'static AuraHistoriaApi {
             Err(error) => panic!("failed to receive aura-historia-api test base URL: {error}"),
         };
         let _set_result = self.base_url.set(base_url);
+    }
+}
+
+impl AuraHistoriaApi {
+    async fn start_scoped(&'static self, context: crate::TestContext) {
+        let key = self as *const Self as usize;
+        let server = context
+            .server_initialization(key)
+            .expect("active API context");
+        server.get_or_init(|| self.spawn_scoped(context)).await;
+    }
+
+    async fn spawn_scoped(&'static self, context: crate::TestContext) -> String {
+        let factory = self.app_factory;
+        let thread_context = context.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let thread = std::thread::Builder::new()
+            .name("aura-scoped-api".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .expect("scoped API runtime");
+                runtime.block_on(thread_context.scope(async {
+                    let app = factory().await;
+                    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                        .await
+                        .expect("scoped API listener");
+                    ready_tx
+                        .send(format!(
+                            "http://{}",
+                            listener.local_addr().expect("API address")
+                        ))
+                        .expect("API test still waiting");
+                    tokio::select! {
+                        result = axum::serve(listener,app) => result.expect("scoped API server"),
+                        _ = stop_rx => {},
+                    }
+                    #[cfg(feature = "postgres")]
+                    thread_context.close_postgres_pools().await;
+                }));
+            })
+            .expect("scoped API thread");
+        context
+            .on_shutdown(async move {
+                let _ = stop_tx.send(());
+                tokio::task::spawn_blocking(move || thread.join())
+                    .await?
+                    .map_err(|_| std::io::Error::other("scoped API thread panicked"))?;
+                Ok(())
+            })
+            .expect("register scoped API shutdown");
+        ready_rx.await.expect("scoped API startup")
     }
 }

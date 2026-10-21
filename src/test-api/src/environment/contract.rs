@@ -19,6 +19,8 @@ pub struct ManagedEnvironment {
     pub(crate) aws_endpoint: Option<String>,
     pub(crate) opensearch_endpoint: Option<String>,
     pub(crate) aws_services: Vec<String>,
+    #[serde(skip)]
+    pub(crate) directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -87,6 +89,7 @@ impl ManagedEnvironment {
             aws_endpoint: wire.aws_endpoint,
             opensearch_endpoint: wire.opensearch_endpoint,
             aws_services: wire.aws_services,
+            directory: None,
         };
         value.validate()?;
         Ok(value)
@@ -187,7 +190,7 @@ fn load(flag: Option<&str>, path: Option<&Path>) -> Result<Option<ManagedEnviron
         (Some("1"), Some(path)) if path.is_absolute() => {
             let bytes = std::fs::read(path)
                 .map_err(|e| context("cannot read managed environment file", e))?;
-            let config = ManagedEnvironment::from_json(&bytes)?;
+            let mut config = ManagedEnvironment::from_json(&bytes)?;
             let dir = path
                 .parent()
                 .ok_or_else(|| invalid("managed configuration has no run directory"))?;
@@ -207,12 +210,17 @@ fn load(flag: Option<&str>, path: Option<&Path>) -> Result<Option<ManagedEnviron
                     "managed configuration must belong to its private run directory",
                 ));
             }
+            config.directory = Some(dir.to_owned());
             Ok(Some(config))
         }
         _ => Err(invalid(
             "managed mode requires AURA_TEST_ENV_MANAGED=1 and an absolute AURA_TEST_ENV_CONFIG",
         )),
     }
+}
+
+pub(crate) fn managed_directory() -> Option<&'static Path> {
+    managed_environment()?.directory.as_deref()
 }
 
 /// Load once before constructing fixtures. Partial configuration never enables unmanaged fallback.

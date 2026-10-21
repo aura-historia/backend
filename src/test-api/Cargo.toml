@@ -28,6 +28,8 @@ tracing = { workspace = true }
 typed-builder = { workspace = true }
 libc = { workspace = true }
 ctrlc = { workspace = true }
+sha2 = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
 
 uuid = { workspace = true }
 
@@ -58,9 +60,10 @@ default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 aura-historia-api = ["dep:axum"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
-postgres = ["dep:sqlx"]
+postgres = ["dep:sqlx", "dep:sha2"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
+s3 = ["dep:aws-sdk-s3"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
 
 supervisor = ["postgres", "opensearch", "sqs"]

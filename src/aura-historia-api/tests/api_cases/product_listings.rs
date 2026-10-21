@@ -1762,8 +1762,8 @@ async fn get_json(path: String) -> (reqwest::Response, String) {
     get_json_from(AURA_API.base_url(), &path).await
 }
 
-async fn get_json_from(base_url: &str, path: &str) -> (reqwest::Response, String) {
-    let url = format!("{base_url}{path}");
+async fn get_json_from(base_url: impl AsRef<str>, path: &str) -> (reqwest::Response, String) {
+    let url = format!("{}{path}", base_url.as_ref());
     let response = reqwest::Client::new()
         .get(&url)
         .send()

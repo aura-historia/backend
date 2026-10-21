@@ -77,11 +77,120 @@ configuration, disabled IMDS, and empty run-owned AWS config/credential files.
 Inherited AWS credential sources, profiles and service endpoint overrides are
 removed. Never supply live credentials or external endpoints to test commands.
 
-Infrastructure sharing does not yet provide per-test state isolation: existing
-fixtures truncate shared tables/indices and clear captured SES messages. Run
-mutating legacy suites sequentially; process-local `serial_test` does not coordinate
-Nextest processes. Slot leases and scoped test state are owned by the follow-on
-TestContext work. Independent attach-only probes are safe concurrently.
+### Isolated test contexts
+
+Opt a migrated test into a scoped context:
+
+```rust,ignore
+const DATABASE: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [DATABASE, OpenSearch()], isolated = true)]
+async fn should_read_its_own_data(context: TestContext) {
+    let pool = get_postgres_client().await;
+    let index = context.product_listings_index().unwrap();
+    // Construct search/projector adapters through their existing with_index() methods.
+}
+```
+
+The optional context argument receives the same scope used by fixture setup and
+`get_postgres_client()`. The macro catches setup/body/individual teardown panics,
+continues reverse teardown, and preserves the original test panic when cleanup also
+fails. Unmigrated macro callers retain process-local serialization and acquire the
+actual job-wide exclusive reservation. Direct fixture callers must acquire a context
+or `reserve_exclusive()` themselves before sharing managed mutable state.
+
+Each context holds one bounded slot and a shared job gate. With Nextest, it validates
+`NEXTEST=1`, `NEXTEST_RUN_ID`, `NEXTEST_TEST_GLOBAL_SLOT`, and execution mode
+`process-per-test`; configure Nextest test threads no higher than supervisor slots.
+Slots start at zero. Competing Nextest invocations under the same supervisor use the
+same slot files and wait up to 120 seconds, rather than allocating additional capacity.
+Filters/retries require no predetermined test ordering. `exclusive = true` creates a
+scoped context holding the exclusive job gate, excluding every ordinary context and
+legacy macro caller across all groups and invocations. A group with one thread does
+not establish this exclusion. Raw global operations can use `reserve_exclusive()`
+and its `scope(future)` method. Role/bootstrap tests requiring absent roles and pristine
+`postgres` ownership need a separate supervisor invocation that has not requested a
+business baseline; a reservation alone does not restore cluster-global state.
+
+Non-Nextest drivers use `TestContext::acquire_explicit(name, isolation)`, keep the
+returned `TestSession`, run work through `session.context().scope(future)`, then await
+`session.finish()`. This path uses the same semaphore/file reservations. It deliberately
+ignores inherited Nextest slot identity for a separate child batch. A parent waiting
+for that batch must release its own lease first. Unmanaged `cargo test` remains
+supported with the existing process-owned services and one local context slot.
+
+PostgreSQL prepares an immutable template once per actual migration/setup contract,
+under a cross-process template lock. Paths must resolve within the workspace;
+missing/empty/escaping declarations fail. The key includes ordered filenames, SQL
+contents and setup-script identity. Business prerequisites, extensions and seeded data
+belong to the template. Each test receives a fresh generation database before its body,
+restoring schema, triggers/constraints and seeds while fencing prior writers. Preparation
+and cloning occur in fixture setup; all setup/reset time remains in suite/workflow time
+and is reported separately through the existing benchmark recorder. `CONTEXT_ACQUIRE`
+includes lease waiting and recovery before fixture setup; `POSTGRES_SLOT_RESET`
+includes baseline preparation and cloning; `CONTEXT_CLEANUP` includes owned shutdown
+and resource removal after fixture teardown. These phases remain inside full suite time.
+A new pool is
+created on each calling Tokio runtime and registered for close before database deletion.
+Register any manually constructed pool with `register_postgres_pool()`.
+
+OpenSearch contexts create generation-specific indices from production mappings and
+reuse the native hybrid RRF pipeline. Pass `product_listings_index()` to every adapter,
+write, read and refresh; raw client calls do not rewrite a literal index name. Context
+cleanup deletes only owned indices; legacy delete-by-query performs its own refresh
+without a second refresh request.
+
+SQS/S3/SES names contain the complete run ID and a fresh test generation, preserving
+FIFO suffixes. `queue_name()`, `bucket_name()`, `configuration_set_name()` and
+`sender_email()` resolve context identities. Await `queue_name()`, `bucket_name()` and
+`configuration_set_name()` before manual create requests; fixtures persist their
+index, queue and sender ownership during setup. Labels use lowercase ASCII
+letters/digits/internal hyphens; maximum label lengths are 29 for ordinary SQS, 24
+for FIFO SQS, 12 for S3, and 13 for SES configuration sets. Worker queue fixtures also
+preserve redrive, visibility, encryption and policy metadata. Enable the corresponding
+fixture features (`sqs`, `s3`, `ses`, `opensearch`, `postgres`) for every resource a lane
+may recover. Unsupported recovery fails before a new test body.
+
+SES uses a unique verified sender. Capture helpers inspect that source, and cleanup
+removes only its returned message IDs. Floci 2.3.0 supports source filtering on GET
+and message-ID filtering on DELETE; an email parameter on DELETE is not scoped
+cleanup. Unfiltered managed deletion is permitted only inside the legacy exclusive
+scope. Test-owned SES configuration sets/identities are removed with the context.
+
+Contexts do not propagate automatically through `tokio::spawn` or OS threads.
+Capture resolved resources/pools, explicitly scope a context clone, or use
+`context.spawn()` for abort-and-join ownership. Register external worker/server
+shutdown through `on_shutdown()`; shutdown must stop and join every delayed writer,
+callback or long poll before resources are removed. The API fixture explicitly scopes
+its factory on its own runtime and registers server/thread shutdown; `base_url()`
+returns the current context's owned URL. Captures, failure injection and caches in
+consumer code still need per-context ownership before in-process parallel execution.
+
+For API fake state, a setup fixture before `&API` inserts an `Arc<ApiTestState>` with
+`context.insert_api_state(state)`. The factory and test helpers read it through
+`context.api_state::<Arc<ApiTestState>>()`. Missing state and duplicate initialization
+return errors; insertion after server initialization starts is rejected. The factory
+runs once per context/API declaration even when setup callers race. The server stops
+and its thread joins before the context drops this owned state.
+
+A worker can capture the scoped resources and remain owned by the context:
+
+```rust,ignore
+let pool = context.postgres_pool().await?;
+let queue_url = worker_queues.queue_url(); // Resolve before a raw spawned task.
+context.spawn(async move {
+    run_worker(pool, queue_url).await;
+})?;
+// An external JoinHandle/server instead registers stop-and-join with on_shutdown().
+```
+
+Normal teardown stops/joins owned tasks and servers, closes pools, removes only
+registered resources, then releases the reservation. Dropping a session transfers its
+reservation and bounded cleanup to a separate runtime thread. A killed process cannot
+run Drop: its persistent slot manifest is recovered before the next holder proceeds.
+Cleanup failure remains visible and retains recovery metadata. Corrupt/foreign
+ownership fails closed. New generation names protect a reused slot from a late old
+request; supervisor GC owns final job cleanup after interruption.
 
 ### Smoke verification
 
@@ -98,6 +207,21 @@ bootstrap, a forced service restart, partial Docker failure, active-run GC and
 hard-kill recovery. The Rust entry also exercises business migrations/extensions,
 replication prerequisites and verified TLS through managed fixture attachment.
 The driver verifies exact run resources and state are removed.
+
+For focused context acceptance, build the `isolated_context` test executable and pass
+its reported path to the driver:
+
+```sh
+cargo test --locked -p test-api --all-features --test isolated_context --no-run
+python3 ci/test-context-smoke.py --binary ./target/debug/aura-test-env \
+  --fixture-binary <isolated_context-executable> --output /tmp/aura-context-check
+```
+
+This runs 1/2/4 slots on actual PostgreSQL/Floci/OpenSearch, competing invocations,
+killed-holder recovery, restored seeds/DDL, thread-bound HTTP factories, an untouched
+SES sentinel and a filtered real Nextest retry. It records full TRUNCATE versus
+recreation measurements for the business baseline. Recreation also restores DDL/seeds
+and fences old writers, so a faster TRUNCATE is insufficient for that isolation contract.
 
 ## Unmanaged local fixtures
 

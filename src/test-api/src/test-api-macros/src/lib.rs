@@ -1,27 +1,63 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::spanned::Spanned;
-use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
+use syn::parse::{Parse, ParseStream};
+use syn::{Expr, ExprArray, FnArg, ItemFn, LitBool, Token, parse_macro_input};
 
-/// Attribute macro for running async integration tests with Aura test services.
+struct Arguments {
+    services: Vec<Expr>,
+    isolated: bool,
+    exclusive: bool,
+}
+
+impl Parse for Arguments {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let mut services = None;
+        let mut isolated = None;
+        let mut exclusive = None;
+        while !input.is_empty() {
+            let key: syn::Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            match key.to_string().as_str() {
+                "services" if services.is_none() => {
+                    let array: ExprArray = input.parse()?;
+                    services = Some(array.elems.into_iter().collect());
+                }
+                "isolated" if isolated.is_none() => {
+                    isolated = Some(input.parse::<LitBool>()?.value)
+                }
+                "exclusive" if exclusive.is_none() => {
+                    exclusive = Some(input.parse::<LitBool>()?.value)
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "unknown or duplicate integration-test option",
+                    ));
+                }
+            }
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+        }
+        Ok(Self {
+            services: services.ok_or_else(|| input.error("expected services = [...]"))?,
+            isolated: isolated.unwrap_or(false),
+            exclusive: exclusive.unwrap_or(false),
+        })
+    }
+}
+
+fn service_ident(index: usize) -> syn::Ident {
+    syn::Ident::new(&format!("__svc_{index}"), proc_macro2::Span::call_site())
+}
+
+/// Owns service setup/body/teardown and, with `isolated = true`, a per-test TestContext.
+/// `exclusive = true` requests a scoped context excluding all other test reservations.
+/// An optional `context: TestContext` argument receives that scope. Legacy callers retain
+/// process-local serialization and reserve the actual cross-process exclusive gate.
 ///
-/// This macro wraps an async test function and automatically:
-/// - Parses the `services = [ServiceA, ServiceB, ...]` attribute
-/// - Shares a Floci container when a service requires AWS emulation
-/// - Calls each service's `set_up().await` before the test
-/// - Executes the test body
-/// - Calls each service's `tear_down().await` after the test
-/// - Keeps services such as Postgres managed by their service helper
-///
-/// # Requirements
-///
-/// Each service provided:
-/// - must be a valid identifier for a type implementing trait `IntegrationTestService`
-/// - must return AWS service names from `service_names()` or `&[]` for other services
-/// - must define an `async fn set_up()`
-/// - may define an `async fn tear_down()`
-///
-/// Example:
+/// A standalone service fixture can expose these lifecycle methods:
 ///
 /// ```rust
 /// pub struct S3;
@@ -40,177 +76,136 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///     }
 /// }
 /// ```
-///
-/// # Notes
-///
-/// - Requires Tokio runtime (`#[tokio::test]`) test execution.
-/// - The attribute must be in the format: `services = [ServiceA, ServiceB, ...]`.
-/// - Malformed input will panic at compile time.
-///
-/// # See also
-///
-/// - [`test_api::aws::spin_up_aws_emulator`] for how Floci is started.
-///
 #[proc_macro_attribute]
 pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input_fn = parse_macro_input!(item as ItemFn);
-    let service_exprs = parse_services(attr);
+    let args = parse_macro_input!(attr as Arguments);
+    let input = parse_macro_input!(item as ItemFn);
+    match expand(args, input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
 
-    // Generate bindings like: `let mut __svc_0 = Service(...)`
-    let service_bindings = service_exprs.iter().enumerate().map(|(i, expr)| {
-        let ident = syn::Ident::new(&format!("__svc_{i}"), expr.span());
-        quote! {
-            let mut #ident = #expr;
+fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStream> {
+    if input.sig.asyncness.is_none() || input.sig.inputs.len() > 1 {
+        return Err(syn::Error::new_spanned(
+            &input.sig,
+            "expected an async test with zero arguments or one TestContext argument",
+        ));
+    }
+    let scoped = args.isolated || args.exclusive;
+    let context_argument = match input.sig.inputs.first() {
+        Some(FnArg::Typed(argument)) if scoped => {
+            let pattern = &argument.pat;
+            let ty = &argument.ty;
+            quote! {let #pattern: #ty=__context.clone();}
         }
-    });
-
-    // Generate code to collect service names from each instance
-    let service_names = (0..service_exprs.len()).map(|i| {
-        let ident = service_ident(i);
-        quote! {
-            #ident.service_names()
+        Some(_) => {
+            return Err(syn::Error::new_spanned(
+                &input.sig,
+                "a context argument requires isolated = true or exclusive = true",
+            ));
         }
+        None => quote! {},
+    };
+    let bindings = args.services.iter().enumerate().map(|(index, expression)| {
+        let ident = service_ident(index);
+        quote! {let #ident=#expression;}
     });
-
-    // Generate code to collect env vars from each service
-    let service_env_vars = (0..service_exprs.len()).map(|i| {
-        let ident = service_ident(i);
-        quote! {
-            #ident.env_vars()
-        }
-    });
-
-    // Generate setup and teardown calls
-    let setup_calls = (0..service_exprs.len()).map(|i| {
-        let ident = service_ident(i);
-        quote! {
-            #ident.set_up().await;
-        }
-    });
-
-    let teardown_calls = (0..service_exprs.len()).rev().map(|i| {
-        let ident = service_ident(i);
-        quote! {
-            #ident.tear_down().await;
-        }
-    });
-
-    let attributes = &input_fn.attrs;
-    let fn_name = &input_fn.sig.ident;
-    let fn_block = &input_fn.block;
-
-    let expanded = quote! {
-        #( #attributes )*
-        #[tokio::test]
-        #[test_api::serial]
-        async fn #fn_name() {
-            use std::collections::HashSet;
-
-            #( #service_bindings )*
-
-            let __services: Vec<&str> = {
-                let mut set = HashSet::new();
-                let mut result = Vec::new();
-                for name in [ #( #service_names ),* ].concat() {
-                    if set.insert(name) {
-                        result.push(name);
-                    }
-                }
-                result
-            };
-
-            let __env_vars: Vec<(&str, &str)> = {
-                let mut result = Vec::new();
-                for pair in [ #( #service_env_vars ),* ].concat() {
-                    result.push(pair);
-                }
-                result
-            };
-
-            let __aws_emulator = if !__services.is_empty() {
-                Some(test_api::aws::get_aws_emulator(&__services, &__env_vars).await)
-            } else {
-                None
-            };
-
-            let __setup_started = std::time::Instant::now();
-            #( #setup_calls )*
-            test_api::tracing::debug!(
-                elapsed_ms = __setup_started.elapsed().as_millis(),
-                "Integration test setup complete."
-            );
-            test_api::benchmark::record_timing(
-                "SETUP",
-                concat!(module_path!(), "::", stringify!(#fn_name)),
-                __setup_started.elapsed(),
-            );
-
-            let __body_started = std::time::Instant::now();
-            let __body_result = test_api::FutureExt::catch_unwind(
-                std::panic::AssertUnwindSafe(async #fn_block)
-            ).await;
-            test_api::tracing::debug!(
-                elapsed_ms = __body_started.elapsed().as_millis(),
-                "Integration test body complete."
-            );
-            test_api::benchmark::record_timing(
-                "BODY",
-                concat!(module_path!(), "::", stringify!(#fn_name)),
-                __body_started.elapsed(),
-            );
-
-            let __teardown_started = std::time::Instant::now();
-            let __teardown_result = test_api::FutureExt::catch_unwind(
-                std::panic::AssertUnwindSafe(async {
-                    #( #teardown_calls )*
-                })
-            ).await;
-            test_api::tracing::debug!(
-                elapsed_ms = __teardown_started.elapsed().as_millis(),
-                "Integration test teardown complete."
-            );
-            test_api::benchmark::record_timing(
-                "TEARDOWN",
-                concat!(module_path!(), "::", stringify!(#fn_name)),
-                __teardown_started.elapsed(),
-            );
-
-            drop(__aws_emulator);
-
-            match (__body_result, __teardown_result) {
-                (Err(body_panic), Err(cleanup_panic)) => {
-                    eprintln!("integration-test teardown panicked after test-body panic: {cleanup_panic:?}");
-                    std::panic::resume_unwind(body_panic);
-                }
-                (Err(body_panic), Ok(())) => std::panic::resume_unwind(body_panic),
-                (Ok(()), Err(cleanup_panic)) => std::panic::resume_unwind(cleanup_panic),
-                (Ok(()), Ok(())) => {}
+    let identifiers: Vec<_> = (0..args.services.len()).map(service_ident).collect();
+    let setup = identifiers
+        .iter()
+        .map(|ident| quote! {#ident.set_up().await;__completed+=1;});
+    let teardown=identifiers.iter().enumerate().rev().map(|(index,ident)|quote! {
+        if __completed>#index {
+            if let Err(panic)=test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(#ident.tear_down())).await {
+                if __teardown_panic.is_none() {__teardown_panic=Some(panic);} else {eprintln!("another integration service teardown panicked");}
             }
         }
-    };
-
-    expanded.into()
-}
-
-fn parse_services(attr: TokenStream) -> Vec<Expr> {
-    let attr_expr = attr.to_string();
-
-    // Parse `services = [ServiceA(...), ServiceB, ...]`
-    let service_exprs: Vec<Expr> = if let Some(eq_pos) = attr_expr.find('=') {
-        let expr_str = attr_expr[eq_pos + 1..].trim();
-        let expr: Expr = syn::parse_str(expr_str).expect("Expected a Rust expression");
-        if let Expr::Array(ExprArray { elems, .. }) = expr {
-            elems.into_iter().collect()
-        } else {
-            panic!("Expected array expression for `services = [...]`");
-        }
+    });
+    let attrs = &input.attrs;
+    let name = &input.sig.ident;
+    let body = &input.block;
+    let mutable = if identifiers.is_empty() {
+        quote! {}
     } else {
-        panic!("Expected `services = [...]`");
+        quote! {mut}
     };
-
-    service_exprs
+    let lifecycle = quote! {
+        #( #bindings )*
+        let __service_declarations: &[&[&str]] = &[ #( #identifiers.service_names() ),* ];
+        let __services:Vec<&str> = __service_declarations.iter().flat_map(|names|names.iter().copied()).collect();
+        let __environment_declarations: &[Vec<(&str,&str)>] = &[ #( #identifiers.env_vars() ),* ];
+        let __env:Vec<(&str,&str)> = __environment_declarations.concat();
+        let __aws=if __services.is_empty() {None} else {Some(test_api::aws::get_aws_emulator(&__services,&__env).await)};
+        let #mutable __completed=0usize;
+        let __started=std::time::Instant::now();
+        let __setup=test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async { #( #setup )* })).await;
+        test_api::benchmark::record_timing("SETUP",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
+        let __started=std::time::Instant::now();
+        let __body=match __setup {Ok(())=>test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {#context_argument #body})).await,Err(panic)=>Err(panic)};
+        test_api::benchmark::record_timing("BODY",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
+        let __started=std::time::Instant::now();
+        let #mutable __teardown_panic: Option<Box<dyn std::any::Any+Send>>=None;
+        #( #teardown )*
+        test_api::benchmark::record_timing("TEARDOWN",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
+        drop(__aws);
+        match (__body,__teardown_panic) {
+            (Err(panic),cleanup)=>{if cleanup.is_some() {eprintln!("integration service teardown also panicked");} std::panic::resume_unwind(panic);},
+            (Ok(()),Some(panic))=>std::panic::resume_unwind(panic),
+            (Ok(()),None)=>{},
+        }
+    };
+    let (serial, run) = if scoped {
+        let isolation = if args.exclusive {
+            quote! {test_api::Isolation::Exclusive}
+        } else {
+            quote! {test_api::Isolation::Isolated}
+        };
+        (
+            quote! {},
+            quote! {
+                let __session=test_api::TestContext::acquire(concat!(module_path!(),"::",stringify!(#name)),#isolation).await.expect("acquire test context");
+                let __context=__session.context().clone();
+                let __result=test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(__context.scope(async {#lifecycle}))).await;
+                let __cleanup=__session.finish().await;
+                match (__result,__cleanup) {
+                    (Err(panic),cleanup)=>{if let Err(error)=cleanup {eprintln!("test context cleanup also failed: {error}");}std::panic::resume_unwind(panic);},
+                    (Ok(()),Err(error))=>panic!("test context cleanup failed: {error}"),
+                    (Ok(()),Ok(()))=>{},
+                }
+            },
+        )
+    } else {
+        (
+            quote! {#[test_api::serial]},
+            quote! {
+                let __exclusive=test_api::reserve_exclusive().await.expect("reserve legacy integration fixture");
+                __exclusive.scope(async {#lifecycle}).await;
+            },
+        )
+    };
+    Ok(quote! {#( #attrs )* #[tokio::test] #serial async fn #name() {#run}})
 }
 
-fn service_ident(index: usize) -> syn::Ident {
-    syn::Ident::new(&format!("__svc_{index}"), proc_macro2::Span::call_site())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn should_reject_unknown_duplicate_or_nonboolean_options() {
+        for text in [
+            "services = [], typo = true",
+            "services = [], isolated = true, isolated = false",
+            "services = [], isolated = 1",
+        ] {
+            assert!(syn::parse_str::<Arguments>(text).is_err());
+        }
+        assert!(
+            syn::parse_str::<Arguments>(
+                "services = [Postgres::new(\"migrations\")], isolated = true"
+            )
+            .unwrap()
+            .isolated
+        );
+    }
 }

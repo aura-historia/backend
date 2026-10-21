@@ -1,5 +1,6 @@
 //! Job-owned test infrastructure. The JSON contract is shared by every runner.
 mod contract;
+pub(crate) use contract::managed_directory;
 pub use contract::{ManagedEnvironment, managed_environment};
 
 #[cfg(feature = "supervisor")]
