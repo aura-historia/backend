@@ -62,6 +62,9 @@ cache restoration and uses checksum-verified, pinned Nextest and grcov archives.
 The job supervisor owns service cleanup, including cancellation; no job prunes
 shared Docker resources. Failure retains test/compile diagnostics and any coverage
 produced without allowing a failed lane to pass the final gate.
+Diagnostics retain their workflow attempt, including that attempt's LCOV when
+available. A rerun replaces the stable required coverage artifact only; the final
+gate still requires each lane's current result to succeed.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
 Each lane writes one process/module-unique profile namespace and one named LCOV
@@ -129,8 +132,9 @@ parent-driven executions in case accounting.
 
 [`benchmark-lanes.yml`](../.github/workflows/benchmark-lanes.yml) is an opt-in
 comparison of four lanes, three lanes (integration plus remaining), or one job.
-Dispatch each layout at the same immutable source SHA, harness and slot count,
-with at least two independent workflow runs. Every layout executes the full owned
+Dispatch each layout at the same immutable source SHA, harness and slot count.
+Start with one cold/warm diagnostic pair per layout, then repeat close contenders
+or unstable configurations. Every layout executes the full owned
 workspace, including exceptional phases and doctests. Each test job starts with
 an empty Cargo target, then immediately repeats with that target; registry, Docker
 images and OS caches are not claimed cold. Lint runs independently.

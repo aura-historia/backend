@@ -51,6 +51,12 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
           persist-credentials: false
+      - name: Verify immutable lint source
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$REVISION"
       - uses: ./.github/actions/lint-workspace
 
   test:
@@ -67,9 +73,15 @@ jobs:
         env:
           REVISION: ${{ inputs.revision }}
           REPETITION: ${{ inputs.repetition }}
+          LAYOUT: ${{ inputs.layout }}
+          SCENARIO: ${{ inputs.scenario }}
+          SLOTS: ${{ inputs.slots }}
         run: |
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$REPETITION" =~ ^[1-9][0-9]*$ ]]
+          [[ "$LAYOUT" =~ ^(four|three|one)$ ]]
+          [[ "$SCENARIO" =~ ^(FULL|API|LEAF)$ ]]
+          [[ "$SLOTS" =~ ^(1|2|4)$ ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.revision }}
@@ -122,12 +134,13 @@ jobs:
           name: coverage-${{ matrix.job.id }}
           path: ${{ runner.temp }}/measurement/WARM_TARGET/coverage.lcov
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
       - name: Preserve measurement evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lane-measurement-${{ inputs.layout }}-${{ matrix.job.id }}-${{ inputs.repetition }}
+          name: lane-measurement-${{ inputs.layout }}-${{ matrix.job.id }}-${{ inputs.repetition }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/measurement/inputs.txt
             ${{ runner.temp }}/measurement/COLD_TARGET/
