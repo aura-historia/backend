@@ -13,7 +13,7 @@ LANES = {
     "API": {"runner": "ubuntu-latest", "description": "API package targets"},
     "CRAWLER": {"runner": "ubuntu-latest", "description": "Crawler package targets"},
     "INFRASTRUCTURE": {"runner": "ubuntu-latest", "description": "Fixture, adapter, worker, Lambda and CDC targets"},
-    "REMAINING": {"runner": "ubuntu-latest", "description": "All other targets, including the root and proc macro"},
+    "REMAINING": {"runner": "ubuntu-latest", "description": "All other targets"},
 }
 
 

@@ -13,7 +13,7 @@
       "runner": "ubuntu-latest"
     },
     "REMAINING": {
-      "description": "All other targets, including the root and proc macro",
+      "description": "All other targets",
       "runner": "ubuntu-latest"
     }
   },
