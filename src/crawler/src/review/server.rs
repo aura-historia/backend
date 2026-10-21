@@ -5,6 +5,7 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
@@ -747,6 +748,18 @@ impl ReviewServer {
             .fetch(&url)
             .await
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
+        // Shops often redirect a deleted or sold listing to the homepage; that page would make
+        // the matrix test the candidate on a page that is not a product.
+        if is_redirect_to_non_product_page(&url, &fetched.final_url, None) {
+            return Err(HttpResponse::json(
+                400,
+                &json!({
+                    "error": "review page redirected to a page that is not a product page",
+                    "url": url.as_str(),
+                    "final_url": fetched.final_url.as_str(),
+                }),
+            ));
+        }
         self.repository
             .add_reviewer_page(review_id, &fetched.final_url, &fetched.html)
             .await
