@@ -310,13 +310,16 @@ fn has_only_zero_digits(value: &str) -> bool {
 
 /// Whether an extracted value still carries CSS rules or script source, as a selector
 /// produces when it targets a container holding an inline `<style>` or `<script>` block.
+///
+/// Description prose is checked too, and text extraction joins text nodes without
+/// separators, so each pattern needs script syntax around its keyword: prose may say
+/// "a dual function (desk and table)" or end a line with "window." before `<br>`.
 pub(crate) fn contains_markup_tokens(value: &str) -> bool {
     contains_css_declaration_block(value)
-        || value.contains("function(")
-        || value.contains("function (")
+        || contains_function_source(value)
         || value.contains("=>")
-        || followed_by_identifier(value, "document.")
-        || followed_by_identifier(value, "window.")
+        || contains_member_access(value, "document.")
+        || contains_member_access(value, "window.")
 }
 
 /// `{ ... }` holding a `property: value` declaration, so `.x{display:none}` counts while
@@ -336,15 +339,41 @@ fn contains_css_declaration_block(value: &str) -> bool {
     false
 }
 
-/// `token` immediately followed by an identifier character, which is how script source
-/// reads (`window.location`) and prose does not (`stained glass window. Circa 1880`).
-fn followed_by_identifier(value: &str, token: &str) -> bool {
-    value.match_indices(token).any(|(index, _)| {
-        value[index + token.len()..]
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+/// `function`, an optional name and a parameter list followed by a body, as in
+/// `function(){` or `function track(event) {`; prose such as "its original function
+/// (as a desk)" has no body brace after the parentheses.
+fn contains_function_source(value: &str) -> bool {
+    value.match_indices("function").any(|(index, keyword)| {
+        let rest = skip_identifier(value[index + keyword.len()..].trim_start()).trim_start();
+        let Some(parameters) = rest.strip_prefix('(') else {
+            return false;
+        };
+        parameters
+            .split_once(')')
+            .is_some_and(|(_, body)| body.trim_start().starts_with('{'))
     })
+}
+
+/// `token` followed by a member name and then by script syntax (`.`, `(`, `[`, `;` or
+/// an assignment), as in `window.dataLayer.push` or `document.cookie;`. Prose ends a
+/// sentence there instead: `stained glass window. Circa 1880`, or `window.Height 40 cm`
+/// where a `<br>` separated the lines.
+fn contains_member_access(value: &str, token: &str) -> bool {
+    value.match_indices(token).any(|(index, _)| {
+        let rest = &value[index + token.len()..];
+        let after_member = skip_identifier(rest);
+        after_member.len() < rest.len()
+            && (after_member.starts_with(['.', '(', '[', ';'])
+                || after_member.trim_start().starts_with('='))
+    })
+}
+
+/// `value` after a leading script identifier, or `value` itself when it starts with none.
+fn skip_identifier(value: &str) -> &str {
+    if !value.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') {
+        return value;
+    }
+    value.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 #[cfg(test)]
@@ -404,6 +433,38 @@ mod tests {
 
             assert!(PlausibilityFindings::of(&raw).is_empty());
         }
+
+        #[test]
+        fn should_accept_a_state_and_price_of_exactly_label_length() {
+            let mut raw = plausible();
+            raw.state = format!("  {}  ", "s".repeat(MAX_LABEL_CHARS));
+            raw.price = Some(format!("£1{}", " 0".repeat((MAX_LABEL_CHARS - 2) / 2)));
+
+            assert_eq!(collapsed_char_count(&raw.state), MAX_LABEL_CHARS);
+            assert_eq!(
+                raw.price.as_deref().map(collapsed_char_count),
+                Some(MAX_LABEL_CHARS)
+            );
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+
+        /// Text extraction joins text nodes without separators, so a `<br>` or a
+        /// minified paragraph break leaves `window.Height`; prose also says
+        /// "function (". Neither is script source.
+        #[test]
+        fn should_accept_description_prose_that_mentions_window_document_or_function() {
+            let mut raw = plausible();
+            raw.description = vec![
+                "Leaded glass from a bay window.Height 40 cm".to_owned(),
+                "Sold with the original purchase document.Provenance: private collection"
+                    .to_owned(),
+                "Serves a dual function (library steps and chair). Original glass {rare}"
+                    .to_owned(),
+                "Fits a window.Dimensions: 30 x 20 cm".to_owned(),
+            ];
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
     }
 
     mod rejecting_findings {
@@ -437,6 +498,39 @@ mod tests {
 
             assert_eq!(findings.as_slice(), [finding(State, TooLong)]);
             assert!(findings.rejects_candidate());
+        }
+
+        #[test]
+        fn should_reject_a_state_one_character_longer_than_a_label() {
+            let mut raw = plausible();
+            raw.state = "s".repeat(MAX_LABEL_CHARS + 1);
+
+            assert_eq!(
+                PlausibilityFindings::of(&raw).as_slice(),
+                [finding(State, TooLong)]
+            );
+        }
+
+        #[test]
+        fn should_reject_script_source_in_a_description() {
+            for script in [
+                "function(){ track() }",
+                "function trackView (event) { return 1 }",
+                "items.forEach(item => send(item))",
+                "window.dataLayer = window.dataLayer || []",
+                "window.Shopify.theme",
+                "document.getElementById('price')",
+                "document.cookie;",
+            ] {
+                let mut raw = plausible();
+                raw.description = vec![format!("Walnut veneer. {script}")];
+
+                assert_eq!(
+                    PlausibilityFindings::of(&raw).as_slice(),
+                    [finding(Description, MarkupTokens)],
+                    "{script}"
+                );
+            }
         }
 
         #[test]
