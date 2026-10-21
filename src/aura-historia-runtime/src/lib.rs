@@ -6,6 +6,7 @@
 
 mod access_token_authentication;
 mod postgres;
+mod private_addresses;
 pub mod product_listing_config;
 mod product_listing_providers;
 mod public_auctions;
@@ -16,8 +17,10 @@ mod public_party_locations;
 mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
+mod user_profile;
 
 pub use postgres::PostgresConfigError;
+pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
 pub use product_listing_providers::ProductListingProviderError;
 pub use public_auctions::PublicAuctions;
@@ -28,6 +31,7 @@ pub use public_party_locations::PublicPartyLocations;
 pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
+pub use user_profile::UserProfile;
 
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
@@ -36,6 +40,8 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
     postgres: PgPool,
+    user_profile: OnceLock<UserProfile>,
+    private_addresses: OnceLock<PrivateAddresses>,
     access_token_authentication: OnceLock<Arc<dyn AuthenticateAccessTokenUseCase>>,
     public_listing_sources: OnceLock<PublicListingSources>,
     public_product_listing_history: OnceLock<PublicProductListingHistory>,
@@ -50,6 +56,8 @@ impl Runtime {
     pub fn from_pool(postgres: PgPool) -> Self {
         Self {
             postgres,
+            user_profile: OnceLock::new(),
+            private_addresses: OnceLock::new(),
             access_token_authentication: OnceLock::new(),
             public_listing_sources: OnceLock::new(),
             public_product_listing_history: OnceLock::new(),
@@ -72,6 +80,16 @@ impl Runtime {
     /// Request handlers must use inbound use cases rather than this pool.
     pub fn postgres_pool(&self) -> &PgPool {
         &self.postgres
+    }
+
+    pub fn user_profile(&self) -> &UserProfile {
+        self.user_profile
+            .get_or_init(|| UserProfile::compose(&self.postgres))
+    }
+
+    pub fn private_addresses(&self) -> &PrivateAddresses {
+        self.private_addresses
+            .get_or_init(|| PrivateAddresses::compose(&self.postgres))
     }
 
     pub fn access_token_authentication(&self) -> &Arc<dyn AuthenticateAccessTokenUseCase> {
