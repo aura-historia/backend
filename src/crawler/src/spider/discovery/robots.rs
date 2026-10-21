@@ -5,14 +5,13 @@
 //! as deny-list patterns.
 
 use super::website_spider::{CrawlFailureKind, SpiderDiscoveryError, SpiderTransport};
-use crate::network::policy::is_same_or_www_host;
-use crate::network::robots::{DenyList, MAX_ROBOTS_TXT_BYTES, RobotsPolicy, RobotsRules};
+use crate::network::robots::{
+    DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, RobotsRules,
+    robots_txt_url,
+};
 use std::time::Duration;
 use tracing::{debug, info};
 use url::Url;
-
-/// RFC 9309 asks crawlers to follow at least five consecutive redirects.
-const ROBOTS_MAX_REDIRECTS: usize = 5;
 
 /// What robots.txt allows a crawl below an established root.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,18 +68,16 @@ fn crawl_robots(root: &Url, rules: &RobotsRules) -> CrawlRobots {
 }
 
 /// Requests to the root host reuse the client pinned to it in preflight; a
-/// redirect to the bare or `www` sibling gets its own validated client.
+/// redirect to another host, which RFC 9309 asks crawlers to follow, gets its
+/// own validated client.
 async fn fetch_robots_policy(
     transport: &dyn SpiderTransport,
     root: &Url,
     root_client: &spider::reqwest::Client,
     timeout: Duration,
 ) -> Result<RobotsPolicy, SpiderDiscoveryError> {
-    let mut robots_url = root.clone();
-    robots_url.set_path("/robots.txt");
-    robots_url.set_query(None);
-    robots_url.set_fragment(None);
-    for _ in 0..=ROBOTS_MAX_REDIRECTS {
+    let mut robots_url = robots_txt_url(root);
+    for _ in 0..=MAX_ROBOTS_TXT_REDIRECTS {
         let client = if robots_url.host() == root.host() {
             root_client.clone()
         } else {
@@ -105,9 +102,7 @@ async fn fetch_robots_policy(
                     Err(error) => return Err(robots_request_failed(Box::new(error))),
                 }
             }
-            return Ok(RobotsPolicy::Rules(RobotsRules::parse(
-                &String::from_utf8_lossy(&body),
-            )));
+            return Ok(RobotsPolicy::from_body(&body));
         }
         if !status.is_redirection() {
             return Ok(RobotsPolicy::for_failed_status(status.as_u16()));
@@ -118,10 +113,10 @@ async fn fetch_robots_policy(
             .and_then(|location| location.to_str().ok())
             .and_then(|location| robots_url.join(location).ok());
         match next {
-            Some(next) if is_same_or_www_host(root, &next) => robots_url = next,
-            // No robots.txt on the shop's host: RFC 9309 treats it as
-            // unavailable.
-            _ => return Ok(RobotsPolicy::Unavailable),
+            Some(next) => robots_url = next,
+            // A redirect without a usable target leaves no robots.txt to
+            // read: RFC 9309 treats that as unavailable.
+            None => return Ok(RobotsPolicy::Unavailable),
         }
     }
     Ok(RobotsPolicy::Unavailable)

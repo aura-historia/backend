@@ -1,3 +1,4 @@
+use crate::network::policy::NetworkErrorKind;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
@@ -5,7 +6,7 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::scraper_service::html_fetcher::{FetchError, HtmlFetcher};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
@@ -83,6 +84,10 @@ const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 64 * 1024;
 const REQUEST_IO_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
+/// Live inspection shares the scraper's per-domain pacing, so a shop's
+/// robots.txt `Crawl-delay` can queue it; it gives up in time to answer
+/// within [`REQUEST_DEADLINE`].
+const LIVE_FETCH_DEADLINE: Duration = Duration::from_secs(25);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 const REVIEW_SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const REVIEW_SESSION_COOKIE: &str = "crawler_review_session";
@@ -701,8 +706,7 @@ impl ReviewServer {
                 }),
             )
         })?;
-        self.html_fetcher
-            .fetch(&url)
+        self.fetch_live(&url)
             .await
             .map(|fetched| fetched.html)
             .map_err(|err| live_fetch_error(page, &err))
@@ -719,11 +723,24 @@ impl ReviewServer {
                 }),
             )
         })?;
-        self.html_fetcher
-            .fetch(&url)
+        self.fetch_live(&url)
             .await
             .map(|fetched| fetched.html)
             .map_err(|err| live_url_fetch_error(raw_url, &err))
+    }
+
+    async fn fetch_live(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+        tokio::time::timeout(LIVE_FETCH_DEADLINE, self.html_fetcher.fetch(url))
+            .await
+            .unwrap_or_else(|_| {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: format!(
+                        "live fetch did not finish within {}s; the shop's robots.txt Crawl-delay may be queueing it behind the scraper",
+                        LIVE_FETCH_DEADLINE.as_secs()
+                    ),
+                })
+            })
     }
 }
 
@@ -1067,7 +1084,7 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
+    use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };

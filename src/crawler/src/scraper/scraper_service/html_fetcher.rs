@@ -99,6 +99,13 @@ impl FetchError {
         }
     }
 
+    pub(crate) fn status(&self) -> Option<u16> {
+        match self {
+            FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => None,
+            FetchError::NetworkWithMetadata { status, .. } => *status,
+        }
+    }
+
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
             FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => None,
@@ -211,15 +218,17 @@ impl ReqwestHtmlFetcher {
 
     /// Waits for the domain's pacing delay before a request and returns the
     /// time waited: the latency throttle, raised to the robots `Crawl-delay`
-    /// spacing when one applies.
+    /// spacing when one applies. A caller dropping the fetch while it waits
+    /// hands the reserved start back.
     async fn pace(&self, url: &Url, crawl_delay: Option<Duration>) -> Duration {
         let Some(domain) = url.host_str() else {
             return Duration::ZERO;
         };
         let throttle = self.auto_throttle.delay_for(domain);
-        let delay = self
+        let start = self
             .auto_throttle
             .reserve_request_start(domain, throttle, crawl_delay);
+        let delay = start.wait();
         if !delay.is_zero() {
             debug!(
                 domain,
@@ -228,6 +237,7 @@ impl ReqwestHtmlFetcher {
             );
             sleep(delay).await;
         }
+        start.claim();
         delay
     }
 
@@ -851,22 +861,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_disallow_the_origin_while_robots_txt_answers_5xx() {
-        let shop = spawn_shop(
-            robots_status("503 Service Unavailable"),
-            vec![OK_PAGE],
+    async fn should_disallow_the_origin_while_robots_txt_answers_5xx_or_429() {
+        for status in ["503 Service Unavailable", "429 Too Many Requests"] {
+            let shop = spawn_shop(robots_status(status), vec![OK_PAGE], Duration::ZERO).await;
+            let fetcher = unthrottled_fetcher();
+
+            let first = fetcher.fetch(&shop.url).await.unwrap_err();
+            let second = fetcher.fetch(&shop.url).await.unwrap_err();
+
+            assert_eq!(
+                first.kind(),
+                NetworkErrorKind::RobotsUnreachable,
+                "{status}"
+            );
+            assert_eq!(
+                second.kind(),
+                NetworkErrorKind::RobotsUnreachable,
+                "{status}"
+            );
+            assert!(shop.page_requests().is_empty());
+            assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_follow_a_robots_txt_redirect_to_another_host() {
+        let robots_host = spawn_shop(
+            robots_txt("User-agent: *\nDisallow: /\n"),
+            vec![],
             Duration::ZERO,
         )
         .await;
-        let fetcher = unthrottled_fetcher();
+        let redirect = format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: http://localhost:{}/robots.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            robots_host.url.port().unwrap()
+        );
+        let shop = spawn_shop(redirect, vec![OK_PAGE], Duration::ZERO).await;
 
-        let first = fetcher.fetch(&shop.url).await.unwrap_err();
-        let second = fetcher.fetch(&shop.url).await.unwrap_err();
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
 
-        assert_eq!(first.kind(), NetworkErrorKind::RobotsUnreachable);
-        assert_eq!(second.kind(), NetworkErrorKind::RobotsUnreachable);
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsDisallowed);
+        assert_eq!(robots_host.robots_requests.load(Ordering::SeqCst), 1);
         assert!(shop.page_requests().is_empty());
-        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(start_paused = true)]

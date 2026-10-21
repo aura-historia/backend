@@ -1,5 +1,5 @@
 use crate::CrawlerDomainId;
-use crate::network::policy::domain_failure_kind;
+use crate::network::policy::{NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
@@ -9,7 +9,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_no
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
-use tracing::warn;
+use tracing::{debug, warn};
 use url::Url;
 
 pub(crate) struct SchemaSeedPage {
@@ -113,6 +113,17 @@ impl ScraperServiceImpl {
                         );
                         return Err(error);
                     }
+                    if matches!(
+                        err.kind(),
+                        NetworkErrorKind::RobotsDisallowed | NetworkErrorKind::RobotsUnreachable
+                    ) {
+                        debug!(
+                            error = %err,
+                            sample_url = %sample_url,
+                            "Skipping sampled schema-seed page robots.txt refuses"
+                        );
+                        continue;
+                    }
                     warn!(
                         error = ?err,
                         sample_url = %sample_url,
@@ -131,31 +142,14 @@ fn record_fetch_transport_error(
     expected_last_captured_raw_input_sha256: Option<&[u8]>,
     error: &FetchError,
 ) {
-    match error {
-        FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => {
-            record_transport_failure(
-                url,
-                FetchFailureSource::SchemaSeed,
-                expected_last_captured_raw_input_sha256,
-                error.kind(),
-                None,
-                None,
-            )
-        }
-        FetchError::NetworkWithMetadata {
-            kind,
-            status,
-            retry_after,
-            ..
-        } => record_transport_failure(
-            url,
-            FetchFailureSource::SchemaSeed,
-            expected_last_captured_raw_input_sha256,
-            *kind,
-            *status,
-            *retry_after,
-        ),
-    }
+    record_transport_failure(
+        url,
+        FetchFailureSource::SchemaSeed,
+        expected_last_captured_raw_input_sha256,
+        error.kind(),
+        error.status(),
+        error.retry_after(),
+    );
 }
 
 fn domain_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {

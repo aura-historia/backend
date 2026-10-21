@@ -19,19 +19,32 @@ pub const MAX_CRAWL_DELAY: Duration = Duration::from_secs(60);
 /// anything beyond the limit is ignored.
 pub const MAX_ROBOTS_TXT_BYTES: usize = 512 * 1024;
 
+/// RFC 9309 asks crawlers to follow at least five consecutive redirects,
+/// even across authorities.
+pub const MAX_ROBOTS_TXT_REDIRECTS: usize = 5;
+
 /// The product token shops address the crawler by in `User-agent` lines.
 const CRAWLER_PRODUCT_TOKEN: &str = "aurahistoriabot";
+
+/// The robots.txt URL of `url`'s origin.
+pub fn robots_txt_url(url: &Url) -> Url {
+    let mut robots_url = url.clone();
+    robots_url.set_path("/robots.txt");
+    robots_url.set_query(None);
+    robots_url.set_fragment(None);
+    robots_url
+}
 
 /// What robots.txt says about one origin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RobotsPolicy {
     /// robots.txt was served; the group that applies to the crawler decides.
     Rules(RobotsRules),
-    /// robots.txt is unavailable (a 4xx answer or an unusable redirect):
-    /// every URL is allowed.
+    /// robots.txt is unavailable (a 4xx answer other than 429, or an
+    /// unusable redirect): every URL is allowed.
     Unavailable,
-    /// robots.txt could not be reached (a 5xx answer or a network failure):
-    /// every URL is disallowed until robots.txt is fetched again.
+    /// robots.txt could not be reached (a 429 or 5xx answer): every URL is
+    /// disallowed until robots.txt is fetched again.
     Unreachable,
 }
 
@@ -43,9 +56,17 @@ pub enum RobotsRefusal {
 }
 
 impl RobotsPolicy {
-    /// Classifies a non-success, non-redirect robots.txt status.
+    /// The policy a served robots.txt body sets; only its first
+    /// [`MAX_ROBOTS_TXT_BYTES`] count.
+    pub fn from_body(body: &[u8]) -> Self {
+        let body = &body[..body.len().min(MAX_ROBOTS_TXT_BYTES)];
+        Self::Rules(RobotsRules::parse(&String::from_utf8_lossy(body)))
+    }
+
+    /// Classifies a non-success, non-redirect robots.txt status. A 429 asks
+    /// the crawler to back off, so it counts as unreachable like a 5xx.
     pub fn for_failed_status(status: u16) -> Self {
-        if status >= 500 {
+        if status >= 500 || status == 429 {
             Self::Unreachable
         } else {
             Self::Unavailable
@@ -184,7 +205,7 @@ fn parse_groups(body: &str) -> Vec<Group> {
         match key.as_str() {
             "allow" | "disallow" if !value.is_empty() => group.rules.push(Rule {
                 allow: key == "allow",
-                pattern: normalize_pattern(value),
+                pattern: normalize_percent_encoding(value),
             }),
             "crawl-delay" => {
                 if let Some(delay) = parse_crawl_delay(value) {
@@ -213,9 +234,10 @@ fn parse_crawl_delay(value: &str) -> Option<Duration> {
         .then(|| Duration::from_secs_f64(seconds.min(MAX_CRAWL_DELAY.as_secs_f64())))
 }
 
-/// URL paths are percent-encoded with upper-case hex; patterns are brought
-/// into the same form so a literal non-ASCII pattern still matches.
-fn normalize_pattern(pattern: &str) -> String {
+/// Brings patterns and request paths into one form: non-ASCII characters
+/// percent-encoded and every escape in upper-case hex (RFC 3986 treats
+/// `%2b` and `%2B` as equal), so a literal non-ASCII pattern still matches.
+fn normalize_percent_encoding(pattern: &str) -> String {
     let mut normalized = String::with_capacity(pattern.len());
     let mut chars = pattern.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -241,10 +263,11 @@ fn normalize_pattern(pattern: &str) -> String {
 }
 
 fn request_path(url: &Url) -> String {
-    match url.query() {
+    let path = match url.query() {
         Some(query) => format!("{}?{query}", url.path()),
         None => url.path().to_owned(),
-    }
+    };
+    normalize_percent_encoding(&path)
 }
 
 /// Matches a rule pattern against the start of `path`: `*` matches any
@@ -360,6 +383,15 @@ mod tests {
     }
 
     #[test]
+    fn should_match_percent_escapes_regardless_of_hex_case() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: /collections/*%2b*\n");
+
+        assert!(!rules.allows(&url("/collections/a%2bb")));
+        assert!(!rules.allows(&url("/collections/a%2Bb")));
+        assert!(rules.allows(&url("/collections/a+b")));
+    }
+
+    #[test]
     fn should_always_allow_robots_txt_itself() {
         let rules = RobotsRules::parse("User-agent: *\nDisallow: /\n");
 
@@ -390,5 +422,25 @@ mod tests {
             policy.check(&url("/products/1")),
             Err(RobotsRefusal::Unreachable)
         );
+    }
+
+    #[test]
+    fn should_treat_a_rate_limited_robots_txt_as_unreachable() {
+        assert_eq!(
+            RobotsPolicy::for_failed_status(429),
+            RobotsPolicy::Unreachable
+        );
+    }
+
+    #[test]
+    fn should_parse_only_the_first_robots_txt_bytes_of_a_body() {
+        let mut body = b"User-agent: *\nDisallow: /a\n".to_vec();
+        body.resize(MAX_ROBOTS_TXT_BYTES, b'\n');
+        body.extend_from_slice(b"Disallow: /b\n");
+
+        let policy = RobotsPolicy::from_body(&body);
+
+        assert_eq!(policy.check(&url("/a")), Err(RobotsRefusal::Disallowed));
+        assert_eq!(policy.check(&url("/b")), Ok(()));
     }
 }

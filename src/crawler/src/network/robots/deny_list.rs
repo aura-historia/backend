@@ -85,7 +85,7 @@ fn carve_exceptions(disallow: &str, exceptions: &[&Rule]) -> Option<String> {
     }
     allowed
         .disallowed_suffixes()
-        .map(|suffixes| format!("{URL_ORIGIN}{}{suffixes}", regex::escape(disallow)))
+        .map(|suffixes| format!("{URL_ORIGIN}{}{suffixes}", literal_regex(disallow)))
 }
 
 /// The literal path suffixes `Allow` rules exempt below one `Disallow`.
@@ -167,10 +167,36 @@ fn pattern_regex(pattern: &str) -> String {
     };
     let body = pattern
         .split('*')
-        .map(regex::escape)
+        .map(literal_regex)
         .collect::<Vec<_>>()
         .join(".*");
     if anchored { format!("{body}$") } else { body }
+}
+
+/// A literal pattern part as a regex. Patterns carry upper-case percent
+/// escapes, while crawl engines match URLs with the escapes as written, so
+/// each escape matches either hex case.
+fn literal_regex(literal: &str) -> String {
+    let chars: Vec<char> = literal.chars().collect();
+    let mut regex = String::with_capacity(literal.len());
+    let mut escape_digits = 0_u8;
+    for (index, &ch) in chars.iter().enumerate() {
+        if escape_digits > 0 && ch.is_ascii_alphabetic() {
+            regex.push_str(&format!("[{ch}{}]", ch.to_ascii_lowercase()));
+        } else {
+            regex.push_str(&regex::escape(&ch.to_string()));
+        }
+        let starts_escape = ch == '%'
+            && chars
+                .get(index + 1..index + 3)
+                .is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit));
+        escape_digits = if starts_escape {
+            2
+        } else {
+            escape_digits.saturating_sub(1)
+        };
+    }
+    regex
 }
 
 #[cfg(test)]
@@ -234,6 +260,21 @@ mod tests {
         assert_matches_rules(
             "User-agent: *\nDisallow: /\nAllow: /$\nAllow: /shop/\n",
             &["/", "/shop/", "/shop/item-1", "/shop", "/about", "/s"],
+        );
+    }
+
+    #[test]
+    fn should_deny_percent_escapes_in_either_hex_case() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: /collections/*%2b*\nDisallow: /a%2F\n",
+            &[
+                "/collections/a%2bb",
+                "/collections/a%2Bb",
+                "/collections/a+b",
+                "/a%2f",
+                "/a%2Fb",
+                "/a/",
+            ],
         );
     }
 

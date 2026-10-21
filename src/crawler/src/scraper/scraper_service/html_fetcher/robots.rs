@@ -2,8 +2,10 @@
 //! policy's `Crawl-delay` asks for lives in the auto-throttle.
 
 use super::{FetchAttemptError, ReqwestHtmlFetcher};
-use crate::network::policy::{is_same_or_www_host, redirect_target};
-use crate::network::robots::{MAX_ROBOTS_TXT_BYTES, RobotsPolicy, RobotsRules};
+use crate::network::policy::redirect_target;
+use crate::network::robots::{
+    MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, robots_txt_url,
+};
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,8 +19,6 @@ const ROBOTS_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 /// How long an unreachable robots.txt disallows its origin before the next
 /// request fetches it again.
 const ROBOTS_UNREACHABLE_RETRY: Duration = Duration::from_secs(15 * 60);
-/// RFC 9309 asks crawlers to follow at least five consecutive redirects.
-const ROBOTS_MAX_REDIRECTS: usize = 5;
 
 #[derive(Default)]
 pub(super) struct RobotsCache {
@@ -105,12 +105,10 @@ impl ReqwestHtmlFetcher {
         Ok(policy)
     }
 
+    /// Redirects are followed to any public host, as RFC 9309 asks.
     async fn load_robots_policy(&self, url: &Url) -> Result<RobotsPolicy, FetchAttemptError> {
-        let mut robots_url = url.clone();
-        robots_url.set_path("/robots.txt");
-        robots_url.set_query(None);
-        robots_url.set_fragment(None);
-        for _ in 0..=ROBOTS_MAX_REDIRECTS {
+        let mut robots_url = robots_txt_url(url);
+        for _ in 0..=MAX_ROBOTS_TXT_REDIRECTS {
             let client = self.http_client_for(&robots_url).await?;
             let response = client
                 .get(robots_url.clone())
@@ -120,24 +118,23 @@ impl ReqwestHtmlFetcher {
             let status = response.status();
             debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
             if status.is_success() {
-                let body = read_robots_body(response).await?;
-                return Ok(RobotsPolicy::Rules(RobotsRules::parse(&body)));
+                return Ok(RobotsPolicy::from_body(&read_robots_body(response).await?));
             }
             if !status.is_redirection() {
                 return Ok(RobotsPolicy::for_failed_status(status.as_u16()));
             }
             match redirect_target(&robots_url, &response) {
-                Ok(next) if is_same_or_www_host(url, &next) => robots_url = next,
-                // A redirect off the shop's host leaves no robots.txt the
-                // crawler may read: RFC 9309 treats that as unavailable.
-                _ => return Ok(RobotsPolicy::Unavailable),
+                Ok(next) => robots_url = next,
+                // A redirect without a usable target leaves no robots.txt
+                // to read: RFC 9309 treats that as unavailable.
+                Err(_) => return Ok(RobotsPolicy::Unavailable),
             }
         }
         Ok(RobotsPolicy::Unavailable)
     }
 }
 
-async fn read_robots_body(mut response: reqwest::Response) -> Result<String, FetchAttemptError> {
+async fn read_robots_body(mut response: reqwest::Response) -> Result<Vec<u8>, FetchAttemptError> {
     let mut bytes = Vec::new();
     while bytes.len() < MAX_ROBOTS_TXT_BYTES {
         let Some(chunk) = response.chunk().await.map_err(super::reqwest_fetch_error)? else {
@@ -145,7 +142,7 @@ async fn read_robots_body(mut response: reqwest::Response) -> Result<String, Fet
         };
         bytes.extend_from_slice(&chunk);
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(bytes)
 }
 
 fn robots_policy_label(policy: &RobotsPolicy) -> &'static str {

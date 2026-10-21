@@ -8,11 +8,11 @@
 //!   callers (scraper, schema seeds, review live inspection) queue behind one
 //!   another instead of starting together. The spacing is measured from the
 //!   previous start rather than slept in full, so a domain's first request is
-//!   not held back.
+//!   not held back. A reservation dropped before its request starts (a
+//!   caller timing out while it waits) hands its start back.
 
 use dashmap::DashMap;
 use dashmap::mapref::one::RefMut;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -57,7 +57,7 @@ struct DomainLatency {
     samples: AtomicU64,
     last_access: AtomicU64,
     /// The latest reserved request start.
-    last_request_start: Mutex<Option<Instant>>,
+    last_request_start: Option<Instant>,
 }
 
 impl DomainLatency {
@@ -66,7 +66,7 @@ impl DomainLatency {
             ema_us: AtomicU64::new(0),
             samples: AtomicU64::new(0),
             last_access: AtomicU64::new(access_counter),
-            last_request_start: Mutex::new(None),
+            last_request_start: None,
         }
     }
 
@@ -109,6 +109,50 @@ impl DomainLatency {
                 let next = calculated.max(previous);
                 Some(next.to_bits())
             });
+    }
+}
+
+/// A reserved request start. Waiting for it and then calling
+/// [`RequestStart::claim`] uses it; dropping it unclaimed hands it back.
+#[must_use]
+pub struct RequestStart<'a> {
+    throttle: &'a ScraperAutoThrottle,
+    wait: Duration,
+    /// Set while this reservation holds the domain's latest start.
+    booking: Option<Booking>,
+}
+
+struct Booking {
+    domain: String,
+    start: Instant,
+    previous: Option<Instant>,
+}
+
+impl<'a> RequestStart<'a> {
+    fn unbooked(throttle: &'a ScraperAutoThrottle, wait: Duration) -> Self {
+        Self {
+            throttle,
+            wait,
+            booking: None,
+        }
+    }
+
+    /// How long to wait before the request starts.
+    pub fn wait(&self) -> Duration {
+        self.wait
+    }
+
+    /// Marks the start as used: the request is being sent.
+    pub fn claim(mut self) {
+        self.booking = None;
+    }
+}
+
+impl Drop for RequestStart<'_> {
+    fn drop(&mut self) {
+        if let Some(booking) = self.booking.take() {
+            self.throttle.release(&booking);
+        }
     }
 }
 
@@ -169,30 +213,48 @@ impl ScraperAutoThrottle {
         Some(entry)
     }
 
-    /// Reserves the domain's next request start and returns how long to wait
-    /// for it: at least `min_wait`, and at least `crawl_delay` after the
-    /// previously reserved start. Applies even when the latency throttle is
-    /// disabled: robots.txt is not optional.
+    /// Reserves the domain's next request start: at least `min_wait` from
+    /// now, and at least `crawl_delay` after the previously reserved start.
+    /// Applies even when the latency throttle is disabled: robots.txt is not
+    /// optional.
     pub fn reserve_request_start(
         &self,
         domain: &str,
         min_wait: Duration,
         crawl_delay: Option<Duration>,
-    ) -> Duration {
+    ) -> RequestStart<'_> {
         let now = Instant::now();
-        let Some(entry) = self.entry(domain) else {
-            return min_wait;
+        let Some(mut entry) = self.entry(domain) else {
+            return RequestStart::unbooked(self, min_wait);
         };
-        let mut last_start = entry
-            .last_request_start
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = entry.last_request_start;
         let mut start = now + min_wait;
-        if let (Some(delay), Some(previous)) = (crawl_delay, *last_start) {
+        if let (Some(delay), Some(previous)) = (crawl_delay, previous) {
             start = start.max(previous + delay);
         }
-        *last_start = Some(last_start.map_or(start, |previous| previous.max(start)));
-        start - now
+        let booked = previous.is_none_or(|previous| start > previous);
+        if booked {
+            entry.last_request_start = Some(start);
+        }
+        RequestStart {
+            throttle: self,
+            wait: start - now,
+            booking: booked.then(|| Booking {
+                domain: entry.key().clone(),
+                start,
+                previous,
+            }),
+        }
+    }
+
+    /// Hands back an unclaimed start, unless a later reservation already
+    /// queued behind it.
+    fn release(&self, booking: &Booking) {
+        if let Some(mut entry) = self.domains.get_mut(&booking.domain)
+            && entry.last_request_start == Some(booking.start)
+        {
+            entry.last_request_start = booking.previous;
+        }
     }
 
     pub fn delay_for(&self, domain: &str) -> Duration {
@@ -353,24 +415,42 @@ mod tests {
         tokio::time::advance(Duration::from_secs(40)).await;
         let third = throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay);
 
-        assert_eq!(first, Duration::ZERO);
+        assert_eq!(first.wait(), Duration::ZERO);
         // Reserved while the first was still pending: it queues behind it.
-        assert_eq!(second, Duration::from_secs(30));
-        assert_eq!(third, Duration::from_secs(20));
+        assert_eq!(second.wait(), Duration::from_secs(30));
+        assert_eq!(third.wait(), Duration::from_secs(20));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_an_unclaimed_reservation_hands_its_start_back() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            enabled: false,
+            ..Default::default()
+        });
+        let crawl_delay = Some(Duration::from_secs(30));
+
+        throttle
+            .reserve_request_start("example.com", Duration::ZERO, crawl_delay)
+            .claim();
+        drop(throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay));
+        let next = throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay);
+
+        // Spaced from the claimed start only, not from the abandoned one.
+        assert_eq!(next.wait(), Duration::from_secs(30));
     }
 
     #[test]
     fn reservation_without_crawl_delay_waits_only_the_minimum() {
         let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig::default());
 
-        throttle.reserve_request_start(
-            "example.com",
-            Duration::ZERO,
-            Some(Duration::from_secs(30)),
-        );
+        throttle
+            .reserve_request_start("example.com", Duration::ZERO, Some(Duration::from_secs(30)))
+            .claim();
 
         assert_eq!(
-            throttle.reserve_request_start("example.com", Duration::from_millis(5), None),
+            throttle
+                .reserve_request_start("example.com", Duration::from_millis(5), None)
+                .wait(),
             Duration::from_millis(5)
         );
     }
