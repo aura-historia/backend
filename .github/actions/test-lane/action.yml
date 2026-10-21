@@ -37,7 +37,7 @@ runs:
           printf 'CARGO_PROFILE_TEST_DEBUG=1\n'
           printf 'CARGO_PROFILE_DEV_DEBUG=1\n'
           printf 'RUSTFLAGS=-C instrument-coverage\n'
-          printf 'LLVM_PROFILE_FILE=%s/coverage/%s/profraw/%s-%s-%s-%%p-%%m.profraw\n' "$RUNNER_TEMP" "$LANE_ID" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE_ID"
+          printf 'LLVM_PROFILE_FILE=%s/coverage/%s/profraw/%s-%s-%s-%%b-%%4m.profraw\n' "$RUNNER_TEMP" "$LANE_ID" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE_ID"
           printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
           printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
         } >> "$GITHUB_ENV"

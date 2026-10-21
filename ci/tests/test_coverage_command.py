@@ -3,6 +3,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 
@@ -59,6 +60,26 @@ if not os.environ.get('FIXTURE_EMPTY'):
         (self.profiles / "case.profraw").write_bytes(b"profile")
         self.environment["FIXTURE_EMPTY"] = "1"
         self.assertNotEqual(self.collect().returncode, 0)
+
+    def test_lane_and_legacy_configuration_emit_distinct_bounded_profile_namespaces(self):
+        action = SCRIPT.parents[1] / '.github/actions/test-lane/action.yml'
+        block = action.read_text().split('      run: |\n', 1)[1].split('\n    - name:', 1)[0]
+        script = textwrap.dedent(block)
+        profiles = []
+        for lane, attempt in [('api', '1'), ('api', '2'), ('legacy-money', '1')]:
+            with self.subTest(lane=lane, attempt=attempt):
+                destination = self.root / (lane + '-' + attempt + '.env')
+                temporary = self.root / 'runner temp'
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], env=dict(self.environment,
+                    LANE_ID=lane, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT=attempt,
+                    GITHUB_ENV=str(destination), RUNNER_TEMP=str(temporary), GITHUB_WORKSPACE=str(self.root)),
+                    text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                emitted = dict(line.split('=', 1) for line in destination.read_text().splitlines())
+                expected = str(temporary / 'coverage' / lane / 'profraw' / f'123-{attempt}-{lane}-%b-%4m.profraw')
+                self.assertEqual(emitted['LLVM_PROFILE_FILE'], expected)
+                profiles.append(expected)
+        self.assertEqual(len(set(profiles)), len(profiles))
 
 
 if __name__ == "__main__":

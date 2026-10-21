@@ -55,7 +55,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     (output / "profraw").mkdir()
     environment = dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_INCREMENTAL="0", CARGO_PROFILE_TEST_DEBUG="1", CARGO_PROFILE_DEV_DEBUG="1", CARGO_TERM_COLOR="never",
-        RUSTFLAGS="-C instrument-coverage", LLVM_PROFILE_FILE=str(output / "profraw/%p-%m.profraw"),
+        RUSTFLAGS="-C instrument-coverage", LLVM_PROFILE_FILE=str(output / "profraw/%b-%4m.profraw"),
         AURA_CI_BENCHMARK_TIMING="1", NEXTEST_SUCCESS_OUTPUT="final", AWS_ACCESS_KEY_ID="test", AWS_SECRET_ACCESS_KEY="test", AWS_SESSION_TOKEN="test",
         AWS_EC2_METADATA_DISABLED="true", AWS_DEFAULT_REGION="eu-central-1", AWS_REGION="eu-central-1")
     started = time.monotonic()

@@ -83,8 +83,12 @@ size sampling is less frequent and bounded, and stops below the floor; missing
 observations remain null.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
-Each lane writes one process/module-unique profile namespace and one named LCOV
-artifact. [`merge-coverage.py`](../ci/merge-coverage.py) rejects missing, extra,
+Current lanes, legacy controls and lane diagnostics use LLVM's `%b-%4m`
+[online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program):
+up to four locked profile files per build ID/module signature within each run/lane or
+diagnostic output namespace. This limits file multiplication from separate test
+processes; it does not bound the workspace's total profile bytes. Each lane writes
+one named LCOV artifact. [`merge-coverage.py`](../ci/merge-coverage.py) rejects missing, extra,
 empty or malformed reports using the existing LCOV validator, then concatenates
 them in deterministic order. This does not reconcile branch identities across
 builds or provide nightly doctest instrumentation.
