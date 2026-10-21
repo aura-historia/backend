@@ -1,5 +1,7 @@
+use std::process::Stdio;
 use test_api::aws::{get_aws_emulator, get_endpoint_url};
 use test_api::{IntegrationTestService, OpenSearch};
+use tokio::process::Command;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -21,27 +23,32 @@ async fn should_reap_child_resources_without_removing_another_process_fixture() 
     test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
     OpenSearch().set_up().await;
 
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "aws_fixture_child", "--test-threads=1"])
         .env("AURA_AWS_FIXTURE_CHILD", "1")
-        .stdout(std::process::Stdio::null())
+        .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let namespace = format!("aura-historia-aws-backend-floci-test-{}", child.id());
-    assert!(child.wait().unwrap().success());
-    let emulator = std::process::Command::new("docker")
+    let namespace = format!(
+        "aura-historia-aws-backend-floci-test-{}",
+        child.id().expect("child must have an id before waiting")
+    );
+    assert!(child.wait().await.unwrap().success());
+    let emulator = Command::new("docker")
         .args(["inspect", &namespace])
         .output()
+        .await
         .unwrap();
     assert!(!emulator.status.success(), "child emulator must be removed");
     for args in [
         vec!["ps", "-aq", "--filter"],
         vec!["volume", "ls", "-q", "--filter"],
     ] {
-        let output = std::process::Command::new("docker")
+        let output = Command::new("docker")
             .args(args)
             .arg(format!("label=floci_namespace={namespace}"))
             .output()
+            .await
             .unwrap();
         assert!(output.status.success());
         assert!(output.stdout.is_empty(), "child resources must be removed");

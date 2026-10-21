@@ -12,8 +12,8 @@ use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use std::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
@@ -59,7 +59,7 @@ fn test_access_policies() -> String {
 pub async fn get_opensearch_client() -> &'static Client {
     let client = OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            let endpoint_url = domain_endpoint();
+            let endpoint_url = domain_endpoint().await;
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
                 .build()
                 .expect("shouldn't fail creating OpenSearch-Transport");
@@ -94,7 +94,7 @@ impl IntegrationTestService for OpenSearch {
     }
 }
 
-fn domain_endpoint() -> Url {
+async fn domain_endpoint() -> Url {
     // Floci reports a container IP in DescribeDomain. Host clients must use the published port.
     let container_name = format!(
         "floci-aws-{}-opensearch-000000000000-eu-central-1-{TEST_DOMAIN_NAME}",
@@ -108,6 +108,7 @@ fn domain_endpoint() -> Url {
             &container_name,
         ])
         .output()
+        .await
         .expect("shouldn't fail inspecting OpenSearch port binding");
     assert!(
         output.status.success(),
