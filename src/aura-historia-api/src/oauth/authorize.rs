@@ -33,7 +33,10 @@ pub(crate) async fn authorize(
             Ok(location) => {
                 no_store((StatusCode::FOUND, [(header::LOCATION, location)]).into_response())
             }
-            Err(_) => OAuthError::ServerError.into_response(),
+            Err(source) => OAuthError::ServerError {
+                source: application::error::box_error(source),
+            }
+            .into_response(),
         },
         Err(error) => match error {
             oauth_service::error::OAuthServiceError::ClientNotFound => {

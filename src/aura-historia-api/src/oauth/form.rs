@@ -166,8 +166,8 @@ mod tests {
             ("token", String::from(token.clone())),
             ("client_secret", String::from(secret.clone())),
         ]);
-        assert_eq!(Ok(token), required_form_access_token(&form));
-        assert_eq!(Ok(secret), required_form_client_secret(&form));
+        assert_eq!(token, required_form_access_token(&form).unwrap());
+        assert_eq!(secret, required_form_client_secret(&form).unwrap());
         let parameters = parse_parameters("redirect_uri=https%3A%2F%2Fclient.example%2Fcallback%3Fa%3Db%26c%3Dd&scope=users%3Aread+watchlist%3Aread").unwrap();
         assert_eq!(
             "https://client.example/callback?a=b&c=d",
@@ -187,9 +187,8 @@ mod tests {
             "code=%FF",
             "=value",
         ] {
-            assert_eq!(
-                Err(OAuthError::InvalidRequest),
-                parse_parameters(raw),
+            assert!(
+                matches!(parse_parameters(raw), Err(OAuthError::InvalidRequest)),
                 "{raw}"
             );
         }
@@ -202,7 +201,10 @@ mod tests {
             "resource=allowed&%72esource=foreign",
             "resource=&resource=allowed",
         ] {
-            assert_eq!(Err(OAuthError::InvalidTarget), parse_parameters(raw));
+            assert!(matches!(
+                parse_parameters(raw),
+                Err(OAuthError::InvalidTarget)
+            ));
         }
     }
 

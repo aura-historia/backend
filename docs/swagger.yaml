@@ -10602,7 +10602,7 @@ paths:
                 error: FORBIDDEN
                 detail: Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.
         "500":
-          description: Internal failure.
+          description: OAuth service failure, or an existing REST authentication dependency failure.
           headers:
             Cache-Control:
               $ref: '#/components/headers/OAuthNoStore'
@@ -10615,8 +10615,15 @@ paths:
               examples:
                 server_error:
                   value: { error: server_error }
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 500
+                title: Internal Server Error
+                error: AUTH_INTERNAL_ERROR
         "503":
-          description: Temporary failure.
+          description: Temporary OAuth service failure, or an existing REST authentication dependency failure.
           headers:
             Cache-Control:
               $ref: '#/components/headers/OAuthNoStore'
@@ -10629,6 +10636,13 @@ paths:
               examples:
                 temporarily_unavailable:
                   value: { error: temporarily_unavailable }
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 503
+                title: Service Unavailable
+                error: AUTH_TEMPORARILY_UNAVAILABLE
   /v1/oauth/token:
     post:
       summary: OAuth2 token endpoint
