@@ -14,6 +14,17 @@ struct Owner {
     uid: u32,
 }
 
+struct FileLock {
+    file: File,
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        // A fork can retain a descriptor copy after this owner closes its handle.
+        let _ = self.file.unlock();
+    }
+}
+
 fn directory(path: &Path) -> Result<()> {
     match std::fs::DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => {}
@@ -36,7 +47,7 @@ fn validate_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn lock(dir: &Path) -> Result<Option<File>> {
+fn lock(dir: &Path) -> Result<Option<FileLock>> {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -46,7 +57,7 @@ fn lock(dir: &Path) -> Result<Option<File>> {
         .custom_flags(libc::O_NOFOLLOW)
         .open(dir.join("lock"))?;
     match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
+        Ok(()) => Ok(Some(FileLock { file })),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
         Err(std::fs::TryLockError::Error(e)) => {
             Err(context("cannot lock test supervisor invocation", e))
@@ -54,11 +65,11 @@ fn lock(dir: &Path) -> Result<Option<File>> {
     }
 }
 
-fn lock_metadata(root: &Path) -> Result<File> {
+fn lock_metadata(root: &Path) -> Result<FileLock> {
     let file = File::open(root)?;
     file.lock()
         .map_err(|e| context("cannot lock test supervisor metadata", e))?;
-    Ok(file)
+    Ok(FileLock { file })
 }
 
 pub(super) fn default_state_dir() -> PathBuf {
@@ -68,7 +79,7 @@ pub(super) fn default_state_dir() -> PathBuf {
 struct StaleRun {
     run: String,
     dir: PathBuf,
-    _lock: File,
+    _lock: FileLock,
 }
 
 fn run_directories(root: &Path) -> Result<Vec<PathBuf>> {
@@ -133,9 +144,20 @@ fn claim_stale_run(root: &Path, dir: PathBuf) -> Result<Option<StaleRun>> {
     }))
 }
 
+async fn blocking<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|e| context("supervisor filesystem worker failed", e))?
+}
+
 pub(super) async fn gc(root: &Path) -> Result<()> {
-    for dir in run_directories(root)? {
-        if let Some(stale) = claim_stale_run(root, dir)? {
+    let scan_root = root.to_path_buf();
+    let directories = blocking(move || run_directories(&scan_root)).await?;
+    for dir in directories {
+        let claim_root = root.to_path_buf();
+        if let Some(stale) = blocking(move || claim_stale_run(&claim_root, dir)).await? {
             cleanup(&stale.run, &stale.dir).await?;
         }
     }
@@ -145,7 +167,10 @@ pub(super) async fn gc(root: &Path) -> Result<()> {
 async fn cleanup(run: &str, dir: &Path) -> Result<()> {
     let started = Instant::now();
     let result = match docker::cleanup(run).await {
-        Ok(()) => remove_run_directory(dir),
+        Ok(()) => {
+            let dir = dir.to_path_buf();
+            blocking(move || remove_run_directory(&dir)).await
+        }
         Err(error) => Err(error),
     };
     eprintln!(
@@ -165,7 +190,7 @@ fn remove_run_directory(dir: &Path) -> Result<()> {
     std::fs::remove_dir_all(dir).map_err(|e| context("cannot remove owned run directory", e))
 }
 
-fn initialize_run(root: &Path, run: &str) -> Result<(PathBuf, File)> {
+fn initialize_run(root: &Path, run: &str) -> Result<(PathBuf, FileLock)> {
     // GC shares this short metadata lock so it cannot collect a pending directory
     // before the run lock and ownership record are published.
     let _initialization = lock_metadata(root)?;
@@ -194,14 +219,17 @@ pub(super) async fn run(
             "run requires 1..1024 slots and an absolute UTF-8 state directory",
         ));
     }
-    if super::managed_environment().is_some() {
+    if blocking(|| Ok(super::managed_environment().is_some())).await? {
         return Err(invalid("nested managed supervisor is unsupported"));
     }
     process::enable_subreaper()?;
     let mut signals = process::Signals::install()?;
     gc(root).await?;
     let run = uuid::Uuid::new_v4().simple().to_string();
-    let (dir, _lock) = initialize_run(root, &run)?;
+    let initialize_root = root.to_path_buf();
+    let initialize_run_id = run.clone();
+    let (dir, _lock) =
+        blocking(move || initialize_run(&initialize_root, &initialize_run_id)).await?;
     let started = Instant::now();
     let result = tokio::select! {
         result=services::bootstrap(&run,profile,slots,&dir)=>result,
@@ -258,7 +286,9 @@ async fn run_child(
     signals: &mut process::Signals,
     started: Instant,
 ) -> Result<i32> {
-    let path = publish_environment(config, dir)?;
+    let publish_config = config.clone();
+    let publish_dir = dir.to_path_buf();
+    let path = blocking(move || publish_environment(&publish_config, &publish_dir)).await?;
     let count = usize::from(config.postgres.is_some())
         + usize::from(config.aws_endpoint.is_some())
         + usize::from(config.opensearch_endpoint.is_some());
@@ -267,7 +297,7 @@ async fn run_child(
     let group = child
         .id()
         .ok_or_else(|| invalid("supervised command has no process group"))?;
-    if let Err(error) = std::fs::write(dir.join("child-group"), group.to_string()) {
+    if let Err(error) = tokio::fs::write(dir.join("child-group"), group.to_string()).await {
         process::terminate(&mut child, group, libc::SIGTERM).await?;
         return Err(context("cannot persist supervised child ownership", error));
     }
@@ -295,8 +325,8 @@ async fn run_child(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn should_protect_initialization_before_the_run_lock_exists() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn should_protect_initialization_before_the_run_lock_exists() {
         let root = default_state_dir().with_file_name(format!(
             "aura-test-env-initialization-{}",
             uuid::Uuid::new_v4().simple()
@@ -306,33 +336,26 @@ mod tests {
         let pending = root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
         directory(&pending).unwrap();
         let gc_root = root.clone();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let collector = std::thread::spawn(move || {
-            started_tx.send(()).unwrap();
-            tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap()
-                .block_on(gc(&gc_root))
-                .unwrap();
-            done_tx.send(()).unwrap();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            // Bound a regression's wait even if GC blocks the only Tokio runtime thread.
+            let _ = release_rx.recv_timeout(std::time::Duration::from_secs(3));
+            drop(initialization);
         });
-        started_rx.recv().unwrap();
-        assert!(matches!(
-            done_rx.recv_timeout(std::time::Duration::from_millis(100)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-        ));
+        let collector = tokio::spawn(async move { gc(&gc_root).await });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            !collector.is_finished(),
+            "waiting for the metadata lock must not block the current-thread runtime"
+        );
         assert!(pending.exists());
         let held = lock(&pending).unwrap().unwrap();
-        drop(initialization);
-        collector.join().unwrap();
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        collector.await.unwrap().unwrap();
         assert!(pending.exists());
         drop(held);
-        tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(gc(&root))
-            .unwrap();
+        gc(&root).await.unwrap();
         assert!(!pending.exists());
         std::fs::remove_dir(root).unwrap();
     }
@@ -347,11 +370,18 @@ mod tests {
         let pending = root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
         directory(&pending).unwrap();
         let held = lock(&pending).unwrap().unwrap();
+        let mut inherited = tokio::process::Command::new("sleep")
+            .arg("30")
+            .stdin(std::process::Stdio::from(held.file.try_clone().unwrap()))
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
         gc(&root).await.unwrap();
         assert!(pending.exists());
         drop(held);
         gc(&root).await.unwrap();
         assert!(!pending.exists());
+        inherited.kill().await.unwrap();
         std::fs::remove_dir(root).unwrap();
     }
     #[test]
