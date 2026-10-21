@@ -54,20 +54,7 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 #[proc_macro_attribute]
 pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
-    let attr_expr = attr.to_string();
-
-    // Parse `services = [ServiceA(...), ServiceB, ...]`
-    let service_exprs: Vec<Expr> = if let Some(eq_pos) = attr_expr.find('=') {
-        let expr_str = attr_expr[eq_pos + 1..].trim();
-        let expr: Expr = syn::parse_str(expr_str).expect("Expected a Rust expression");
-        if let Expr::Array(ExprArray { elems, .. }) = expr {
-            elems.into_iter().collect()
-        } else {
-            panic!("Expected array expression for `services = [...]`");
-        }
-    } else {
-        panic!("Expected `services = [...]`");
-    };
+    let service_exprs = parse_services(attr);
 
     // Generate bindings like: `let mut __svc_0 = Service(...)`
     let service_bindings = service_exprs.iter().enumerate().map(|(i, expr)| {
@@ -79,7 +66,7 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
 
     // Generate code to collect service names from each instance
     let service_names = (0..service_exprs.len()).map(|i| {
-        let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
+        let ident = service_ident(i);
         quote! {
             #ident.service_names()
         }
@@ -87,7 +74,7 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
 
     // Generate code to collect env vars from each service
     let service_env_vars = (0..service_exprs.len()).map(|i| {
-        let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
+        let ident = service_ident(i);
         quote! {
             #ident.env_vars()
         }
@@ -95,14 +82,14 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
 
     // Generate setup and teardown calls
     let setup_calls = (0..service_exprs.len()).map(|i| {
-        let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
+        let ident = service_ident(i);
         quote! {
             #ident.set_up().await;
         }
     });
 
     let teardown_calls = (0..service_exprs.len()).rev().map(|i| {
-        let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
+        let ident = service_ident(i);
         quote! {
             #ident.tear_down().await;
         }
@@ -203,4 +190,27 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
     };
 
     expanded.into()
+}
+
+fn parse_services(attr: TokenStream) -> Vec<Expr> {
+    let attr_expr = attr.to_string();
+
+    // Parse `services = [ServiceA(...), ServiceB, ...]`
+    let service_exprs: Vec<Expr> = if let Some(eq_pos) = attr_expr.find('=') {
+        let expr_str = attr_expr[eq_pos + 1..].trim();
+        let expr: Expr = syn::parse_str(expr_str).expect("Expected a Rust expression");
+        if let Expr::Array(ExprArray { elems, .. }) = expr {
+            elems.into_iter().collect()
+        } else {
+            panic!("Expected array expression for `services = [...]`");
+        }
+    } else {
+        panic!("Expected `services = [...]`");
+    };
+
+    service_exprs
+}
+
+fn service_ident(index: usize) -> syn::Ident {
+    syn::Ident::new(&format!("__svc_{index}"), proc_macro2::Span::call_site())
 }
