@@ -169,11 +169,21 @@ describe("change-scoped CI workflows", () => {
       "npm --prefix infra ci",
     );
     expect(jobNames(integrateWorkflow)).not.toContain("infra-test");
-    for (const event of ["push", "pull_request"]) {
-      const paths = block(block(integrateWorkflow, "on"), event, 2);
-      expect(paths).not.toContain('"infra/**"');
-      expect(paths).not.toContain('"mjml/**"');
+  });
+
+  test("runs full Rust CI for identical push/PR source and shared fixture inputs", () => {
+    const paths = ["push", "pull_request"].map((event) =>
+      [...block(block(block(integrateWorkflow, "on"), event, 2), "paths", 4)
+        .matchAll(/^\s+- "([^"]+)"$/gm)].map((match) => match[1]));
+    expect(paths[0]).toEqual(paths[1]);
+    for (const required of ["src/**", ".cargo/**", ".config/**", "ci/**", "tooling/**", "tests/**",
+      "migrations/**", "opensearch/**", "mjml/**", "docs/swagger.yaml", "docs/fixtures/**",
+      "infra/sql/**", "infra/assets/rds-ca-layer/**"]) {
+      expect(paths[0]).toContain(required);
     }
+    expect(paths[0]).not.toContain("infra/**");
+    expect(jobNames(integrateWorkflow)).not.toContain("mjml-compile");
+    expect(jobNames(integrateWorkflow)).not.toContain("infra-test");
   });
 
   test("builds container images on workspace changes and deployment workflow changes", () => {
