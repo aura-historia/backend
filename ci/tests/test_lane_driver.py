@@ -198,6 +198,20 @@ class LaneDriverPhases(unittest.TestCase):
                     DRIVER.arguments()
                 self.assertEqual(failure.exception.code, 2)
 
+    def test_legacy_package_mode_requires_libtest_and_unmanaged_lazy_fixtures(self):
+        base = ["run-test-lane.py", "--legacy-package", "aura-historia-api", "--slots", "2",
+                "--supervisor", "/fixture/supervisor", "--state-dir", str(self.root), "--output", str(self.root)]
+        with patch.object(sys, "argv", [*base, "--harness", "libtest", "--profile", "none"]):
+            args = DRIVER.arguments()
+        self.assertEqual(args.legacy_package, "aura-historia-api")
+        self.assertIsNone(args.lane)
+        for options in (["--harness", "nextest", "--profile", "none"],
+                        ["--harness", "libtest", "--profile", "api"],
+                        ["--harness", "libtest", "--profile", "none", "--lane", "API"]):
+            with self.subTest(options=options), patch.object(sys, "argv", [*base, *options]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    DRIVER.arguments()
+
 
 if __name__ == "__main__":
     unittest.main()

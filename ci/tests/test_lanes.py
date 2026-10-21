@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import inventory
-from ci_inventory.catalog import LANES, lane_selection, package_owners
+from ci_inventory.catalog import LANES, lane_selection, legacy_package_selection, package_owners
 
 
 def target(package, kind, name, lane, doctest=False):
@@ -58,6 +58,20 @@ class PackageLaneSelection(unittest.TestCase):
         self.assertTrue({item["id"] for item in cognito["targets"]} <= set(selection["targets"]))
         self.assertNotIn("cognito-post-confirmation", lane_selection(self.manifest, self.expected, "REMAINING")["packages"])
         self.assertEqual(self.manifest, original)
+
+    def test_legacy_comparison_selects_one_complete_reviewed_package_including_root_and_macro(self):
+        for name in ("aura-historia-parent", "test-api-macros", "cognito-post-confirmation"):
+            with self.subTest(name=name):
+                selected = legacy_package_selection(self.manifest, self.expected, name)
+                self.assertEqual(selected["packages"], [name])
+                self.assertEqual(selected["package_args"], ["--package", name])
+                self.assertCountEqual(selected["targets"], [target["id"] for target in self.manifest["packages"][name]["targets"]])
+        with self.assertRaisesRegex(ValueError, "Unknown legacy"):
+            legacy_package_selection(self.manifest, self.expected, "unknown")
+        changed = copy.deepcopy(self.expected)
+        changed["packages"]["crawler"]["targets"] = []
+        with self.assertRaisesRegex(ValueError, "contract changed"):
+            legacy_package_selection(self.manifest, changed, "aura-historia-parent")
 
     def test_selection_order_does_not_depend_on_package_or_target_order(self):
         reordered = copy.deepcopy(self.manifest)

@@ -128,6 +128,14 @@ def lane_selection(manifest, expected, lane):
     return {"lane": lane, **select_packages(manifest, packages)}
 
 
+def legacy_package_selection(manifest, expected, name):
+    """Select one reviewed package for the opt-in old scheduling comparison."""
+    owners = package_owners(manifest, expected)
+    if name not in owners:
+        raise ValueError(f"Unknown legacy comparison package: {name}")
+    return {"lanes": [owners[name]], "legacy_package": name, **select_packages(manifest, [name])}
+
+
 def tree_features(argv, cwd, output):
     raw = command(["cargo", "tree", "--locked", "--all-features", "--prefix", "none", "--format", "{p}|{f}",
                    "--edges", "normal,build,dev", *argv], cwd)

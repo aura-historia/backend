@@ -14,7 +14,7 @@ SPEC.loader.exec_module(BENCHMARK)
 class LaneMeasurementCommands(unittest.TestCase):
     def setUp(self):
         self.args = types.SimpleNamespace(lane=["INFRASTRUCTURE", "REMAINING"], harness="libtest", slots=2,
-            profile="api", features=["test-api/s3,test-api/ses"])
+            profile="api", features=["test-api/s3,test-api/ses"], legacy_package=None)
         self.root, self.target, self.output = map(pathlib.Path, ["/checkout", "/target", "/evidence"])
 
     def test_compile_execution_and_coverage_share_one_target_and_feature_configuration(self):
@@ -38,6 +38,16 @@ class LaneMeasurementCommands(unittest.TestCase):
         self.args.lane = ["API", "CRAWLER", "INFRASTRUCTURE", "REMAINING"]
         command = BENCHMARK.commands(self.args, self.root, self.target, self.output)[0][1]
         self.assertEqual([command[index + 1] for index, value in enumerate(command) if value == "--lane"], self.args.lane)
+
+    def test_legacy_mode_keeps_package_features_and_builds_supervisor_only_for_actual_controls(self):
+        self.args.lane, self.args.harness, self.args.profile, self.args.features = None, "libtest", "none", []
+        for package, supervisor in (("money", False), ("test-api", True), ("database-migration-lambda", True)):
+            with self.subTest(package=package):
+                self.args.legacy_package = package
+                commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+                self.assertEqual(commands[0][1][2:4], ["--legacy-package", package])
+                self.assertNotIn("--features", commands[0][1])
+                self.assertEqual(any(name == "SUPERVISOR_COMPILE" for name, _ in commands), supervisor)
 
 
 if __name__ == "__main__":

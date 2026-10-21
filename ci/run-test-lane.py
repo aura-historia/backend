@@ -10,7 +10,7 @@ import signal
 import subprocess
 import sys
 
-from ci_inventory.catalog import LANES, build_catalog
+from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
 from ci_inventory.discovery import attach_suites
 from ci_inventory.io import command, write_json
 from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection,
@@ -20,7 +20,9 @@ from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, com
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--lane", choices=LANES, action="append", required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--lane", choices=LANES, action="append")
+    selection.add_argument("--legacy-package", help="Opt-in comparison only: one original per-package libtest invocation")
     parser.add_argument("--harness", choices=["nextest", "libtest"], required=True)
     parser.add_argument("--slots", type=int, required=True)
     parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
@@ -34,7 +36,9 @@ def arguments():
     args = parser.parse_args()
     if not 1 <= args.slots <= 1024:
         parser.error("--slots must be between 1 and 1024")
-    if args.profile == "none" and any(lane != "REMAINING" for lane in args.lane):
+    if args.legacy_package is not None and (args.profile != "none" or args.harness != "libtest"):
+        parser.error("--legacy-package requires libtest and profile none to retain per-package lazy fixtures")
+    if args.legacy_package is None and args.profile == "none" and any(lane != "REMAINING" for lane in args.lane):
         parser.error("a managed profile is required for infrastructure, API and crawler lanes")
     args.output = args.output.resolve()
     args.state_dir = args.state_dir.resolve()
@@ -74,7 +78,8 @@ def discover_lane(args, root):
     metadata = json.loads(command(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], root))
     catalog, expected = build_catalog(metadata, root)
     manifest = json.loads((root / args.manifest).read_text())
-    selection = combined_selection(manifest, expected, args.lane)
+    selection = (legacy_package_selection(manifest, expected, args.legacy_package) if args.legacy_package is not None
+                 else combined_selection(manifest, expected, args.lane))
     write_json(args.output / "selection.json", selection)
     catalog["packages"] = [package for package in catalog["packages"] if package["name"] in selection["packages"]]
     if any(not target["harness"] for package in catalog["packages"] for target in package["targets"] if target["test"]):

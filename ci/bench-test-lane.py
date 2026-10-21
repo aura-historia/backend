@@ -17,7 +17,9 @@ from ci_inventory.catalog import LANES
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--lane", choices=LANES, action="append", required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--lane", choices=LANES, action="append")
+    selection.add_argument("--legacy-package", help="Compare original package scheduling with libtest and lazy fixtures")
     parser.add_argument("--harness", choices=["nextest", "libtest"], required=True)
     parser.add_argument("--slots", type=int, required=True)
     parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
@@ -29,14 +31,15 @@ def arguments():
 
 
 def commands(args, root, target, output):
-    driver = [sys.executable, str(root / "ci/run-test-lane.py"),
-              *[value for lane in args.lane for value in ("--lane", lane)],
+    selection = (["--legacy-package", args.legacy_package] if args.legacy_package is not None else
+                 [value for lane in args.lane for value in ("--lane", lane)])
+    driver = [sys.executable, str(root / "ci/run-test-lane.py"), *selection,
               "--harness", args.harness, "--slots", str(args.slots), "--profile", args.profile,
               *[value for feature in args.features for value in ("--features", feature)],
               "--supervisor", str(target / "debug/aura-test-env"),
               "--state-dir", str(output / "state"), "--output", str(output / "discovery")]
     result = [("COMPILE_LINK", [*driver, "--list-only"])]
-    if args.profile != "none":
+    if args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"}:
         result.append(("SUPERVISOR_COMPILE", ["cargo", "build", "--locked", "--package", "test-api", "--all-features", "--bin", "aura-test-env"]))
     return [*result, ("TESTS_AND_FIXTURES", driver), ("COVERAGE", ["bash", str(root / "ci/collect-coverage.sh"),
             str(output / "profraw"), str(target / "debug/deps"), str(output / "coverage.lcov")])]
@@ -59,7 +62,7 @@ def main():
     report = {"kind": "FIXED_LANE_COMPARISON", "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "lanes": args.lane, "harness": args.harness, "slots": args.slots, "profile": args.profile, "features": args.features,
+        "lanes": args.lane, "legacy_package": args.legacy_package, "harness": args.harness, "slots": args.slots, "profile": args.profile, "features": args.features,
         "cache": args.cache, "runner": environment_metadata(root, environment), "images_before": images(root),
         "run": {key: os.environ.get(key) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_WORKFLOW_REF", "GITHUB_WORKFLOW_SHA")},
         "stages": [], "status": "FAILED", "error": None}
