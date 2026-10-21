@@ -75,3 +75,26 @@ pub fn schema(generator: &mut SchemaGenerator) -> Schema {
     }
     json_schema!({ "type": "string", "enum": codes })
 }
+
+pub mod option {
+    use super::*;
+    pub fn serialize<S: Serializer>(
+        value: &Option<Language>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        super::super::serialize_option_code(value, serializer, Language::as_str)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Language>, D::Error> {
+        super::super::deserialize_option_code(deserializer, parse)
+    }
+}
+pub mod patch {
+    use super::*;
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<crate::patch_value::PatchValue<Language>, D::Error> {
+        super::super::deserialize_patch_code(deserializer, parse)
+    }
+}
