@@ -326,6 +326,62 @@ the entire own inbox; it has no ID selection or request body. Successful mutatio
 with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
 reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
+## Generic OAuth acceptance and stage smoke
+
+Register one fixed confidential client per environment with an exact HTTPS callback and a
+scope ceiling, then follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup).
+The same MCP URL supports anonymous discovery and public calls before, during and after a
+connection. Protected tools remain listed; their HTTP `401`/`403` challenges identify the
+resource metadata and required scopes. To add scopes, start a new authorization with a fresh
+state and S256 verifier, obtain human approval and exchange its single-use code. A client
+must validate the exact callback and state, handle `access_denied` without exchanging a
+code, and keep its secret and verifier out of browser URLs and logs.
+
+The [local generic acceptance fixture](../src/aura-historia-api/tests/api_cases/mcp_oauth/mod.rs)
+drives actual OAuth/REST HTTP routes, native MCP HTTP and the actual Lambda adapter against
+isolated local PostgreSQL. It checks the disjoint manifests against `tools/list`, validates
+published schemas and compares account schemas to the shared API contracts. Run it with Docker
+and the repository's test infrastructure available:
+
+```sh
+cargo test --locked -p aura-historia-api --test api \
+  mcp_oauth::should_verify_generic_oauth_and_real_hybrid_mcp -- --nocapture
+```
+
+That fixture constructs the advertised browser handoff and exercises backend approval with
+test first-party identity. It does not render or test the webapp. Local fixtures, compatibility
+tests and CDK synth establish local evidence only; stage/browser/released acceptance needs
+its own executed evidence.
+
+After the approved stage release and DNS/TLS/front-door checks in the
+[hosting runbook](http-api-front-door.md#mcp-deployment-and-stage-verification), run the
+optional read-only command from the matching release checkout (Python 3 on Linux/macOS):
+
+```sh
+python3 tools/mcp-smoke.py --release-commit <exact-deployed-40-character-sha> \
+  --output /tmp/mcp-stage-evidence.json
+```
+
+This command contacts only the canonical stage MCP/issuer origins, follows no redirects,
+performs at most 40 requests, caps each response at 2 MiB and stops within 90 seconds. It checks
+both resource-metadata paths, AS discovery, supported current/legacy revisions, the actual
+manifest union, a public operation, HTTP auth failures, Origin/CORS/routing behavior and
+no-store responses. It prints no bodies or bearer values. The evidence records the deployed
+commit supplied by the operator, runner commit, SDK/protocol versions, statuses and selected
+public header values; challenge values and unexpected header values are omitted. The command
+checks JSON-RPC framing, manifest policy, matching tool representations and their advertised
+required members. The local Rust fixture validates selected complete outputs against the shared
+DTO schemas. A failed or omitted check is not a pass.
+
+For the delegated read check, complete generic consent for a dedicated stage user with
+`users:read`, place the returned token in an owner-readable file outside the checkout,
+and add `--token-file /path/to/stage-token`. The optional request reads the user's account
+but does not record its result. Revoke the dedicated connection afterwards through Aura's
+existing account token controls or `/v1/oauth/revoke`; do not include secrets in the evidence.
+The command performs no registration, approval, exchange, mutation, revocation or deployment.
+Browser consent/resource forwarding and discoverable first-party revocation controls remain
+webapp-owned release checks. Live branded-client setup is optional.
+
 ## Bounds, metadata and runtime configuration
 
 The default admission bounds are 256 KiB per request, 2 MiB per complete JSON

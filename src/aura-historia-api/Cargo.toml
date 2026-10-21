@@ -99,6 +99,9 @@ watchlist-service = { workspace = true }
 woocommerce-service = { workspace = true }
 
 [dev-dependencies]
+aura-historia-mcp = { workspace = true }
+jsonschema = { version = "0.59.0", default-features = false }
+schemars = { workspace = true }
 classifier-model = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 aws-smithy-runtime-api = { workspace = true }
