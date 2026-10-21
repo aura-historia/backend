@@ -108,6 +108,18 @@ fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStrea
         }
         None => quote! {},
     };
+    let lifecycle = lifecycle(&args, &input, context_argument);
+    let attrs = &input.attrs;
+    let name = &input.sig.ident;
+    let (serial, run) = execution(&args, name, lifecycle);
+    Ok(quote! {#( #attrs )* #[tokio::test] #serial async fn #name() {#run}})
+}
+
+fn lifecycle(
+    args: &Arguments,
+    input: &ItemFn,
+    context_argument: proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
     let bindings = args.services.iter().enumerate().map(|(index, expression)| {
         let ident = service_ident(index);
         quote! {let #ident=#expression;}
@@ -123,7 +135,6 @@ fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStrea
             }
         }
     });
-    let attrs = &input.attrs;
     let name = &input.sig.ident;
     let body = &input.block;
     let mutable = if identifiers.is_empty() {
@@ -131,7 +142,7 @@ fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStrea
     } else {
         quote! {mut}
     };
-    let lifecycle = quote! {
+    quote! {
         #( #bindings )*
         let __service_declarations: &[&[&str]] = &[ #( #identifiers.service_names() ),* ];
         let __services:Vec<&str> = __service_declarations.iter().flat_map(|names|names.iter().copied()).collect();
@@ -155,8 +166,15 @@ fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStrea
             (Ok(()),Some(panic))=>std::panic::resume_unwind(panic),
             (Ok(()),None)=>{},
         }
-    };
-    let (serial, run) = if scoped {
+    }
+}
+
+fn execution(
+    args: &Arguments,
+    name: &syn::Ident,
+    lifecycle: proc_macro2::TokenStream,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    if args.isolated || args.exclusive {
         let isolation = if args.exclusive {
             quote! {test_api::Isolation::Exclusive}
         } else {
@@ -184,8 +202,7 @@ fn expand(args: Arguments, input: ItemFn) -> syn::Result<proc_macro2::TokenStrea
                 __exclusive.scope(async {#lifecycle}).await;
             },
         )
-    };
-    Ok(quote! {#( #attrs )* #[tokio::test] #serial async fn #name() {#run}})
+    }
 }
 
 #[cfg(test)]

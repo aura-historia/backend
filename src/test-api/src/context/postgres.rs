@@ -101,58 +101,15 @@ impl TestContext {
             .join(format!("template-{}.ready", baseline.key));
         let options = crate::postgres::base_options().await;
         let mut administrator = options.clone().connect().await?;
-        let marker_path = ready.clone();
-        let (lock, marker) = tokio::task::spawn_blocking(move || -> Result<_> {
-            let marker = match std::fs::read_to_string(marker_path) {
-                Ok(value) => Some(value),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(error.into()),
-            };
-            Ok((lock, marker))
-        })
-        .await??;
-        let _lock = if marker.is_none() {
-            drop_database(&mut administrator, &template).await?;
-            administrator
-                .execute(AssertSqlSafe(format!(
-                    "CREATE DATABASE {} TEMPLATE template0",
-                    quote(&template)
-                )))
-                .await?;
-            let mut connection = options.clone().database(&template).connect().await?;
-            if baseline.business {
-                connection.execute(AssertSqlSafe("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF; END $$;")).await?;
-            }
-            for script in &baseline.scripts {
-                connection.execute(AssertSqlSafe(script.as_str())).await?;
-            }
-            connection.close().await?;
-            administrator
-                .execute(AssertSqlSafe(format!(
-                    "ALTER DATABASE {} WITH IS_TEMPLATE true ALLOW_CONNECTIONS false",
-                    quote(&template)
-                )))
-                .await?;
-            let key = baseline.key.clone();
-            tokio::task::spawn_blocking(move || -> Result<_> {
-                use std::io::Write;
-                let temporary = ready.with_extension("ready.tmp");
-                let mut marker = lease::lock_file(&temporary)?;
-                marker.set_len(0)?;
-                marker.write_all(key.as_bytes())?;
-                marker.sync_data()?;
-                std::fs::rename(temporary, &ready)?;
-                // Keep the cross-process template guard until publication has completed,
-                // including when the requesting task has been cancelled.
-                Ok(lock)
-            })
-            .await??
-        } else {
-            if marker.as_deref() != Some(&baseline.key) {
-                return Err(failure("Postgres baseline readiness identity is invalid"));
-            }
-            lock
-        };
+        let _lock = prepare_template(
+            &baseline,
+            &template,
+            ready,
+            &options,
+            &mut administrator,
+            lock,
+        )
+        .await?;
         let database = self.own(Kind::Database, self.name("db", 63, "")?)?;
         self.persist_resources().await?;
         // A new generation fences old connections/writers. Recovery drops the previous database first.
@@ -216,6 +173,78 @@ impl TestContext {
             .clone()
             .ok_or_else(|| failure("Postgres baseline is not initialized"))
     }
+}
+
+async fn prepare_template(
+    baseline: &Baseline,
+    template: &str,
+    ready: std::path::PathBuf,
+    options: &sqlx::postgres::PgConnectOptions,
+    administrator: &mut PgConnection,
+    lock: lease::FileLock,
+) -> Result<lease::FileLock> {
+    let marker_path = ready.clone();
+    let (lock, marker) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let marker = match std::fs::read_to_string(marker_path) {
+            Ok(value) => Some(value),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        Ok((lock, marker))
+    })
+    .await??;
+    let guard = if marker.is_none() {
+        drop_database(administrator, template).await?;
+        administrator
+            .execute(AssertSqlSafe(format!(
+                "CREATE DATABASE {} TEMPLATE template0",
+                quote(template)
+            )))
+            .await?;
+        apply_baseline(baseline, template, options).await?;
+        administrator
+            .execute(AssertSqlSafe(format!(
+                "ALTER DATABASE {} WITH IS_TEMPLATE true ALLOW_CONNECTIONS false",
+                quote(template)
+            )))
+            .await?;
+        let key = baseline.key.clone();
+        tokio::task::spawn_blocking(move || -> Result<_> {
+            use std::io::Write;
+            let temporary = ready.with_extension("ready.tmp");
+            let mut marker = lease::lock_file(&temporary)?;
+            marker.set_len(0)?;
+            marker.write_all(key.as_bytes())?;
+            marker.sync_data()?;
+            std::fs::rename(temporary, &ready)?;
+            // Keep the cross-process template guard until publication has completed,
+            // including when the requesting task has been cancelled.
+            Ok(lock)
+        })
+        .await??
+    } else {
+        if marker.as_deref() != Some(&baseline.key) {
+            return Err(failure("Postgres baseline readiness identity is invalid"));
+        }
+        lock
+    };
+    Ok(guard)
+}
+
+async fn apply_baseline(
+    baseline: &Baseline,
+    template: &str,
+    options: &sqlx::postgres::PgConnectOptions,
+) -> Result<()> {
+    let mut connection = options.clone().database(template).connect().await?;
+    if baseline.business {
+        connection.execute(AssertSqlSafe("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF; END $$;")).await?;
+    }
+    for script in &baseline.scripts {
+        connection.execute(AssertSqlSafe(script.as_str())).await?;
+    }
+    connection.close().await?;
+    Ok(())
 }
 
 pub(super) async fn remove(database: &str) -> Result<()> {

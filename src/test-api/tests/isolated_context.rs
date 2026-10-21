@@ -106,72 +106,204 @@ async fn context_fixture_child() {
         .await;
     }
     let context = session.context().clone();
-    context.scope(async {
-        (if action=="seed" {
-            test_api::Postgres::with_setup_script("src/test-api/tests/fixtures/rds_migrations","src/test-api/tests/fixtures/postgres_setup.sql")
-        } else {test_api::Postgres::new("src/test-api/tests/fixtures/rds_migrations")}).set_up().await;
-        test_api::OpenSearch().set_up().await;
-        test_api::Ses().set_up().await;
-        let marker=context.test_id();
-        let pool=context.postgres_pool().await.unwrap();
-        sqlx::query("INSERT INTO test_items(name,value) VALUES ($1,1)").bind(&marker).execute(&pool).await.unwrap();
-        pool.execute("CREATE TABLE dirty_ddl (id integer)").await.unwrap();
-        let tls:bool=sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetch_one(&pool).await.unwrap();
-        assert!(tls);
-        let database:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await.unwrap();
-        let index=context.product_listings_index().unwrap();
-        test_api::get_opensearch_client().await.index(opensearch::IndexParts::IndexId(&index,&marker))
-            .body(serde_json::json!({"productListingId":marker})).send().await.unwrap().error_for_status_code().unwrap();
-        test_api::refresh_index(&index).await;
-        let queues=test_api::WorkerSqs::new("marketing-consent-sync",330).queues();
-        queues.set_up().await;
-        test_api::get_sqs_client().await.send_message().queue_url(queues.queue_url()).message_body(&marker)
-            .message_group_id("scope").message_deduplication_id(&marker).send().await.unwrap();
-        let bucket=context.bucket_name("objects").await.unwrap();
-        let s3=aws_sdk_s3::Client::from_conf(aws_sdk_s3::config::Builder::from(test_api::aws::get_aws_config().await).force_path_style(true).build());
-        s3.create_bucket().bucket(&bucket).create_bucket_configuration(aws_sdk_s3::types::CreateBucketConfiguration::builder()
-            .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::EuCentral1).build()).send().await.unwrap();
-        s3.put_object().bucket(&bucket).key("marker").body(aws_sdk_s3::primitives::ByteStream::from(marker.clone().into_bytes())).send().await.unwrap();
-        let source=context.sender_email().unwrap();
-        let configuration_set=context.configuration_set_name("mail").await.unwrap();
-        test_api::get_ses_client().await.create_configuration_set().configuration_set_name(&configuration_set).send().await.unwrap();
-        send_email(&source,&marker).await;
-        use std::sync::atomic::Ordering;
-        assert!(context.api_state::<std::sync::Arc<ApiState>>().is_err());
-        let state=std::sync::Arc::new(ApiState {marker:marker.clone(),starts:0.into(),factory_pointer:0.into()});
-        context.insert_api_state(state.clone()).unwrap();
-        assert!(context.insert_api_state(state.clone()).is_err(),"duplicate state must not replace the factory's Arc");
-        let api=&API;
-        tokio::join!(api.set_up(),api.set_up());
-        assert_eq!(1,state.starts.load(Ordering::SeqCst),"concurrent setup must construct one server");
-        assert_eq!(std::sync::Arc::as_ptr(&state) as usize,state.factory_pointer.load(Ordering::SeqCst),"factory on the OS thread must receive the identical Arc");
-        let response=reqwest::get(format!("{}/marker",API.base_url())).await.unwrap().error_for_status().unwrap().text().await.unwrap();
-        assert_eq!(marker,response,"server factory on another OS thread must use the same context");
-        let output=PathBuf::from(std::env::var_os("AURA_CONTEXT_OUTPUT").unwrap());
-        let report=serde_json::json!({"run":context.run_id(),"slot":context.slot(),"test":marker,"database":database,
+    context.scope(exercise_context(&context, &action)).await;
+    session.finish().await.unwrap();
+}
+
+async fn exercise_context(context: &TestContext, action: &str) {
+    (if action == "seed" {
+        test_api::Postgres::with_setup_script(
+            "src/test-api/tests/fixtures/rds_migrations",
+            "src/test-api/tests/fixtures/postgres_setup.sql",
+        )
+    } else {
+        test_api::Postgres::new("src/test-api/tests/fixtures/rds_migrations")
+    })
+    .set_up()
+    .await;
+    test_api::OpenSearch().set_up().await;
+    test_api::Ses().set_up().await;
+    let marker = context.test_id();
+    let pool = context.postgres_pool().await.unwrap();
+    sqlx::query("INSERT INTO test_items(name,value) VALUES ($1,1)")
+        .bind(&marker)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.execute("CREATE TABLE dirty_ddl (id integer)")
+        .await
+        .unwrap();
+    let tls: bool = sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(tls);
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let index = context.product_listings_index().unwrap();
+    test_api::get_opensearch_client()
+        .await
+        .index(opensearch::IndexParts::IndexId(&index, &marker))
+        .body(serde_json::json!({"productListingId":marker}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status_code()
+        .unwrap();
+    test_api::refresh_index(&index).await;
+    let queues = test_api::WorkerSqs::new("marketing-consent-sync", 330).queues();
+    queues.set_up().await;
+    test_api::get_sqs_client()
+        .await
+        .send_message()
+        .queue_url(queues.queue_url())
+        .message_body(&marker)
+        .message_group_id("scope")
+        .message_deduplication_id(&marker)
+        .send()
+        .await
+        .unwrap();
+    let bucket = context.bucket_name("objects").await.unwrap();
+    let s3 = aws_sdk_s3::Client::from_conf(
+        aws_sdk_s3::config::Builder::from(test_api::aws::get_aws_config().await)
+            .force_path_style(true)
+            .build(),
+    );
+    s3.create_bucket()
+        .bucket(&bucket)
+        .create_bucket_configuration(
+            aws_sdk_s3::types::CreateBucketConfiguration::builder()
+                .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::EuCentral1)
+                .build(),
+        )
+        .send()
+        .await
+        .unwrap();
+    s3.put_object()
+        .bucket(&bucket)
+        .key("marker")
+        .body(aws_sdk_s3::primitives::ByteStream::from(
+            marker.clone().into_bytes(),
+        ))
+        .send()
+        .await
+        .unwrap();
+    let source = context.sender_email().unwrap();
+    let configuration_set = context.configuration_set_name("mail").await.unwrap();
+    test_api::get_ses_client()
+        .await
+        .create_configuration_set()
+        .configuration_set_name(&configuration_set)
+        .send()
+        .await
+        .unwrap();
+    send_email(&source, &marker).await;
+    use std::sync::atomic::Ordering;
+    assert!(context.api_state::<std::sync::Arc<ApiState>>().is_err());
+    let state = std::sync::Arc::new(ApiState {
+        marker: marker.clone(),
+        starts: 0.into(),
+        factory_pointer: 0.into(),
+    });
+    context.insert_api_state(state.clone()).unwrap();
+    assert!(
+        context.insert_api_state(state.clone()).is_err(),
+        "duplicate state must not replace the factory's Arc"
+    );
+    let api = &API;
+    tokio::join!(api.set_up(), api.set_up());
+    assert_eq!(
+        1,
+        state.starts.load(Ordering::SeqCst),
+        "concurrent setup must construct one server"
+    );
+    assert_eq!(
+        std::sync::Arc::as_ptr(&state) as usize,
+        state.factory_pointer.load(Ordering::SeqCst),
+        "factory on the OS thread must receive the identical Arc"
+    );
+    let response = reqwest::get(format!("{}/marker", API.base_url()))
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(
+        marker, response,
+        "server factory on another OS thread must use the same context"
+    );
+    let output = PathBuf::from(std::env::var_os("AURA_CONTEXT_OUTPUT").unwrap());
+    let report = serde_json::json!({"run":context.run_id(),"slot":context.slot(),"test":marker,"database":database,
             "index":index,"queue":queues.queue_url(),"bucket":bucket,"sender":source,"configuration_set":configuration_set});
-        tokio::fs::write(&output,serde_json::to_vec(&report).unwrap()).await.unwrap();
-        if std::env::var("AURA_CONTEXT_FAIL_FIRST_ATTEMPT").ok().as_deref()==Some("1") && std::env::var("NEXTEST_ATTEMPT").ok().as_deref()==Some("1") { panic!("intentional first-attempt recovery probe"); }
-        if action=="dirty" {std::future::pending::<()>().await;}
-        let release=PathBuf::from(std::env::var_os("AURA_CONTEXT_RELEASE").unwrap());
-        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(45);
-        while !tokio::fs::try_exists(&release).await.unwrap() {assert!(std::time::Instant::now()<deadline);tokio::time::sleep(std::time::Duration::from_millis(10)).await;}
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM test_items").fetch_one(&pool).await.unwrap();
-        assert_eq!(if action=="seed" {2} else {1},count,"seeds must be restored exactly once and other slots must not contribute rows");
-        let parameters=std::collections::HashMap::from([("search_pipeline","hybrid-search-pipeline")]);
-        let response=test_api::get_opensearch_client().await.send(opensearch::http::Method::Post,&format!("{index}/_search"),
+    tokio::fs::write(&output, serde_json::to_vec(&report).unwrap())
+        .await
+        .unwrap();
+    if std::env::var("AURA_CONTEXT_FAIL_FIRST_ATTEMPT")
+        .ok()
+        .as_deref()
+        == Some("1")
+        && std::env::var("NEXTEST_ATTEMPT").ok().as_deref() == Some("1")
+    {
+        panic!("intentional first-attempt recovery probe");
+    }
+    if action == "dirty" {
+        std::future::pending::<()>().await;
+    }
+    let release = PathBuf::from(std::env::var_os("AURA_CONTEXT_RELEASE").unwrap());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+    while !tokio::fs::try_exists(&release).await.unwrap() {
+        assert!(std::time::Instant::now() < deadline);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM test_items")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        if action == "seed" { 2 } else { 1 },
+        count,
+        "seeds must be restored exactly once and other slots must not contribute rows"
+    );
+    let parameters =
+        std::collections::HashMap::from([("search_pipeline", "hybrid-search-pipeline")]);
+    let response=test_api::get_opensearch_client().await.send(opensearch::http::Method::Post,&format!("{index}/_search"),
             opensearch::http::headers::HeaderMap::new(),Some(&parameters),Some(opensearch::http::request::JsonBody::new(
                 serde_json::json!({"query":{"hybrid":{"queries":[{"match_all":{}},{"match_all":{}}]}}}))),None).await.unwrap()
             .error_for_status_code().unwrap().json::<serde_json::Value>().await.unwrap();
-        assert_eq!(1,response["hits"]["total"]["value"]);
-        assert_eq!(marker,response["hits"]["hits"][0]["_id"]);
-        let messages=test_api::get_sqs_client().await.receive_message().queue_url(queues.queue_url()).wait_time_seconds(0).send().await.unwrap();
-        assert_eq!(1,messages.messages().len());assert_eq!(Some(marker.as_str()),messages.messages()[0].body());
-        assert_eq!(marker.as_bytes(),s3.get_object().bucket(&bucket).key("marker").send().await.unwrap().body.collect().await.unwrap().into_bytes().as_ref());
-        let emails=test_api::get_sent_emails().await;
-        assert_eq!(1,emails.len());assert_eq!(marker,emails[0].subject);
-    }).await;
-    session.finish().await.unwrap();
+    assert_eq!(1, response["hits"]["total"]["value"]);
+    assert_eq!(marker, response["hits"]["hits"][0]["_id"]);
+    let messages = test_api::get_sqs_client()
+        .await
+        .receive_message()
+        .queue_url(queues.queue_url())
+        .wait_time_seconds(0)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(1, messages.messages().len());
+    assert_eq!(Some(marker.as_str()), messages.messages()[0].body());
+    assert_eq!(
+        marker.as_bytes(),
+        s3.get_object()
+            .bucket(&bucket)
+            .key("marker")
+            .send()
+            .await
+            .unwrap()
+            .body
+            .collect()
+            .await
+            .unwrap()
+            .into_bytes()
+            .as_ref()
+    );
+    let emails = test_api::get_sent_emails().await;
+    assert_eq!(1, emails.len());
+    assert_eq!(marker, emails[0].subject);
 }
 
 async fn assert_recovered(previous: &serde_json::Value) {
