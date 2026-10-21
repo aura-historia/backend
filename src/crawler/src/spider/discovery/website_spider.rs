@@ -206,6 +206,8 @@ pub struct CrawlDiagnostics {
     /// Pages emitted downstream after local filtering.
     pub accepted: usize,
     pub rejected_host: usize,
+    /// Pages refused by the URL blacklist, including links whose decoded form an admission
+    /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
     /// Links Spider refused because of robots.txt.
@@ -711,8 +713,8 @@ struct RobotsBlockedTracker {
 /// this fixes references in the query and path text, not references that encode URL structure.
 ///
 /// Spider admits a link (host whitelist, URL blacklist, robots.txt) on that raw text before it
-/// calls the decoder, so the decoded URL is only handed back when it passes the same rules;
-/// otherwise Spider fetches the raw link it admitted.
+/// calls the decoder, so the decoded URL is only handed back when it passes the same rules.
+/// Otherwise Spider fetches the raw link it admitted, and the filter task drops it.
 struct FoundLinkDecoder {
     host_whitelist: Regex,
     /// Spider's own parser, absent when Spider does not enforce robots.txt for the crawl.
@@ -724,12 +726,9 @@ impl FoundLinkDecoder {
         let Cow::Owned(decoded) = html_escape::decode_html_entities(link.inner()) else {
             return link;
         };
-        // Spider judges the resolved text and reqwest requests the parsed form, which
-        // can differ (parsing turns `\` into `/` and collapses `..`), so both must pass.
+        // Judge the URL in the form reqwest requests.
         match Url::parse(&decoded) {
-            Ok(url) if self.admits(&decoded) && self.admits(url.as_str()) => {
-                String::from(url).into()
-            }
+            Ok(url) if self.admits(url.as_str()) => String::from(url).into(),
             _ => link,
         }
     }
@@ -824,9 +823,10 @@ impl SpiderImpl {
         let max_pages_per_crawl = self.config.max_pages_per_crawl;
         tokio::spawn(async move {
             let started = tokio::time::Instant::now();
-            // Load robots.txt the way Spider's setup would, which then skips its own fetch,
-            // so the decoder checks decoded links against the rules Spider enforces.
-            if !website.single_page() {
+            // Load robots.txt when Spider's setup would (it skips single-page crawls), so the
+            // decoder checks decoded links against the rules Spider enforces; setup then skips
+            // its own fetch.
+            if max_pages_per_crawl != 1 {
                 website.configure_robots_parser(&client).await;
             }
             let link_decoder = FoundLinkDecoder {
@@ -922,6 +922,13 @@ impl SpiderImpl {
                 }
 
                 let raw_url = page.get_url();
+
+                // The decoder leaves character references in a link only when the decoded
+                // form breaks an admission rule or does not parse.
+                if matches!(html_escape::decode_html_entities(raw_url), Cow::Owned(_)) {
+                    diagnostics.rejected_blacklist += 1;
+                    continue;
+                }
 
                 let Ok(parsed) = url::Url::parse(raw_url) else {
                     diagnostics.rejected_host += 1;
@@ -1537,7 +1544,7 @@ mod tests {
         let site = TestSite::spawn(Arc::new(entity_encoded_href_site)).await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
-        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
         let request_log = site.finish().await;
 
         let expected = [
@@ -1573,6 +1580,14 @@ mod tests {
                     || target.contains("&replytocom=")),
             "decoded URL bypassed robots.txt or the blacklist: {request_log:?}"
         );
+        // Spider still fetches the raw links it admitted, but they are never emitted.
+        assert!(
+            !discovered
+                .iter()
+                .any(|url| url.contains("amp;") || url.contains("sol;")),
+            "entity residue in discovered URLs: {discovered:?}"
+        );
+        assert_eq!(diagnostics.rejected_blacklist, 2, "{diagnostics:?}");
     }
 
     fn link_decoder_with_robots(robots_txt: &str) -> FoundLinkDecoder {
@@ -1634,8 +1649,6 @@ mod tests {
             "https://www.example.com/private&sol;page",
             // URL blacklist
             "https://www.example.com/post?p=1&amp;replytocom=55",
-            // host whitelist, which refuses backslashes
-            "https://www.example.com/a&bsol;..&bsol;admin",
         ] {
             assert_eq!(decode_link(&decoder, link), link);
         }
@@ -1737,6 +1750,23 @@ mod tests {
         assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
         assert!(diagnostics.failure_kind.is_none(), "{diagnostics:?}");
         assert!(discovered.len() <= 2, "{discovered:?}");
+    }
+
+    #[tokio::test]
+    async fn should_not_fetch_robots_txt_when_crawl_is_limited_to_one_page() {
+        let site = TestSite::spawn(Arc::new(regression_site)).await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+        run_crawl(&spider, "http://example.com/").await.unwrap();
+
+        // Spider's setup skips robots.txt for a single-page crawl; the decoder must not
+        // load it either.
+        assert_eq!(site.requests_for("/robots.txt").await, 0);
+        site.finish().await;
     }
 
     #[tokio::test]
