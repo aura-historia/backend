@@ -93,7 +93,8 @@ fn search(
         "simpleSearchProductListings",
         "Search public listings with the complete catalogue filters, presentation, sorting and FX-bound continuation.",
         policy(),
-        move |input: SearchInput, context| {
+        move |input: SearchInput, mut context| {
+            context.operation.principal = application::operation_context::Principal::Anonymous;
             let service = service.clone();
             async move {
                 let request = input
@@ -116,7 +117,8 @@ fn get(
         "getProductListing",
         "Get the complete public listing details by internal ProductListing ID.",
         policy(),
-        move |input: ListingInput, context| {
+        move |input: ListingInput, mut context| {
+            context.operation.principal = application::operation_context::Principal::Anonymous;
             let service = service.clone();
             async move {
                 details(
@@ -137,7 +139,8 @@ fn get_by_slug(
         "getProductListingByTitleSlug",
         "Get the complete public listing details by its immutable title slug.",
         policy(),
-        move |input: SlugInput, context| {
+        move |input: SlugInput, mut context| {
+            context.operation.principal = application::operation_context::Principal::Anonymous;
             let service = service.clone();
             async move {
                 details(
@@ -179,7 +182,8 @@ fn similar(
         "getSimilarProductListings",
         "Find similar public listings using the fixed service neighbor limit. EMBEDDING_PENDING means retry this operation later; READY may contain an empty list.",
         policy(),
-        move |input: ListingInput, context| {
+        move |input: ListingInput, mut context| {
+            context.operation.principal = application::operation_context::Principal::Anonymous;
             let service = service.clone();
             async move {
                 let result = context

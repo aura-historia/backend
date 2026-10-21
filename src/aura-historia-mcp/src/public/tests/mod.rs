@@ -1,3 +1,4 @@
+mod authentication;
 mod fixtures;
 mod rotation;
 mod sdk;

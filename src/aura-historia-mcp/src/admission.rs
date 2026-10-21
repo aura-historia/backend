@@ -1,5 +1,8 @@
 use crate::{AccessClass, OperationDefinition};
-use application::operation_context::Principal;
+use application::{
+    error::BoxError,
+    operation_context::{OperationContext, Principal},
+};
 use async_trait::async_trait;
 use axum::http::{HeaderMap, StatusCode};
 use tokio::time::Instant;
@@ -10,20 +13,25 @@ use tokio_util::sync::CancellationToken;
 pub struct AdmissionRequest<'a> {
     pub headers: &'a HeaderMap,
     pub method: &'a str,
+    pub context: &'a OperationContext,
     pub operation: Option<&'a OperationDefinition>,
     pub deadline: Instant,
     pub cancellation: CancellationToken,
 }
 
-/// H_GATE implements direct token validation here, before SDK dispatch and wrapping.
+/// Credentials and operation scope checks run before SDK dispatch and wrapping.
 #[async_trait]
 pub trait AdmissionGate: Send + Sync {
     async fn admit(&self, request: AdmissionRequest<'_>) -> Result<Principal, AdmissionRejection>;
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("MCP request admission rejected")]
 pub struct AdmissionRejection {
     pub status: StatusCode,
     pub headers: HeaderMap,
+    #[source]
+    source: Option<BoxError>,
 }
 
 impl AdmissionRejection {
@@ -31,7 +39,13 @@ impl AdmissionRejection {
         Self {
             status,
             headers: HeaderMap::new(),
+            source: None,
         }
+    }
+
+    pub(crate) fn with_source(mut self, source: BoxError) -> Self {
+        self.source = Some(source);
+        self
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::public::{PublicServices, operations};
-use crate::{AnonymousGate, ConfigError, RegistryError, TransportConfig, router};
+use crate::{AuraTokenGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
     ProductListingConfig, ProductListingDependencies, ProductListingProviderError, RotatingRuntime,
     Runtime, RuntimeError,
@@ -18,7 +18,11 @@ pub fn mcp_router(
         runtime,
         dependencies,
     ))?)?;
-    Ok(router(transport, registry, Arc::new(AnonymousGate))?)
+    let gate = AuraTokenGate::new(
+        runtime.access_token_authentication().clone(),
+        transport.resource_policy,
+    );
+    Ok(router(transport, registry, Arc::new(gate))?)
 }
 
 /// Credential refresh precedes every invocation, including discovery and warm catalogue calls.
@@ -58,11 +62,11 @@ impl RotatingMcpRouter {
 
 #[derive(Debug, thiserror::Error)]
 pub enum McpStartupError {
-    #[error("public runtime unavailable")]
+    #[error("MCP runtime unavailable")]
     Runtime(#[from] RuntimeError),
-    #[error("public listing providers unavailable")]
+    #[error("MCP listing providers unavailable")]
     Providers(#[from] ProductListingProviderError),
-    #[error("invalid public operation registry")]
+    #[error("invalid MCP operation registry")]
     Registry(#[from] RegistryError),
     #[error("invalid MCP transport configuration")]
     Transport(#[from] ConfigError),

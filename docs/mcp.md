@@ -4,9 +4,9 @@ The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
 `aura-historia-mcp` crate serves the same `/v1` router natively and through
 Lambda HTTP API v2. The [front-door contract](http-api-front-door.md#mcp-front-door)
 owns hosting, certificates, Origin/CORS and stage verification. Native and Lambda entry
-points register the same twelve anonymous catalogue and discovery operations. Configure a
-generic remote MCP client with this URL, Streamable HTTP transport and no authentication;
-no account, REST API URL, access-token argument or connector-specific alias is required.
+points share one registry and authenticate each request independently. Configure a generic
+remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
+public calls require no account; protected operations use opaque Aura access tokens.
 
 ## Protocol compatibility
 
@@ -79,15 +79,31 @@ manifest includes `aura.historia/operationId`, `aura.historia/access` and
 Health and readiness are HTTP-only `/health` and `/ready` probes, outside the
 operation registry.
 
-`AdmissionGate` runs before SDK operation dispatch. It receives the bounded
-body's method and selected registered operation only after supplied routing
-headers agree. The future authentication gate must validate supplied tokens
-through application services on every request and preserve the exact
-`DelegatedUser` capabilities. Services remain the authorization authority.
-The public gate accepts anonymous requests, rejects supplied credentials,
-and rejects protected calls with HTTP `401`. A gate can return actual HTTP
-`401`/`403` and `WWW-Authenticate` before tool-result wrapping. It must not
-infer argument authorization from unvalidated `Mcp-Param-*` headers.
+`AdmissionGate` runs before SDK dispatch and tool-result wrapping, after body and routing
+headers agree. The production `AuraTokenGate` invokes `AuthenticateAccessTokenUseCase`
+directly for every supplied credential, then builds a fresh `DelegatedUser` with exactly the
+stored capabilities. REST and MCP reuse the narrow `aura-historia-auth` adapter; Cognito JWTs
+and unrelated bearer credentials are rejected at MCP. The configured environment's Aura token
+store and shared resource policy recognize REST and MCP as one logical resource, including
+legacy personal/OAuth tokens. No identity or authorization is cached in an MCP session.
+
+Absent credentials permit discovery and public operations. Supplied malformed, expired,
+revoked or invalid credentials receive HTTP `401` with `error="invalid_token"`, including on
+public calls. Protected calls without credentials receive HTTP `401`; insufficient grants
+receive HTTP `403` with `error="insufficient_scope"`. Their Bearer challenges include
+`resource_metadata` and every scope required by the selected operation, rather than only the
+missing subset. Authentication-store outages receive bounded HTTP `503` with `Retry-After: 1`;
+invalid persisted/internal authentication state receives `500`. Neither becomes anonymous
+success or an invalid-token challenge. Rejected requests never execute a tool. Use cases
+remain the authority for scope, role, partnership and ownership checks.
+
+Both `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-protected-resource/v1` serve credential-free RFC 9728 metadata. They
+identify the exact canonical MCP resource and configured Aura issuer, advertise only header
+bearer credentials and the baseline `users:read` scope. Operation challenges provide the
+required scope set for each protected call. Host/Origin checks and `Cache-Control: no-store`
+apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
+server discovery belongs to [the OAuth contract](oauth.md).
 
 Family adapters classify expected input, missing-resource, conflict, forbidden
 and temporary failures into distinct static tool-error codes. Invalid arguments
@@ -99,9 +115,10 @@ idempotency and recovery contract.
 
 ## Public catalogue
 
-All selected operations use `Anonymous`, require no scopes, and advertise read-only,
-idempotent, nondestructive behavior against Aura's catalogue. These hints describe behavior;
-services remain the authorization authority. Private reads, writes and administrator operations
+The public catalogue currently maps service calls to `Anonymous`, including calls with valid
+Aura credentials; delegated personalization is activated separately by #2247. These operations
+require no scopes and advertise read-only, idempotent, nondestructive behavior against Aura's
+catalogue. These hints describe behavior; services remain the authorization authority. Private reads, writes and administrator operations
 have no registration in this catalogue. Newsletter opt-in/confirmation, health/readiness,
 webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded.
 
@@ -204,6 +221,7 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 
 | Environment variable | Meaning |
 | --- | --- |
+| `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy |
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
@@ -221,7 +239,9 @@ Authorization values, protocol bodies, private arguments/results or technical
 error causes containing provider data.
 
 Native startup uses the shared explicit PostgreSQL configuration; Lambda refreshes PostgreSQL
-credentials before every invocation and caches the public composition by credential version.
+credentials before every invocation and caches service composition by credential version.
+Token authentication still reads authoritative state on every request. Infrastructure injects
+the same explicit `OAUTH_ISSUER_URL` into REST and MCP; native startup must supply it too.
 Refresh failures reject the invocation instead of reusing stale credentials; in-flight routers
 retain their handles across replacement. Listing startup additionally requires
 `OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`.

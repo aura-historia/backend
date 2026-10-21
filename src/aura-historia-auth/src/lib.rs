@@ -117,6 +117,26 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
 mod tests {
     use super::*;
     #[test]
+    fn should_preserve_technical_causes_without_exposing_them_in_authentication_messages() {
+        use std::error::Error;
+        for error in [
+            AuthenticateAccessTokenError::TemporarilyUnavailable {
+                source: application::error::static_error("private store detail"),
+            },
+            AuthenticateAccessTokenError::InvalidPersistedState {
+                source: application::error::static_error("private store detail"),
+            },
+        ] {
+            let error = map_error(error);
+            assert!(!error.to_string().contains("private"));
+            assert_eq!(
+                "private store detail",
+                error.source().unwrap().source().unwrap().to_string()
+            );
+        }
+    }
+
+    #[test]
     fn should_map_all_token_scopes_to_credential_capabilities() {
         let cases = [
             (

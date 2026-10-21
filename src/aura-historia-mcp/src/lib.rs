@@ -1,5 +1,6 @@
 //! Bounded, stateless MCP transport. Families inject typed operations using shared contracts.
 mod admission;
+mod authentication;
 mod bounded_json;
 mod config;
 mod error;
@@ -13,6 +14,7 @@ mod registry;
 mod runtime;
 
 pub use admission::{AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate};
+pub use authentication::AuraTokenGate;
 pub use config::{
     ConfigError, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT, TransportConfig,
 };
