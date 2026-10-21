@@ -127,6 +127,29 @@ parent-driven executions in case accounting.
 
 ## Repeatable measurements
 
+[`benchmark-lanes.yml`](../.github/workflows/benchmark-lanes.yml) is an opt-in
+comparison of four lanes, three lanes (integration plus remaining), or one job.
+Dispatch each layout at the same immutable source SHA, harness and slot count,
+with at least two independent workflow runs. Every layout executes the full owned
+workspace, including exceptional phases and doctests. Each test job starts with
+an empty Cargo target, then immediately repeats with that target; registry, Docker
+images and OS caches are not claimed cold. Lint runs independently.
+[`bench-test-lane.py`](../ci/bench-test-lane.py) reuses the baseline stage/RSS/disk
+collector and current coverage export, retaining case lists, raw profiles, logs,
+runner hardware/image, flags and image identities. It reports supervisor compilation
+separately and includes startup/cleanup within test time. Successful Nextest output
+is retained for fixture timing observations.
+
+The scenario input labels the actual frozen FULL, API or LEAF source revision; it
+does not filter new tests or synthesize source invalidation. Same-revision warm
+measurements describe a reused target with unchanged source. Small-change cache
+invalidation requires an actual reviewed base/head pair and matching priming on
+both comparison sides. Collect the completed workflow envelope with
+`collect-ci-run.py`; do not sum concurrent jobs. This opt-in workflow measures
+through lint, artifact upload and coverage validation. Sonar scan/gate duration and
+the previous per-package fanout need their own same-source workflow evidence before
+claiming a complete CI speedup or selecting the final lane count.
+
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository
 PR to bootstrap its first run before default-branch registration. It checks out

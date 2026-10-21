@@ -47,6 +47,8 @@ def validate_special_cases(selection, suites):
             raise ValueError(f"Required exceptional target is absent or empty: {identity}")
         if case is not None and (case not in suite["testcases"] or suite["testcases"][case]["ignored"]):
             raise ValueError(f"Required exceptional case is absent or ignored: {identity}::{case}")
+        if case is None and all(case["ignored"] for case in suite["testcases"].values()):
+            raise ValueError(f"Required exceptional target has no active cases: {identity}")
 
 
 def cargo_args(selection, features):
@@ -56,7 +58,7 @@ def cargo_args(selection, features):
 
 def nextest_command(selection, slots, features):
     return ["cargo", "nextest", "run", *cargo_args(selection, features), "--all-targets",
-            "--test-threads", str(slots), "--no-fail-fast", "-E", ORDINARY_FILTER]
+            "--test-threads", str(slots), "--retries", "0", "--no-tests", "fail", "--no-fail-fast", "-E", ORDINARY_FILTER]
 
 
 def libtest_commands(identity, suite, slots):

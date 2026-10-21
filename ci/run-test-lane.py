@@ -136,7 +136,7 @@ def main():
     if PRISTINE_TARGET in suites:
         pristine = dict(selection, package_args=["--package", "database-migration-lambda"])
         argv = ["cargo", "nextest", "run", *cargo_args(pristine, args.features), "--test-threads", "1",
-                "-E", f"binary(=database-migration-lambda) and test(={PRISTINE_CASE})"]
+                "--retries", "0", "--no-tests", "fail", "-E", f"binary(=database-migration-lambda) and test(={PRISTINE_CASE})"]
         execute(supervised(args, "postgres", 1, "pristine", argv), root, environment)
     child = [sys.executable, str(pathlib.Path(__file__).resolve()), *sys.argv[1:], "--phase", "managed"]
     if args.profile == "none":

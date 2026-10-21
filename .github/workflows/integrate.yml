@@ -20,6 +20,10 @@ on:
       - "migrations/**"
       - "opensearch/**"
       - "mjml/**"
+      - "docs/swagger.yaml"
+      - "docs/fixtures/**"
+      - "infra/sql/**"
+      - "infra/assets/rds-ca-layer/**"
   pull_request:
     paths: *rust_paths
 

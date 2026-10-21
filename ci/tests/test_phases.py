@@ -44,6 +44,9 @@ class LanePhaseCommands(unittest.TestCase):
                 changed = dict(self.suites, **{identity: suite([])})
                 with self.assertRaisesRegex(ValueError, "absent or empty"):
                     validate_special_cases(self.selection, changed)
+                changed[identity] = {"testcases": {"control_case": {"ignored": True}}}
+                with self.assertRaisesRegex(ValueError, "no active cases"):
+                    validate_special_cases(self.selection, changed)
 
     def test_exact_pristine_and_context_controls_are_partitioned_out_of_normal_cases(self):
         for identity, excluded, ordinary in ((CONTEXT_TARGET, CONTEXT_CASE, "ordinary_context_case"),
@@ -81,7 +84,7 @@ class LanePhaseCommands(unittest.TestCase):
         command = nextest_command(self.selection, 2, ["test-api/s3"])
         self.assertEqual(command, ["cargo", "nextest", "run", "--locked", "--all-features",
             "--package", "database-migration-lambda", "--package", "test-api", "--features", "test-api/s3",
-            "--all-targets", "--test-threads", "2", "--no-fail-fast", "-E", ORDINARY_FILTER])
+            "--all-targets", "--test-threads", "2", "--retries", "0", "--no-tests", "fail", "--no-fail-fast", "-E", ORDINARY_FILTER])
         self.assertIn(f"binary(=isolated_context) and test(={CONTEXT_CASE})", ORDINARY_FILTER)
         self.assertIn(f"binary(=database-migration-lambda) and test(={PRISTINE_CASE})", ORDINARY_FILTER)
 
