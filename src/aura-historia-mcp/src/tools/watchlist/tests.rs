@@ -1,3 +1,5 @@
+mod schema;
+
 use super::*;
 use crate::{MAX_RESPONSE_BYTES, Registry};
 use application::{
@@ -694,6 +696,48 @@ async fn should_preserve_technical_causes_and_hide_them_from_tool_errors() {
                 .unwrap()
                 .to_string()
         );
+        let response = serde_json::to_string(&error.into_protocol().unwrap()).unwrap();
+        assert!(response.contains("TEMPORARILY_UNAVAILABLE"));
+        assert!(!response.contains("PRIVATE"));
+    }
+}
+
+#[test]
+fn should_preserve_update_remove_and_nested_presentation_failure_causes() {
+    let errors = [
+        (
+            error::remove(UnwatchProductListingError::CommitTransactionFailed(
+                static_error("PRIVATE_REMOVE_SENTINEL"),
+            )),
+            "PRIVATE_REMOVE_SENTINEL",
+        ),
+        (
+            error::update(
+                UpdateWatchlistProductListingError::WatchlistQuotaReadFailed {
+                    source: static_error("PRIVATE_UPDATE_SENTINEL"),
+                },
+            ),
+            "PRIVATE_UPDATE_SENTINEL",
+        ),
+        (
+            error::update(UpdateWatchlistProductListingError::Presentation(
+                GetProductListingError::Shipping(
+                    product_listing_service::shipping::ShippingReadError::FxRead(
+                        fxrate_service::ports::FxRateSnapshotReadError::ReadFailed {
+                            source: static_error("PRIVATE_SHIPPING_SENTINEL"),
+                        },
+                    ),
+                ),
+            )),
+            "PRIVATE_SHIPPING_SENTINEL",
+        ),
+    ];
+    for (error, sentinel) in errors {
+        let mut cause = std::error::Error::source(&error).expect("service cause");
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert_eq!(sentinel, cause.to_string());
         let response = serde_json::to_string(&error.into_protocol().unwrap()).unwrap();
         assert!(response.contains("TEMPORARILY_UNAVAILABLE"));
         assert!(!response.contains("PRIVATE"));

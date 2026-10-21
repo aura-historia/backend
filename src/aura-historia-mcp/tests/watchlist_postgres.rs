@@ -389,6 +389,15 @@ async fn verify_update_and_disclosure(fixture: &Fixture) -> TestResult {
         json!({"watching":false,"notifications":false}),
         updated["userState"]["watchlist"]
     );
+    let snapshot = fixture.entry_snapshot(product).await?;
+    fixture
+        .success(
+            &fixture.full,
+            "patchWatchlistProduct",
+            json!({"productListingId":product,"state":"INACTIVE_BY_USER","notifications":false}),
+        )
+        .await?;
+    assert_eq!(snapshot, fixture.entry_snapshot(product).await?);
     let updated = fixture
         .success(
             &fixture.write,
