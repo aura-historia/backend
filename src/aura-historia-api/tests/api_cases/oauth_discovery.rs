@@ -1,6 +1,6 @@
 use super::*;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_publish_public_exact_discovery_without_authentication() {
     let client = reqwest::Client::new();
     let url = format!(
@@ -67,7 +67,7 @@ async fn should_publish_public_exact_discovery_without_authentication() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_standard_secret_free_token_errors_at_the_discovered_path() {
     let admin = oauth_admin().await;
     let credentials = create_oauth_client(&admin.client, &admin.cognito_token).await;
@@ -184,7 +184,7 @@ async fn should_return_standard_secret_free_token_errors_at_the_discovered_path(
     assert_eq!(serde_json::json!({"error": "invalid_request"}), body);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_authorization_scope_without_reflecting_it() {
     let admin = oauth_admin().await;
     let credentials = create_oauth_client(&admin.client, &admin.cognito_token).await;

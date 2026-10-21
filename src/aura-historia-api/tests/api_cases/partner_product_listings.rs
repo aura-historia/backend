@@ -23,7 +23,7 @@ struct PartnerAuth {
     token: String,
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_partner_product_batch_when_all_products_are_new() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -45,7 +45,7 @@ async fn should_create_partner_product_batch_when_all_products_are_new() -> Test
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_duplicate_product_as_partial_create_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -77,7 +77,7 @@ async fn should_return_duplicate_product_as_partial_create_failure() -> TestResu
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -101,7 +101,7 @@ async fn should_update_existing_partner_product_batch() -> TestResult {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_unrelated_partner_from_existing_product_update() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(product_listings_write_scope()).await?;
@@ -129,7 +129,7 @@ async fn should_reject_unrelated_partner_from_existing_product_update() -> TestR
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_missing_product_as_partial_update_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -164,7 +164,7 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_every_product_update_is_missing() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -186,7 +186,7 @@ async fn should_return_not_found_when_every_product_update_is_missing() -> TestR
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -220,7 +220,7 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(product_listings_write_scope()).await?;
@@ -248,7 +248,7 @@ async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestR
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -273,7 +273,7 @@ async fn should_delete_existing_partner_product_batch() -> TestResult {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(product_listings_write_scope()).await?;
@@ -301,7 +301,7 @@ async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestR
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_missing_product_as_partial_delete_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -333,7 +333,7 @@ async fn should_return_missing_product_as_partial_delete_failure() -> TestResult
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_every_product_delete_is_missing() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -355,7 +355,7 @@ async fn should_return_not_found_when_every_product_delete_is_missing() -> TestR
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_partner_product_batch_when_access_token_lacks_scope() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(HashSet::new()).await?;
@@ -377,7 +377,7 @@ async fn should_reject_partner_product_batch_when_access_token_lacks_scope() -> 
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_unrelated_partner_from_product_batch() -> TestResult {
     let result: TestResult = async {
         let listing_source_id = seed_listing_source().await;
@@ -402,7 +402,7 @@ async fn should_reject_unrelated_partner_from_product_batch() -> TestResult {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_upsert_concurrently_without_returning_temporary_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -426,7 +426,7 @@ async fn should_upsert_concurrently_without_returning_temporary_failure() -> Tes
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_partner_product_batch_without_authorization() -> TestResult {
     let result: TestResult = async {
         let listing_source_id = seed_listing_source().await;
@@ -447,7 +447,7 @@ async fn should_reject_partner_product_batch_without_authorization() -> TestResu
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_source_local_identity_on_management_delete_route() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -467,7 +467,7 @@ async fn should_reject_source_local_identity_on_management_delete_route() -> Tes
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_listing_source_id() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -604,7 +604,7 @@ fn failure(listing_source_id: &str, source_listing_id: &str, error: &str) -> Val
     })
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn management_withdrawal_keeps_public_exclusion_and_batch_put_can_restore() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(HashSet::from([

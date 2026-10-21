@@ -8,7 +8,7 @@ pub struct McpServer {
     pub origin: String,
     pub pool: sqlx::PgPool,
     app: axum::Router,
-    task: tokio::task::JoinHandle<()>,
+    stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl McpServer {
@@ -27,16 +27,13 @@ impl McpServer {
             &runtime,
         )
         .unwrap();
-        let native = app.clone();
-        let task = tokio::spawn(async move {
-            axum::serve(listener, native).await.unwrap();
-        });
+        let stop = spawn_server(listener, app.clone()).await;
         Self {
             http: reqwest::Client::new(),
             origin: format!("http://{address}"),
             pool,
             app,
-            task,
+            stop,
         }
     }
 
@@ -149,8 +146,42 @@ impl McpServer {
 
 impl Drop for McpServer {
     fn drop(&mut self) {
-        self.task.abort();
+        self.stop.send_replace(true);
     }
+}
+
+async fn spawn_server(
+    listener: tokio::net::TcpListener,
+    app: axum::Router,
+) -> tokio::sync::watch::Sender<bool> {
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let shutdown_stop = stop.clone();
+    let (task_sender, task_receiver) =
+        tokio::sync::oneshot::channel::<tokio::task::JoinHandle<()>>();
+    test_api::TestContext::current()
+        .expect("MCP server context")
+        .on_shutdown(async move {
+            shutdown_stop.send_replace(true);
+            task_receiver.await?.await?;
+            Ok(())
+        })
+        .expect("register MCP shutdown before spawning");
+    let task = tokio::spawn(async move {
+        // Axum's graceful serve future joins its connection tasks. Aborting only
+        // the accept loop would let those requests outlive the context's lease.
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = stopping.changed().await;
+            })
+            .await
+            .unwrap();
+    });
+    if let Err(task) = task_sender.send(task) {
+        stop.send_replace(true);
+        task.await.expect("join abandoned MCP server startup");
+        panic!("MCP server shutdown ownership was lost");
+    }
+    stop
 }
 
 pub async fn successful_result(response: reqwest::Response) -> Value {
@@ -183,4 +214,74 @@ pub fn assert_shared_output<T: schemars::JsonSchema>(value: &Value) {
         .into_root_schema_for::<T>();
     let schema = serde_json::to_value(schema).unwrap();
     assert!(jsonschema::validator_for(&schema).unwrap().is_valid(value));
+}
+
+#[tokio::test]
+async fn should_join_active_mcp_connections_before_context_cleanup() {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::{Mutex, oneshot};
+
+    let session = test_api::TestContext::acquire_explicit(
+        "MCP connection shutdown",
+        test_api::Isolation::Isolated,
+    )
+    .await
+    .unwrap();
+    let (entered, started) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    let gate = Arc::new(Mutex::new(Some((entered, released))));
+    let app = axum::Router::new().route(
+        "/",
+        axum::routing::get(move || {
+            let gate = Arc::clone(&gate);
+            async move {
+                let (entered, released) = gate.lock().await.take().unwrap();
+                entered.send(()).unwrap();
+                let _ = released.await;
+                (
+                    [("content-type", "text/event-stream")],
+                    "data: finished\n\n",
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = session.context().scope(spawn_server(listener, app)).await;
+    let mut stopping = stop.subscribe();
+    let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+    client
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), started)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut cleanup = tokio::spawn(session.finish());
+    tokio::time::timeout(Duration::from_secs(5), stopping.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut cleanup)
+            .await
+            .is_err(),
+        "context cleanup must wait for the active HTTP/SSE response"
+    );
+    release.send(()).unwrap();
+    let mut response = String::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_string(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
+    cleanup.await.unwrap().unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(
+        response.contains("content-type: text/event-stream"),
+        "{response}"
+    );
+    assert!(response.ends_with("data: finished\n\n"), "{response}");
 }

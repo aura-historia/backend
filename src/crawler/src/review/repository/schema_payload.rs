@@ -22,6 +22,16 @@ pub(super) fn parse_schemas_payload(
     Ok(candidate.schemas)
 }
 
+/// Decodes a stored candidate without validating it, to compare it with the live schemas: a
+/// candidate that today's validation rejects is still a fact about what was approved.
+pub(super) fn decode_stored_schemas_payload(
+    candidate_payload: &serde_json::Value,
+) -> Option<Vec<ProductCssSelectorSchema>> {
+    serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
+        .ok()
+        .map(|candidate| candidate.schemas)
+}
+
 pub(super) fn validate_product_schemas(
     schemas: &[ProductCssSelectorSchema],
 ) -> Result<(), ReviewRepositoryError> {

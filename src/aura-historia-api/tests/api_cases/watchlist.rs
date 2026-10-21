@@ -86,7 +86,7 @@ async fn seed_product_presentation(product_listing_id: ProductListingId) {
     .unwrap_or_else(|error| panic!("failed to seed watchlist product assessment: {error}"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_add_product_to_watchlist_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -127,7 +127,7 @@ async fn should_add_product_to_watchlist_when_authenticated() {
     assert!(body.get("userState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_watchlist_create_when_entry_exists() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -159,7 +159,7 @@ async fn should_reject_watchlist_create_when_entry_exists() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_product_listing_not_found_when_watching_missing_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -185,7 +185,7 @@ async fn should_return_product_listing_not_found_when_watching_missing_product()
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_product_listing_unavailable_when_watching_withdrawn_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -213,7 +213,7 @@ async fn should_return_product_listing_unavailable_when_watching_withdrawn_produ
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_leave_existing_watchlist_entry_unchanged_when_watching_duplicate() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -256,7 +256,7 @@ async fn should_leave_existing_watchlist_entry_unchanged_when_watching_duplicate
     assert_eq!("ACTIVE", state);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_list_current_user_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -323,7 +323,7 @@ async fn should_list_current_user_watchlist() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_watchlist_notifications() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -365,7 +365,7 @@ async fn should_update_watchlist_notifications() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -411,7 +411,7 @@ async fn should_deactivate_and_reactivate_watchlist_entry_for_active_product() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API], isolated = true)]
 async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_without_deadlock() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -463,7 +463,7 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
     assert_ne!(before["updated"], entry["updated"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, &SINGLE_CONNECTION_WATCHLIST_API], isolated = true)]
 async fn should_not_commit_watchlist_patch_when_shipping_fails_with_single_connection_pool() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -516,7 +516,7 @@ async fn should_not_commit_watchlist_patch_when_shipping_fails_with_single_conne
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_current_product_for_empty_watchlist_patch_without_changing_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -547,7 +547,7 @@ async fn should_return_current_product_for_empty_watchlist_patch_without_changin
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_present_watchlist_patch_product_in_requested_language_and_currency() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -616,7 +616,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_watchlist_patch_presentation_without_changing_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -656,7 +656,7 @@ async fn should_reject_invalid_watchlist_patch_presentation_without_changing_ent
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_null_watchlist_patch_fields_without_changing_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -697,7 +697,7 @@ async fn should_reject_null_watchlist_patch_fields_without_changing_entry() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_product_listing_unavailable_when_reactivating_withdrawn_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -728,7 +728,7 @@ async fn should_return_product_listing_unavailable_when_reactivating_withdrawn_p
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -790,7 +790,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
     assert_eq!(serde_json::json!(false), entry["notifications"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -878,7 +878,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_watchlist_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -911,7 +911,7 @@ async fn should_delete_watchlist_entry() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_product_listing_id_in_watchlist_path() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -947,7 +947,7 @@ async fn should_reject_noncanonical_product_listing_id_in_watchlist_path() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_product_listing_id_in_watchlist_body() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -980,7 +980,7 @@ async fn should_reject_noncanonical_product_listing_id_in_watchlist_body() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_updating_missing_watchlist_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1010,7 +1010,7 @@ async fn should_return_not_found_when_updating_missing_watchlist_entry() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_watchlist_create_at_free_tier_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1038,7 +1038,7 @@ async fn should_reject_watchlist_create_at_free_tier_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1091,7 +1091,7 @@ async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     assert_eq!(20, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
@@ -1113,7 +1113,7 @@ async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     assert_eq!(reqwest::StatusCode::CREATED, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1145,7 +1145,7 @@ async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1204,7 +1204,7 @@ async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
     assert_eq!(20, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
@@ -1232,7 +1232,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     assert_watchlist_product(&body, product_listing_id, true, true);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_auth_for_watchlist() {
     let response = reqwest::Client::new()
         .get(format!("{}/v1/me/watchlist", AURA_API.base_url()))

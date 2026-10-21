@@ -10,7 +10,6 @@ use lambda_http::{
 };
 use listing_source_core::ListingSourceId;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
-use serial_test::serial;
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -25,7 +24,7 @@ const OPENSEARCH: OpenSearch = OpenSearch();
 const WOOCOMMERCE_WEBHOOK_SECRET: &str = "lambda-http-api-v2-webhook-secret";
 const LOOPS_WEBHOOK_SIGNING_SECRET: &str = "whsec_bG9vcHMta2V5LWN1cnJlbnQ=";
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -86,7 +85,7 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_strip_only_the_matching_named_stage_for_canonical_composed_routes() {
     let app = api_support::aura_api_app().await;
     let mut event: serde_json::Value =
@@ -117,7 +116,7 @@ async fn should_strip_only_the_matching_named_stage_for_canonical_composed_route
     }
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_reject_legacy_routes_without_redirects_through_the_composed_http_api_v2_router() {
     let app = api_support::aura_api_app().await;
     for (method, suffix) in [
@@ -169,7 +168,7 @@ async fn should_reject_legacy_routes_without_redirects_through_the_composed_http
     }
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -222,7 +221,7 @@ async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_http_api_v2_router() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -274,7 +273,7 @@ async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_ht
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_reject_ambiguous_async_idempotency_keys_through_http_api_v2() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         // Both OpenAPI request and response key schemas must match the HTTP-only grammar.
@@ -365,7 +364,7 @@ async fn should_reject_ambiguous_async_idempotency_keys_through_http_api_v2() {
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_adapter() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -440,8 +439,7 @@ async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_a
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[serial(lambda_composition_environment)]
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], exclusive = true)]
 async fn should_serve_health_through_full_lambda_composition_when_google_and_opensearch_are_unavailable()
  {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
@@ -723,7 +721,7 @@ impl EnvironmentGuard {
             .iter()
             .map(|(name, value)| {
                 let previous = std::env::var_os(name);
-                // This serial test owns these composition-only variables until its guard drops.
+                // This exclusive test owns these composition-only variables until its guard drops.
                 unsafe { std::env::set_var(name, value) };
                 (*name, previous)
             })
@@ -736,9 +734,9 @@ impl Drop for EnvironmentGuard {
     fn drop(&mut self) {
         for (name, value) in self.previous.drain(..) {
             match value {
-                // This runs before the serial test releases the composition environment.
+                // This runs before the exclusive test releases the composition environment.
                 Some(value) => unsafe { std::env::set_var(name, value) },
-                // This runs before the serial test releases the composition environment.
+                // This runs before the exclusive test releases the composition environment.
                 None => unsafe { std::env::remove_var(name) },
             }
         }

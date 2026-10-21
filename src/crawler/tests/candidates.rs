@@ -144,8 +144,7 @@ async fn insert_domain_for_listing_source(
 // get_candidates — no eligible listing_sources returns empty vec
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -163,8 +162,7 @@ async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
 //                  and carries the correct domain_id
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -194,8 +192,7 @@ async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawle
 // get_candidates — domain crawled recently is NOT returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_not_return_candidate_when_recently_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -223,8 +220,7 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
 // get_candidates — domain crawled more than 7 days ago IS returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -254,8 +250,7 @@ async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
 // get_candidates — crawl-disabled listing_sources are excluded
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -283,8 +278,7 @@ async fn spider_should_not_return_candidate_when_listing_source_crawl_is_disable
 // get_candidates — limit is respected
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_respect_limit_when_multiple_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -313,8 +307,7 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
 //                  with their own domain_id
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_each_domain_separately_for_listing_source_with_multiple_domains() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -349,8 +342,7 @@ async fn spider_should_return_each_domain_separately_for_listing_source_with_mul
 // get_candidates — listing_source_id on the candidate matches the owning ListingSource
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_correct_listing_source_id_on_candidate() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -377,8 +369,7 @@ async fn spider_should_return_correct_listing_source_id_on_candidate() {
 // get_candidates — failure metadata is included for retry policy decisions
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_return_crawl_failure_metadata_on_candidate() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -419,8 +410,7 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
 // mark_crawl_failure — stores the caller-provided consecutive count and retry
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -484,8 +474,7 @@ async fn crawl_state(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) -> CrawlSt
 // crawl outcomes — truncation keeps failure state, completion clears it
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retry() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -549,8 +538,7 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
     assert_eq!(candidate.crawl_failure_count, 2);
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -583,8 +571,7 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
     assert_eq!(truncations, 0);
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -612,8 +599,7 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_crawl_outcome_should_reject_unknown_values() {
     let pool = get_postgres_client().await;
 
@@ -642,8 +628,7 @@ async fn spider_crawl_outcome_should_reject_unknown_values() {
 // get_candidates — ordering: NULL last_crawled comes before stale domains
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_order_never_crawled_before_stale_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -716,8 +701,7 @@ async fn insert_product_url(
 // get_candidates — empty DB returns empty vec
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -734,8 +718,7 @@ async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
 // get_candidates — product URL never scraped IS returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_return_candidate_when_product_url_never_scraped() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -766,8 +749,7 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
 // get_candidates — URL scraped < 1 day ago is NOT returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_recently_scraped() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -800,8 +782,7 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
 // get_candidates — URL scraped > 1 day ago IS returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -836,8 +817,7 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
 // get_candidates — non-product URL class is NOT returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -866,8 +846,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
 // get_candidates — inactive ListingSource is NOT returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_class_is_called() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -931,8 +910,7 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     assert!(candidates.iter().any(|c| c.url == other_url));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -962,8 +940,7 @@ async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabl
 // get_candidates — sold URLs remain eligible for rechecks
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_return_candidate_when_disposition_is_dormant_sold() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1012,8 +989,7 @@ async fn scraper_should_return_candidate_when_disposition_is_dormant_sold() {
     );
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1076,8 +1052,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
 // get_candidates — limit is respected
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1110,8 +1085,7 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
 // get_candidates - random domain-fair fetching caps domains and URLs per domain
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1184,8 +1158,7 @@ async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates
 // get_candidates - selected domain set changes across repeated calls
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1226,8 +1199,7 @@ async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
 // get_candidates - selected URLs inside one domain are oldest first
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1276,8 +1248,7 @@ async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first()
 // get_candidates — excluded active domains are NOT returned
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1336,8 +1307,7 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
 // get_candidates — ordering: never-scraped before stale
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_order_never_scraped_before_stale() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1384,8 +1354,7 @@ async fn scraper_should_order_never_scraped_before_stale() {
 // mark_as_scraped — sets last_scraped and last_scraped_hash on the row
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1433,8 +1402,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     assert_eq!(row.2.as_deref(), Some("SKU-123"));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_normal_fallback_identity_should_remain_stable_across_completions() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1500,8 +1468,7 @@ async fn scraper_normal_fallback_identity_should_remain_stable_across_completion
     assert_eq!(stored.as_deref(), Some(fallback_identity.as_str()));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity_metadata() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1544,8 +1511,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
     assert_eq!(row.2.as_deref(), Some("stable-source-id"));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn redirected_scrape_should_reject_known_destination_without_mutating_rows() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1604,8 +1570,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(rows.iter().any(|row| row.1 == effective_url.as_str()));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1671,8 +1636,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     );
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1740,8 +1704,7 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
     assert_eq!(row.3, Some(dormant_raw_input_hash));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_newer_active_completion_should_fence_delayed_active_completion_and_touch() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1824,8 +1787,7 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
     assert_eq!(row.3, Some(newer_raw_input_sha256));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1913,8 +1875,7 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
     assert_eq!(row.3, Some(newer_raw_input_sha256));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_newer_active_completion_should_fence_delayed_disposition_change() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2009,8 +1970,7 @@ struct DelayedObserverUrlState {
     no_last_status_code: bool,
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_capture_commits() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2057,7 +2017,7 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
         let start = Arc::clone(&start);
         let newer_committed = Arc::clone(&newer_committed);
 
-        tokio::spawn(async move {
+        test_api::spawn_owned(async move {
             start.wait().await;
             assert_eq!(
                 service
@@ -2089,7 +2049,7 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
         let start = Arc::clone(&start);
         let newer_committed = Arc::clone(&newer_committed);
 
-        tokio::spawn(async move {
+        test_api::spawn_owned(async move {
             start.wait().await;
             newer_committed.wait().await;
 
@@ -2182,8 +2142,7 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
 //                   (recently scraped)
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidates() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2235,8 +2194,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
 // get_random_product_urls_for_schema_seed — excludes current URL
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_seed_urls_should_exclude_current_url() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2275,8 +2233,7 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 // get_random_product_urls_for_schema_seed — same ListingSource, product class, and presence
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2417,8 +2374,7 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     );
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2483,8 +2439,7 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
     );
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2649,8 +2604,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     );
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2734,8 +2688,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() 
     assert!(domain_row.3 > time::OffsetDateTime::now_utc());
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2839,8 +2792,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
 // get_random_product_urls_for_schema_seed — limit is respected
 // ---------------------------------------------------------------------------
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_seed_urls_should_respect_limit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -2871,8 +2823,7 @@ async fn scraper_seed_urls_should_respect_limit() {
     assert_eq!(sampled.len(), 3, "query should respect the requested LIMIT");
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -3020,8 +2971,7 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
     assert_eq!(restarted.persisted_failure_streak, Some(1));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -3112,8 +3062,7 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
     assert_eq!(url_row, ("HTTP_429".to_owned(), Some(429)));
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());

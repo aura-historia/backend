@@ -699,6 +699,14 @@
         {
           "doctest": false,
           "harness": true,
+          "id": "crawler::test::crawler_review_reviewer_pages",
+          "lane": "CRAWLER",
+          "required_features": [],
+          "test": true
+        },
+        {
+          "doctest": false,
+          "harness": true,
           "id": "crawler::test::cron_authoritative_scope",
           "lane": "CRAWLER",
           "required_features": [],

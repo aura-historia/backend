@@ -1,7 +1,7 @@
 use super::*;
 use client::assert_credentials_headers;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_reject_malformed_authorization_and_exact_callback_client_or_resource_mismatches() {
     let client = GenericClient::registered().await;
@@ -51,7 +51,7 @@ async fn should_reject_malformed_authorization_and_exact_callback_client_or_reso
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_reject_wrong_client_callback_verifier_code_and_resource_during_exchange() {
     let client = GenericClient::registered().await;
@@ -130,7 +130,7 @@ async fn should_reject_wrong_client_callback_verifier_code_and_resource_during_e
     .await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_reject_replayed_expired_and_concurrently_redeemed_codes() {
     let client = GenericClient::registered().await;
