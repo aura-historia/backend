@@ -1,5 +1,8 @@
 mod topology;
 
+#[cfg(all(test, feature = "sqs", feature = "ses", feature = "s3"))]
+mod runtime_tests;
+
 use self::topology::AwsEmulatorTopology;
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::net::TcpListener;
@@ -35,6 +38,9 @@ pub fn get_endpoint_url() -> &'static str {
 }
 
 /// Uses fixed test credentials and region; never loads live AWS credentials.
+///
+/// The shared configuration leaves the HTTP client unset. Each service client constructs
+/// its own connector, so pooled I/O is owned by that client and its runtime.
 pub async fn get_aws_config() -> &'static SdkConfig {
     CONFIG
         .get_or_init(|| async {

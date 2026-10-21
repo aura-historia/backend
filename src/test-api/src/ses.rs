@@ -10,18 +10,14 @@ use tracing::{debug, info, warn};
 /// Sender identity verified for Floci SES integration tests.
 const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
-/// A lazily-initialized, globally shared SESv2 client for integration testing.
-static SES_CLIENT: OnceCell<Client> = OnceCell::const_new();
 static SENDER_VERIFIED: OnceCell<()> = OnceCell::const_new();
 
-/// Returns a shared `aws_sdk_sesv2::Client` for interacting with Floci.
+/// Creates an owned Floci client on the calling runtime.
 ///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
-pub async fn get_ses_client() -> &'static Client {
-    let client = SES_CLIENT
-        .get_or_init(|| async { Client::new(get_aws_config().await) })
-        .await;
+/// Clone it within that runtime to share its connection pool. Obtain another client after
+/// the runtime stops, including during fixture cleanup.
+pub async fn get_ses_client() -> Client {
+    let client = Client::new(get_aws_config().await);
     debug!("Successfully initialized SESv2-Client.");
     client
 }
