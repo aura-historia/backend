@@ -384,6 +384,34 @@ impl ReviewServer {
             };
         }
 
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/pages")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/pages") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: ReviewPagePayload = match serde_json::from_str(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
+            let url = match Url::parse(&payload.url) {
+                Ok(url) => url,
+                Err(error) => {
+                    return HttpResponse::json(
+                        400,
+                        &json!({ "error": "invalid review page url", "details": error.to_string() }),
+                    );
+                }
+            };
+            return match self.add_reviewer_page(review_id, url).await {
+                Ok(page) => HttpResponse::json(201, &page),
+                Err(response) => response,
+            };
+        }
+
         if request.method == "GET"
             && request.path.starts_with("/api/review-pages/")
             && request.path.ends_with("/inspect")
@@ -530,6 +558,9 @@ impl ReviewServer {
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                    HttpResponse::json(409, &json!({ "error": err.to_string() }))
+                }
                 Err(err) => internal_error(err),
             };
         }
@@ -560,6 +591,9 @@ impl ReviewServer {
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
+                }
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                    HttpResponse::json(409, &json!({ "error": err.to_string() }))
                 }
                 Err(err) => internal_error(err),
             };
@@ -684,6 +718,39 @@ impl ReviewServer {
             .await
             .map_err(schema_matrix_store_error)?;
         Ok(evaluated.matrix)
+    }
+
+    /// Fetches a reviewer-chosen page of the review's ListingSource and stores it as a review
+    /// page. The target is checked before the fetch so the console never fetches a foreign
+    /// host, and the final URL after redirects is checked again before it is stored.
+    async fn add_reviewer_page(
+        &self,
+        review_id: CrawlerReviewId,
+        url: Url,
+    ) -> Result<CrawlerReviewPage, HttpResponse> {
+        self.repository
+            .check_reviewer_page_target(review_id, &url)
+            .await
+            .map_err(reviewer_page_error)?;
+        let fetched = self
+            .html_fetcher
+            .fetch(&url)
+            .await
+            .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
+        if !fetched.status.is_success() {
+            return Err(HttpResponse::json(
+                502,
+                &json!({
+                    "error": "review page did not return a successful status",
+                    "url": url.as_str(),
+                    "status": fetched.status.as_u16(),
+                }),
+            ));
+        }
+        self.repository
+            .add_reviewer_page(review_id, &fetched.final_url, &fetched.html)
+            .await
+            .map_err(reviewer_page_error)
     }
 
     async fn live_review_page(
@@ -907,6 +974,11 @@ struct DomainPayload {
     domain: String,
 }
 
+#[derive(Deserialize)]
+struct ReviewPagePayload {
+    url: String,
+}
+
 fn parse_action_payload(body: &str) -> Result<ActionPayload, serde_json::Error> {
     if body.trim().is_empty() {
         return Ok(ActionPayload::default());
@@ -992,6 +1064,24 @@ fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
             409,
             &json!({ "error": "review candidate changed; refresh and evaluate again" }),
         ),
+        other => internal_error(other),
+    }
+}
+
+fn reviewer_page_error(error: ReviewRepositoryError) -> HttpResponse {
+    match error {
+        ReviewRepositoryError::NotFound(_) => {
+            HttpResponse::json(404, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::DuplicateReviewPage(_) => {
+            HttpResponse::json(409, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
+        | ReviewRepositoryError::ReviewPageLimitReached(_)
+        | ReviewRepositoryError::UnsupportedArtifact(_, _)
+        | ReviewRepositoryError::NotPending(_) => {
+            HttpResponse::json(400, &json!({ "error": error.to_string() }))
+        }
         other => internal_error(other),
     }
 }

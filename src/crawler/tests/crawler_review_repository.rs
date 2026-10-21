@@ -458,6 +458,82 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
 }
 
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_live() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let older_review_id = review_repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1.first")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    review_repository
+        .approve_review(older_review_id, None)
+        .await
+        .unwrap();
+    let newer_review_id = review_repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1.second")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    review_repository
+        .approve_review(newer_review_id, None)
+        .await
+        .unwrap();
+
+    let candidate_edit = review_repository
+        .update_candidate_payload(
+            older_review_id,
+            json!({ "schemas": [schema("h1.stale-edit")] }),
+        )
+        .await;
+    let field_edit = review_repository
+        .update_schema_field(older_review_id, 0, "title", Some(rule("h1.stale-field")))
+        .await;
+
+    assert!(matches!(
+        candidate_edit,
+        Err(ReviewRepositoryError::StaleApprovedReview(id)) if id == older_review_id
+    ));
+    assert!(matches!(
+        field_edit,
+        Err(ReviewRepositoryError::StaleApprovedReview(id)) if id == older_review_id
+    ));
+    let live = || async {
+        schema_repository
+            .find_product_schema(&listing_source_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .product_schemas
+    };
+    assert_eq!(live().await, vec![schema("h1.second")]);
+    let older = review_repository.get_review(older_review_id).await.unwrap();
+    assert_eq!(
+        older.review.candidate_payload,
+        json!({ "schemas": [schema("h1.first")] })
+    );
+
+    review_repository
+        .update_schema_field(newer_review_id, 0, "title", Some(rule("h1.current")))
+        .await
+        .unwrap();
+    assert_eq!(live().await, vec![schema("h1.current")]);
+}
+
+#[aura_integration_test(services = [POSTGRES])]
 async fn schema_review_creation_rejects_invalid_typed_schema() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());

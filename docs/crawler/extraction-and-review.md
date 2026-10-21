@@ -46,6 +46,10 @@ The review rail records generated URL-pattern and product-schema artifacts as au
 
 A review records its ListingSource, and URL-pattern reviews also record their domain. Candidate changes increment the review version and invalidate any cached schema matrix, so a stale live inspection cannot overwrite current review state. Review identities and matrix references use the TypeID policy in [object IDs](../object-ids.md).
 
+A reviewer can add further pages of the ListingSource to a pending or approved product-schema review (`POST /api/reviews/{id}/pages` with `{"url": ...}`), such as sold, price-on-application or photo-less variants, so the schema matrix tests the candidate beyond its seed pages. Only http(s) URLs on one of the ListingSource's domains are accepted, checked before the fetch and again on the final URL after redirects; a review holds a bounded number of pages. Adding a page drops the cached matrix. These pages carry the `REVIEWER_ADDED` role and are no operator verdict: rejecting the review does not classify them as non-product pages.
+
+Editing an approved product-schema review rewrites the ListingSource's live schema list, so it is refused unless that review's candidate is still the live list. Once a later review has changed the live schemas, older approved reviews are read-only.
+
 A review-approved `NO_PATTERN` is a completed URL classification. It suppresses new pattern inference until an explicit reset returns the domain to `UNKNOWN`.
 
 ## LLM limits
