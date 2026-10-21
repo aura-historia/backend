@@ -13,7 +13,7 @@
       "runner": "ubuntu-latest"
     },
     "REMAINING": {
-      "description": "All other targets, including the root and proc macro",
+      "description": "All other targets",
       "runner": "ubuntu-latest"
     }
   },
@@ -344,7 +344,7 @@
           "doctest": true,
           "harness": true,
           "id": "aura-historia-mcp::lib::aura_historia_mcp",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -352,7 +352,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::bin::aura-historia-mcp",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -360,7 +360,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::authentication",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -368,7 +368,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::authentication_postgres",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -376,7 +376,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::lambda",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -384,7 +384,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::logging",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -392,7 +392,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::notifications",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -400,7 +400,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::shared_contracts",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -408,7 +408,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::transport",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -416,7 +416,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-mcp::test::watchlist_postgres",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -442,7 +442,7 @@
           "doctest": true,
           "harness": true,
           "id": "aura-historia-runtime::lib::aura_historia_runtime",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -450,7 +450,7 @@
           "doctest": false,
           "harness": true,
           "id": "aura-historia-runtime::test::public_listing_sources",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -594,7 +594,7 @@
           "doctest": false,
           "harness": true,
           "id": "cognito-post-confirmation::test::lib",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -2091,7 +2091,7 @@
           "doctest": true,
           "harness": true,
           "id": "product-listing-service::lib::product_listing_service",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -2227,7 +2227,7 @@
           "doctest": false,
           "harness": true,
           "id": "search-filter-periodic-match::bin::search-filter-periodic-match",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -2509,7 +2509,7 @@
           "doctest": true,
           "harness": true,
           "id": "test-api-macros::proc-macro::test_api_macros",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }
@@ -2548,7 +2548,7 @@
           "doctest": true,
           "harness": true,
           "id": "user-email-aws::lib::user_email_aws",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -2556,7 +2556,7 @@
           "doctest": false,
           "harness": true,
           "id": "user-email-aws::test::ses",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         },
@@ -2564,7 +2564,7 @@
           "doctest": false,
           "harness": true,
           "id": "user-email-aws::test::template_contract",
-          "lane": "REMAINING",
+          "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true
         }

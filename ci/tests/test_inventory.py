@@ -71,6 +71,45 @@ fn sample() { get_postgres_client(); let sql = "CREATE PUBLICATION example"; }
         self.assertTrue({"aura_integration_test", "serial_test", "platform_conditional", "parameterized", "persistent_global", "cluster_global_ddl_replication"} <= kinds)
         self.assertEqual(target["lane"], "INFRASTRUCTURE")
 
+    def test_nested_members_keep_own_source_evidence_without_leaking_into_ancestor_packages(self):
+        (self.root / "src/lib.rs").write_text("static ROOT_STATE: OnceLock<u8> = OnceLock::new();\n")
+        sources = {
+            "outer": ("src/outer", '''#[aura_integration_test(services = [POSTGRES])]
+static OUTER_STATE: OnceLock<u8> = OnceLock::new();
+fn sample() { get_postgres_client(); let sql = "CREATE PUBLICATION example"; }
+'''),
+            "inner": ("src/outer/src/inner", '''#[aura_integration_test(services = [OpenSearch()])]
+static INNER_STATE: LazyLock<u8> = LazyLock::new(|| 1);
+fn sample() { let sql = "CREATE ROLE example"; }
+'''),
+        }
+        for name, (relative, source) in sources.items():
+            directory = self.root / relative
+            (directory / "src").mkdir(parents=True)
+            (directory / "src/lib.rs").write_text(source)
+            (directory / "Cargo.toml").write_text(f'[package]\nname="{name}"\nversion="1.2.3"\n')
+            package = copy.deepcopy(self.package)
+            package.update(id=name, name=name, manifest_path=str(directory / "Cargo.toml"))
+            package["targets"][0].update(name=name, src_path=str(directory / "src/lib.rs"))
+            self.metadata["packages"].append(package)
+            self.metadata["workspace_members"].append(name)
+
+        catalog, _ = build_catalog(self.metadata, self.root)
+        targets = {package["name"]: package["targets"][0] for package in catalog["packages"]}
+        for name, expected_path, fixtures in (
+            ("root", "src/lib.rs", []),
+            ("outer", "src/outer/src/lib.rs", ["postgres"]),
+            ("inner", "src/outer/src/inner/src/lib.rs", ["opensearch"]),
+        ):
+            with self.subTest(package=name):
+                signals = targets[name]["source_signals"]
+                self.assertEqual({item["path"] for item in signals["evidence"]}, {expected_path})
+                self.assertEqual(signals["fixtures"], fixtures)
+                self.assertIn("persistent_global", signals["review_required"])
+                if name != "root":
+                    self.assertIn("cluster_global_ddl_replication", signals["review_required"])
+                    self.assertEqual(targets[name]["lane"], "INFRASTRUCTURE")
+
     def test_discovery_fails_when_nextest_silently_omits_a_cargo_target(self):
         catalog, _ = build_catalog(self.metadata, self.root)
         with patch("ci_inventory.discovery.command", return_value="/rust/lib"):
