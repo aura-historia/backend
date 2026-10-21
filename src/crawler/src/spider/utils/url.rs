@@ -1,6 +1,7 @@
 use listing_source_core::{Domain, InvalidDomain as NoDomainError};
 use regex::Regex;
 use spider::compact_str::CompactString;
+use std::borrow::Cow;
 use url_normalize::Options;
 
 const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
@@ -163,6 +164,14 @@ impl TryFrom<&str> for CrawledUrl {
     }
 }
 
+/// Decodes HTML character references in a discovered link, as a browser does for an `href`
+/// attribute. The spider library reads attribute values raw, so without this a link written
+/// as `?c=&amp;id=113` is requested with an `amp;id` parameter and stored as `?amp;id=113&c=`,
+/// which shops answer with the wrong page.
+pub fn decode_link_entities(link: &str) -> Cow<'_, str> {
+    html_escape::decode_html_entities(link)
+}
+
 pub fn extract_crawl_root_domain(crawl_root_url: &str) -> Result<Domain, NoDomainError> {
     let parsed = url::Url::parse(crawl_root_url).map_err(|_| NoDomainError::new(crawl_root_url))?;
     let host = parsed
@@ -210,6 +219,37 @@ mod tests {
         let input = "https://www.example.com/";
         let normalized = normalize_for_test(input);
         assert_eq!(normalized, "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_decode_entity_encoded_query_separators_when_link_comes_from_raw_href() {
+        for (link, expected) in [
+            (
+                "https://www.antiquesbydesign.co.uk/single.asp?c=&amp;offset=20&amp;id=113",
+                "https://www.antiquesbydesign.co.uk/single.asp?c=&offset=20&id=113",
+            ),
+            (
+                "https://www.antikmoebel.de/shop?currency=EUR&amp;page=8",
+                "https://www.antikmoebel.de/shop?currency=EUR&page=8",
+            ),
+            (
+                "https://www.alysantiques.com/index.php?category=26245&amp;page=3",
+                "https://www.alysantiques.com/index.php?category=26245&page=3",
+            ),
+        ] {
+            assert_eq!(decode_link_entities(link), expected);
+        }
+    }
+
+    #[test]
+    fn should_leave_link_unchanged_when_it_carries_no_character_reference() {
+        for link in [
+            "https://example.com/literal?x=1&y=2",
+            "https://example.com/encoded?q=a%26b",
+            "https://example.com/product/1",
+        ] {
+            assert!(matches!(decode_link_entities(link), Cow::Borrowed(same) if same == link));
+        }
     }
 
     #[test]

@@ -2123,6 +2123,7 @@ dependencies = [
  "futures",
  "fxrate-postgres",
  "google-cloud-auth",
+ "html-escape",
  "httpdate",
  "imagesize",
  "indexmap 2.14.2",

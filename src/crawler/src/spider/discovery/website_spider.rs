@@ -1,11 +1,13 @@
 use application::error::BoxError;
 use bloomfilter::Bloom;
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
+use spider::CaseInsensitiveString;
 use spider::page::AntiBotTech;
 use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
 use spider::utils::auto_throttle::AutoThrottleConfig;
 use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -21,7 +23,7 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
-use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::{CrawledUrl, decode_link_entities};
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
@@ -701,6 +703,18 @@ struct RobotsBlockedTracker {
     first_url: OnceLock<String>,
 }
 
+/// Runs on every link before Spider fetches it, so the shop receives the decoded URL and
+/// the page Spider emits carries it too.
+fn decode_found_link(
+    link: CaseInsensitiveString,
+    html: Option<String>,
+) -> (CaseInsensitiveString, Option<String>) {
+    match decode_link_entities(link.inner()) {
+        Cow::Borrowed(_) => (link, html),
+        Cow::Owned(decoded) => (decoded.into(), html),
+    }
+}
+
 impl SpiderImpl {
     async fn crawl_with_body_limit(
         &self,
@@ -769,6 +783,7 @@ impl SpiderImpl {
                 robots_callback.count.fetch_add(1, Ordering::Relaxed);
                 let _ = robots_callback.first_url.set(url);
             }))
+            .with_on_link_find_callback(Some(Arc::new(decode_found_link)))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
 
@@ -1451,6 +1466,54 @@ mod tests {
         assert_eq!(diagnostics.rejected_host, 0);
         assert_eq!(diagnostics.lagged, 0);
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html>
+                    <a href="/single.asp?c=&amp;offset=20&amp;id=113">Product</a>
+                    <a href="/shop?currency=EUR&amp;page=8">Currency page</a>
+                    <a href="/index.php?category=26245&amp;page=3">Category page</a>
+                    <a href="/literal?x=1&y=2">Literal ampersand</a>
+                    <a href="/encoded?q=a%26b">Percent-encoded ampersand</a>"#
+                    .to_string(),
+            ),
+            _ => SiteResponse::Html("200 OK", "<p>page</p>".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_fetch_and_emit_entity_decoded_urls_when_hrefs_carry_html_entities() {
+        let site = TestSite::spawn(Arc::new(entity_encoded_href_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let request_log = site.finish().await;
+
+        let expected = [
+            "http://example.com/single.asp?c=&id=113&offset=20",
+            "http://example.com/shop?currency=EUR&page=8",
+            "http://example.com/index.php?category=26245&page=3",
+            "http://example.com/literal?x=1&y=2",
+            "http://example.com/encoded?q=a%26b",
+        ];
+        for url in expected {
+            assert!(discovered.contains(url), "missing {url} in {discovered:?}");
+        }
+        assert!(
+            !discovered.iter().any(|url| url.contains("amp;")),
+            "entity residue in discovered URLs: {discovered:?}"
+        );
+        // The shop must receive the decoded query, or it renders the wrong page
+        // and every link discovered from it inherits the mistake.
+        assert!(
+            !request_log
+                .iter()
+                .any(|(_, target, ..)| target.contains("amp;")),
+            "entity residue in requested targets: {request_log:?}"
+        );
     }
 
     #[test]
