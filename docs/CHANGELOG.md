@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-21 — Scoped personalization on public MCP tools (#2247)
+
+- The existing ten public listing, history, auction and source tools now pass validated Aura delegated credentials to the same service use cases as REST. Anonymous access, names and complete contracts remain available. Private listing sections follow their individual read scopes; hidden-item, tier and sensitive-image policy applies independently. Location discovery and public overview remain anonymous. See the [public MCP contract](mcp.md#public-catalogue).
+
 ## 2026-10-21 — Aura OAuth discovery and protocol errors (#2241)
 
 - Publish public RFC 8414 metadata at `/.well-known/oauth-authorization-server` on the production/stage issuer. It advertises the corresponding webapp consent URL, canonical `/v1/oauth/token`, authorization code, S256 and `client_secret_post`, with the relevant ordinary-user scopes. Refresh grants, dynamic registration, CIMD, revocation/introspection discovery and authorization-response `iss` support are omitted.
@@ -23,7 +27,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-21 — Per-request MCP Aura authentication (#2242)
 
-- The stable MCP endpoint accepts opaque Aura credentials, revalidates revocation, expiry and user suspension on every request, and challenges protected calls with HTTP `401`/`403` and their complete required scope set. Invalid supplied credentials never fall back to public execution; token-store outages return `503`. Both protected-resource metadata paths advertise the configured Aura issuer. Public tools retain anonymous service behavior until scoped personalization is activated. See the [MCP authentication contract](mcp.md#operation-families-and-admission).
+- The stable MCP endpoint accepts opaque Aura credentials, revalidates revocation, expiry and user suspension on every request, and challenges protected calls with HTTP `401`/`403` and their complete required scope set. Invalid supplied credentials never fall back to public execution; token-store outages return `503`. Both protected-resource metadata paths advertise the configured Aura issuer. Public tools permit anonymous access and scoped delegated behavior. See the [MCP authentication contract](mcp.md#operation-families-and-admission).
 
 ## 2026-10-20 — Complete listing-search filter documentation (#2235)
 

@@ -1,5 +1,6 @@
 mod authentication;
 mod fixtures;
+mod personalization;
 mod rotation;
 mod sdk;
 
@@ -170,12 +171,41 @@ async fn should_publish_exactly_the_selected_operations_with_shared_schemas_and_
     let manifest = manifest();
     let operations = manifest["operations"].as_array().unwrap();
     assert_eq!(12, tools.len());
+    assert_eq!(
+        10,
+        operations
+            .iter()
+            .filter(|operation| operation["delegatedContext"] == true)
+            .count()
+    );
     assert!(list["result"].get("nextCursor").is_none());
     let swagger = include_str!("../../../../../docs/swagger.yaml");
     for (tool, operation) in tools.iter().zip(operations) {
         let name = operation["operationId"].as_str().unwrap();
         assert_eq!(tool["name"], operation["name"]);
         assert_eq!(tool["name"], operation["operationId"]);
+        assert_eq!(
+            !matches!(name, "discoverPartyLocations" | "getPublicOverview"),
+            operation["delegatedContext"].as_bool().unwrap()
+        );
+        if matches!(
+            name,
+            "simpleSearchProductListings"
+                | "getProductListing"
+                | "getProductListingByTitleSlug"
+                | "getSimilarProductListings"
+                | "getAuctionCatalogue"
+        ) {
+            let description = tool["description"].as_str().unwrap();
+            for scope in [
+                "watchlist:read",
+                "search-filters:read",
+                "notifications:read",
+                "users:read",
+            ] {
+                assert!(description.contains(scope), "{name}: {scope}");
+            }
+        }
         assert_eq!(
             1,
             swagger

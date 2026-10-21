@@ -91,10 +91,9 @@ fn search(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "simpleSearchProductListings",
-        "Search public listings with the complete catalogue filters, presentation, sorting and FX-bound continuation.",
+        "Search public listings with the complete catalogue filters, presentation, sorting and FX-bound continuation. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
-        move |input: SearchInput, mut context| {
-            context.operation.principal = application::operation_context::Principal::Anonymous;
+        move |input: SearchInput, context| {
             let service = service.clone();
             async move {
                 let request = input
@@ -115,10 +114,9 @@ fn get(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getProductListing",
-        "Get the complete public listing details by internal ProductListing ID.",
+        "Get the complete public listing details by internal ProductListing ID. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
-        move |input: ListingInput, mut context| {
-            context.operation.principal = application::operation_context::Principal::Anonymous;
+        move |input: ListingInput, context| {
             let service = service.clone();
             async move {
                 details(
@@ -137,10 +135,9 @@ fn get_by_slug(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getProductListingByTitleSlug",
-        "Get the complete public listing details by its immutable title slug.",
+        "Get the complete public listing details by its immutable title slug. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
-        move |input: SlugInput, mut context| {
-            context.operation.principal = application::operation_context::Principal::Anonymous;
+        move |input: SlugInput, context| {
             let service = service.clone();
             async move {
                 details(
@@ -180,10 +177,9 @@ fn similar(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getSimilarProductListings",
-        "Find similar public listings using the fixed service neighbor limit. EMBEDDING_PENDING means retry this operation later; READY may contain an empty list.",
+        "Find similar public listings using the fixed service neighbor limit. EMBEDDING_PENDING means retry this operation later; READY may contain an empty list. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
-        move |input: ListingInput, mut context| {
-            context.operation.principal = application::operation_context::Principal::Anonymous;
+        move |input: ListingInput, context| {
             let service = service.clone();
             async move {
                 let result = context
