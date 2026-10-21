@@ -39,6 +39,7 @@ pub(crate) struct AuthorizationCodeRow {
     pub(crate) user_id: Uuid,
     pub(crate) redirect_uri: String,
     pub(crate) scopes: Vec<String>,
+    pub(crate) resource: Option<String>,
     pub(crate) code_challenge: String,
     pub(crate) code_challenge_method: String,
     pub(crate) expires: OffsetDateTime,

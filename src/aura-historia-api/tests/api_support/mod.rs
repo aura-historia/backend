@@ -2138,6 +2138,7 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
@@ -2145,6 +2146,7 @@ async fn test_state(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+            oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByThirdPartyCodeHandler::new(
             unit_of_work.clone(),

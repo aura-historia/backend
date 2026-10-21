@@ -1,10 +1,10 @@
-use super::parse_scope_string;
+use super::{parse_scope_string, reject_duplicate_resource};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE};
 use crate::state::OAuthState;
 use crate::wire::parse_query_object_id;
 use axum::{
-    extract::{Query, State},
+    extract::{Query, RawQuery, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -18,12 +18,16 @@ use std::collections::HashMap;
 pub async fn authorize(
     State(state): State<OAuthState>,
     headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
+    if let Err(response) = reject_duplicate_resource(raw_query.as_deref().unwrap_or_default()) {
+        return response;
+    }
     let request = match request(query) {
         Ok(value) => value,
         Err(response) => return response,
@@ -81,6 +85,7 @@ fn request(query: HashMap<String, String>) -> Result<AuthorizeRequest, Response>
         response_type,
         client_id,
         redirect_uri,
+        resource: query.get("resource").cloned(),
         scope: parse_scope_string(query.get("scope").map(String::as_str), "scope")?,
         state: query
             .get("state")
@@ -104,4 +109,35 @@ fn required<'a>(
                 .with_detail(format!("Query parameter '{field}' is required."))
                 .into_response()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_forward_the_exact_optional_resource_to_the_service() {
+        let mut query = HashMap::from([
+            ("response_type".to_owned(), "code".to_owned()),
+            ("client_id".to_owned(), OAuthClientId::new().to_string()),
+            (
+                "redirect_uri".to_owned(),
+                "https://client.example/callback".to_owned(),
+            ),
+            ("code_challenge".to_owned(), "challenge".to_owned()),
+            ("code_challenge_method".to_owned(), "S256".to_owned()),
+        ]);
+        assert_eq!(None, request(query.clone()).unwrap().resource);
+        for resource in [
+            "https://mcp.aura-historia.com/v1",
+            "https://foreign.example#fragment",
+            "",
+        ] {
+            query.insert("resource".to_owned(), resource.to_owned());
+            assert_eq!(
+                Some(resource.to_owned()),
+                request(query.clone()).unwrap().resource
+            );
+        }
+    }
 }

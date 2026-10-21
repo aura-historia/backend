@@ -1,3 +1,4 @@
+use crate::resource::AuraResource;
 use credential_core::oauth_client_id::OAuthClientId;
 use credential_core::scope::Scope;
 use domain_primitives::{string_newtype, uuid_v7_newtype};
@@ -18,6 +19,7 @@ pub struct AuthorizationCode {
     client_id: OAuthClientId,
     user_id: UserId,
     redirect_uri: url::Url,
+    resource: Option<AuraResource>,
     scopes: HashSet<Scope>,
     code_challenge: OAuthCodeChallenge,
     code_challenge_method: CodeChallengeMethod,
@@ -31,6 +33,8 @@ pub struct RehydratedAuthorizationCodeState {
     pub client_id: OAuthClientId,
     pub user_id: UserId,
     pub redirect_uri: url::Url,
+    /// Absent only on outstanding codes issued before resource binding.
+    pub resource: Option<AuraResource>,
     pub scopes: HashSet<Scope>,
     pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
@@ -49,6 +53,7 @@ impl AuthorizationCode {
             client_id: state.client_id,
             user_id: state.user_id,
             redirect_uri: state.redirect_uri,
+            resource: state.resource,
             scopes: state.scopes,
             code_challenge: state.code_challenge,
             code_challenge_method: state.code_challenge_method,
@@ -70,6 +75,10 @@ impl AuthorizationCode {
 
     pub fn redirect_uri(&self) -> &url::Url {
         &self.redirect_uri
+    }
+
+    pub fn resource(&self) -> Option<AuraResource> {
+        self.resource
     }
 
     pub fn scopes(&self) -> &HashSet<Scope> {

@@ -370,3 +370,40 @@ mod tests {
         }
     }
 }
+
+/// Reject ambiguous grant bindings before query/form values enter a map.
+pub(crate) fn reject_duplicate_resource(encoded: &str) -> Result<(), Response> {
+    if url::form_urlencoded::parse(encoded.as_bytes())
+        .filter(|(key, _)| key == "resource")
+        .count()
+        > 1
+    {
+        return Err(ApiError::bad_request(crate::error::OAUTH_INVALID_RESOURCE)
+            .with_detail("Exactly one resource parameter is supported.")
+            .into_response());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_duplicate_resource_fields_in_either_order_before_map_collection() {
+        for encoded in [
+            "resource=https%3A%2F%2Fforeign.example&resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1",
+            "resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1&%72esource=https%3A%2F%2Fforeign.example",
+            "resource=&resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1",
+        ] {
+            assert_eq!(
+                400,
+                reject_duplicate_resource(encoded).unwrap_err().status()
+            );
+        }
+        assert!(
+            reject_duplicate_resource("resource=https%3A%2F%2Fmcp.aura-historia.com%2Fv1").is_ok()
+        );
+        assert!(reject_duplicate_resource("client_id=test").is_ok());
+    }
+}

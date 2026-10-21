@@ -10,6 +10,7 @@ use oauth_core::authorization_code::{
     AuthorizationCode, OAuthAuthorizationCode, OAuthCodeVerifier,
 };
 use oauth_core::client::OAuthClient;
+use oauth_core::resource::AuraResourcePolicy;
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -35,6 +36,7 @@ pub struct TokenByAuthorizationCodeRequest {
     pub grant_type: OAuthGrantType,
     pub code: OAuthAuthorizationCode,
     pub redirect_uri: url::Url,
+    pub resource: Option<String>,
     pub client_id: OAuthClientId,
     pub client_secret: RawOAuthClientSecret,
     pub code_verifier: OAuthCodeVerifier,
@@ -63,15 +65,24 @@ pub struct TokenByAuthorizationCodeHandler<U, C, A, T, R> {
     codes: A,
     exchange_codes: T,
     access_tokens: R,
+    resource_policy: AuraResourcePolicy,
 }
 impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
-    pub fn new(unit_of_work: U, clients: C, codes: A, exchange_codes: T, access_tokens: R) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        clients: C,
+        codes: A,
+        exchange_codes: T,
+        access_tokens: R,
+        resource_policy: AuraResourcePolicy,
+    ) -> Self {
         Self {
             unit_of_work,
             clients,
             codes,
             exchange_codes,
             access_tokens,
+            resource_policy,
         }
     }
 }
@@ -89,6 +100,12 @@ where
         &self,
         request: TokenByAuthorizationCodeRequest,
     ) -> Result<TokenResponse, OAuthServiceError> {
+        let requested_resource = request
+            .resource
+            .as_deref()
+            .map(|resource| self.resource_policy.resolve(Some(resource)))
+            .transpose()
+            .map_err(|_| OAuthServiceError::InvalidResource)?;
         let mut tx = self.unit_of_work.begin().await?;
         let client = authenticate_client(
             &mut self.clients.in_transaction(&mut tx),
@@ -113,6 +130,16 @@ where
         if code.redirect_uri() != &request.redirect_uri {
             tx.commit().await?;
             return Err(OAuthServiceError::AuthorizationCodeRedirectUriMismatch);
+        }
+        let granted_resource = self
+            .resource_policy
+            .resolve(code.resource().map(|resource| resource.as_str()))
+            .map_err(|source| OAuthServiceError::InvalidPersistedState {
+                source: application::error::box_error(source),
+            })?;
+        if requested_resource.is_some_and(|resource| resource != granted_resource) {
+            tx.commit().await?;
+            return Err(OAuthServiceError::AuthorizationCodeResourceMismatch);
         }
         if !verify_s256(&request.code_verifier, code.code_challenge()) {
             tx.commit().await?;

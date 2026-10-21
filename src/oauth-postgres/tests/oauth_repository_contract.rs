@@ -43,6 +43,46 @@ const DUMMY_CLIENT_SECRET_SHORT: &str = "dummy-client-secret-short";
 const DUMMY_CLIENT_SECRET_HASH: &str = "dummy-client-secret-long-token-hash";
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_legacy_null_resources_and_reject_foreign_persisted_identifiers() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let client_id = seed_oauth_client(&pool, "legacy-resource-client").await?;
+        let user_id = seed_user(&pool).await?;
+        let code = authorization_code(client_id, user_id)?;
+        let code_value = code.code();
+        insert_authorization_code(pool.clone(), code).await?;
+        let invalid = sqlx::query(
+            "UPDATE oauth_authorization_codes SET resource = $1 WHERE authorization_code = $2",
+        )
+        .bind("https://foreign.example")
+        .bind(code_value.to_string())
+        .execute(&pool)
+        .await
+        .expect_err("closed resource constraint must reject foreign identifier");
+        assert_eq!(
+            Some("23514"),
+            invalid
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref()
+        );
+        sqlx::query(
+            "UPDATE oauth_authorization_codes SET resource = NULL WHERE authorization_code = $1",
+        )
+        .bind(code_value.to_string())
+        .execute(&pool)
+        .await?;
+        let legacy = consume_authorization_code(pool.clone(), code_value)
+            .await?
+            .expect("legacy code");
+        assert_eq!(None, legacy.resource());
+        Ok(())
+    }
+    .await;
+    result.unwrap_or_else(|error| panic!("legacy resource contract failed: {error}"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_consume_authorization_code_once_and_allow_one_concurrent_consumer() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -54,6 +94,10 @@ async fn should_consume_authorization_code_once_and_allow_one_concurrent_consume
         insert_authorization_code(pool.clone(), code.clone()).await?;
 
         let first = consume_authorization_code(pool.clone(), code_value).await?;
+        assert_eq!(
+            code.resource(),
+            first.as_ref().expect("persisted code").resource()
+        );
         assert_eq!(
             code.scopes(),
             first.as_ref().expect("persisted code").scopes()
@@ -473,6 +517,7 @@ fn authorization_code(
             scopes: credential_scopes(),
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
+            resource: Some(oauth_core::resource::AuraResource::ProductionMcp),
             expires: now + Duration::minutes(5),
         },
     ))
