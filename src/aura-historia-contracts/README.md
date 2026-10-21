@@ -65,3 +65,8 @@ and shipping filters and public shipping serializers are shared as well. Shippin
 the `shipping-json` codec's own DTO/schema owner and adapter-selected reference representation.
 The [listing fixtures](tests/listings.rs) check full filters, exact unsigned values, required nulls
 and public shipping redaction alongside the REST and MCP adapter fixtures.
+
+Watchlist entry, mutation, list query and paged personalized-detail contracts live in `watchlist`.
+REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
+patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
+compare schema validation with the complete input mapping, including null and omission rules.

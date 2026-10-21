@@ -19,6 +19,9 @@ pub fn mcp_router(
         runtime.user_profile().clone(),
         runtime.private_addresses().clone(),
     )?);
+    definitions.extend(crate::tools::watchlist::operations(
+        runtime.watchlist().clone(),
+    )?);
     definitions.extend(crate::tools::notifications::operations(
         runtime.notifications().clone(),
     )?);

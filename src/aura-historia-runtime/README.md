@@ -42,6 +42,11 @@ let services = lease.value().public_listing_sources();
 let result = services.search.execute(&context, request).await?;
 ```
 
+`Runtime::watchlist()` composes the four existing watchlist use cases once for the warm pool.
+REST and MCP reuse these typed handles, including transactional tier/quota enforcement,
+listing presentation and shared shipping enrichment. Selecting this family requires PostgreSQL
+without loading search, embedding, billing or identity-provider configuration.
+
 `Runtime::access_token_authentication()` composes the existing opaque-token authentication
 use case against the same environment pool. REST and MCP can reuse its typed handle without
 loading Cognito or unrelated provider configuration. The handle is reusable; authentication

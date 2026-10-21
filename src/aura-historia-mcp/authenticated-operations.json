@@ -7,6 +7,21 @@
   },
   "operations": [
     {
+      "name": "addWatchlistProduct",
+      "operationId": "addWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "createUserAddress",
       "operationId": "createUserAddress",
       "family": "account",
@@ -67,6 +82,21 @@
       }
     },
     {
+      "name": "deleteWatchlistProduct",
+      "operationId": "deleteWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "getBrowsingDestination",
       "operationId": "getBrowsingDestination",
       "family": "account",
@@ -112,6 +142,21 @@
       }
     },
     {
+      "name": "getWatchlistProductListings",
+      "operationId": "getWatchlistProductListings",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "listNotifications",
       "operationId": "listNotifications",
       "family": "notifications",
@@ -137,6 +182,21 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "patchWatchlistProduct",
+      "operationId": "patchWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       }
