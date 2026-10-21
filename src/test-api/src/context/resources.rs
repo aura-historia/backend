@@ -1,48 +1,53 @@
-use super::{Kind, Manifest, Result, failure};
+use super::{Kind, Manifest, Resource, Result, failure};
 #[cfg(any(feature = "sqs", feature = "s3", feature = "ses"))]
 use aws_sdk_account::error::ProvideErrorMetadata;
 
 pub(super) async fn clean(manifest: &Manifest) -> Result<()> {
     for resource in manifest.resources.iter().rev() {
-        match resource.kind {
-            Kind::Database => {
-                #[cfg(feature = "postgres")]
-                super::postgres::remove(&resource.name).await?;
-                #[cfg(not(feature = "postgres"))]
-                return Err(failure("slot recovery needs the postgres fixture feature"));
-            }
-            Kind::Index => {
-                #[cfg(feature = "opensearch")]
-                delete_index(&resource.name).await?;
-                #[cfg(not(feature = "opensearch"))]
-                return Err(failure(
-                    "slot recovery needs the opensearch fixture feature",
-                ));
-            }
-            Kind::Queue => {
-                #[cfg(feature = "sqs")]
-                delete_queue(&resource.name).await?;
-                #[cfg(not(feature = "sqs"))]
-                return Err(failure("slot recovery needs the sqs fixture feature"));
-            }
-            Kind::Bucket => {
-                #[cfg(feature = "s3")]
-                delete_bucket(&resource.name).await?;
-                #[cfg(not(feature = "s3"))]
-                return Err(failure("slot recovery needs the s3 fixture feature"));
-            }
-            Kind::Sender => {
-                #[cfg(feature = "ses")]
-                delete_sender(&resource.name).await?;
-                #[cfg(not(feature = "ses"))]
-                return Err(failure("slot recovery needs the ses fixture feature"));
-            }
-            Kind::ConfigurationSet => {
-                #[cfg(feature = "ses")]
-                delete_configuration_set(&resource.name).await?;
-                #[cfg(not(feature = "ses"))]
-                return Err(failure("slot recovery needs the ses fixture feature"));
-            }
+        clean_resource(resource).await?;
+    }
+    Ok(())
+}
+
+async fn clean_resource(resource: &Resource) -> Result<()> {
+    match resource.kind {
+        Kind::Database => {
+            #[cfg(feature = "postgres")]
+            super::postgres::remove(&resource.name).await?;
+            #[cfg(not(feature = "postgres"))]
+            return Err(failure("slot recovery needs the postgres fixture feature"));
+        }
+        Kind::Index => {
+            #[cfg(feature = "opensearch")]
+            delete_index(&resource.name).await?;
+            #[cfg(not(feature = "opensearch"))]
+            return Err(failure(
+                "slot recovery needs the opensearch fixture feature",
+            ));
+        }
+        Kind::Queue => {
+            #[cfg(feature = "sqs")]
+            delete_queue(&resource.name).await?;
+            #[cfg(not(feature = "sqs"))]
+            return Err(failure("slot recovery needs the sqs fixture feature"));
+        }
+        Kind::Bucket => {
+            #[cfg(feature = "s3")]
+            delete_bucket(&resource.name).await?;
+            #[cfg(not(feature = "s3"))]
+            return Err(failure("slot recovery needs the s3 fixture feature"));
+        }
+        Kind::Sender => {
+            #[cfg(feature = "ses")]
+            delete_sender(&resource.name).await?;
+            #[cfg(not(feature = "ses"))]
+            return Err(failure("slot recovery needs the ses fixture feature"));
+        }
+        Kind::ConfigurationSet => {
+            #[cfg(feature = "ses")]
+            delete_configuration_set(&resource.name).await?;
+            #[cfg(not(feature = "ses"))]
+            return Err(failure("slot recovery needs the ses fixture feature"));
         }
     }
     Ok(())
