@@ -120,9 +120,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "run in an isolated process by the production registry test"]
     async fn production_registry_probe() {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://fixture:fixture@127.0.0.1:9/fixture")
-            .unwrap();
+        let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .host("127.0.0.1")
+            .port(9)
+            .username("fixture")
+            .database("fixture");
+        let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy_with(options);
         let runtime = Runtime::from_pool(pool);
         let config = ProductListingConfig::from_getter(|_| None).unwrap();
         let registry = production_registry(
