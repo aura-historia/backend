@@ -86,7 +86,8 @@ class CompiledCoverageObjects(unittest.TestCase):
             nextest.write_text(json.dumps({"rust-suites": {"unit": {"binary-path": str(unit)}}, "rust-build-meta": {
                 "target-directory": str(root), "non-test-binaries": {"pkg": [{"path": child.name}]}}}))
             cargo = root / "cargo.jsonl"
-            cargo.write_text(json.dumps({"reason": "compiler-artifact", "executable": str(supervisor)}) + "\n")
+            cargo.write_text(json.dumps({"reason": "compiler-artifact", "executable": str(supervisor)}) +
+                             '\n{"reason":"build-finished","success":true}\n')
             self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root),
                              sorted([unit, child, supervisor, doctest]))
             profiles = root / "profiles"
@@ -124,15 +125,37 @@ class CompiledCoverageObjects(unittest.TestCase):
             external = dict(artifact, target={"kind": ["proc-macro"], "src_path": "/registry/dependency/lib.rs"},
                             filenames=[str(root / "unselected-external.so")])
             cargo = root / "compile.jsonl"
-            cargo.write_text("\n".join(map(json.dumps, [artifact, external, data])) + "\n")
+            cargo.write_text("\n".join(map(json.dumps, [artifact, external, {"reason": "build-finished", "success": True}, data])) + "\n")
             self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root), [library])
             library.unlink()
             with self.assertRaisesRegex(ValueError, "object is missing"):
                 EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
             artifact["filenames"] = []
-            cargo.write_text(json.dumps(artifact) + "\n")
+            cargo.write_text(json.dumps(artifact) + '\n{"reason":"build-finished","success":true}\n')
             with self.assertRaisesRegex(ValueError, "no recorded shared object"):
                 EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+
+    def test_cargo_metadata_requires_one_successful_build_before_selecting_objects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            binary = root / "test-executable"
+            binary.write_bytes(b"\x7fELFfixture")
+            nextest = root / "nextest.json"
+            nextest.write_text(json.dumps({"rust-suites": {"unit": {"binary-path": str(binary)}},
+                                          "rust-build-meta": {"non-test-binaries": {}}}))
+            cargo = root / "compile.jsonl"
+            artifact = {"reason": "compiler-artifact", "executable": str(binary)}
+            finished = {"reason": "build-finished", "success": True}
+            for messages in ([], [artifact], [artifact, dict(finished, success=False)],
+                             [finished], [artifact, finished, finished]):
+                with self.subTest(messages=messages):
+                    cargo.write_text("\n".join(map(json.dumps, messages)))
+                    with self.assertRaisesRegex(ValueError, "metadata is incomplete"):
+                        EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+            with self.assertRaisesRegex(ValueError, "No Cargo coverage artifact metadata"):
+                EXPORTER.coverage_objects(nextest, [], root / "doctests", root)
+            cargo.write_text("\n".join(map(json.dumps, [artifact, finished])))
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root), [binary])
 
     def test_forwarded_cargo_messages_keep_exactly_one_nextest_report(self):
         data = {"rust-suites": {}, "rust-build-meta": {}}

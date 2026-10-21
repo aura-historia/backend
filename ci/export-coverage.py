@@ -24,6 +24,8 @@ def run_llvm(argv, output=None):
 
 
 def coverage_objects(nextest, cargo_artifacts, doctests, root):
+    if not cargo_artifacts:
+        raise ValueError("No Cargo coverage artifact metadata was recorded")
     data = json.loads(nextest.read_text())
     meta = data["rust-build-meta"]
     objects = {pathlib.Path(suite["binary-path"]).resolve() for suite in data["rust-suites"].values()}
@@ -31,8 +33,12 @@ def coverage_objects(nextest, cargo_artifacts, doctests, root):
         for binary in binaries:
             objects.add((pathlib.Path(meta["target-directory"]) / binary["path"]).resolve())
     for artifact in cargo_artifacts:
-        for line in artifact.read_text().splitlines():
-            item = json.loads(line)
+        messages = [json.loads(line) for line in artifact.read_text().splitlines()]
+        finished = [item for item in messages if item.get("reason") == "build-finished"]
+        if (len(finished) != 1 or finished[0].get("success") is not True
+                or not any(item.get("reason") == "compiler-artifact" for item in messages)):
+            raise ValueError(f"Cargo coverage artifact metadata is incomplete: {artifact}")
+        for item in messages:
             if item.get("reason") != "compiler-artifact":
                 continue
             if item.get("executable"):
@@ -95,7 +101,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", type=pathlib.Path, required=True)
     parser.add_argument("--nextest", type=pathlib.Path, required=True)
-    parser.add_argument("--cargo-artifacts", type=pathlib.Path, action="append", default=[])
+    parser.add_argument("--cargo-artifacts", type=pathlib.Path, action="append", required=True)
     parser.add_argument("--doctests", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path.cwd())
