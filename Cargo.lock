@@ -447,6 +447,9 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
+ "user-core",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -518,6 +521,8 @@ dependencies = [
  "user-core",
  "user-service",
  "uuid",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -563,6 +568,8 @@ dependencies = [
  "user-postgres",
  "user-service",
  "uuid",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]

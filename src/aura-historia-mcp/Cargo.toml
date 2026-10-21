@@ -38,6 +38,8 @@ user-core = { workspace = true }
 user-service = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
+watchlist-service = { workspace = true }
+
 [dev-dependencies]
 platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
@@ -55,3 +57,4 @@ sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["test-util"] }
+watchlist-core = { workspace = true }

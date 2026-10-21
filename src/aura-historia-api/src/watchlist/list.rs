@@ -8,37 +8,23 @@ use crate::product_listings::product_data::{
 use crate::state::WatchlistState;
 use crate::wire::parse_query_object_id;
 use application::pagination::{Cursor, CursoredResult};
+use aura_historia_contracts::watchlist::ListWatchlistQueryData;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use localization::Language;
-use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::ProductListingWatchlistDetailsCursor;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use watchlist_service::use_cases::ListWatchlistRequest;
-
-#[derive(Debug, Deserialize)]
-struct ListWatchlistQuery {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-    size: Option<u64>,
-    #[serde(rename = "searchAfter")]
-    search_after: Option<String>,
-}
 
 pub async fn list_watchlist(
     State(state): State<WatchlistState>,
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query: ListWatchlistQuery =
+    let query: ListWatchlistQueryData =
         match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
