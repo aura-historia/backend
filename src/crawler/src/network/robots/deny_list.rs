@@ -4,7 +4,8 @@
 //!
 //! The `regex` crate has no lookaround, so an `Allow` exception can only be
 //! carved out of a literal `Disallow` path prefix, and only when the `Allow`
-//! is a literal path prefix too (it may end in `$`). Other exceptions are not
+//! is a literal path prefix too (it may end in `$`; a trailing `*` changes
+//! nothing). Other exceptions are not
 //! carved out: the deny list then blocks more than robots.txt does, never
 //! less.
 
@@ -29,7 +30,13 @@ pub struct DenyList {
 impl RobotsRules {
     pub fn deny_list(&self) -> DenyList {
         let mut deny_list = DenyList::default();
-        for disallow in self.rules.iter().filter(|rule| !rule.allow) {
+        // A rule matches from the path start, which is always `/`; one
+        // starting with anything but `/` or `*` matches no URL.
+        for disallow in self
+            .rules
+            .iter()
+            .filter(|rule| !rule.allow && rule.pattern.starts_with(['/', '*']))
+        {
             let (expressible, inexpressible): (Vec<&Rule>, Vec<&Rule>) = self
                 .rules
                 .iter()
@@ -58,17 +65,20 @@ impl RobotsRules {
 /// For a literal `disallow`, the part of a literal `allow` (optionally ending
 /// in `$`) below it, and whether that part must match exactly.
 fn literal_suffix<'a>(disallow: &str, allow: &'a str) -> Option<(&'a str, bool)> {
-    if !is_literal(disallow) {
-        return None;
-    }
+    let disallow = literal_prefix(disallow)?;
     let (literal, exact) = match allow.strip_suffix('$') {
-        Some(literal) => (literal, true),
-        None => (allow, false),
+        Some(literal) if is_literal(literal) => (literal, true),
+        Some(_) => return None,
+        None => (literal_prefix(allow)?, false),
     };
-    if !is_literal(literal) {
-        return None;
-    }
     literal.strip_prefix(disallow).map(|suffix| (suffix, exact))
+}
+
+/// A pattern matching every path that starts with one literal: trailing `*`
+/// add nothing to a prefix match.
+fn literal_prefix(pattern: &str) -> Option<&str> {
+    let literal = pattern.trim_end_matches('*');
+    is_literal(literal).then_some(literal)
 }
 
 /// The regex for `disallow` minus its expressible `exceptions`, or `None`
@@ -77,9 +87,18 @@ fn carve_exceptions(disallow: &str, exceptions: &[&Rule]) -> Option<String> {
     if exceptions.is_empty() {
         return Some(format!("{URL_ORIGIN}{}", pattern_regex(disallow)));
     }
+    let Some(disallow) = literal_prefix(disallow) else {
+        return Some(format!("{URL_ORIGIN}{}", pattern_regex(disallow)));
+    };
     let mut allowed = AllowTrie::default();
     for exception in exceptions {
         if let Some((suffix, exact)) = literal_suffix(disallow, &exception.pattern) {
+            // The exception's literal starts with the disallow's, so escapes
+            // are told apart over the whole literal.
+            let literal = format!("{disallow}{suffix}");
+            let suffix = escape_digit_flags(&literal)
+                .into_iter()
+                .skip(disallow.chars().count());
             allowed.insert(suffix, exact);
         }
     }
@@ -92,6 +111,8 @@ fn carve_exceptions(disallow: &str, exceptions: &[&Rule]) -> Option<String> {
 #[derive(Default)]
 struct AllowTrie {
     children: BTreeMap<char, AllowTrie>,
+    /// This node's character is a hex digit of a percent escape.
+    escape_digit: bool,
     /// Every path continuing from here is allowed.
     allows_subtree: bool,
     /// A path ending exactly here is allowed.
@@ -99,10 +120,11 @@ struct AllowTrie {
 }
 
 impl AllowTrie {
-    fn insert(&mut self, suffix: &str, exact: bool) {
+    fn insert(&mut self, suffix: impl Iterator<Item = (char, bool)>, exact: bool) {
         let mut node = self;
-        for ch in suffix.chars() {
+        for (ch, escape_digit) in suffix {
             node = node.children.entry(ch).or_default();
+            node.escape_digit = escape_digit;
         }
         if exact {
             node.allows_exact = true;
@@ -126,14 +148,15 @@ impl AllowTrie {
         } else {
             let listed: String = self
                 .children
-                .keys()
+                .iter()
+                .flat_map(|(&ch, child)| hex_case_variants(ch, child.escape_digit))
                 .map(|ch| regex::escape(&ch.to_string()))
                 .collect();
             branches.push(format!("[^{listed}]"));
         }
-        for (ch, child) in &self.children {
+        for (&ch, child) in &self.children {
             if let Some(rest) = child.disallowed_suffixes() {
-                branches.push(format!("{}{rest}", regex::escape(&ch.to_string())));
+                branches.push(format!("{}{rest}", char_regex(ch, child.escape_digit)));
             }
         }
         Some(format!("(?:{})", branches.join("|")))
@@ -170,6 +193,13 @@ fn pattern_regex(pattern: &str) -> String {
         .map(literal_regex)
         .collect::<Vec<_>>()
         .join(".*");
+    // The path starts at the first `/`, which the host cannot contain; a
+    // leading `*` before anything else needs it, or the host could match.
+    let body = if pattern.trim_start_matches('*').starts_with('/') || !pattern.starts_with('*') {
+        body
+    } else {
+        format!("/{body}")
+    };
     if anchored { format!("{body}$") } else { body }
 }
 
@@ -177,26 +207,50 @@ fn pattern_regex(pattern: &str) -> String {
 /// escapes, while crawl engines match URLs with the escapes as written, so
 /// each escape matches either hex case.
 fn literal_regex(literal: &str) -> String {
+    escape_digit_flags(literal)
+        .into_iter()
+        .map(|(ch, escape_digit)| char_regex(ch, escape_digit))
+        .collect()
+}
+
+/// Each character of `literal`, and whether it is a hex digit of a percent
+/// escape.
+fn escape_digit_flags(literal: &str) -> Vec<(char, bool)> {
     let chars: Vec<char> = literal.chars().collect();
-    let mut regex = String::with_capacity(literal.len());
-    let mut escape_digits = 0_u8;
-    for (index, &ch) in chars.iter().enumerate() {
-        if escape_digits > 0 && ch.is_ascii_alphabetic() {
-            regex.push_str(&format!("[{ch}{}]", ch.to_ascii_lowercase()));
-        } else {
-            regex.push_str(&regex::escape(&ch.to_string()));
-        }
-        let starts_escape = ch == '%'
-            && chars
-                .get(index + 1..index + 3)
-                .is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit));
-        escape_digits = if starts_escape {
-            2
-        } else {
-            escape_digits.saturating_sub(1)
-        };
+    let mut pending = 0_u8;
+    chars
+        .iter()
+        .enumerate()
+        .map(|(index, &ch)| {
+            let escape_digit = pending > 0;
+            let starts_escape = ch == '%'
+                && chars
+                    .get(index + 1..index + 3)
+                    .is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit));
+            pending = if starts_escape {
+                2
+            } else {
+                pending.saturating_sub(1)
+            };
+            (ch, escape_digit)
+        })
+        .collect()
+}
+
+fn char_regex(ch: char, escape_digit: bool) -> String {
+    match hex_case_variants(ch, escape_digit).as_slice() {
+        [upper, lower] => format!("[{upper}{lower}]"),
+        _ => regex::escape(&ch.to_string()),
     }
-    regex
+}
+
+/// The spellings an escape's hex digit may take in a URL.
+fn hex_case_variants(ch: char, escape_digit: bool) -> Vec<char> {
+    if escape_digit && ch.is_ascii_alphabetic() {
+        vec![ch.to_ascii_uppercase(), ch.to_ascii_lowercase()]
+    } else {
+        vec![ch]
+    }
 }
 
 #[cfg(test)]
@@ -276,6 +330,32 @@ mod tests {
                 "/a/",
             ],
         );
+    }
+
+    #[test]
+    fn should_carve_allow_exceptions_with_percent_escapes_or_a_trailing_wildcard() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: /a/\nAllow: /a/%2Fb\nDisallow: /wp-admin/*\nAllow: /wp-admin/admin-ajax.php*\n",
+            &[
+                "/a/%2Fb",
+                "/a/%2fb",
+                "/a/%2Fc",
+                "/a/x",
+                "/wp-admin/admin-ajax.php?action=x",
+                "/wp-admin/options.php",
+            ],
+        );
+    }
+
+    #[test]
+    fn should_match_leading_wildcard_rules_only_against_the_path() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: *sort\nDisallow: sale\n");
+        let set = RegexSet::new(&rules.deny_list().patterns).unwrap();
+
+        for path in ["/about", "/sale", "/c?sort=price"] {
+            let url = Url::parse(&format!("https://resort-sale.example{path}")).unwrap();
+            assert_eq!(set.is_match(url.as_str()), !rules.allows(&url), "{path}");
+        }
     }
 
     #[test]

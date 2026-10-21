@@ -36,6 +36,29 @@ pub fn robots_txt_url(url: &Url) -> Url {
     robots_url
 }
 
+/// One robots.txt answer: the policy it sets, or a redirect to follow.
+#[derive(Debug, PartialEq)]
+pub enum RobotsFetchStep {
+    Policy(RobotsPolicy),
+    Redirect(Url),
+}
+
+impl RobotsFetchStep {
+    /// The step a non-success answer to `robots_url` gives: a redirect to
+    /// its target, or the policy of its status. A redirect without a usable
+    /// target leaves no robots.txt to read: RFC 9309 treats that as
+    /// unavailable.
+    pub fn for_unsuccessful(status: u16, location: Option<&str>, robots_url: &Url) -> Self {
+        if !(300..400).contains(&status) {
+            return Self::Policy(RobotsPolicy::for_failed_status(status));
+        }
+        match location.and_then(|location| robots_url.join(location).ok()) {
+            Some(next) => Self::Redirect(next),
+            None => Self::Policy(RobotsPolicy::Unavailable),
+        }
+    }
+}
+
 /// What robots.txt says about one origin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RobotsPolicy {
@@ -64,13 +87,18 @@ impl RobotsPolicy {
         Self::Rules(RobotsRules::parse_bounded(&String::from_utf8_lossy(body)))
     }
 
-    /// What a failed robots.txt request on a redirect hop means: a target
-    /// the crawler may not request leaves no robots.txt to read
-    /// (unavailable), and another host failing leaves it unreachable. `None`
-    /// when the shop's own host failed, which callers report as a transport
-    /// failure.
-    pub fn for_failed_redirect(kind: NetworkErrorKind, shop_host: bool) -> Option<Self> {
+    /// What a failed robots.txt request or body read means. After a
+    /// redirect, a target the crawler may not request leaves no robots.txt
+    /// to read (unavailable), and another host failing leaves it
+    /// unreachable. `None` when the shop's own host failed, which callers
+    /// report as a transport failure.
+    pub fn for_failed_request(
+        kind: NetworkErrorKind,
+        redirected: bool,
+        shop_host: bool,
+    ) -> Option<Self> {
         match kind {
+            _ if !redirected => None,
             NetworkErrorKind::UnsafeTarget => Some(Self::Unavailable),
             _ if shop_host => None,
             _ => Some(Self::Unreachable),
@@ -475,18 +503,39 @@ mod tests {
     }
 
     #[test]
-    fn should_classify_failed_robots_txt_redirects() {
+    fn should_classify_failed_robots_txt_requests() {
+        use NetworkErrorKind::{Connect, DnsResolution, UnsafeTarget};
+
         assert_eq!(
-            RobotsPolicy::for_failed_redirect(NetworkErrorKind::UnsafeTarget, true),
+            RobotsPolicy::for_failed_request(Connect, false, false),
+            None
+        );
+        assert_eq!(
+            RobotsPolicy::for_failed_request(UnsafeTarget, true, true),
             Some(RobotsPolicy::Unavailable)
         );
         assert_eq!(
-            RobotsPolicy::for_failed_redirect(NetworkErrorKind::DnsResolution, false),
+            RobotsPolicy::for_failed_request(DnsResolution, true, false),
             Some(RobotsPolicy::Unreachable)
         );
+        assert_eq!(RobotsPolicy::for_failed_request(Connect, true, true), None);
+    }
+
+    #[test]
+    fn should_follow_redirects_with_a_usable_target_only() {
+        let robots_url = url("/robots.txt");
+
         assert_eq!(
-            RobotsPolicy::for_failed_redirect(NetworkErrorKind::Connect, true),
-            None
+            RobotsFetchStep::for_unsuccessful(301, Some("/r/robots.txt"), &robots_url),
+            RobotsFetchStep::Redirect(url("/r/robots.txt"))
+        );
+        assert_eq!(
+            RobotsFetchStep::for_unsuccessful(302, None, &robots_url),
+            RobotsFetchStep::Policy(RobotsPolicy::Unavailable)
+        );
+        assert_eq!(
+            RobotsFetchStep::for_unsuccessful(404, None, &robots_url),
+            RobotsFetchStep::Policy(RobotsPolicy::Unavailable)
         );
     }
 

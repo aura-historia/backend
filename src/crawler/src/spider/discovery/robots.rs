@@ -12,8 +12,8 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error,
 };
 use crate::network::robots::{
-    DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, RobotsRules,
-    robots_txt_url,
+    DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
+    RobotsRules, robots_txt_url,
 };
 use std::time::Duration;
 use tracing::{debug, info};
@@ -73,8 +73,7 @@ fn crawl_robots(root: &Url, rules: &RobotsRules) -> CrawlRobots {
     }
 }
 
-/// Redirects are followed to any public host, as RFC 9309 asks; each other
-/// host gets its own validated client.
+/// Redirects are followed to any public host, as RFC 9309 asks.
 async fn fetch_robots_policy(
     transport: &dyn SpiderTransport,
     root: &Url,
@@ -83,79 +82,76 @@ async fn fetch_robots_policy(
 ) -> Result<RobotsPolicy, SpiderDiscoveryError> {
     let mut robots_url = robots_txt_url(root);
     for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
-        let mut response =
-            match request_robots_txt(transport, root, root_client, &robots_url, timeout).await {
-                Ok(response) => response,
-                Err((kind, source)) => {
-                    let shop_host = is_same_or_www_host(root, &robots_url);
-                    return match RobotsPolicy::for_failed_redirect(kind, shop_host) {
-                        Some(policy) if hop > 0 => Ok(policy),
-                        _ => Err(robots_request_failed(source)),
-                    };
-                }
-            };
-        let status = response.status();
-        debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt for spider");
-        if status.is_success() {
-            let mut body = Vec::new();
-            while body.len() < MAX_ROBOTS_TXT_BYTES {
-                match response.chunk().await {
-                    Ok(Some(chunk)) => body.extend_from_slice(&chunk),
-                    Ok(None) => break,
-                    Err(error) => return Err(robots_request_failed(Box::new(error))),
-                }
+        match robots_txt_step(transport, root, root_client, &robots_url, timeout).await {
+            Ok(RobotsFetchStep::Policy(policy)) => return Ok(policy),
+            Ok(RobotsFetchStep::Redirect(next)) => robots_url = next,
+            Err((kind, source)) => {
+                let shop_host = is_same_or_www_host(root, &robots_url);
+                return RobotsPolicy::for_failed_request(kind, hop > 0, shop_host)
+                    .ok_or_else(|| robots_request_failed(source));
             }
-            return Ok(RobotsPolicy::from_body(&body));
-        }
-        if !status.is_redirection() {
-            return Ok(RobotsPolicy::for_failed_status(status.as_u16()));
-        }
-        let next = response
-            .headers()
-            .get("location")
-            .and_then(|location| location.to_str().ok())
-            .and_then(|location| robots_url.join(location).ok());
-        match next {
-            Some(next) => robots_url = next,
-            // A redirect without a usable target leaves no robots.txt to
-            // read: RFC 9309 treats that as unavailable.
-            None => return Ok(RobotsPolicy::Unavailable),
         }
     }
     Ok(RobotsPolicy::Unavailable)
 }
 
-/// One robots.txt request. HTTP(S) requests to the root host reuse the client
+type RobotsRequestError = (NetworkErrorKind, application::error::BoxError);
+
+/// One robots.txt request. Requests to the root's origin reuse the client
 /// pinned to it in preflight; any other target is validated first.
-async fn request_robots_txt(
+async fn robots_txt_step(
     transport: &dyn SpiderTransport,
     root: &Url,
     root_client: &spider::reqwest::Client,
     robots_url: &Url,
     timeout: Duration,
-) -> Result<spider::reqwest::Response, (NetworkErrorKind, application::error::BoxError)> {
-    let client =
-        if robots_url.host() == root.host() && matches!(robots_url.scheme(), "http" | "https") {
-            root_client.clone()
-        } else {
-            transport
-                .client_for(robots_url, timeout)
-                .await
-                .map_err(|error| {
-                    let kind = match &error {
-                        SpiderTransportError::Target(target) => {
-                            network_error_kind_for_public_target_error(target.clone())
-                        }
-                        SpiderTransportError::Client(_) => NetworkErrorKind::Unknown,
-                    };
-                    (kind, Box::new(error) as application::error::BoxError)
-                })?
-        };
-    client
+) -> Result<RobotsFetchStep, RobotsRequestError> {
+    let client = if robots_url.origin() == root.origin() {
+        root_client.clone()
+    } else {
+        transport
+            .client_for(robots_url, timeout)
+            .await
+            .map_err(|error| {
+                let kind = match &error {
+                    SpiderTransportError::Target(target) => {
+                        network_error_kind_for_public_target_error(target.clone())
+                    }
+                    SpiderTransportError::Client(_) => NetworkErrorKind::Unknown,
+                };
+                (kind, Box::new(error) as application::error::BoxError)
+            })?
+    };
+    let mut response = client
         .get(robots_url.clone())
         .send()
         .await
-        .map_err(|error| (classify_reqwest_error(&error), Box::new(error) as _))
+        .map_err(request_error)?;
+    let status = response.status();
+    debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt for spider");
+    if status.is_success() {
+        let mut body = Vec::new();
+        while body.len() < MAX_ROBOTS_TXT_BYTES {
+            match response.chunk().await.map_err(request_error)? {
+                Some(chunk) => body.extend_from_slice(&chunk),
+                None => break,
+            }
+        }
+        return Ok(RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)));
+    }
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|location| location.to_str().ok());
+    Ok(RobotsFetchStep::for_unsuccessful(
+        status.as_u16(),
+        location,
+        robots_url,
+    ))
+}
+
+fn request_error(error: spider::reqwest::Error) -> RobotsRequestError {
+    (classify_reqwest_error(&error), Box::new(error))
 }
 
 fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscoveryError {

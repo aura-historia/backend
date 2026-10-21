@@ -939,6 +939,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_disallow_the_origin_when_a_redirected_robots_txt_body_breaks_off() {
+        let robots_host = spawn_shop(
+            "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nUser-agent"
+                .to_owned(),
+            vec![],
+            Duration::ZERO,
+        )
+        .await;
+        let redirect = format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: http://localhost:{}/robots.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            robots_host.url.port().unwrap()
+        );
+        let shop = spawn_shop(redirect, vec![OK_PAGE], Duration::ZERO).await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsUnreachable);
+        assert!(shop.page_requests().is_empty());
+    }
+
+    #[tokio::test]
     async fn should_bound_a_stalled_robots_txt_by_the_attempt_timeout_without_retrying() {
         // Accepts connections and never answers.
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -2,9 +2,9 @@
 //! policy's `Crawl-delay` asks for lives in the auto-throttle.
 
 use super::{FetchAttemptError, ReqwestHtmlFetcher};
-use crate::network::policy::{is_same_or_www_host, redirect_target};
+use crate::network::policy::is_same_or_www_host;
 use crate::network::robots::{
-    MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsPolicy, robots_txt_url,
+    MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy, robots_txt_url,
 };
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -109,44 +109,49 @@ impl ReqwestHtmlFetcher {
     async fn load_robots_policy(&self, url: &Url) -> Result<RobotsPolicy, FetchAttemptError> {
         let mut robots_url = robots_txt_url(url);
         for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
-            let response = match self.request_robots_txt(&robots_url).await {
-                Ok(response) => response,
+            match self.robots_txt_step(&robots_url).await {
+                Ok(RobotsFetchStep::Policy(policy)) => return Ok(policy),
+                Ok(RobotsFetchStep::Redirect(next)) => robots_url = next,
                 Err(error) => {
                     let shop_host = is_same_or_www_host(url, &robots_url);
-                    return match RobotsPolicy::for_failed_redirect(error.error.kind(), shop_host) {
-                        Some(policy) if hop > 0 => Ok(policy),
-                        _ => Err(error),
-                    };
+                    return RobotsPolicy::for_failed_request(
+                        error.error.kind(),
+                        hop > 0,
+                        shop_host,
+                    )
+                    .ok_or(error);
                 }
-            };
-            let status = response.status();
-            debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
-            if status.is_success() {
-                return Ok(RobotsPolicy::from_body(&read_robots_body(response).await?));
-            }
-            if !status.is_redirection() {
-                return Ok(RobotsPolicy::for_failed_status(status.as_u16()));
-            }
-            match redirect_target(&robots_url, &response) {
-                Ok(next) => robots_url = next,
-                // A redirect without a usable target leaves no robots.txt
-                // to read: RFC 9309 treats that as unavailable.
-                Err(_) => return Ok(RobotsPolicy::Unavailable),
             }
         }
         Ok(RobotsPolicy::Unavailable)
     }
 
-    async fn request_robots_txt(
+    async fn robots_txt_step(
         &self,
         robots_url: &Url,
-    ) -> Result<reqwest::Response, FetchAttemptError> {
-        self.http_client_for(robots_url)
+    ) -> Result<RobotsFetchStep, FetchAttemptError> {
+        let response = self
+            .http_client_for(robots_url)
             .await?
             .get(robots_url.clone())
             .send()
             .await
-            .map_err(super::reqwest_fetch_error)
+            .map_err(super::reqwest_fetch_error)?;
+        let status = response.status();
+        debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
+        if status.is_success() {
+            let body = read_robots_body(response).await?;
+            return Ok(RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)));
+        }
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|location| location.to_str().ok());
+        Ok(RobotsFetchStep::for_unsuccessful(
+            status.as_u16(),
+            location,
+            robots_url,
+        ))
     }
 }
 
