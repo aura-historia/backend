@@ -79,6 +79,50 @@ def check_manifest(manifest, expected):
                          ". Review the delta, then explicitly run --write-manifest.")
 
 
+def package_owners(manifest, expected):
+    """Keep reviewed target classifications while assigning whole packages."""
+    check_manifest(manifest, expected)
+    owners, seen = {}, set()
+    for name, package in sorted(manifest["packages"].items()):
+        if not package["targets"]:
+            raise ValueError(f"Package has no target ownership: {name}")
+        classifications = set()
+        for target in package["targets"]:
+            identity = target["id"]
+            parts = identity.split("::")
+            if len(parts) != 3 or not all(parts) or parts[0] != name:
+                raise ValueError(f"Target does not belong to package {name}: {identity}")
+            if identity in seen:
+                raise ValueError(f"Duplicate target ownership: {identity}")
+            seen.add(identity)
+            classifications.add(target["lane"])
+        exclusive = {"aura-historia-api": "API", "crawler": "CRAWLER"}.get(name)
+        if exclusive:
+            if classifications != {exclusive}:
+                raise ValueError(f"Invalid exclusive package classification: {name}")
+            owners[name] = exclusive
+        elif classifications <= {"INFRASTRUCTURE", "REMAINING"}:
+            owners[name] = "INFRASTRUCTURE" if "INFRASTRUCTURE" in classifications else "REMAINING"
+        else:
+            raise ValueError(f"Invalid package classification: {name}")
+    return owners
+
+
+def lane_selection(manifest, expected, lane):
+    """Emit package arguments and complete target ownership for one lane."""
+    if lane not in LANES:
+        raise ValueError(f"Unknown test lane: {lane}")
+    owners = package_owners(manifest, expected)
+    packages = sorted(name for name, owner in owners.items() if owner == lane)
+    if not packages:
+        raise ValueError(f"Test lane has no packages: {lane}")
+    targets = [target for name in packages for target in manifest["packages"][name]["targets"]]
+    return {"lane": lane, "packages": packages,
+            "package_args": [argument for name in packages for argument in ("--package", name)],
+            "targets": sorted(target["id"] for target in targets),
+            "doctest_targets": sorted(target["id"] for target in targets if target["doctest"])}
+
+
 def tree_features(argv, cwd, output):
     raw = command(["cargo", "tree", "--locked", "--all-features", "--prefix", "none", "--format", "{p}|{f}",
                    "--edges", "normal,build,dev", *argv], cwd)

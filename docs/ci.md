@@ -23,6 +23,18 @@ intentional delta, accept it with `--write-manifest` and commit the manifest cha
 alongside the source change. Never use that flag in a parity gate. There is no
 fallback lane for an unrecognized target in a gate run.
 
+`--lane API|CRAWLER|INFRASTRUCTURE|REMAINING` also writes `lane-selection.json`
+with package names, Cargo `--package` arguments, all owned target IDs and their
+doctest subset. It validates the complete manifest before selecting a lane. API
+and crawler retain exclusive package ownership; any other package with an
+infrastructure-classified target belongs wholly to `INFRASTRUCTURE`. This keeps
+mixed packages in one job while preserving each target's source classification
+as review evidence. Empty lanes and duplicated or foreign target identities fail
+instead of producing empty Cargo arguments that could select the root package.
+Generating selectors does not execute tests or change the current workflow.
+Lane feature unification and compiled case/ignored/doctest parity still require
+validation before using those selectors for required CI.
+
 `--discover` refreshes `cargo nextest list --locked --workspace --all-features
 --all-targets`, compares every case and ignored flag with each binary's libtest
 `--list` and `--ignored --list`, then separately lists workspace doctests with
