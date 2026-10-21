@@ -152,6 +152,10 @@ when the API provides a job creation timestamp; workflow creation is never
 substituted. Per-package local
 measurement duration excludes scheduling and artifact upload. Keep the workflow
 envelope with all six job artifacts to make the baseline independently auditable.
+Missing or reversed API timestamp intervals remain null with raw timestamps
+preserved. Reruns can reuse successful jobs from an earlier attempt and are
+diagnostic snapshots, not fresh full-suite performance repetitions. Use fresh run
+IDs for controlled repetitions.
 
 For a same-revision old/new comparison, pin both implementations to the same source
 SHA/test corpus, toolchain, flags, runner/image policy and instrumentation; collect

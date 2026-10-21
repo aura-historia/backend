@@ -10,7 +10,7 @@
     "run_id": { "type": "integer", "minimum": 1 },
     "attempt": { "type": "integer", "minimum": 1 },
     "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-    "workflow_seconds": { "type": "number", "minimum": 0 },
+    "workflow_seconds": { "type": ["number", "null"], "minimum": 0 },
     "jobs": {
       "type": "array",
       "items": {

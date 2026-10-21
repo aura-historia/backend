@@ -11,8 +11,9 @@ import subprocess
 def seconds(start, end):
     if not start or not end:
         return None
-    return (datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) -
-            datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
+    elapsed = (datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) -
+               datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
+    return elapsed if elapsed >= 0 else None
 
 
 def api(path):
@@ -44,6 +45,7 @@ def main():
         "created_at": run["created_at"], "run_started_at": run["run_started_at"], "updated_at": run["updated_at"],
         "conclusion": run["conclusion"], "workflow_seconds": seconds(run["created_at"], run["updated_at"]),
         "duration_method": "GitHub completed run attempt updated_at minus created_at; includes scheduling, jobs and finalization",
+        "timestamp_limitations": "Missing or reversed intervals are unavailable (null). Reruns can retain successful jobs from earlier attempts; these are diagnostic snapshots, not fresh full-suite performance repetitions. Use fresh run IDs for controlled repetitions.",
         "jobs": [{"id": job["id"], "name": job["name"], "conclusion": job["conclusion"],
                   "runner_name": job["runner_name"], "labels": job["labels"],
                   "created_at": job.get("created_at"), "started_at": job["started_at"], "completed_at": job["completed_at"],
