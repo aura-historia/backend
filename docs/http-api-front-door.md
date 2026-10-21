@@ -146,8 +146,8 @@ independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths onl
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
 The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
-`/.well-known/oauth-protected-resource/v1` are reserved for hybrid authentication;
-the foundation shell returns `404`, without fabricated OAuth metadata. No proxy,
+`/.well-known/oauth-protected-resource/v1` serve the
+[protected-resource metadata](mcp.md#operation-families-and-admission). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront

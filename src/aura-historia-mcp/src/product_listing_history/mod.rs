@@ -38,7 +38,8 @@ pub fn operations(
             idempotent: true,
             open_world: false,
         },
-        move |input: HistoryInput, context| {
+        move |input: HistoryInput, mut context| {
+            context.operation.principal = application::operation_context::Principal::Anonymous;
             let service = services.get.clone();
             async move {
                 context

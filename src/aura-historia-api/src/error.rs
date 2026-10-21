@@ -416,24 +416,31 @@ impl Display for ApiError {
         if let Some(detail) = &self.detail {
             write!(f, ": {detail}")?;
         }
-        if let Some(cause) = &self.cause {
-            write!(f, ": {cause}")?;
-        }
         Ok(())
     }
 }
 
-impl Error for ApiError {}
+impl Error for ApiError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref().map(|cause| cause as &dyn Error)
+    }
+}
 
 impl From<AuthError> for ApiError {
     fn from(error: AuthError) -> Self {
-        match error {
-            AuthError::TemporarilyUnavailable => {
-                ApiError::service_unavailable(AUTH_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Authentication is temporarily unavailable.")
+        use aura_historia_auth::AccessTokenAuthenticationError;
+
+        let mut response = match &error {
+            AuthError::TemporarilyUnavailable
+            | AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::TemporarilyUnavailable { .. },
+            ) => ApiError::service_unavailable(AUTH_TEMPORARILY_UNAVAILABLE)
+                .with_detail("Authentication is temporarily unavailable."),
+            AuthError::Internal(_)
+            | AuthError::AuraAccessToken(AccessTokenAuthenticationError::Internal { .. }) => {
+                ApiError::internal_server_error(AUTH_INTERNAL_ERROR)
+                    .with_detail("Authentication failed internally.")
             }
-            AuthError::Internal(_) => ApiError::internal_server_error(AUTH_INTERNAL_ERROR)
-                .with_detail("Authentication failed internally."),
             AuthError::MissingCredentials
             | AuthError::InvalidAuthorizationHeader
             | AuthError::MalformedCredentials
@@ -441,10 +448,16 @@ impl From<AuthError> for ApiError {
             | AuthError::MissingClaim(_)
             | AuthError::InvalidClaimType(_)
             | AuthError::JwksKeyNotFound
-            | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
+            | AuthError::JwksFetch(_)
+            | AuthError::AuraAccessToken(
+                AccessTokenAuthenticationError::MalformedCredentials { .. }
+                | AccessTokenAuthenticationError::InvalidCredentials,
+            ) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
-        }
+        };
+        response.cause = Some(application::error::box_error(error));
+        response
     }
 }
 

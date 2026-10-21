@@ -4,6 +4,7 @@
 //! typed families; transport state, DTO mapping, authentication and business behavior stay
 //! with their existing owners. Extract further families only when a transport needs them.
 
+mod access_token_authentication;
 mod postgres;
 pub mod product_listing_config;
 mod product_listing_providers;
@@ -29,11 +30,13 @@ pub use public_product_listings::{ProductListingDependencies, PublicProductListi
 pub use rotation::{RotatingRuntime, RuntimeLease};
 
 use sqlx::PgPool;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use user_service::use_cases::AuthenticateAccessTokenUseCase;
 
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
     postgres: PgPool,
+    access_token_authentication: OnceLock<Arc<dyn AuthenticateAccessTokenUseCase>>,
     public_listing_sources: OnceLock<PublicListingSources>,
     public_product_listing_history: OnceLock<PublicProductListingHistory>,
     public_auctions: OnceLock<PublicAuctions>,
@@ -47,6 +50,7 @@ impl Runtime {
     pub fn from_pool(postgres: PgPool) -> Self {
         Self {
             postgres,
+            access_token_authentication: OnceLock::new(),
             public_listing_sources: OnceLock::new(),
             public_product_listing_history: OnceLock::new(),
             public_auctions: OnceLock::new(),
@@ -68,6 +72,11 @@ impl Runtime {
     /// Request handlers must use inbound use cases rather than this pool.
     pub fn postgres_pool(&self) -> &PgPool {
         &self.postgres
+    }
+
+    pub fn access_token_authentication(&self) -> &Arc<dyn AuthenticateAccessTokenUseCase> {
+        self.access_token_authentication
+            .get_or_init(|| access_token_authentication::compose(&self.postgres))
     }
 
     pub fn public_product_listings(

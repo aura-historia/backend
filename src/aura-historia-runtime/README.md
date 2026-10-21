@@ -42,6 +42,12 @@ let services = lease.value().public_listing_sources();
 let result = services.search.execute(&context, request).await?;
 ```
 
+`Runtime::access_token_authentication()` composes the existing opaque-token authentication
+use case against the same environment pool. REST and MCP can reuse its typed handle without
+loading Cognito or unrelated provider configuration. The handle is reusable; authentication
+results are never cached. The PostgreSQL reader preserves database revocation and suspension
+checks on each request. Transport adapters own parsing, principal mapping and challenges.
+
 `Runtime::from_pool()` supports caller-owned fixture pools. `postgres_pool()` remains a composition
 interface for REST families awaiting extraction; request handlers must call service use cases.
 `PublicListingSourceReadBudget` supplies the shared non-queuing permit pool and per-read

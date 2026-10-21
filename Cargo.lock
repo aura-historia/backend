@@ -277,6 +277,7 @@ dependencies = [
  "auction-core",
  "auction-postgres",
  "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
  "aura-historia-runtime",
  "aws-config",
@@ -376,6 +377,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-auth"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "thiserror 2.0.21",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
 name = "aura-historia-cdc-routing"
 version = "0.1.0"
 dependencies = [
@@ -464,6 +475,7 @@ dependencies = [
  "async-trait",
  "auction-core",
  "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
  "aura-historia-runtime",
  "axum",
@@ -480,6 +492,7 @@ dependencies = [
  "listing-source-service",
  "localization",
  "money",
+ "oauth-core",
  "party-core",
  "party-service",
  "platform-lambda-bootstrap",
@@ -491,14 +504,18 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "serial_test",
  "shipping-core",
  "shipping-service",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-util",
  "tower",
  "url",
+ "user-core",
  "user-service",
  "uuid",
 ]

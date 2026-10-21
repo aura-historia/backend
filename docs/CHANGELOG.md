@@ -13,6 +13,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource`. Use `https://mcp.aura-historia.com/v1` for MCP clients, or the corresponding stage identifier. Only exact configured REST/MCP identifiers are accepted; foreign, other-environment, empty and repeated values return `400 OAUTH_INVALID_RESOURCE`.
 - Authorization codes retain the selected identifier. Token requests can repeat it or omit it to inherit the binding; substituting another identifier fails. Existing integrations omitting `resource` retain the shared Aura default. Opaque access tokens remain valid across REST/MCP subject to their existing scopes and database revocation, with no blanket token migration or change to first-party default no-expiry approval. See the [OAuth contract](oauth.md).
 
+## 2026-10-21 — Per-request MCP Aura authentication (#2242)
+
+- The stable MCP endpoint accepts opaque Aura credentials, revalidates revocation, expiry and user suspension on every request, and challenges protected calls with HTTP `401`/`403` and their complete required scope set. Invalid supplied credentials never fall back to public execution; token-store outages return `503`. Both protected-resource metadata paths advertise the configured Aura issuer. Public tools retain anonymous service behavior until scoped personalization is activated. See the [MCP authentication contract](mcp.md#operation-families-and-admission).
+
 ## 2026-10-20 — Complete listing-search filter documentation (#2235)
 
 - OpenAPI now documents the existing `orderability` and `includeUnspecifiedAvailability` query filters on `GET /v1/product-listings`. They retain the same availability-query semantics as saved searches.

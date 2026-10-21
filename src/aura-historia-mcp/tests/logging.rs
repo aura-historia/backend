@@ -20,6 +20,7 @@ fn should_keep_protocol_payloads_out_of_binary_logs_even_with_verbose_environmen
         .env("POSTGRES_PASSWORD", "fixture-password")
         .env("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem")
         .env("STAGE", "ephemeral")
+        .env("OAUTH_ISSUER_URL", "https://api.stage.aura-historia.com")
         .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
         .env("MCP_BIND_ADDR", address.to_string())
         .env("MCP_ALLOWED_HOSTS", address.to_string())
@@ -56,15 +57,30 @@ fn should_keep_protocol_payloads_out_of_binary_logs_even_with_verbose_environmen
     stream.write_all(request.as_bytes()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
-    let _ = child.kill();
-    let output = child.wait_with_output().unwrap();
     assert!(response.starts_with("HTTP/1.1 200"));
     assert!(response.contains("Unknown tool"));
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let rejected = request.replace(
+        "Content-Type:",
+        "Authorization: Bearer PRIVATE_BEARER_SENTINEL\r\nContent-Type:",
+    );
+    stream.write_all(rejected.as_bytes()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 401"));
+    assert!(!response.contains("PRIVATE_BEARER_SENTINEL"));
+    assert!(!response.contains("PRIVATE_ARGUMENT_SENTINEL"));
+    let _ = child.kill();
+    let output = child.wait_with_output().unwrap();
     let logs = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!logs.contains("PRIVATE_ARGUMENT_SENTINEL"));
+    assert!(!logs.contains("PRIVATE_BEARER_SENTINEL"));
     assert!(!logs.contains("missingOperation"));
 }
