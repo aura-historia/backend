@@ -10,10 +10,10 @@ from .source import scan, source_paths
 
 
 LANES = {
-    "API": {"runner": "ubuntu-latest", "description": "API package targets"},
-    "CRAWLER": {"runner": "ubuntu-latest", "description": "Crawler package targets"},
-    "INFRASTRUCTURE": {"runner": "ubuntu-latest", "description": "Fixture, adapter, worker, Lambda and CDC targets"},
-    "REMAINING": {"runner": "ubuntu-latest", "description": "All other targets"},
+    "API": {"runner": "ubuntu-24.04", "description": "API package targets"},
+    "CRAWLER": {"runner": "ubuntu-24.04", "description": "Crawler package targets"},
+    "INFRASTRUCTURE": {"runner": "ubuntu-24.04", "description": "Fixture, adapter, worker, Lambda and CDC targets"},
+    "REMAINING": {"runner": "ubuntu-24.04", "description": "All other targets"},
 }
 
 
@@ -42,7 +42,7 @@ def target_record(package, target, root, member_roots):
             "required_features": target.get("required-features", []),
             "harness": settings.get("harness", True),
             "lane": lane_for(package["name"], signals["fixtures"]),
-            "runner": "ubuntu-latest", "source_signals": signals,
+            "runner": "ubuntu-24.04", "source_signals": signals,
             "discovery": {"status": "NOT_DISCOVERED", "test_count": None, "ignored_count": None},
             "doctest_discovery": {"status": "NOT_DISCOVERED" if target["doctest"] else "NOT_APPLICABLE", "test_count": None}}
 
@@ -60,7 +60,7 @@ def build_catalog(metadata, root):
                         "current_ci_eligible": path not in {".", "src/test-api/src/test-api-macros"}})
         assignments[package["name"]] = {"path": path, "targets": [
             {key: target[key] for key in ("id", "lane", "test", "doctest", "required_features", "harness")} for target in targets]}
-    manifest = {"schema_version": 1, "purpose": "INVENTORY_ONLY", "lanes": LANES, "packages": assignments}
+    manifest = {"schema_version": 1, "purpose": "PACKAGE_TEST_LANES", "lanes": LANES, "packages": assignments}
     summary = {"packages": len(records), "targets": sum(len(p["targets"]) for p in records),
                "doctest_targets": sum(t["doctest"] for p in records for t in p["targets"]),
                "test_count": None, "ignored_count": None, "doctest_count": None}

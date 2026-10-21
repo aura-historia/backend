@@ -18,7 +18,7 @@ def target(package, kind, name, lane, doctest=False):
 
 class PackageLaneSelection(unittest.TestCase):
     def setUp(self):
-        self.manifest = {"schema_version": 1, "purpose": "INVENTORY_ONLY", "lanes": copy.deepcopy(LANES),
+        self.manifest = {"schema_version": 1, "purpose": "PACKAGE_TEST_LANES", "lanes": copy.deepcopy(LANES),
             "packages": {
                 "aura-historia-parent": {"path": ".", "targets": [
                     target("aura-historia-parent", "lib", "aura_historia_parent", "REMAINING", True)]},

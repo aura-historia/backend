@@ -136,7 +136,7 @@ class LaneDriverPhases(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         self.args = types.SimpleNamespace(phase="all", output=self.root / "output", state_dir=self.root / "state",
             supervisor=pathlib.Path("/fixture/aura-test-env"), profile="api", slots=2, features=[],
-            harness="nextest", lane=["INFRASTRUCTURE"])
+            harness="nextest", lane=["INFRASTRUCTURE"], list_only=False)
         self.selection = {"packages": ["database-migration-lambda", "test-api"],
                           "package_args": ["--package", "database-migration-lambda", "--package", "test-api"]}
         self.suites = {DRIVER.PRISTINE_TARGET: {}}
@@ -171,6 +171,14 @@ class LaneDriverPhases(unittest.TestCase):
                         DRIVER.main()
                 self.assertEqual(failure.exception.code, 37)
                 self.assertEqual(execute.call_count, failing_index + 1)
+
+    def test_list_only_validates_discovery_without_running_a_supervisor_or_body(self):
+        self.args.list_only = True
+        with patch.object(DRIVER, "arguments", return_value=self.args), patch.object(DRIVER, "command", return_value=str(self.root)), patch.object(
+                DRIVER, "discover_lane", return_value=(self.selection, self.suites)) as discover, patch.object(DRIVER, "execute") as execute:
+            DRIVER.main()
+        discover.assert_called_once_with(self.args, self.root)
+        execute.assert_not_called()
 
     def test_managed_tests_precede_explicit_doctests(self):
         with patch.object(DRIVER, "execute") as execute:

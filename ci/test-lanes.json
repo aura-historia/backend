@@ -2,19 +2,19 @@
   "lanes": {
     "API": {
       "description": "API package targets",
-      "runner": "ubuntu-latest"
+      "runner": "ubuntu-24.04"
     },
     "CRAWLER": {
       "description": "Crawler package targets",
-      "runner": "ubuntu-latest"
+      "runner": "ubuntu-24.04"
     },
     "INFRASTRUCTURE": {
       "description": "Fixture, adapter, worker, Lambda and CDC targets",
-      "runner": "ubuntu-latest"
+      "runner": "ubuntu-24.04"
     },
     "REMAINING": {
       "description": "All other targets",
-      "runner": "ubuntu-latest"
+      "runner": "ubuntu-24.04"
     }
   },
   "packages": {
@@ -2898,6 +2898,6 @@
       ]
     }
   },
-  "purpose": "INVENTORY_ONLY",
+  "purpose": "PACKAGE_TEST_LANES",
   "schema_version": 1
 }

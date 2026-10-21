@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Run explicit lane phases sequentially; required CI does not use this driver yet."""
+"""Validate package ownership and run each lane's explicit phases sequentially."""
 
 import argparse
 import json
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -28,6 +29,7 @@ def arguments():
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--manifest", type=pathlib.Path, default=pathlib.Path("ci/test-lanes.json"))
+    parser.add_argument("--list-only", action="store_true", help="Compile and verify cases without starting services or test bodies")
     parser.add_argument("--phase", choices=["all", "managed"], default="all", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not 1 <= args.slots <= 1024:
@@ -41,6 +43,7 @@ def arguments():
 
 
 def execute(argv, cwd, environment):
+    print(f"test lane: {shlex.join(map(str, argv))}", flush=True)
     process, interrupted = None, None
 
     def forward(number, frame):
@@ -72,12 +75,19 @@ def discover_lane(args, root):
     catalog, expected = build_catalog(metadata, root)
     manifest = json.loads((root / args.manifest).read_text())
     selection = combined_selection(manifest, expected, args.lane)
+    write_json(args.output / "selection.json", selection)
     catalog["packages"] = [package for package in catalog["packages"] if package["name"] in selection["packages"]]
     if any(not target["harness"] for package in catalog["packages"] for target in package["targets"] if target["test"]):
         raise ValueError("Custom harness needs an explicit adapter before lane execution")
-    raw = command(["cargo", "nextest", "list", *cargo_args(selection, args.features),
-                   "--all-targets", "--message-format", "json"], root)
-    data = json.loads(raw)
+    argv = ["cargo", "nextest", "list", *cargo_args(selection, args.features),
+            "--all-targets", "--message-format", "json"]
+    print(f"test lane discovery: {shlex.join(argv)}", flush=True)
+    with (args.output / "compile.log").open("w") as log:
+        process = subprocess.run(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=log)
+    if process.returncode:
+        raise RuntimeError(f"Nextest discovery failed ({process.returncode}); see {args.output / 'compile.log'}")
+    data = json.loads(process.stdout)
+    write_json(args.output / "nextest.json", data)
     attach_suites(catalog, data["rust-suites"], root, args.output)
     suites = {}
     for suite in data["rust-suites"].values():
@@ -86,8 +96,7 @@ def discover_lane(args, root):
             raise ValueError(f"Duplicate or foreign lane suite: {identity}")
         suites[identity] = suite
     validate_special_cases(selection, suites)
-    write_json(args.output / "selection.json", selection)
-    write_json(args.output / "nextest.json", data)
+    print(f"test lane discovery: verified {len(suites)} targets, {data['test-count']} cases", flush=True)
     return selection, suites
 
 
@@ -120,6 +129,8 @@ def main():
         return
     args.output.mkdir(parents=True, exist_ok=True)
     selection, suites = discover_lane(args, root)
+    if args.list_only:
+        return
     environment = unmanaged_environment(os.environ)
     if PRISTINE_TARGET in suites:
         pristine = dict(selection, package_args=["--package", "database-migration-lambda"])

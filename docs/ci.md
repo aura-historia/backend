@@ -1,8 +1,10 @@
 # CI inventory and measurements
 
-[`integrate.yml`](../.github/workflows/integrate.yml) owns mandatory quality gates and
-the current package test matrix. The inventory and benchmark tools observe that
-contract; their lane assignments do not select tests or change coverage policy.
+[`integrate.yml`](../.github/workflows/integrate.yml) runs independent API, crawler,
+integration and remaining test jobs, plus workspace lint. Every relevant pull
+request and `develop` push runs all lanes. The final Sonar job requires every test
+job and lint to succeed, validates the exact lane coverage artifacts, and waits for
+the existing Sonar quality gate. No affected-package selector precedes tests.
 
 ## Inventory and parity contract
 
@@ -31,23 +33,42 @@ infrastructure-classified target belongs wholly to `INFRASTRUCTURE`. This keeps
 mixed packages in one job while preserving each target's source classification
 as review evidence. Empty lanes and duplicated or foreign target identities fail
 instead of producing empty Cargo arguments that could select the root package.
-Generating selectors does not execute tests or change the current workflow.
-Lane feature unification and compiled case/ignored/doctest parity still require
-validation before using those selectors for required CI.
+The manifest's target annotations remain source-classification evidence; the
+package projection owns execution. The runner family is explicit; each job retains
+its own Cargo target directory and coverage cache, separated from lint.
 
-[`run-test-lane.py`](../ci/run-test-lane.py) is an opt-in local sequential driver;
-the required workflow does not use it yet. It accepts repeated `--lane` selections
+[`run-test-lane.py`](../ci/run-test-lane.py) is the shared sequential lane driver.
+It accepts repeated `--lane` selections
 and requires explicit `--harness nextest|libtest`, `--slots`, `--profile`,
 `--supervisor`, `--state-dir` and `--output` arguments. It refreshes and validates
 compiled Nextest/libtest case parity before running the selected packages. A
 pristine PostgreSQL bootstrap runs in a fresh environment; ordinary managed tests
 and explicit doctests share the main environment; fixture lifecycle controls run
-afterward with managed/Nextest identity cleared. Coverage variables are inherited.
+afterward with managed/Nextest identity cleared. `--list-only` compiles and verifies
+ownership and case/ignored parity without starting services or running test bodies.
+Discovery output retains selectors, compiled case lists and compiler diagnostics.
+Coverage variables are inherited.
 The fixture guide owns the [exact exceptional cases](../src/test-api/README.md#exceptional-execution-phases).
 Stock libtest partitions crawler library `runtime::`/`logging::` cases using full
 discovered names and executes that same set sequentially; `llm_runtime::` stays
-ordinary. Harness/slot choices, feature recovery requirements and final CI adoption
-must be validated against the reviewed migrations and measured runner results.
+ordinary. Harness, slots and supervisor profile are explicit inputs; the workflow
+owns their selected values. Managed lanes enable the complete `test-api` recovery
+feature union through dependency-qualified features without executing fixture test
+targets in a second lane. Package-local and lane-selected feature graphs and case
+sets must be compared when changing this configuration.
+
+[`test-lane`](../.github/actions/test-lane/action.yml) configures coverage before
+cache restoration and uses checksum-verified, pinned Nextest and grcov archives.
+The job supervisor owns service cleanup, including cancellation; no job prunes
+shared Docker resources. Failure retains test/compile diagnostics and any coverage
+produced without allowing a failed lane to pass the final gate.
+
+Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
+Each lane writes one process/module-unique profile namespace and one named LCOV
+artifact. [`merge-coverage.py`](../ci/merge-coverage.py) rejects missing, extra,
+empty or malformed reports using the existing LCOV validator, then concatenates
+them in deterministic order. This does not reconcile branch identities across
+builds or provide nightly doctest instrumentation.
 
 `--discover` refreshes `cargo nextest list --locked --workspace --all-features
 --all-targets`, compares every case and ignored flag with each binary's libtest
@@ -80,9 +101,9 @@ workspace unification for every dependency in each package graph. Cargo metadata
 alone is insufficient: it resolves the workspace even when invoked in a package
 directory. The feature comparison unions host/build contexts by package/version;
 it is a resolver view, not proof that differently compiled suites are equivalent.
-The current workflow runs package-directory `cargo test --all-features`; compiled
-workspace discovery is explicitly marked `WORKSPACE_ALL_FEATURES`. A selection
-redesign must preserve the intended configurations and compare actual case sets.
+The previous workflow ran package-directory `cargo test --all-features`; compiled
+workspace discovery is explicitly marked `WORKSPACE_ALL_FEATURES`. Lane selection
+must preserve the intended configurations and compare actual case sets.
 
 Versioned artifact contracts live in [`ci/schemas`](../ci/schemas). Package/target
 identity is `package::cargo-kind::target-name`; Cargo's canonical names and feature
@@ -215,11 +236,11 @@ required before claiming end-to-end CI improvements.
 
 ## Existing omissions and baseline evidence
 
-The current determinator excludes the root and nested `test-api-macros` packages.
-The inventory includes both. Current package `cargo test` invocations include
-doctests; nextest alone would omit them. Current coverage upload files are
-concatenated for Sonar, so repeated dependency source records can occur; the
-baseline collector exposes sums and identity unions without changing that merge.
+The previous determinator excluded the root and nested `test-api-macros` packages.
+Lane ownership includes both. Package `cargo test` invocations include doctests;
+the driver preserves them separately because Nextest alone omits them. Coverage
+files are concatenated for Sonar, so repeated dependency source records can occur;
+the baseline collector exposes sums and identity unions without changing that merge.
 
 Historical [run 2579](https://github.com/aura-historia/backend/actions/runs/39579788255)
 spanned 1,580 seconds from creation to the last job completion and had 110 test
