@@ -56,9 +56,19 @@ class CompleteLaneCoverage(unittest.TestCase):
                 self.assertEqual(self.output.read_text(), "previous")
 
     def test_empty_duplicate_or_unknown_expected_lanes_fail(self):
-        for lanes in ([], ["api", "api"], ["foreign"]):
+        for lanes in ([], ["api", "api"], ["foreign"], ["legacy-../api"], ["legacy-"]):
             with self.subTest(lanes=lanes), self.assertRaisesRegex(ValueError, "distinct, known"):
                 MERGER.merge(self.directory, self.output, lanes)
+
+    def test_opt_in_legacy_reports_use_the_same_exact_artifact_validation(self):
+        directory = self.directory / 'legacy'
+        report = directory / 'coverage-legacy-money/legacy-money.lcov'
+        report.parent.mkdir(parents=True)
+        report.write_text(LCOV)
+        MERGER.merge(directory, self.output, ['legacy-money'])
+        self.assertEqual(self.output.read_text(), LCOV)
+        with self.assertRaisesRegex(ValueError, 'missing='):
+            MERGER.merge(directory, self.output, ['legacy-money', 'legacy-api'])
 
 
 if __name__ == "__main__":

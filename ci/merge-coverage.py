@@ -3,13 +3,14 @@
 
 import argparse
 import pathlib
+import re
 import sys
 
 from ci_benchmark.lcov import coverage_totals
 
 
 def merge(directory, output, lanes):
-    if not lanes or len(lanes) != len(set(lanes)) or any(lane not in {"api", "crawler", "integration", "remaining", "all"} for lane in lanes):
+    if not lanes or len(lanes) != len(set(lanes)) or any(not re.fullmatch(r"api|crawler|integration|remaining|all|legacy-[a-z0-9][a-z0-9_-]*", lane) for lane in lanes):
         raise ValueError("Expected distinct, known coverage lanes")
     expected = {directory / f"coverage-{lane}" / f"{lane}.lcov" for lane in lanes}
     actual = set(directory.rglob("*.lcov"))

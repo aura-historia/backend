@@ -134,7 +134,7 @@ class LaneDriverPhases(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
-        self.args = types.SimpleNamespace(phase="all", output=self.root / "output", state_dir=self.root / "state",
+        self.args = types.SimpleNamespace(phase="all", legacy_package=None, output=self.root / "output", state_dir=self.root / "state",
             supervisor=pathlib.Path("/fixture/aura-test-env"), profile="api", slots=2, features=[],
             harness="nextest", lane=["INFRASTRUCTURE"], list_only=False)
         self.selection = {"packages": ["database-migration-lambda", "test-api"],
@@ -187,6 +187,14 @@ class LaneDriverPhases(unittest.TestCase):
         self.assertEqual(execute.call_args_list[0].args[0][:3], ["cargo", "nextest", "run"])
         self.assertEqual(execute.call_args_list[1].args[0], ["cargo", "test", "--locked", "--all-features",
             "--package", "database-migration-lambda", "--package", "test-api", "--doc"])
+
+    def test_legacy_libtest_and_doctests_keep_original_nocapture_output(self):
+        self.args.harness, self.args.legacy_package = 'libtest', 'money'
+        suite = {'binary-path': '/test-binary', 'testcases': {'case': {'ignored': False}}, 'cwd': '/package'}
+        with patch.object(DRIVER, 'command', return_value='/rust/lib'), patch.object(DRIVER, 'execute') as execute:
+            DRIVER.managed_phase(self.args, self.root, self.selection, {'money::lib::money': suite})
+        self.assertEqual(execute.call_args_list[0].args[0][-1], '--nocapture')
+        self.assertEqual(execute.call_args_list[1].args[0][-2:], ['--', '--nocapture'])
 
     def test_invalid_capacity_or_service_profile_fails_before_discovery(self):
         base = ["run-test-lane.py", "--lane", "INFRASTRUCTURE", "--harness", "nextest",

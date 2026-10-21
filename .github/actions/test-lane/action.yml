@@ -6,7 +6,10 @@ inputs:
     required: true
   lanes:
     description: Space-separated inventory lane names.
-    required: true
+    default: ''
+  legacy_package:
+    description: Opt-in comparison only; one package with original lazy fixtures.
+    default: ''
   harness:
     description: Explicit measured harness, nextest or libtest.
     required: true
@@ -24,7 +27,7 @@ runs:
       env:
         LANE_ID: ${{ inputs.id }}
       run: |
-        [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining|all)$ ]]
+        [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining|all|legacy-[a-z0-9][a-z0-9_-]*)$ ]]
         mkdir -p "$RUNNER_TEMP/coverage/$LANE_ID/profraw" "$RUNNER_TEMP/lane/$LANE_ID"
         {
           printf 'CARGO_TARGET_DIR=%s/target\n' "$GITHUB_WORKSPACE"
@@ -78,7 +81,7 @@ runs:
         PY
 
     - name: Log in to GHCR
-      if: inputs.profile != 'none'
+      if: inputs.profile != 'none' || inputs.legacy_package != ''
       uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
       with:
         registry: ghcr.io
@@ -86,7 +89,7 @@ runs:
         password: ${{ github.token }}
 
     - name: Build job supervisor
-      if: inputs.profile != 'none'
+      if: inputs.profile != 'none' || inputs.legacy_package == 'test-api' || inputs.legacy_package == 'database-migration-lambda'
       shell: bash
       run: cargo build --locked --package test-api --all-features --bin aura-test-env
 
@@ -95,13 +98,19 @@ runs:
       env:
         LANE_ID: ${{ inputs.id }}
         LANES: ${{ inputs.lanes }}
+        LEGACY_PACKAGE: ${{ inputs.legacy_package }}
         HARNESS: ${{ inputs.harness }}
         SLOTS: ${{ inputs.slots }}
         PROFILE: ${{ inputs.profile }}
       run: |
         read -ra selected <<< "$LANES"
         arguments=()
-        for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
+        if [ -n "$LEGACY_PACKAGE" ]; then
+          test -z "$LANES"
+          arguments+=(--legacy-package "$LEGACY_PACKAGE")
+        else
+          for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
+        fi
         if [ "$PROFILE" != none ]; then
           arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
         fi

@@ -13,7 +13,8 @@ SCRIPT = textwrap.dedent(WORKFLOW.read_text().split("python3 - <<'PYPLAN'\n", 1)
 
 class OptInLanePlan(unittest.TestCase):
     def plan(self, **values):
-        environment = dict(os.environ, EVENT="workflow_dispatch", LABEL="", HEAD_SHA="", REVISION="a" * 40,
+        environment = dict(os.environ, EVENT="workflow_dispatch", LABEL="", HEAD_SHA="", BASE_SHA="d" * 40,
+            REVISION="a" * 40, PRIME_REVISION="",
             LAYOUT="four", SCENARIO="FULL", REPETITION="1", HARNESS="nextest", SLOTS="4",
             GITHUB_RUN_NUMBER="17", GITHUB_WORKFLOW_SHA="b" * 40)
         environment.update(values)
@@ -50,6 +51,47 @@ class OptInLanePlan(unittest.TestCase):
                 result, outputs = self.plan(**{key: value})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(outputs, {})
+
+    def test_small_label_primes_the_actual_pr_base_without_filtering_any_lane(self):
+        result, outputs = self.plan(EVENT='pull_request', LABEL='ci/lanes-three-leaf', HEAD_SHA='c'*40)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs['prime_revision'], 'd'*40)
+        self.assertEqual(outputs['revision'], 'c'*40)
+        self.assertEqual(outputs['scenario'], 'LEAF')
+        self.assertEqual(sorted(lane for row in json.loads(outputs['matrix']) for lane in row['lanes'].split()),
+                         ['API', 'CRAWLER', 'INFRASTRUCTURE', 'REMAINING'])
+
+    def test_small_dispatch_requires_a_distinct_immutable_priming_base(self):
+        for prime in ('', 'develop', 'a'*40):
+            with self.subTest(prime=prime):
+                result, outputs = self.plan(SCENARIO='API', PRIME_REVISION=prime)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(outputs, {})
+
+    def test_stock_harness_label_changes_only_harness_not_full_scope(self):
+        result, outputs = self.plan(EVENT='pull_request', LABEL='ci/lanes-four-libtest', HEAD_SHA='c'*40)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((outputs['harness'], outputs['scenario'], outputs['prime_revision']), ('libtest', 'FULL', ''))
+        self.assertEqual(len(json.loads(outputs['matrix'])), 4)
+
+    def test_unselected_workflow_skips_quality_but_selected_failures_enter_its_gate(self):
+        for workflow, job, prerequisite in ((WORKFLOW, 'quality', 'plan'),
+                (WORKFLOW.with_name('compare-legacy-ci.yml'), 'sonar', 'determine')):
+            block = workflow.read_text().split('\n  ' + job + ':\n', 1)[1]
+            guard = next(line.strip().removeprefix('if: ') for line in block.splitlines() if line.strip().startswith('if: '))
+            for result in ('skipped', 'success', 'failure', 'cancelled'):
+                with self.subTest(workflow=workflow.name, result=result):
+                    expression = guard.replace('always()', 'True').replace('&&', 'and').replace(
+                        f'needs.{prerequisite}.result', repr(result))
+                    self.assertEqual(eval(expression, {'__builtins__': {}}), result != 'skipped')
+            marker = "python3 - <<'PY'\n"
+            script = textwrap.dedent(block.split(marker, 1)[1].split('\n          PY', 1)[0])
+            for failure in ('failure', 'cancelled', 'skipped'):
+                results = {'plan': {'result': 'success'}, 'lint': {'result': 'success'}, 'test': {'result': failure}}
+                if prerequisite == 'determine': results['determine'] = results.pop('plan')
+                process = subprocess.run([sys.executable, '-c', script], env=dict(os.environ, RESULTS=json.dumps(results)),
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.assertNotEqual(process.returncode, 0)
 
 
 if __name__ == "__main__":

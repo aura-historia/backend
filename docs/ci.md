@@ -65,6 +65,10 @@ produced without allowing a failed lane to pass the final gate.
 Diagnostics retain their workflow attempt, including that attempt's LCOV when
 available. A rerun replaces the stable required coverage artifact only; the final
 gate still requires each lane's current result to succeed.
+Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
+CPU, memory, runner image/version and configured cache suffix/exact-hit result.
+Resolved/fallback cache keys remain in the cache action log. Missing metadata is
+reported as null; a runner label alone does not prove identical hardware.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
 Each lane writes one process/module-unique profile namespace and one named LCOV
@@ -147,15 +151,22 @@ is retained for fixture timing observations.
 Before this workflow is registered on the default branch, add `ci/lanes-four`,
 `ci/lanes-three` or `ci/lanes-one` to a same-repository pull request. The guarded
 label event checks out its actual head SHA and screens only that layout with
-Nextest/four slots/FULL; its run number identifies the repetition. Dispatch inputs
+Nextest/four slots/FULL; its run number identifies the repetition. A `-libtest`
+suffix selects the stock harness for an instrumented compatibility comparison.
+Dispatch inputs
 remain explicit for other configurations. Source SHA and workflow SHA are validated
 and recorded separately. Labels do not start measurements for fork pull requests.
 
-The scenario input labels the actual frozen FULL, API or LEAF source revision; it
-does not filter new tests or synthesize source invalidation. Same-revision warm
-measurements describe a reused target with unchanged source. Small-change cache
-invalidation requires an actual reviewed base/head pair and matching priming on
-both comparison sides. Collect the completed workflow envelope with
+Small-change dispatches require a distinct `prime_revision` and scenario
+`LEAF`, `API` or `FIXTURE`. Labels ending in `-leaf`, `-api` or `-fixture` instead
+use the actual pull request base/head pair. The cold invocation runs the base;
+the warm invocation checks out the head and reuses that exact target. Both run
+the complete owned workspace. The recorded patch, source identities and cache
+states must substantiate the scenario; labels do not manufacture source changes.
+Use reviewed comment-only experiment heads when isolating compiler invalidation
+without changing product cases. Same-revision FULL pairs retain unchanged-source
+warm behavior. Base priming and head execution are different observations, not two
+repetitions at the head. Collect the completed workflow envelope with
 `collect-ci-run.py`; do not sum concurrent jobs. This opt-in workflow measures
 through lint, artifact upload and coverage validation. Sonar scan/gate duration and
 the previous per-package fanout need their own same-source workflow evidence before
@@ -164,12 +175,28 @@ claiming a complete CI speedup or selecting the final lane count.
 The unused `ci-determinator` package and its three selector self-tests are retired.
 Legacy replay must build the original tool and retain its selection/build scheduling
 cost: source is available at `5c9bccac4e5c3d1e34ee021b7bbadcf78db592d4`.
-An isolated workspace can supply that revision's inherited `serde_json` declaration
-and locked dependency versions without restoring the package to current CI. Run the
-compiled selector from the final source checkout against the recorded change base.
-Account explicitly for the legacy root/proc-macro omissions and required exceptional
-phases when comparing complete test corpora. Reconstructing the old scheduling is
-not equivalent to replacing its build/selector work with a metadata-only matrix.
+[`compare-legacy-ci.yml`](../.github/workflows/compare-legacy-ci.yml) is an optional
+same-tool control. `ci/legacy-full` on a same-repository PR builds that original
+selector, compares against the recorded baseline, then runs its real package
+fanout. `ci/legacy-affected` uses the actual PR base instead. Explicit dispatch
+inputs are also available. The isolated selector workspace retains its original
+source/manifests and locked versions; only unreachable lock nodes are pruned.
+Its real release build/cache/selection precede test scheduling. Each selected
+package uses libtest, package-local all-features, original `--nocapture` output,
+lazy process fixtures and a separate Cargo target/cache. Complete controls add
+the original root/proc-macro omissions explicitly; affected controls retain the
+actual original selection. Both preserve the required pristine/unmanaged phases
+and validate compiled case/ignored lists and exact coverage artifacts.
+
+This control deliberately uses the same verified prebuilt tools, pinned runner
+family, four test threads, independent lint and waited Sonar gate as new CI.
+It bounds fanout to twenty concurrent jobs. Case listing, explicit exceptional
+phases and complete-coverage validation are parity adjustments. Historical
+`cargo install grcov`, unpinned actions, runner allocation and global volume prune
+are not reproduced; their costs are not measured by this control. Record actual
+cache restores, hardware and all these adjustments with each comparison. A partial
+affected run does not establish complete-corpus parity or equivalent full-workspace
+speed. Keep literal historical evidence separate from the same-tool control.
 
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository

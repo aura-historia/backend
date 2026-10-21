@@ -13,10 +13,14 @@ on:
         type: choice
         options: [four, three, one]
       scenario:
-        description: Label of the actual frozen source change; never filters new lane tests
+        description: Actual source change; small scenarios require a real priming base
         required: true
         type: choice
-        options: [FULL, API, LEAF]
+        options: [FULL, API, LEAF, FIXTURE]
+      prime_revision:
+        description: Full immutable base SHA for small-change Cargo cache priming
+        required: false
+        type: string
       repetition:
         description: Independent run repetition number
         required: true
@@ -49,11 +53,12 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
-       contains(fromJSON('["ci/lanes-four","ci/lanes-three","ci/lanes-one"]'), github.event.label.name))
+       contains(fromJSON('["ci/lanes-four","ci/lanes-three","ci/lanes-one","ci/lanes-four-leaf","ci/lanes-three-leaf","ci/lanes-one-leaf","ci/lanes-four-api","ci/lanes-three-api","ci/lanes-one-api","ci/lanes-four-fixture","ci/lanes-three-fixture","ci/lanes-one-fixture","ci/lanes-four-libtest","ci/lanes-three-libtest","ci/lanes-one-libtest"]'), github.event.label.name))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       revision: ${{ steps.plan.outputs.revision }}
+      prime_revision: ${{ steps.plan.outputs.prime_revision }}
       layout: ${{ steps.plan.outputs.layout }}
       scenario: ${{ steps.plan.outputs.scenario }}
       repetition: ${{ steps.plan.outputs.repetition }}
@@ -67,7 +72,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           LABEL: ${{ github.event.label.name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           REVISION: ${{ inputs.revision }}
+          PRIME_REVISION: ${{ inputs.prime_revision }}
           LAYOUT: ${{ inputs.layout }}
           SCENARIO: ${{ inputs.scenario }}
           REPETITION: ${{ inputs.repetition }}
@@ -78,14 +85,23 @@ jobs:
           import json, os, re
           env = os.environ
           if env['EVENT'] == 'pull_request':
-              values = dict(revision=env['HEAD_SHA'], layout=env['LABEL'].removeprefix('ci/lanes-'),
-                            scenario='FULL', repetition=env['GITHUB_RUN_NUMBER'], harness='nextest', slots='4')
+              label = re.fullmatch(r'ci/lanes-(four|three|one)(?:-(leaf|api|fixture|libtest))?', env['LABEL'])
+              assert label
+              small = label[2] in ('leaf', 'api', 'fixture')
+              values = dict(revision=env['HEAD_SHA'], layout=label[1], prime_revision=env['BASE_SHA'] if small else '',
+                            scenario=label[2].upper() if small else 'FULL', repetition=env['GITHUB_RUN_NUMBER'],
+                            harness='libtest' if label[2] == 'libtest' else 'nextest', slots='4')
           else:
-              values = {name: env[name.upper()] for name in ('revision', 'layout', 'scenario', 'repetition', 'harness', 'slots')}
+              values = {name: env[name.upper()] for name in ('revision', 'prime_revision', 'layout', 'scenario', 'repetition', 'harness', 'slots')}
           assert re.fullmatch('[0-9a-f]{40}', values['revision'])
           assert re.fullmatch('[0-9a-f]{40}', env['GITHUB_WORKFLOW_SHA'])
           assert values['layout'] in ('four', 'three', 'one')
-          assert values['scenario'] in ('FULL', 'API', 'LEAF')
+          assert values['scenario'] in ('FULL', 'API', 'LEAF', 'FIXTURE')
+          if values['scenario'] == 'FULL':
+              assert not values['prime_revision']
+          else:
+              assert re.fullmatch('[0-9a-f]{40}', values['prime_revision'])
+              assert values['prime_revision'] != values['revision']
           assert re.fullmatch('[1-9][0-9]*', values['repetition'])
           assert values['harness'] in ('nextest', 'libtest')
           assert values['slots'] in ('1', '2', '4')
@@ -141,11 +157,12 @@ jobs:
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$REPETITION" =~ ^[1-9][0-9]*$ ]]
           [[ "$LAYOUT" =~ ^(four|three|one)$ ]]
-          [[ "$SCENARIO" =~ ^(FULL|API|LEAF)$ ]]
+          [[ "$SCENARIO" =~ ^(FULL|API|LEAF|FIXTURE)$ ]]
           [[ "$SLOTS" =~ ^(1|2|4)$ ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.revision }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify source and tools
         env:
@@ -176,9 +193,17 @@ jobs:
           SCENARIO: ${{ needs.plan.outputs.scenario }}
           LAYOUT: ${{ needs.plan.outputs.layout }}
           REPETITION: ${{ needs.plan.outputs.repetition }}
+          REVISION: ${{ needs.plan.outputs.revision }}
+          PRIME_REVISION: ${{ needs.plan.outputs.prime_revision }}
         run: |
           mkdir -p "$RUNNER_TEMP/measurement"
           printf 'layout=%s\nscenario=%s\nrepetition=%s\n' "$LAYOUT" "$SCENARIO" "$REPETITION" > "$RUNNER_TEMP/measurement/inputs.txt"
+          printf 'head=%s\npriming_base=%s\n' "$REVISION" "$PRIME_REVISION" >> "$RUNNER_TEMP/measurement/inputs.txt"
+          if [ -n "$PRIME_REVISION" ]; then
+            git merge-base --is-ancestor "$PRIME_REVISION" "$REVISION"
+            git diff --stat "$PRIME_REVISION" "$REVISION" > "$RUNNER_TEMP/measurement/change-stat.txt"
+            git diff "$PRIME_REVISION" "$REVISION" > "$RUNNER_TEMP/measurement/change.patch"
+          fi
           read -ra selected <<< "$LANES"
           arguments=()
           for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
@@ -186,6 +211,10 @@ jobs:
             arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
           fi
           for cache in COLD_TARGET WARM_TARGET; do
+            source="$REVISION"
+            if [ "$cache" = COLD_TARGET ] && [ -n "$PRIME_REVISION" ]; then source="$PRIME_REVISION"; fi
+            git checkout --detach "$source"
+            test "$(git rev-parse HEAD)" = "$source"
             python3 ci/bench-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
               --cache "$cache" --target-dir "$RUNNER_TEMP/measurement/target" --output "$RUNNER_TEMP/measurement/$cache"
           done
@@ -204,6 +233,8 @@ jobs:
           name: lane-measurement-${{ needs.plan.outputs.layout }}-${{ matrix.job.id }}-${{ needs.plan.outputs.repetition }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/measurement/inputs.txt
+            ${{ runner.temp }}/measurement/change-stat.txt
+            ${{ runner.temp }}/measurement/change.patch
             ${{ runner.temp }}/measurement/COLD_TARGET/
             ${{ runner.temp }}/measurement/WARM_TARGET/
           if-no-files-found: error

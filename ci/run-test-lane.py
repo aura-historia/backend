@@ -120,8 +120,9 @@ def managed_phase(args, root, selection, suites):
             local = dict(environment, LD_LIBRARY_PATH=os.pathsep.join([
                 str(pathlib.Path(suite["binary-path"]).parent), rust_libdir, environment.get("LD_LIBRARY_PATH", "")]))
             for argv in libtest_commands(identity, suite, args.slots):
-                execute(argv, suite["cwd"], local)
-    execute(["cargo", "test", *cargo_args(selection, args.features), "--doc"], root, environment)
+                execute([*argv, *(["--nocapture"] if args.legacy_package else [])], suite["cwd"], local)
+    execute(["cargo", "test", *cargo_args(selection, args.features), "--doc",
+             *(["--", "--nocapture"] if args.legacy_package else [])], root, environment)
 
 
 def main():
