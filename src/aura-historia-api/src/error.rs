@@ -623,9 +623,10 @@ impl From<ListNotificationsError> for ApiError {
             ListNotificationsError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListNotificationsError::ReadFailed(_) => {
+            ListNotificationsError::ReadFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -644,9 +645,10 @@ impl From<UpdateNotificationSeenError> for ApiError {
             }
             UpdateNotificationSeenError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
                 .with_detail("Notification was not found."),
-            UpdateNotificationSeenError::UpdateFailed(_) => {
+            UpdateNotificationSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -667,9 +669,10 @@ impl From<UpdateNotificationsSeenError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE)
                     .with_detail("notificationIds must contain at least one Notification ID.")
             }
-            UpdateNotificationsSeenError::UpdateFailed(_) => {
+            UpdateNotificationsSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -686,9 +689,10 @@ impl From<UpdateAllNotificationsSeenError> for ApiError {
             UpdateAllNotificationsSeenError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateAllNotificationsSeenError::UpdateFailed(_) => {
+            UpdateAllNotificationsSeenError::UpdateFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -707,9 +711,10 @@ impl From<DeleteNotificationError> for ApiError {
             }
             DeleteNotificationError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
                 .with_detail("Notification was not found."),
-            DeleteNotificationError::DeleteFailed(_) => {
+            DeleteNotificationError::DeleteFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -726,9 +731,10 @@ impl From<DeleteNotificationsError> for ApiError {
             DeleteNotificationsError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            DeleteNotificationsError::DeleteFailed(_) => {
+            DeleteNotificationsError::DeleteFailed(error) => {
                 ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Notifications are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -3217,6 +3223,56 @@ impl From<party_service::use_cases::party_locations::PartyLocationError> for Api
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn should_preserve_notification_failure_causes_without_changing_public_problems() {
+        use application::error::static_error;
+        use notification_service::ports::{
+            notification_deleter::NotificationDeleteError,
+            notification_list_reader::NotificationListReadError,
+            notification_seen_writer::NotificationSeenWriteError,
+        };
+
+        let seen = || NotificationSeenWriteError::UpdateFailed {
+            source: static_error("private notification storage failure"),
+        };
+        let delete = || NotificationDeleteError::DeleteFailed {
+            source: static_error("private notification storage failure"),
+        };
+        for error in [
+            ApiError::from(ListNotificationsError::ReadFailed(
+                NotificationListReadError::ReadFailed {
+                    source: static_error("private notification storage failure"),
+                },
+            )),
+            ApiError::from(ListNotificationsError::ReadFailed(
+                NotificationListReadError::InvalidReadModel {
+                    source: static_error("private notification storage failure"),
+                },
+            )),
+            ApiError::from(UpdateNotificationSeenError::UpdateFailed(seen())),
+            ApiError::from(UpdateNotificationsSeenError::UpdateFailed(seen())),
+            ApiError::from(UpdateAllNotificationsSeenError::UpdateFailed(seen())),
+            ApiError::from(DeleteNotificationError::DeleteFailed(delete())),
+            ApiError::from(DeleteNotificationsError::DeleteFailed(delete())),
+        ] {
+            let mut cause = error.source().expect("technical notification cause");
+            while let Some(source) = cause.source() {
+                cause = source;
+            }
+            assert_eq!("private notification storage failure", cause.to_string());
+            assert_eq!(StatusCode::SERVICE_UNAVAILABLE, error.status_code());
+            assert_eq!(
+                json!({
+                    "status": 503,
+                    "title": "Service Unavailable",
+                    "error": NOTIFICATION_TEMPORARILY_UNAVAILABLE.to_string(),
+                    "detail": "Notifications are temporarily unavailable."
+                }),
+                serde_json::to_value(error).unwrap()
+            );
+        }
+    }
 
     #[tokio::test]
     async fn should_map_woocommerce_forwarding_outcomes_to_bounded_errors()

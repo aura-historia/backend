@@ -200,6 +200,7 @@ async fn should_preserve_complete_payloads_preferences_pagination_scopes_and_own
     assert_selected_seen(&pool, &app, &write, own, foreign_id).await;
     assert_all_seen(&pool, &app, owner, &read, &write, foreign_id).await;
     assert_deletion(&pool, &app, owner, foreign, &write, own, &foreign_token).await;
+    assert_optional_payloads(&pool, &app, owner, &read, &tools).await;
 }
 
 async fn seed_payloads(pool: &sqlx::PgPool, owner: UserId) -> NotificationId {
@@ -313,6 +314,21 @@ async fn assert_complete_payloads(
     assert_eq!(5, output["size"]);
     assert!(output.get("searchAfter").is_none());
     assert!(output.get("total").is_none());
+    assert_eq!(
+        BTreeSet::from([
+            "WATCHLIST_PRICE_CHANGED",
+            "WATCHLIST_AVAILABILITY_CHANGED",
+            "SEARCH_FILTER_MATCH",
+            "PARTNERSHIP_APPLICATION_APPROVED",
+            "PARTNERSHIP_APPLICATION_REJECTED",
+        ]),
+        output["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["kind"].as_str().unwrap())
+            .collect()
+    );
     for item in output["items"].as_array().unwrap() {
         assert_payload(item, foreign_id);
     }
@@ -336,6 +352,65 @@ async fn assert_preferences(pool: &sqlx::PgPool, app: &Router, owner: UserId, re
             item["payload"]["image"]["url"]
         );
     }
+}
+
+async fn assert_optional_payloads(
+    pool: &sqlx::PgPool,
+    app: &Router,
+    owner: UserId,
+    read: &str,
+    tools: &[Value],
+) {
+    let mut absent = snapshot();
+    absent["title"] = Value::Null;
+    absent["image"] = Value::Null;
+    let price = seed(pool, owner, "WATCHLIST_PRICE_CHANGED", json!({"type":"WATCHLIST","snapshot":absent,"change":{"type":"PRICE_CHANGE","old_price":{"type":"ON_REQUEST"},"new_price":null}})).await;
+    let availability = seed(pool, owner, "WATCHLIST_AVAILABILITY_CHANGED", json!({"type":"WATCHLIST","snapshot":absent,"change":{"type":"AVAILABILITY_CHANGE","old_availability":"AVAILABLE","new_availability":null}})).await;
+    let mut partnership_payload = partnership();
+    partnership_payload["snapshot"]["image"] = json!("https://example.test/party.jpg");
+    let partnership = seed(
+        pool,
+        owner,
+        "PARTNERSHIP_APPLICATION_APPROVED",
+        partnership_payload,
+    )
+    .await;
+    let output = success(&call(app, read, "listNotifications", json!({})).await);
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "listNotifications")
+        .unwrap();
+    assert!(
+        jsonschema::validator_for(&tool["outputSchema"])
+            .unwrap()
+            .is_valid(&output)
+    );
+    let items = output["items"].as_array().unwrap();
+    assert_eq!(3, items.len());
+    for (id, change) in [
+        (
+            price,
+            json!({"type":"PRICE_CHANGE","oldPrice":{"type":"ON_REQUEST"},"newPrice":null}),
+        ),
+        (
+            availability,
+            json!({"type":"AVAILABILITY_CHANGE","oldAvailability":"AVAILABLE","newAvailability":null}),
+        ),
+    ] {
+        let item = items
+            .iter()
+            .find(|item| item["notificationId"] == id.to_string())
+            .unwrap();
+        let payload = &item["payload"];
+        assert_eq!(change, payload["change"]);
+        assert_eq!(Some(&Value::Null), payload.get("title"));
+        assert_eq!(Some(&Value::Null), payload.get("image"));
+    }
+    let item = items
+        .iter()
+        .find(|item| item["notificationId"] == partnership.to_string())
+        .unwrap();
+    assert_eq!("https://example.test/party.jpg", item["payload"]["image"]);
 }
 
 async fn assert_cursor_and_arguments(app: &Router, read: &str, foreign: UserId) {
@@ -374,14 +449,26 @@ async fn assert_selected_seen(
     own: NotificationId,
     foreign_id: NotificationId,
 ) {
-    for name in ["updateNotificationSeen", "deleteNotification"] {
-        let args = if name == "updateNotificationSeen" {
-            json!({"notificationId":foreign_id,"seen":true})
-        } else {
-            json!({"notificationId":foreign_id})
-        };
-        tool_error(&call(app, write, name, args).await, "NOT_FOUND");
+    for id in [foreign_id, NotificationId::new()] {
+        for name in ["updateNotificationSeen", "deleteNotification"] {
+            let args = if name == "updateNotificationSeen" {
+                json!({"notificationId":id,"seen":true})
+            } else {
+                json!({"notificationId":id})
+            };
+            tool_error(&call(app, write, name, args).await, "NOT_FOUND");
+        }
     }
+    acknowledged(
+        &call(
+            app,
+            write,
+            "updateNotificationsSeen",
+            json!({"notificationIds":[foreign_id,NotificationId::new()],"seen":true}),
+        )
+        .await,
+    );
+    assert!(!seen(pool, own).await && !seen(pool, foreign_id).await);
     acknowledged(
         &call(
             app,
@@ -535,8 +622,14 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
     let payload = &item["payload"];
     match item["kind"].as_str().unwrap() {
         "WATCHLIST_PRICE_CHANGED" => {
-            assert_eq!("PRICE_CHANGE", payload["change"]["type"]);
-            assert_eq!(0, payload["change"]["newPrice"]["amount"]);
+            assert_eq!(
+                json!({
+                    "type":"PRICE_CHANGE",
+                    "oldPrice":{"type":"MONETARY","currency":"EUR","amount":1000},
+                    "newPrice":{"type":"MONETARY","currency":"EUR","amount":0}
+                }),
+                payload["change"]
+            );
         }
         "WATCHLIST_AVAILABILITY_CHANGED" => {
             assert!(payload["change"]["oldAvailability"].is_null());
@@ -546,8 +639,23 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
             assert_eq!("Saved Violins", payload["userSearchFilterName"]);
             assert!(payload["userSearchFilterId"].is_string());
         }
-        "PARTNERSHIP_APPLICATION_APPROVED" => assert_eq!("APPROVED", payload["decision"]),
-        "PARTNERSHIP_APPLICATION_REJECTED" => assert_eq!("REJECTED", payload["decision"]),
+        "PARTNERSHIP_APPLICATION_APPROVED" | "PARTNERSHIP_APPLICATION_REJECTED" => {
+            let decision = if item["kind"] == "PARTNERSHIP_APPLICATION_APPROVED" {
+                "APPROVED"
+            } else {
+                "REJECTED"
+            };
+            assert_eq!(decision, payload["decision"]);
+            assert!(
+                payload["partnershipApplicationId"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("pa_")
+            );
+            assert_eq!("Test Party", payload["partyName"]);
+            assert_eq!("Test Source", payload["listingSourceName"]);
+            assert_eq!(Some(&Value::Null), payload.get("image"));
+        }
         kind => panic!("unexpected kind {kind}"),
     }
     if payload.get("productListingId").is_some() {
@@ -563,6 +671,12 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
         ] {
             assert!(payload[field].is_string(), "{field}: {payload}");
         }
+        assert_eq!("source-item", payload["sourceListingId"]);
+        assert_eq!("test-source", payload["listingSourceSlugId"]);
+        assert_eq!("violin-a1b2c3", payload["productListingTitleSlugId"]);
+        assert_eq!("Snapshot Source", payload["listingSourceName"]);
+        assert_eq!("https://example.test/item", payload["url"]);
+        assert_eq!("https://example.test/item?view=1", payload["viewUrl"]);
         assert_eq!(json!({"text":"Geige","language":"de"}), payload["title"]);
         assert_eq!(json!({"url":null}), payload["image"]);
     }

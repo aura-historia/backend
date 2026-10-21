@@ -15,6 +15,17 @@ use time::macros::datetime;
 
 #[test]
 fn should_preserve_defaults_language_aliases_clamped_limits_and_cursor_validation() {
+    let schema = serde_json::to_value(
+        SchemaSettings::default()
+            .for_deserialize()
+            .into_generator()
+            .into_root_schema_for::<ListNotificationsQuery>(),
+    )
+    .unwrap();
+    assert_eq!(
+        Some(u64::MAX),
+        schema["properties"]["size"]["maximum"].as_u64()
+    );
     let id = NotificationId::new();
     let cursor = json!(["2026-10-21T10:00:00Z", id]).to_string();
     for (size, expected) in [

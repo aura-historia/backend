@@ -102,11 +102,17 @@ fn should_describe_real_inputs_without_accepting_invented_ownership_or_delete_se
         &[
             json!({}),
             json!({"language":"de-DE","size":0,"searchAfter":"[]"}),
+            json!({"size":u64::MAX}),
+            json!({"size":null,"searchAfter":null}),
         ],
         &[
             json!({"userId":"foreign"}),
             json!({"language":"xx"}),
+            json!({"language":null}),
             json!({"size":-1}),
+            json!({"size":18446744073709551616_f64}),
+            json!({"size":1.5}),
+            json!({"searchAfter":[]}),
         ],
     );
     assert_argument_schema::<SelectedSeenArguments>(
@@ -116,6 +122,8 @@ fn should_describe_real_inputs_without_accepting_invented_ownership_or_delete_se
         ],
         &[
             json!({"notificationIds":[id]}),
+            json!({"seen":true}),
+            json!({"notificationIds":null,"seen":true}),
             json!({"notificationIds":[id],"seen":null}),
             json!({"notificationIds":[id],"seen":true,"userId":"foreign"}),
         ],
@@ -124,18 +132,27 @@ fn should_describe_real_inputs_without_accepting_invented_ownership_or_delete_se
         &[json!({"notificationId":id,"seen":true})],
         &[
             json!({"notificationId":"bad","seen":true}),
+            json!({"notificationId":null,"seen":true}),
+            json!({"notificationId":id}),
+            json!({"seen":true}),
             json!({"notificationId":id,"seen":true,"notificationIds":[id]}),
         ],
     );
     assert_argument_schema::<AllSeenArguments>(
         &[json!({"seen":false})],
-        &[json!({"seen":true,"notificationIds":[id]}), json!({})],
+        &[
+            json!({"seen":true,"notificationIds":[id]}),
+            json!({"seen":null}),
+            json!({}),
+        ],
     );
     assert_argument_schema::<NotificationArguments>(
         &[json!({"notificationId":id})],
         &[
             json!({"notificationId":"bad"}),
+            json!({"notificationId":null}),
             json!({"notificationIds":[id]}),
+            json!({}),
         ],
     );
     assert_argument_schema::<EmptyArguments>(

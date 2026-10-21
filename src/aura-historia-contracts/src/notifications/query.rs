@@ -18,6 +18,7 @@ pub struct ListNotificationsQuery {
     #[schemars(schema_with = "crate::wire::language::schema")]
     pub language: Language,
     /// Defaults to 21 and is clamped to 1 through 100, as on REST.
+    #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
     /// JSON string of the returned [created, notificationId] array.
     pub search_after: Option<String>,
