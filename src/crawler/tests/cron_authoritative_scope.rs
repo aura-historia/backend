@@ -16,26 +16,37 @@ use crawler::{CrawlerDomainId, scraper};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 use test_api::*;
+use tokio::sync::oneshot;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-struct AbsentAuthoritativeSource;
+struct AbsentAuthoritativeSource {
+    calls: Arc<AtomicUsize>,
+}
 
 #[async_trait]
 impl ListingSourceRegistrationSource for AbsentAuthoritativeSource {
     async fn fetch_registered_listing_sources(
         &self,
     ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(vec![])
     }
 }
 
 struct NoWorkSpider {
     started: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Drop for NoWorkSpider {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::SeqCst);
+    }
 }
 
 #[async_trait]
@@ -99,6 +110,8 @@ struct SchedulerProbe {
     spider_started: Arc<AtomicBool>,
     scraper_started: Arc<AtomicBool>,
     raw_capture_started: Arc<AtomicBool>,
+    sync_calls: Arc<AtomicUsize>,
+    stopped: Arc<AtomicBool>,
 }
 
 fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob {
@@ -106,7 +119,9 @@ fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob
     let scraper_candidates =
         scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone());
     let registration = ListingSourceRegistrationService::new(
-        Box::new(AbsentAuthoritativeSource),
+        Box::new(AbsentAuthoritativeSource {
+            calls: Arc::clone(&probe.sync_calls),
+        }),
         Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
     );
     CrawlerCronJob::new(
@@ -121,6 +136,7 @@ fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob
         Box::new(spider_candidates),
         Box::new(NoWorkSpider {
             started: Arc::clone(&probe.spider_started),
+            stopped: Arc::clone(&probe.stopped),
         }),
         Box::new(scraper_candidates),
         Box::new(NoWorkScraper {
@@ -131,6 +147,53 @@ fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob
             started: Arc::clone(&probe.raw_capture_started),
         }),
     )
+}
+
+fn spawn_scheduler(probe: SchedulerProbe) -> (oneshot::Sender<()>, oneshot::Receiver<()>) {
+    let context = TestContext::current().expect("crawler scheduler context");
+    let (join_sender, join_receiver) = oneshot::channel::<std::thread::JoinHandle<()>>();
+    let stopped = Arc::clone(&probe.stopped);
+    context
+        .on_shutdown(async move {
+            let thread = join_receiver.await?;
+            tokio::task::spawn_blocking(move || thread.join())
+                .await?
+                .map_err(|_| std::io::Error::other("crawler scheduler thread panicked"))?;
+            if !stopped.load(Ordering::SeqCst) {
+                return Err(
+                    std::io::Error::other("crawler scheduler workers outlived shutdown").into(),
+                );
+            }
+            Ok(())
+        })
+        .expect("register scheduler thread before spawning");
+    let (stop, stopping) = oneshot::channel();
+    let (finished, completion) = oneshot::channel();
+    let thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("crawler scheduler runtime");
+        runtime.block_on(context.scope(async move {
+            let pool = get_postgres_client().await;
+            let job = build_scheduler(pool.clone(), &probe);
+            tokio::select! {
+                _ = job.run_loop() => {},
+                _ = stopping => {},
+            }
+            pool.close().await;
+        }));
+        // run_loop drops its three internal JoinHandles when cancelled. Its dedicated
+        // runtime must end those workers before context cleanup removes their database.
+        drop(runtime);
+        let _ = finished.send(());
+    });
+    if let Err(thread) = join_sender.send(thread) {
+        drop(stop);
+        let _ = thread.join();
+        panic!("crawler scheduler shutdown ownership was lost");
+    }
+    (stop, completion)
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -186,8 +249,7 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     );
 
     let probe = SchedulerProbe::default();
-    let job = build_scheduler(pool.clone(), &probe);
-    let scheduler = test_api::spawn_owned(job.run_loop());
+    let (stop, completion) = spawn_scheduler(probe.clone());
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     let enabled = loop {
@@ -208,9 +270,10 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
-    scheduler.abort();
-    let _ = scheduler.await;
+    drop(stop);
+    completion.await.expect("crawler scheduler runtime stopped");
 
+    assert!(probe.stopped.load(Ordering::SeqCst));
     assert!(!enabled);
     assert!(!probe.spider_started.load(Ordering::SeqCst));
     assert!(!probe.scraper_started.load(Ordering::SeqCst));
@@ -229,4 +292,35 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
             .unwrap_or_else(|error| panic!("select disabled scraper candidate: {error}"))
             .is_empty()
     );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
+    let probe = SchedulerProbe::default();
+    let observing = probe.clone();
+    let (ready, started) = oneshot::channel();
+    let caller = spawn_owned(async move {
+        let (stop, completion) = spawn_scheduler(observing.clone());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // Initial sync plus the spider/scraper admission calls prove the inner loops run.
+            while observing.sync_calls.load(Ordering::SeqCst) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("scheduler inner loops started");
+        ready.send(()).expect("scheduler caller still waiting");
+        completion.await.expect("crawler scheduler runtime stopped");
+        drop(stop);
+    });
+    started.await.expect("scheduler caller started");
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !probe.stopped.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled caller stopped scheduler workers");
 }
