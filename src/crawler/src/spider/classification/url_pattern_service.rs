@@ -72,12 +72,15 @@ pub trait UrlPatternService: Send + Sync {
     /// result when one is found, and returns it.
     ///
     /// This is the fallback used when no stored pattern exists or when
-    /// the stored pattern must be refreshed after a failed crawl.
+    /// the stored pattern must be refreshed after a failed crawl. `crawl_pattern` is the pattern
+    /// the crawl classifies with; a stored pattern that differs from it was stored while the crawl
+    /// ran and is returned as-is, without inference or review.
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
+        crawl_pattern: Option<&Regex>,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
@@ -207,7 +210,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     }
 
     #[tracing::instrument(
-        skip(self, urls),
+        skip(self, crawl_pattern, urls),
         fields(listing_source_id = %listing_source_id, domain_id = %domain_id, crawl_root_url = %crawl_root_url, url_count = urls.len())
     )]
     async fn classify_and_save(
@@ -215,15 +218,24 @@ impl UrlPatternService for UrlPatternServiceImpl {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
+        crawl_pattern: Option<&Regex>,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
-        if self
+        if let Some(record) = self
             .repository
             .find_pattern(listing_source_id, domain_id)
             .await?
-            .is_some_and(|record| record.url_pattern_state == UrlPatternState::NoPattern)
         {
-            return Ok(None);
+            match (record.url_pattern_state, record.url_pattern) {
+                (UrlPatternState::NoPattern, _) => return Ok(None),
+                (UrlPatternState::Matched, Some(stored))
+                    if crawl_pattern.is_none_or(|pattern| pattern.as_str() != stored) =>
+                {
+                    debug!(crawl_root_url, domain_id = %domain_id, "Using product URL pattern stored during the crawl");
+                    return Ok(Some(Regex::new(&stored)?));
+                }
+                _ => {}
+            }
         }
 
         if let Some(review_repository) = self.authoring.review_repository()
@@ -375,6 +387,7 @@ mod tests {
                 &listing_source_id,
                 &domain_id,
                 "https://example.com",
+                None,
                 &["https://example.com/item/1".to_owned()],
             )
             .await
@@ -440,6 +453,7 @@ mod tests {
                 &listing_source_id,
                 &domain_id,
                 "https://manual.example.com",
+                None,
                 &urls,
             )
             .await
@@ -485,6 +499,7 @@ mod tests {
                 &listing_source_id,
                 &domain_id,
                 "https://manual.example.com",
+                None,
                 &urls,
             )
             .await;
@@ -513,6 +528,7 @@ mod tests {
                 &listing_source_id,
                 &domain_id,
                 "https://manual.example.com",
+                None,
                 &urls,
             )
             .await;
@@ -521,6 +537,7 @@ mod tests {
                 &listing_source_id,
                 &domain_id,
                 "https://manual.example.com",
+                None,
                 &urls,
             )
             .await;
@@ -549,5 +566,126 @@ mod tests {
         .await
         .unwrap_or_else(|error| panic!("read LLM call count: {error}"));
         assert_eq!(llm_calls, 0);
+    }
+
+    /// Stores `pattern` as an operator approval would while a crawl is running.
+    async fn store_pattern(
+        pool: &sqlx::PgPool,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        pattern: &str,
+    ) {
+        ListingSourceUrlPatternRepositoryImpl::new(pool.clone())
+            .save_pattern(listing_source_id, domain_id, Some(pattern))
+            .await
+            .unwrap_or_else(|error| panic!("store approved pattern: {error}"));
+    }
+
+    /// Returns the URL-pattern review count and LLM call count of the source.
+    async fn reviews_and_llm_calls(
+        pool: &sqlx::PgPool,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> (i64, i64) {
+        sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM crawler_reviews WHERE domain_id = $2 AND artifact_type = 'URL_PATTERN'), \
+                    llm_calls_count \
+             FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(domain_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("read reviews and LLM calls: {error}"))
+    }
+
+    #[tokio::test]
+    async fn should_use_pattern_stored_during_crawl_without_review_when_authoring_is_manual() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
+        let service = UrlPatternServiceImpl::new(
+            Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
+            UrlPatternAuthoring::Manual {
+                review_repository: CrawlerReviewRepository::new(pool.clone()),
+            },
+        );
+
+        let pattern = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                None,
+                &["https://manual.example.com/item/1".to_owned()],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("stored pattern must be used: {error}"));
+
+        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            (0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_use_pattern_stored_during_crawl_without_inference_when_authoring_is_auto() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let mut classification = MockUrlClassificationService::new();
+        classification.expect_find_product_url_pattern().never();
+        let service = auto_service(&pool, &review_repository, classification);
+
+        let pattern = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                None,
+                &["https://manual.example.com/item/1".to_owned()],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("stored pattern must be used: {error}"));
+
+        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            (0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reclassify_stored_pattern_the_crawl_already_used_when_authoring_is_auto() {
+        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        store_pattern(&pool, &listing_source_id, &domain_id, "/product/").await;
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let mut classification = MockUrlClassificationService::new();
+        classification
+            .expect_find_product_url_pattern()
+            .once()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new("/item/").unwrap())) }));
+        let service = auto_service(&pool, &review_repository, classification);
+        let failed_pattern = Regex::new("/product/").unwrap();
+
+        let pattern = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://manual.example.com",
+                Some(&failed_pattern),
+                &["https://manual.example.com/item/1".to_owned()],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("failed pattern must be reclassified: {error}"));
+
+        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            (1, 1)
+        );
     }
 }
