@@ -51,12 +51,15 @@ impl From<AddressBookError> for ApiError {
             | AddressBookError::Resolution(ResolutionError::Conflict) => Self::conflict(CONFLICT),
             AddressBookError::InvalidInput
             | AddressBookError::Resolution(ResolutionError::InvalidInput) => bad(),
-            AddressBookError::Storage(_)
+            error @ (AddressBookError::Storage(_)
             | AddressBookError::Transaction(_)
             | AddressBookError::Resolution(
                 ResolutionError::Storage(_) | ResolutionError::Transaction(_),
-            ) => Self::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE),
-            _ => Self::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR),
+            )) => Self::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE)
+                .with_cause(Box::new(error)),
+            error => {
+                Self::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR).with_cause(Box::new(error))
+            }
         }
     }
 }

@@ -1760,15 +1760,18 @@ impl From<GetOwnUserError> for ApiError {
             GetOwnUserError::NotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            GetOwnUserError::TemporarilyUnavailable { .. }
+            error @ (GetOwnUserError::TemporarilyUnavailable { .. }
             | GetOwnUserError::BeginTransactionFailed(_)
-            | GetOwnUserError::CommitTransactionFailed(_) => {
+            | GetOwnUserError::CommitTransactionFailed(_)) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
-            GetOwnUserError::InvalidReadModel { .. } | GetOwnUserError::Internal { .. } => {
+            error @ (GetOwnUserError::InvalidReadModel { .. }
+            | GetOwnUserError::Internal { .. }) => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User details failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -1998,19 +2001,23 @@ impl From<UpdateUserProfileError> for ApiError {
             }
             UpdateUserProfileError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
-            UpdateUserProfileError::InvalidUserState { .. } => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
+            error @ UpdateUserProfileError::InvalidUserState { .. } => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("User update is invalid.")
+                    .with_cause(Box::new(error))
             }
-            UpdateUserProfileError::TemporarilyUnavailable { .. }
+            error @ (UpdateUserProfileError::TemporarilyUnavailable { .. }
             | UpdateUserProfileError::BeginTransactionFailed(_)
-            | UpdateUserProfileError::CommitTransactionFailed(_) => {
+            | UpdateUserProfileError::CommitTransactionFailed(_)) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
+                    .with_cause(Box::new(error))
             }
-            UpdateUserProfileError::InvalidPersistedState { .. }
-            | UpdateUserProfileError::Internal { .. } => {
+            error @ (UpdateUserProfileError::InvalidPersistedState { .. }
+            | UpdateUserProfileError::Internal { .. }) => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User update failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -3232,6 +3239,96 @@ impl From<party_service::use_cases::party_locations::PartyLocationError> for Api
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn should_preserve_account_failure_causes_without_changing_public_problems() {
+        use application::{error::static_error, transaction::TransactionError};
+        use geo_service::resolution::ResolutionError;
+        use user_service::address_book::AddressBookError;
+
+        let cause = || static_error("private account storage failure");
+        let transaction = || TransactionError::CommitFailed(cause());
+        for error in [
+            GetOwnUserError::TemporarilyUnavailable { source: cause() },
+            GetOwnUserError::BeginTransactionFailed(cause()),
+            GetOwnUserError::CommitTransactionFailed(cause()),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User details are temporarily unavailable."),
+            );
+        }
+        for error in [
+            GetOwnUserError::InvalidReadModel { source: cause() },
+            GetOwnUserError::Internal { source: cause() },
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User details failed internally."),
+            );
+        }
+        for error in [
+            UpdateUserProfileError::TemporarilyUnavailable { source: cause() },
+            UpdateUserProfileError::BeginTransactionFailed(cause()),
+            UpdateUserProfileError::CommitTransactionFailed(cause()),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be updated right now."),
+            );
+        }
+        for error in [
+            UpdateUserProfileError::InvalidPersistedState { source: cause() },
+            UpdateUserProfileError::Internal { source: cause() },
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User update failed internally."),
+            );
+        }
+        assert_account_problem(
+            UpdateUserProfileError::InvalidUserState { source: cause() }.into(),
+            ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid."),
+        );
+        for error in [
+            AddressBookError::Storage(cause()),
+            AddressBookError::Transaction(transaction()),
+            AddressBookError::Resolution(ResolutionError::Storage(cause())),
+            AddressBookError::Resolution(ResolutionError::Transaction(transaction())),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE),
+            );
+        }
+        for error in [
+            AddressBookError::InvalidState(cause()),
+            AddressBookError::Resolution(ResolutionError::InvalidState(cause())),
+        ] {
+            assert_account_problem(
+                error.into(),
+                ApiError::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR),
+            );
+        }
+    }
+
+    fn assert_account_problem(actual: ApiError, expected: ApiError) {
+        let mut cause = actual.source().expect("technical account cause");
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert_eq!("private account storage failure", cause.to_string());
+        assert_eq!(expected.status_code(), actual.status_code());
+        assert_eq!(expected.to_string(), actual.to_string());
+        assert_eq!(
+            serde_json::to_value(expected).unwrap(),
+            serde_json::to_value(actual).unwrap()
+        );
+    }
 
     #[test]
     fn should_preserve_notification_failure_causes_without_changing_public_problems() {
