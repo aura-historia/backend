@@ -156,7 +156,31 @@ impl Drop for McpServer {
 pub async fn successful_result(response: reqwest::Response) -> Value {
     assert_eq!(StatusCode::OK, response.status());
     let body: Value = response.json().await.unwrap();
+    successful_body(body)
+}
+
+pub fn successful_body(body: Value) -> Value {
+    assert_eq!("2.0", body["jsonrpc"]);
+    assert_eq!(1, body["id"]);
     assert!(body.get("error").is_none(), "{body}");
-    assert_ne!(json!(true), body["result"]["isError"], "{body}");
-    body["result"]["structuredContent"].clone()
+    let result = &body["result"];
+    assert!(result.is_object());
+    assert!(result.get("isError").is_none_or(|value| value == false));
+    let structured = result["structuredContent"].clone();
+    assert!(structured.is_object());
+    let content = result["content"].as_array().unwrap();
+    assert_eq!(1, content.len());
+    assert_eq!("text", content[0]["type"]);
+    let text: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(structured, text);
+    structured
+}
+
+pub fn assert_shared_output<T: schemars::JsonSchema>(value: &Value) {
+    let schema = schemars::generate::SchemaSettings::default()
+        .for_serialize()
+        .into_generator()
+        .into_root_schema_for::<T>();
+    let schema = serde_json::to_value(schema).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(value));
 }

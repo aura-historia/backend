@@ -1,4 +1,6 @@
 use super::*;
+use aura_historia_contracts::{public_overview::PublicOverviewData, users::account::OwnUserData};
+use mcp::assert_shared_output;
 use reqwest::Method;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -31,6 +33,7 @@ async fn should_link_reauthorize_and_disconnect_at_the_same_public_url() {
         api_support::api_request_count(),
         "MCP must call its in-process services without REST or token introspection requests"
     );
+    assert_shared_output::<OwnUserData>(&account);
     assert_eq!(json!(user), account["userId"]);
     let rest = client
         .rest(Method::GET, "/v1/me/account", read_token, None)
@@ -76,6 +79,7 @@ async fn should_link_reauthorize_and_disconnect_at_the_same_public_url() {
         .await,
     )
     .await;
+    assert_shared_output::<OwnUserData>(&updated);
     assert_eq!("Ada", updated["firstName"]);
     assert_eq!(api_requests, api_support::api_request_count());
     assert_eq!("de", updated["language"]);
@@ -173,6 +177,7 @@ async fn assert_public_overview(mcp: &McpServer) {
     .await
     .unwrap();
     let public = successful_result(mcp.call("getPublicOverview", json!({}), None).await).await;
+    assert_shared_output::<PublicOverviewData>(&public);
     assert!(public["liveObjects"].is_number());
 }
 
@@ -238,6 +243,7 @@ async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter(
         mcp.lambda_call("getUserAccount", json!({}), Some(read_token))
             .await,
     );
+    assert_shared_output::<OwnUserData>(&account);
     assert_eq!(json!(user), account["userId"]);
     assert_eq!(
         account,
@@ -271,6 +277,7 @@ async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter(
         )
         .await,
     );
+    assert_shared_output::<OwnUserData>(&updated);
     assert_eq!("Lambda owner", updated["firstName"]);
     assert_eq!(
         updated,
@@ -307,7 +314,5 @@ async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter(
 fn lambda_result(response: Value) -> Value {
     assert_eq!(200, response["statusCode"]);
     let body: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
-    assert!(body.get("error").is_none(), "{body}");
-    assert_ne!(json!(true), body["result"]["isError"], "{body}");
-    body["result"]["structuredContent"].clone()
+    mcp::successful_body(body)
 }

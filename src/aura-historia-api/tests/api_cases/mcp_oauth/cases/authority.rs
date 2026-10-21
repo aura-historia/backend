@@ -1,4 +1,6 @@
 use super::*;
+use aura_historia_contracts::users::addresses::{AddressData, PageData};
+use mcp::assert_shared_output;
 use reqwest::Method;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -91,6 +93,7 @@ async fn assert_address_ownership(
         .await,
     )
     .await;
+    assert_shared_output::<AddressData>(&created);
     let id = created["addressId"].as_str().unwrap();
     let owned = client
         .rest(
@@ -126,6 +129,7 @@ async fn assert_address_ownership(
             .await,
     )
     .await;
+    assert_shared_output::<PageData>(&bob_addresses);
     assert_eq!(json!([]), bob_addresses["items"]);
 }
 

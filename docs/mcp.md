@@ -368,7 +368,10 @@ both resource-metadata paths, AS discovery, supported current/legacy revisions, 
 manifest union, a public operation, HTTP auth failures, Origin/CORS/routing behavior and
 no-store responses. It prints no bodies or bearer values. The evidence records the deployed
 commit supplied by the operator, runner commit, SDK/protocol versions, statuses and selected
-safe headers. A failed or omitted check is not a pass.
+public header values; challenge values and unexpected header values are omitted. The command
+checks JSON-RPC framing, manifest policy, matching tool representations and their advertised
+required members. The local Rust fixture validates selected complete outputs against the shared
+DTO schemas. A failed or omitted check is not a pass.
 
 For the delegated read check, complete generic consent for a dedicated stage user with
 `users:read`, place the returned token in an owner-readable file outside the checkout,

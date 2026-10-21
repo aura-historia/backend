@@ -5,6 +5,7 @@ import pathlib
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("mcp_smoke", pathlib.Path(__file__).parents[1] / "mcp-smoke.py")
 smoke = importlib.util.module_from_spec(SPEC)
@@ -92,10 +93,97 @@ class SmokeTests(unittest.TestCase):
             runner.request("over time budget", "/", 200)
 
     def test_reads_real_disjoint_manifests(self):
-        names = smoke.manifest_names()
+        names = smoke.manifest_operations()
         self.assertIn("getPublicOverview", names)
         self.assertIn("getUserAccount", names)
         self.assertNotIn("protectedFixture", names)
+
+    def test_rejects_incomplete_or_unsuccessful_json_rpc_even_with_http_200(self):
+        runner = smoke.Smoke(self.origin)
+        for body in ({}, [], {"jsonrpc": "2.0", "id": 1},
+                     {"jsonrpc": "2.0", "id": True, "result": {}},
+                     {"jsonrpc": "2.0", "id": 2, "result": {}},
+                     {"jsonrpc": "2.0", "id": 1, "result": [], "error": {}},
+                     {"jsonrpc": "2.0", "id": 1, "result": {}, "error": {}}):
+            with self.subTest(body=body), patch.object(runner, "request", return_value=({}, json.dumps(body).encode())):
+                with self.assertRaisesRegex(smoke.SmokeFailure, "JSON-RPC"):
+                    runner.rpc("incomplete", "tools/list", {})
+
+    def test_accepts_framed_json_rpc_result_and_rejects_discovery_without_revisions(self):
+        runner = smoke.Smoke(self.origin)
+        body = {"jsonrpc": "2.0", "id": 1, "result": {"supportedVersions": [smoke.CURRENT, *smoke.LEGACY]}}
+        with patch.object(runner, "request", return_value=({}, json.dumps(body).encode())):
+            _, result = runner.rpc("discovery", "server/discover", {})
+        self.assertEqual(body["result"], result)
+        with patch.object(runner, "request"), patch.object(runner, "rpc", return_value=({}, {})):
+            with self.assertRaisesRegex(smoke.SmokeFailure, "supported revisions"):
+                runner.verify_protocols()
+
+    def test_requires_matching_complete_tool_representations_using_advertised_members(self):
+        # A protocol-only schema probe; business fields remain owned by shared Rust DTOs.
+        schema = {"required": ["syntheticMember"]}
+        complete = {"structuredContent": {"syntheticMember": 1}, "content": [
+            {"type": "text", "text": '{"syntheticMember":1}'}]}
+        smoke.verify_tool_result("selected read", complete, schema)
+        for result in ({}, {"isError": True},
+                       {"structuredContent": {}, "content": [{"type": "text", "text": "{}"}]},
+                       {**complete, "content": [{"type": "text", "text": "{}"}]}):
+            with self.subTest(result=result), self.assertRaises(smoke.SmokeFailure):
+                smoke.verify_tool_result("selected read", result, schema)
+
+    def test_never_records_reflected_credentials_in_response_headers(self):
+        token = "private-fixture"
+        headers = {key: token for key in (
+            "Cache-Control", "Allow", "Access-Control-Allow-Origin", "MCP-Protocol-Version",
+            "Retry-After", "Access-Control-Allow-Headers", "Access-Control-Expose-Headers")}
+        headers["Access-Control-Allow-Methods"] = token
+        headers["WWW-Authenticate"] = f'Bearer error_description="{token}"'
+        rendered = json.dumps(smoke.evidence_headers(headers))
+        self.assertNotIn(token, rendered)
+        self.assertIn("WWW-Authenticate", rendered)
+
+    def test_checks_legacy_catalogue_duplicates_and_manifest_policies(self):
+        # No second catalogue: construct metadata from the committed manifests.
+        tools = [{"name": name, "inputSchema": {"type": "object"},
+                  "outputSchema": {"type": "object"}, "annotations": policy["annotations"],
+                  "_meta": {"aura.historia/operationId": name,
+                            "aura.historia/access": policy["access"],
+                            "aura.historia/requiredScopes": policy["requiredScopes"]}}
+                 for name, policy in smoke.manifest_operations().items()]
+        smoke.verify_catalogue({"tools": tools})
+        with self.assertRaisesRegex(smoke.SmokeFailure, "catalogue differs"):
+            smoke.verify_catalogue({"tools": tools + [tools[0]]})
+        tools[0]["_meta"]["aura.historia/requiredScopes"] = ["invented:scope"]
+        with self.assertRaisesRegex(smoke.SmokeFailure, "policy differs"):
+            smoke.verify_catalogue({"tools": tools})
+
+    def test_checks_exact_auth_challenges_and_browser_preflight_admission(self):
+        runner = smoke.Smoke(self.origin)
+        metadata = f'resource_metadata="{self.origin}/.well-known/oauth-protected-resource/v1"'
+        protected = {"WWW-Authenticate": f'Bearer {metadata}, scope="users:read"'}
+        invalid = {"WWW-Authenticate": f'Bearer {metadata}, error="invalid_token"'}
+        cors = {"Access-Control-Allow-Origin": "https://stage.aura-historia.com",
+                "Access-Control-Expose-Headers": "www-authenticate,x-request-id,x-correlation-id,content-type",
+                "Access-Control-Allow-Headers": "authorization,content-type,mcp-protocol-version,mcp-method,mcp-name",
+                "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS"}
+
+        def rpc(label, *args, **kwargs):
+            headers = {"protected missing bearer": protected, "invalid bearer on public operation": invalid,
+                       "allowed Origin": cors}.get(label, {})
+            return headers, None
+
+        def request(label, *args, **kwargs):
+            return (cors if label == "allowed preflight" else {"Allow": "POST"}), None
+
+        with patch.object(runner, "rpc", side_effect=rpc), patch.object(runner, "request", side_effect=request):
+            runner.verify_http_boundary()
+            protected["WWW-Authenticate"] = 'Bearer resource_metadata="https://foreign.example"'
+            with self.assertRaisesRegex(smoke.SmokeFailure, "resource/scope challenge"):
+                runner.verify_http_boundary()
+            protected["WWW-Authenticate"] = f'Bearer {metadata}, scope="users:read"'
+            cors["Access-Control-Allow-Headers"] = "authorization,mcp-protocol-version,mcp-method,mcp-name"
+            with self.assertRaisesRegex(smoke.SmokeFailure, "preflight drops"):
+                runner.verify_http_boundary()
 
 
 if __name__ == "__main__":

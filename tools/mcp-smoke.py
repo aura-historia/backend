@@ -40,6 +40,7 @@ class Smoke:
         self.started = time.monotonic()
         self.last_request = 0
         self.evidence = []
+        self.tools = {}
 
     def request(self, label, path, expected, *, method="GET", headers=None, body=None,
                 origin=None, no_store=True):
@@ -64,13 +65,8 @@ class Smoke:
             payload = response.read(MAX_BYTES + 1)
             if len(payload) > MAX_BYTES:
                 raise SmokeFailure(f"{label}: response exceeds the MCP bound")
-            safe_headers = {key: response.headers[key] for key in (
-                "Cache-Control", "Allow", "Access-Control-Allow-Origin",
-                "Access-Control-Allow-Headers", "Access-Control-Expose-Headers",
-                "WWW-Authenticate", "MCP-Protocol-Version", "Retry-After"
-            ) if key in response.headers}
             self.evidence.append({"check": label, "status": response.code,
-                                  "headers": safe_headers})
+                                  "headers": evidence_headers(response.headers)})
             statuses = expected if isinstance(expected, tuple) else (expected,)
             require(response.code in statuses, f"{label}: unexpected HTTP status")
             if no_store:
@@ -108,9 +104,14 @@ class Smoke:
         if expected != 200:
             return result_headers, None
         try:
-            return result_headers, json.loads(payload)
+            message = json.loads(payload)
         except (ValueError, UnicodeError):
             raise SmokeFailure(f"{label}: expected bounded JSON") from None
+        require(isinstance(message, dict) and message.get("jsonrpc") == "2.0"
+                and type(message.get("id")) is int and message["id"] == 1
+                and "error" not in message and isinstance(message.get("result"), dict),
+                f"{label}: invalid or unsuccessful JSON-RPC response")
+        return result_headers, message["result"]
 
     def verify_discovery(self):
         for path in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1"):
@@ -135,43 +136,43 @@ class Smoke:
             for method in ("GET", "HEAD"):
                 self.request(f"probe {method} {path}", path, 204, method=method)
         _, discovered = self.rpc("current discovery", "server/discover", {})
-        require("error" not in discovered, "current discovery failed")
+        require(discovered.get("supportedVersions") == [CURRENT, *LEGACY],
+                "current discovery drops supported revisions")
         _, listed = self.rpc("anonymous catalogue", "tools/list", {})
-        tools = listed.get("result", {}).get("tools", [])
-        expected = manifest_names()
-        require({tool["name"] for tool in tools} == expected and len(tools) == len(expected),
-                "stage catalogue differs from this release's disjoint manifests")
-        require(not listed["result"].get("nextCursor"), "unexpected catalogue continuation")
+        self.tools = verify_catalogue(listed)
         _, result = self.rpc("anonymous public operation", "tools/call",
                              {"name": "getPublicOverview", "arguments": {}})
-        require("error" not in result and not result["result"].get("isError"),
-                "public overview failed")
+        verify_tool_result("public overview", result, self.tools["getPublicOverview"]["outputSchema"])
         for version in LEGACY:
             _, initialized = self.rpc(f"initialize {version}", "initialize", {
                 "protocolVersion": version, "capabilities": {},
                 "clientInfo": {"name": "generic-stage-smoke", "version": "1"}
             }, version=version)
-            require(initialized.get("result", {}).get("protocolVersion") == version,
+            require(initialized.get("protocolVersion") == version,
                     "unexpected negotiated revision")
             self.rpc(f"initialized {version}", "notifications/initialized", {}, 202,
                      version=version, notification=True)
             _, legacy = self.rpc(f"catalogue {version}", "tools/list", {}, version=version)
-            require({tool["name"] for tool in legacy.get("result", {}).get("tools", [])} == expected,
-                    "legacy catalogue differs")
+            require(verify_catalogue(legacy) == self.tools, "legacy catalogue differs")
 
     def verify_http_boundary(self):
         challenge, _ = self.rpc("protected missing bearer", "tools/call",
                                 {"name": "getUserAccount", "arguments": {}}, 401)
-        require("resource_metadata=" in challenge.get("WWW-Authenticate", ""), "missing resource challenge")
-        self.rpc("invalid bearer on public operation", "tools/call",
-                 {"name": "getPublicOverview", "arguments": {}}, 401,
-                 token="deliberately-invalid-smoke-credential")
+        metadata = f'resource_metadata="{self.origin}/.well-known/oauth-protected-resource/v1"'
+        require(challenge.get("WWW-Authenticate", "").startswith("Bearer ")
+                and metadata in challenge["WWW-Authenticate"]
+                and 'scope="users:read"' in challenge["WWW-Authenticate"], "wrong resource/scope challenge")
+        invalid, _ = self.rpc("invalid bearer on public operation", "tools/call",
+                              {"name": "getPublicOverview", "arguments": {}}, 401,
+                              token="deliberately-invalid-smoke-credential")
+        require(metadata in invalid.get("WWW-Authenticate", "")
+                and 'error="invalid_token"' in invalid["WWW-Authenticate"], "wrong invalid-token challenge")
         allowed, _ = self.rpc("allowed Origin", "tools/list", {},
                               headers={"Origin": "https://stage.aura-historia.com"})
         require(allowed.get("Access-Control-Allow-Origin") == "https://stage.aura-historia.com",
                 "allowed POST drops allow-origin")
         exposed = {value.strip().lower() for value in allowed.get("Access-Control-Expose-Headers", "").split(",")}
-        require({"www-authenticate", "x-request-id", "x-correlation-id"} <= exposed,
+        require({"www-authenticate", "x-request-id", "x-correlation-id", "content-type"} <= exposed,
                 "allowed POST drops exposed challenge/trace headers")
         for origin in ("https://unapproved.example", "null"):
             self.rpc(f"denied Origin {origin}", "tools/list", {}, 403, headers={"Origin": origin})
@@ -182,8 +183,10 @@ class Smoke:
         require(allowed.get("Access-Control-Allow-Origin") == "https://stage.aura-historia.com",
                 "wrong allow-origin")
         allowed_headers = {value.strip().lower() for value in allowed.get("Access-Control-Allow-Headers", "").split(",")}
-        require({"authorization", "mcp-protocol-version", "mcp-method", "mcp-name"} <= allowed_headers,
+        require({"authorization", "content-type", "mcp-protocol-version", "mcp-method", "mcp-name"} <= allowed_headers,
                 "preflight drops MCP/auth headers")
+        allowed_methods = {value.strip() for value in allowed.get("Access-Control-Allow-Methods", "").split(",")}
+        require("POST" in allowed_methods, "preflight drops POST method")
         denied, _ = self.request("denied preflight", "/v1", (204, 403), method="OPTIONS", headers={
             "Origin": "https://unapproved.example", "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "authorization,mcp-protocol-version"
@@ -202,8 +205,8 @@ class Smoke:
         if token:
             _, account = self.rpc("delegated account read", "tools/call",
                                   {"name": "getUserAccount", "arguments": {}}, token=token)
-            require("error" not in account and not account["result"].get("isError"),
-                    "delegated account read failed")
+            verify_tool_result("delegated account read", account,
+                               self.tools["getUserAccount"]["outputSchema"])
         return {"protocols": [CURRENT, *LEGACY], "sdk": "rmcp 3.6.0",
                 "checks": self.evidence, "authenticated_read_executed": bool(token)}
 
@@ -213,15 +216,85 @@ def require(condition, message):
         raise SmokeFailure(message)
 
 
-def manifest_names():
+def evidence_headers(headers):
+    """Persist only known public values; a broken front door may reflect credentials."""
+    allowed = {
+        "Cache-Control": {"no-store"}, "Allow": {"POST"},
+        "Access-Control-Allow-Origin": {"https://stage.aura-historia.com"},
+        "MCP-Protocol-Version": {CURRENT, *LEGACY}, "Retry-After": {"1"},
+    }
+    safe = {}
+    for key, values in allowed.items():
+        if key in headers:
+            safe[key] = headers[key] if headers[key] in values else "[unexpected value omitted]"
+    header_names = {"authorization", "content-type", "accept", "mcp-protocol-version",
+                    "mcp-method", "mcp-name", "mcp-session-id", "last-event-id",
+                    "www-authenticate", "x-request-id", "x-correlation-id"}
+    for key in ("Access-Control-Allow-Headers", "Access-Control-Expose-Headers"):
+        if key in headers:
+            names = {name.strip().lower() for name in headers[key].split(",")}
+            safe[key] = ", ".join(sorted(names)) if names <= header_names else "[unexpected value omitted]"
+    if "Access-Control-Allow-Methods" in headers:
+        methods = {method.strip() for method in headers["Access-Control-Allow-Methods"].split(",")}
+        safe["Access-Control-Allow-Methods"] = ", ".join(sorted(methods)) if methods <= {
+            "GET", "HEAD", "POST", "OPTIONS"} else "[unexpected value omitted]"
+    if "WWW-Authenticate" in headers:
+        safe["WWW-Authenticate"] = "[present; value omitted]"
+    return safe
+
+
+def manifest_operations():
     directory = pathlib.Path(__file__).resolve().parents[1] / "src/aura-historia-mcp"
-    names = set()
+    operations = {}
     for filename in ("public-operations.json", "authenticated-operations.json"):
-        for operation in json.loads((directory / filename).read_text())["operations"]:
+        manifest = json.loads((directory / filename).read_text())
+        for operation in manifest["operations"]:
             require(operation["name"] == operation["operationId"], "manifest operation ID mismatch")
-            require(operation["name"] not in names, "manifests overlap")
-            names.add(operation["name"])
-    return names
+            require(operation["name"] not in operations, "manifests overlap")
+            operations[operation["name"]] = {
+                key: operation.get(key, manifest.get(key))
+                for key in ("access", "requiredScopes", "annotations")
+            }
+    return operations
+
+
+def verify_catalogue(result):
+    tools = result.get("tools")
+    require(isinstance(tools, list) and all(isinstance(tool, dict)
+            and isinstance(tool.get("name"), str) for tool in tools), "invalid tool catalogue")
+    actual = {tool["name"]: tool for tool in tools}
+    expected = manifest_operations()
+    require(actual.keys() == expected.keys() and len(tools) == len(expected),
+            "stage catalogue differs from this release's disjoint manifests")
+    require(not result.get("nextCursor"), "unexpected catalogue continuation")
+    for name, tool in actual.items():
+        metadata = tool.get("_meta", {})
+        policy = expected[name]
+        require(metadata.get("aura.historia/operationId") == name
+                and metadata.get("aura.historia/access") == policy["access"]
+                and metadata.get("aura.historia/requiredScopes") == policy["requiredScopes"]
+                and tool.get("annotations") == policy["annotations"], "tool policy differs from manifest")
+        require(all(isinstance(tool.get(key), dict) and bool(tool[key])
+                    for key in ("inputSchema", "outputSchema")), "missing tool schema")
+    return actual
+
+
+def verify_tool_result(label, result, schema):
+    """Check framing and declared required members; Rust acceptance validates full schemas."""
+    structured = result.get("structuredContent")
+    content = result.get("content")
+    require(result.get("isError", False) is False and isinstance(structured, dict)
+            and isinstance(content, list) and len(content) == 1
+            and isinstance(content[0], dict) and content[0].get("type") == "text"
+            and isinstance(content[0].get("text"), str), f"{label}: incomplete tool result")
+    try:
+        text = json.loads(content[0]["text"])
+    except ValueError:
+        raise SmokeFailure(f"{label}: invalid tool text result") from None
+    require(text == structured, f"{label}: tool representations differ")
+    required = schema.get("required")
+    require(isinstance(required, list) and bool(required) and all(key in structured for key in required),
+            f"{label}: tool result drops schema-required members")
 
 
 def main():
@@ -239,7 +312,8 @@ def main():
     report = {"started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "release_commit": args.release_commit, "origin": MCP_ORIGIN,
               "evidence_kind": "live-stage", "runner_commit": subprocess.check_output(
-                  ["git", "rev-parse", "HEAD"], text=True).strip()}
+                  ["git", "rev-parse", "HEAD"], text=True,
+                  cwd=pathlib.Path(__file__).resolve().parents[1]).strip()}
     def deadline_exceeded(signum, frame):
         raise SmokeFailure("smoke wall-clock deadline exceeded")
 
@@ -250,7 +324,7 @@ def main():
         report["outcome"] = "passed"
     except SmokeFailure as error:
         report.update({"outcome": "failed", "failure": str(error), "checks": smoke.evidence})
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError, AttributeError):
         report.update({"outcome": "failed", "failure": "unexpected discovery or protocol JSON",
                        "checks": smoke.evidence})
     finally:
