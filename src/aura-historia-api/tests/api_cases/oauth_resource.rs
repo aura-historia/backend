@@ -152,7 +152,7 @@ async fn should_reject_foreign_ambiguous_and_substituted_resource_indicators() {
         let (status, error) =
             json_response(approval_response(&admin, &credentials, &resources).await).await;
         assert_eq!(reqwest::StatusCode::BAD_REQUEST, status, "{resources:?}");
-        assert_eq!("OAUTH_INVALID_RESOURCE", error["error"]);
+        assert_eq!("invalid_target", error["error"]);
     }
     let code =
         authorization_code_from(approval_response(&admin, &credentials, &[MCP_RESOURCE]).await);
@@ -164,13 +164,13 @@ async fn should_reject_foreign_ambiguous_and_substituted_resource_indicators() {
         let (status, error) =
             json_response(redemption_response(&admin, &credentials, &code, &resources).await).await;
         assert_eq!(reqwest::StatusCode::BAD_REQUEST, status, "{resources:?}");
-        assert_eq!("OAUTH_INVALID_RESOURCE", error["error"]);
+        assert_eq!("invalid_target", error["error"]);
     }
     let (status, error) =
         json_response(redemption_response(&admin, &credentials, &code, &[REST_RESOURCE]).await)
             .await;
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, status);
-    assert_eq!("OAUTH_INVALID_RESOURCE", error["error"]);
+    assert_eq!("invalid_target", error["error"]);
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM oauth_authorization_codes WHERE authorization_code = $1",
     )

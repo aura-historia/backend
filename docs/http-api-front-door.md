@@ -124,6 +124,19 @@ Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
 
+### OAuth authorization-server metadata
+
+The exact public `GET /.well-known/oauth-authorization-server` route belongs to the closed
+REST route catalog and requires neither bearer nor client credentials. It uses the
+CloudFront default cache-disabled behavior and origin `no-store` headers. OAuth credential
+responses and protocol errors use `no-store` and `Pragma: no-cache`. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
+and selects the same closed resource policy. Discovery, protocol errors and fixed-client
+setup are owned by the [OAuth contract](oauth.md).
+
+Metadata requires no URI-bearing request input and receives no WAF exemption. OAuth
+`resource` and callback URIs continue through the existing exact authorization/token path
+exceptions; unrelated paths retain the counted URL-target blocks.
+
 ## MCP front door
 
 MCP uses a separate Gateway, Lambda `live` alias, CloudFront distribution and Web ACL.
@@ -257,8 +270,9 @@ Coordinate these externally owned settings with the backend development cutover:
   generated operation paths already include `/v1`. Verify login, consent metadata,
   approval and code/token exchange end to end. Webapp-owned `/api/...` routes and client
   callback URLs are independent; change a callback only if it targets a renamed backend route.
-- Advertise Aura's authorization endpoint at `/v1/oauth/authorize` and token endpoint at
-  `/v1/oauth/token`, using the environment's API origin. Do not change provider OAuth URLs.
+- Aura discovery advertises the environment's webapp `/en/oauth/authorize` consent entry
+  and the API `/v1/oauth/token` endpoint. Backend consent approval uses `/v1/oauth/authorize`;
+  see the [OAuth contract](oauth.md). Do not change provider OAuth URLs.
 - Update each registered WooCommerce delivery URL to the API origin plus
   `/v1/webhooks/woocommerce/{listingSourceId}` and the signed Loops preference endpoint to
   `/v1/webhooks/loops`. Preserve provider authentication, signing secrets, delivery identity

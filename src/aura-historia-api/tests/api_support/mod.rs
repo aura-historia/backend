@@ -2162,6 +2162,7 @@ async fn test_state(
             user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        oauth_core::resource::AuraResourcePolicy::production(),
     );
     state::AppState::new()
         .with_auctions(auctions_state)

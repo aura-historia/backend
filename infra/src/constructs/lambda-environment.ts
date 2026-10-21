@@ -61,6 +61,7 @@ export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string
     ...listingProviderEnvironment(context),
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
+    OAUTH_ISSUER_URL: context.config.oauthIssuerUrl,
     MCP_ALLOWED_HOSTS: context.config.mcp.domainName,
     MCP_ALLOWED_ORIGINS: context.config.mcp.allowedOrigins.join(","),
   };
@@ -71,6 +72,7 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
+    OAUTH_ISSUER_URL: config.oauthIssuerUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,

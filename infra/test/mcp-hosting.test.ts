@@ -145,6 +145,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(fn.Properties.Layers).toHaveLength(1);
     expect(environment).toMatchObject({
       AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true", COMMIT_SHA: { Ref: "CommitSHA" },
+      OAUTH_ISSUER_URL: config.oauthIssuerUrl,
       MCP_ALLOWED_HOSTS: config.mcp.domainName, MCP_ALLOWED_ORIGINS: config.mcp.allowedOrigins.join(","),
       STAGE: stage,
       OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
@@ -158,14 +159,16 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     });
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
-      "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT",
     ].sort());
+    expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
     expect(budget).toBe(stage === "prod" ? 5 : 2);
     const rest = Object.values(compute.findResources("AWS::Lambda::Function"))
       .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)!;
+    expect(rest.Properties.Environment.Variables.OAUTH_ISSUER_URL).toBe(environment.OAUTH_ISSUER_URL);
     expect(rest.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(rest.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     for (const key of ["STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",

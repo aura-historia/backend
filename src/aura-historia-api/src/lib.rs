@@ -790,6 +790,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
+                    "/.well-known/oauth-authorization-server",
+                    get(oauth::discovery::discovery),
+                )
+                .route(
                     "/v1/admin/oauth-clients",
                     get(oauth::list_clients::list_clients)
                         .post(oauth::create_client::create_client),
@@ -1991,6 +1995,7 @@ async fn app_state_from_config_and_runtime(
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let oauth_state = OAuthState {
+        resource_policy: config.oauth_resource_policy(),
         create_client: Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),

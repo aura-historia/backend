@@ -1,39 +1,35 @@
+use super::error::OAuthError;
 use super::{
-    no_store, parse_form, required_form, required_form_access_token, required_form_client_secret,
+    OAuthForm, no_store, required_form_access_token, required_form_client_id,
+    required_form_client_secret,
 };
-use crate::error::ApiError;
 use crate::state::OAuthState;
-use crate::wire::parse_body_object_id;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use credential_core::oauth_client_id::OAuthClientId;
 use oauth_service::use_cases::RevokeTokenRequest;
 
-pub async fn revoke(State(state): State<OAuthState>, body: String) -> Response {
-    let form = parse_form(body);
+pub(crate) async fn revoke(
+    State(state): State<OAuthState>,
+    OAuthForm(form): OAuthForm,
+) -> Response {
     let request = match request(&form) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     match state.revoke.execute(&system_context(), request).await {
         Ok(()) => no_store(axum::http::StatusCode::OK.into_response()),
-        Err(error) => ApiError::from(error).into_response(),
+        Err(error) => OAuthError::from(error).into_response(),
     }
 }
 
 fn request(
     form: &std::collections::HashMap<String, String>,
-) -> Result<RevokeTokenRequest, Response> {
+) -> Result<RevokeTokenRequest, OAuthError> {
     let token = required_form_access_token(form)?;
-    let client_id: OAuthClientId = parse_body_object_id(
-        required_form(form, "client_id")?,
-        "client_id",
-        "OAuthClient",
-    )
-    .map_err(IntoResponse::into_response)?;
+    let client_id = required_form_client_id(form)?;
     let client_secret = required_form_client_secret(form)?;
     Ok(RevokeTokenRequest {
         token,
@@ -74,8 +70,8 @@ mod tests {
             let (status, body) = secret_free_problem(response, &token).await;
 
             assert_eq!(400, status);
-            assert_eq!("BAD_BODY_VALUE", body["error"]);
-            assert_eq!(json!({"field": "token", "type": "BODY"}), body["source"]);
+            assert_eq!("invalid_request", body["error"]);
+            assert_eq!(json!({"error": "invalid_request"}), body);
         }
     }
 
@@ -95,11 +91,8 @@ mod tests {
             let (status, body) = secret_free_problem(response, &client_secret).await;
 
             assert_eq!(401, status);
-            assert_eq!("INVALID_CREDENTIALS", body["error"]);
-            assert_eq!(
-                json!({"field": "client_secret", "type": "BODY"}),
-                body["source"]
-            );
+            assert_eq!("invalid_client", body["error"]);
+            assert_eq!(json!({"error": "invalid_client"}), body);
         }
     }
 }
