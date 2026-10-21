@@ -1,6 +1,10 @@
 use crate::OperationError;
 use application::error::box_error;
-use search_filter_service::use_cases::*;
+use search_filter_service::use_cases::{
+    CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
+    ListOwnedSearchFiltersError, ListSearchFilterMatchesError, UpdateOwnedSearchFilterError,
+    UpdateSearchFilterMatchFeedbackError,
+};
 
 pub(super) fn list(error: ListOwnedSearchFiltersError) -> OperationError {
     match error {
@@ -22,7 +26,13 @@ pub(super) fn get(error: GetOwnedSearchFilterError) -> OperationError {
     }
 }
 pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
-    use CreateSearchFilterError::*;
+    use CreateSearchFilterError::{
+        ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
+        CommitTransactionFailed, EmbeddingGenerationFailed, PersistedSearchFilterStateInvalid,
+        SearchFilterAlreadyExists, SearchFilterFeatureRestricted, SearchFilterInsertFailed,
+        SearchFilterQuotaExceeded, SearchFilterQuotaReadFailed, ShippingDestination, UserNotFound,
+        UserTierEntitlementsLockFailed,
+    };
     match error {
         ShippingDestination(error) => crate::shipping_error::destination(error),
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
@@ -42,7 +52,14 @@ pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
     }
 }
 pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
-    use UpdateOwnedSearchFilterError::*;
+    use UpdateOwnedSearchFilterError::{
+        ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
+        CommitTransactionFailed, EmbeddingGenerationFailed, InvalidSearchFilterPatch,
+        PersistedSearchFilterStateInvalid, SearchFilterConcurrencyConflict,
+        SearchFilterFeatureRestricted, SearchFilterLookupFailed, SearchFilterNotFound,
+        SearchFilterQuotaExceeded, SearchFilterQuotaReadFailed, SearchFilterUpdateFailed,
+        ShippingDestination, UserNotFound, UserTierEntitlementsLockFailed,
+    };
     match error {
         ShippingDestination(error) => crate::shipping_error::destination(error),
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
@@ -64,7 +81,11 @@ pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
     }
 }
 pub(super) fn delete(error: DeleteOwnedSearchFilterError) -> OperationError {
-    use DeleteOwnedSearchFilterError::*;
+    use DeleteOwnedSearchFilterError::{
+        ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
+        CommitTransactionFailed, PersistedSearchFilterStateInvalid, SearchFilterDeletionFailed,
+        SearchFilterLookupFailed, SearchFilterNotFound,
+    };
     match error {
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
         SearchFilterNotFound => OperationError::NotFound,
@@ -78,7 +99,15 @@ pub(super) fn delete(error: DeleteOwnedSearchFilterError) -> OperationError {
     }
 }
 pub(super) fn matches(error: ListSearchFilterMatchesError) -> OperationError {
-    use ListSearchFilterMatchesError::*;
+    use ListSearchFilterMatchesError::{
+        ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginPricingTransactionFailed,
+        CommitPricingTransactionFailed, CurrentPricingFxSnapshotMissing,
+        HiddenProductListingRedactionFailed, MatchedProductListingMissing,
+        PricingFxSnapshotInvalid, PricingFxSnapshotUnavailable, ProductListingDetailsInvalid,
+        ProductListingDetailsReadFailed, ProductListingPriceConversionFailed,
+        SaleFxSnapshotMismatch, SalePricingFxSnapshotMissing, SearchFilterMatchReadFailed,
+        SearchFilterNotFound, Shipping,
+    };
     match error {
         Shipping(error) => crate::shipping_error::shipping(error),
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
@@ -99,7 +128,12 @@ pub(super) fn matches(error: ListSearchFilterMatchesError) -> OperationError {
     }
 }
 pub(super) fn feedback(error: UpdateSearchFilterMatchFeedbackError) -> OperationError {
-    use UpdateSearchFilterMatchFeedbackError::*;
+    use UpdateSearchFilterMatchFeedbackError::{
+        ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
+        CommitTransactionFailed, PersistedSearchFilterMatchStateInvalid,
+        PersistedSearchFilterStateInvalid, SearchFilterLookupFailed, SearchFilterMatchLookupFailed,
+        SearchFilterMatchNotFound, SearchFilterMatchUpdateFailed, SearchFilterNotFound,
+    };
     match error {
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
         SearchFilterNotFound | SearchFilterMatchNotFound => OperationError::NotFound,

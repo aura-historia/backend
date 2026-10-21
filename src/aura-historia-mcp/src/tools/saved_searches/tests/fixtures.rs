@@ -1,4 +1,11 @@
 use super::*;
+use search_filter_service::use_cases::{
+    CreateSearchFilterCommand, CreateSearchFilterResult, DeleteOwnedSearchFilterError,
+    DeleteOwnedSearchFilterResult, GetOwnedSearchFilterHandler, ListOwnedSearchFiltersHandler,
+    ListSearchFilterMatchesError, ListSearchFilterMatchesRequest, ListSearchFilterMatchesResult,
+    UpdateOwnedSearchFilterCommand, UpdateOwnedSearchFilterResult,
+    UpdateSearchFilterMatchFeedbackError, UpdateSearchFilterMatchFeedbackResult,
+};
 #[derive(Debug, Clone)]
 pub(super) enum Call {
     Create(OperationContext, CreateSearchFilterCommand),

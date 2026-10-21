@@ -1,4 +1,9 @@
-pub(super) use aura_historia_contracts::saved_searches::*;
+pub(super) use aura_historia_contracts::saved_searches::{
+    CreateSearchFilterData, PaginatedData, SearchFilterData, SearchFilterMatchData,
+    SearchFilterMatchesData, SearchFilterMatchesQuery, UpdateSearchFilterData,
+    UpdateSearchFilterMatchFeedbackData,
+};
+use aura_historia_contracts::saved_searches::{SavedSearchInputError, SavedSearchInputErrorKind};
 
 impl From<SavedSearchInputError> for crate::error::ApiError {
     fn from(error: SavedSearchInputError) -> Self {

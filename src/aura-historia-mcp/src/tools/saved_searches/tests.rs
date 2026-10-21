@@ -6,11 +6,13 @@ use application::{
     pagination::{Cursor, CursoredResult},
     patch_field::PatchField,
 };
+use aura_historia_contracts::saved_searches::matches_cursor_value;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{
     SearchFilterMatchCursor, SearchFilterMatchView, SearchFilterReadError, SearchFilterReader,
     SearchFilterView,
 };
+use search_filter_service::use_cases::{CreateSearchFilterError, UpdateOwnedSearchFilterError};
 use serde_json::json;
 use std::sync::Mutex;
 use time::OffsetDateTime;

@@ -8,7 +8,13 @@ use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
     SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
-use search_filter_service::use_cases::*;
+use search_filter_service::use_cases::{
+    CreateSearchFilterHandler, CreateSearchFilterUseCase, DeleteOwnedSearchFilterHandler,
+    DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterHandler, GetOwnedSearchFilterUseCase,
+    ListOwnedSearchFiltersHandler, ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesHandler,
+    ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterHandler, UpdateOwnedSearchFilterUseCase,
+    UpdateSearchFilterMatchFeedbackHandler, UpdateSearchFilterMatchFeedbackUseCase,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 

@@ -6,8 +6,11 @@ mod presentation;
 use self::input::{non_nullable_patch, parse_body_object_id};
 use crate::patch_value::{PatchValue, clearable};
 pub use input::{SavedSearchInputError, SavedSearchInputErrorKind};
-pub use matches::*;
-pub use presentation::*;
+pub use matches::{
+    MatchCursorOutputError, SearchFilterMatchesData, SearchFilterMatchesQuery, match_cursor_schema,
+    matches_cursor_value, parse_matches_cursor,
+};
+pub use presentation::{PaginatedData, SearchFilterData, SearchFilterMatchData};
 use schemars::JsonSchema;
 
 use application::patch_field::PatchField;
@@ -32,7 +35,7 @@ use product_listing_core::product_listing_search::{
 use search_filter_core::search_filter_state::SearchFilterState;
 
 use search_filter_service::use_cases::ProductListingSearchPatch;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use std::collections::HashSet;
 use std::hash::Hash;

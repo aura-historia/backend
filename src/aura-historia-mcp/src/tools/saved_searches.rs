@@ -8,12 +8,21 @@ use application::{
     error::box_error,
     operation_context::{CredentialCapability, Principal},
 };
-use aura_historia_contracts::saved_searches::*;
+use aura_historia_contracts::saved_searches::{
+    CreateSearchFilterData, PaginatedData, SearchFilterData, SearchFilterMatchData,
+    SearchFilterMatchesData, SearchFilterMatchesQuery, UpdateSearchFilterData,
+    UpdateSearchFilterMatchFeedbackData, match_cursor_schema,
+};
 use aura_historia_runtime::SavedSearches;
 use product_listing_core::product_listing_id::ProductListingId;
 use schemars::JsonSchema;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_service::use_cases::*;
+use search_filter_service::use_cases::{
+    CreateSearchFilterUseCase, DeleteOwnedSearchFilterCommand, DeleteOwnedSearchFilterUseCase,
+    GetOwnedSearchFilterRequest, GetOwnedSearchFilterUseCase, ListOwnedSearchFiltersRequest,
+    ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
+    UpdateSearchFilterMatchFeedbackCommand, UpdateSearchFilterMatchFeedbackUseCase,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
