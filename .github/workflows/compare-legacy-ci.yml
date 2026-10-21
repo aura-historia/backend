@@ -78,6 +78,8 @@ jobs:
           persist-credentials: false
       - name: Install toolchain
         run: rustup show
+      - name: Prepare the same hosted runner disk capacity
+        run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/legacy-disk-preparation.log"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: legacy-selector
@@ -89,7 +91,8 @@ jobs:
         run: |
           arguments=()
           if [ "$SCOPE" = full ]; then arguments+=(--full); fi
-          python3 ci/replay-legacy-selector.py --base "$BASE" --target-dir "$GITHUB_WORKSPACE/target" \
+          python3 ci/guard-disk.py --target target --profiles "$RUNNER_TEMP/legacy-profraw" --log "$RUNNER_TEMP/legacy-disk.jsonl" -- \
+            python3 ci/replay-legacy-selector.py --base "$BASE" --target-dir "$GITHUB_WORKSPACE/target" \
             --output "$RUNNER_TEMP/legacy-selector" "${arguments[@]}" 2>&1 | tee "$RUNNER_TEMP/legacy-selector.log"
           python3 - <<'PY'
           import json, os, pathlib
@@ -107,6 +110,8 @@ jobs:
             ${{ runner.temp }}/legacy-selector/selection.json
             ${{ runner.temp }}/legacy-selector/workspace/Cargo.lock
             ${{ runner.temp }}/legacy-selector.log
+            ${{ runner.temp }}/legacy-disk.jsonl
+            ${{ runner.temp }}/legacy-disk-preparation.log
           if-no-files-found: error
           retention-days: 14
 
@@ -129,6 +134,7 @@ jobs:
         with:
           id: ${{ matrix.id }}
           legacy_package: ${{ matrix.package }}
+          parity_packages: ${{ matrix.parity_packages }}
           harness: libtest
           slots: 4
           profile: none

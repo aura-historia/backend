@@ -69,6 +69,16 @@ Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
 CPU, memory, runner image/version and configured cache suffix/exact-hit result.
 Resolved/fallback cache keys remain in the cache action log. Missing metadata is
 reported as null; a runner label alone does not prove identical hardware.
+Instrumented supervisor builds and tests both use debug level one, avoiding a
+second dependency build caused only by different dev/test debug settings.
+
+Test jobs reclaim only the unused Android SDK, .NET and CodeQL installations on
+explicitly GitHub-hosted Linux runners. Local and self-hosted execution performs
+no SDK cleanup. Disk observations stream and retain free bytes, owned Cargo/profile
+sizes and hosted Docker storage summaries. A best-effort three-GiB floor cancels
+through the same process owner, preserving time and space for cleanup/diagnostics;
+it cannot guarantee capacity against a sudden large allocation. Directory/Docker
+size sampling is less frequent and bounded; missing observations remain null.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
 Each lane writes one process/module-unique profile namespace and one named LCOV
@@ -184,7 +194,10 @@ source/manifests and locked versions; only unreachable lock nodes are pruned.
 Its real release build/cache/selection precede test scheduling. Each selected
 package uses libtest, package-local all-features, original `--nocapture` output,
 lazy process fixtures and a separate Cargo target/cache. Complete controls add
-the original root/proc-macro omissions explicitly; affected controls retain the
+the original root/proc-macro omissions to the existing `test-api` job explicitly,
+whose all-features graph already includes their fixture/macro dependencies. These
+targets share its nonempty coverage artifact; no empty root artifact or invented
+counter is required. Affected controls retain the
 actual original selection. Both preserve the required pristine/unmanaged phases
 and validate compiled case/ignored lists and exact coverage artifacts.
 
@@ -197,6 +210,9 @@ are not reproduced; their costs are not measured by this control. Record actual
 cache restores, hardware and all these adjustments with each comparison. A partial
 affected run does not establish complete-corpus parity or equivalent full-workspace
 speed. Keep literal historical evidence separate from the same-tool control.
+All current controls/layouts use the same hosted SDK reclamation, disk guard and
+aligned dev/test debug settings; include their cost and observed cache state in
+the comparison.
 
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository

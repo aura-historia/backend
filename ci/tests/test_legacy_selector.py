@@ -19,13 +19,16 @@ def package(name, path):
 class LegacySchedulingPlan(unittest.TestCase):
     def setUp(self):
         self.manifest = dict(packages={'root': package('root', '.'), 'money': package('money', 'src/money'),
-            'macros': package('macros', 'src/test-api/src/test-api-macros')})
+            'macros': package('macros', 'src/test-api/src/test-api-macros'), 'test-api': package('test-api', 'src/test-api')})
 
     def test_full_control_adds_only_explicit_original_omissions(self):
-        result = REPLAY.plan(self.manifest, self.manifest, {'integration_test': ['src/money']}, True)
-        self.assertEqual(result['packages'], ['macros', 'money', 'root'])
-        self.assertEqual(result['original_selection'], {'integration_test': ['src/money']})
+        paths = ['src/money', 'src/test-api']
+        result = REPLAY.plan(self.manifest, self.manifest, {'integration_test': paths}, True)
+        self.assertEqual(result['packages'], ['macros', 'money', 'root', 'test-api'])
+        self.assertEqual(result['original_selection'], {'integration_test': paths})
         self.assertEqual(result['parity_added_paths'], ['.', 'src/test-api/src/test-api-macros'])
+        self.assertEqual(result['matrix'], [{'package': 'money', 'id': 'legacy-money'},
+            {'package': 'test-api', 'id': 'legacy-test-api', 'parity_packages': 'root macros'}])
 
     def test_small_control_preserves_actual_affected_selection(self):
         result = REPLAY.plan(self.manifest, self.manifest, {'integration_test': ['src/money']}, False)

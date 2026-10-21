@@ -23,6 +23,7 @@ def arguments():
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--lane", choices=LANES, action="append")
     selection.add_argument("--legacy-package", help="Opt-in comparison only: one original per-package libtest invocation")
+    parser.add_argument('--parity-package', action='append', default=[], help='Full legacy test-api control only: root/proc-macro additions')
     parser.add_argument("--harness", choices=["nextest", "libtest"], required=True)
     parser.add_argument("--slots", type=int, required=True)
     parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
@@ -34,6 +35,8 @@ def arguments():
     parser.add_argument("--list-only", action="store_true", help="Compile and verify cases without starting services or test bodies")
     parser.add_argument("--phase", choices=["all", "managed"], default="all", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.parity_package and args.legacy_package != 'test-api':
+        parser.error('--parity-package is exclusive to the legacy test-api full control')
     if not 1 <= args.slots <= 1024:
         parser.error("--slots must be between 1 and 1024")
     if args.legacy_package is not None and (args.profile != "none" or args.harness != "libtest"):
@@ -50,7 +53,7 @@ def discover_lane(args, root):
     metadata = json.loads(command(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], root))
     catalog, expected = build_catalog(metadata, root)
     manifest = json.loads((root / args.manifest).read_text())
-    selection = (legacy_package_selection(manifest, expected, args.legacy_package) if args.legacy_package is not None
+    selection = (legacy_package_selection(manifest, expected, args.legacy_package, args.parity_package) if args.legacy_package is not None
                  else combined_selection(manifest, expected, args.lane))
     write_json(args.output / "selection.json", selection)
     catalog["packages"] = [package for package in catalog["packages"] if package["name"] in selection["packages"]]

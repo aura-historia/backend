@@ -10,6 +10,9 @@ inputs:
   legacy_package:
     description: Opt-in comparison only; one package with original lazy fixtures.
     default: ''
+  parity_packages:
+    description: Explicit full-control root/proc-macro additions to the legacy test-api job.
+    default: ''
   harness:
     description: Explicit measured harness, nextest or libtest.
     required: true
@@ -32,11 +35,18 @@ runs:
         {
           printf 'CARGO_TARGET_DIR=%s/target\n' "$GITHUB_WORKSPACE"
           printf 'CARGO_PROFILE_TEST_DEBUG=1\n'
+          printf 'CARGO_PROFILE_DEV_DEBUG=1\n'
           printf 'RUSTFLAGS=-C instrument-coverage\n'
           printf 'LLVM_PROFILE_FILE=%s/coverage/%s/profraw/%s-%s-%s-%%p-%%m.profraw\n' "$RUNNER_TEMP" "$LANE_ID" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE_ID"
           printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
           printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
         } >> "$GITHUB_ENV"
+
+    - name: Prepare hosted runner disk capacity
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
 
     - name: Install pinned Rust toolchain
       shell: bash
@@ -47,7 +57,7 @@ runs:
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: test-${{ inputs.id }}-coverage
-        env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_INCREMENTAL RUSTFLAGS
+        env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS
 
     - name: Install verified test tools
       shell: bash
@@ -91,7 +101,11 @@ runs:
     - name: Build job supervisor
       if: inputs.profile != 'none' || inputs.legacy_package == 'test-api' || inputs.legacy_package == 'database-migration-lambda'
       shell: bash
-      run: cargo build --locked --package test-api --all-features --bin aura-test-env
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$RUNNER_TEMP/coverage/$LANE_ID/profraw" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- cargo build --locked --package test-api --all-features --bin aura-test-env
 
     - name: Run owned targets and doctests
       shell: bash
@@ -99,6 +113,7 @@ runs:
         LANE_ID: ${{ inputs.id }}
         LANES: ${{ inputs.lanes }}
         LEGACY_PACKAGE: ${{ inputs.legacy_package }}
+        PARITY_PACKAGES: ${{ inputs.parity_packages }}
         HARNESS: ${{ inputs.harness }}
         SLOTS: ${{ inputs.slots }}
         PROFILE: ${{ inputs.profile }}
@@ -108,13 +123,17 @@ runs:
         if [ -n "$LEGACY_PACKAGE" ]; then
           test -z "$LANES"
           arguments+=(--legacy-package "$LEGACY_PACKAGE")
+          read -ra parity <<< "$PARITY_PACKAGES"
+          for package in "${parity[@]}"; do arguments+=(--parity-package "$package"); done
         else
           for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
         fi
         if [ "$PROFILE" != none ]; then
           arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
         fi
-        python3 ci/run-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$RUNNER_TEMP/coverage/$LANE_ID/profraw" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          python3 ci/run-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
           --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
           --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
 
@@ -123,7 +142,10 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
-      run: bash ci/collect-coverage.sh "$RUNNER_TEMP/coverage/$LANE_ID/profraw" "$CARGO_TARGET_DIR/debug/deps" "$RUNNER_TEMP/coverage/$LANE_ID/$LANE_ID.lcov"
+      run: |
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$RUNNER_TEMP/coverage/$LANE_ID/profraw" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          bash ci/collect-coverage.sh "$RUNNER_TEMP/coverage/$LANE_ID/profraw" "$CARGO_TARGET_DIR/debug/deps" "$RUNNER_TEMP/coverage/$LANE_ID/$LANE_ID.lcov"
 
     - name: Upload coverage
       if: always()

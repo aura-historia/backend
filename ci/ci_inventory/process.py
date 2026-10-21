@@ -6,7 +6,7 @@ import signal
 import subprocess
 
 
-def execute(argv, cwd, environment):
+def execute(argv, cwd, environment, check=None):
     print(f"test lane: {shlex.join(map(str, argv))}", flush=True)
     process, interrupted = None, None
 
@@ -24,7 +24,24 @@ def execute(argv, cwd, environment):
         process = subprocess.Popen(argv, cwd=cwd, env=environment, start_new_session=True)
         if interrupted is not None:
             forward(interrupted, None)
-        code = process.wait()
+        if check is None:
+            code = process.wait()
+        else:
+            while True:
+                if process.poll() is None:
+                    try:
+                        number = check()
+                    except BaseException:
+                        forward(signal.SIGTERM, None)
+                        process.wait()
+                        raise
+                    if number is not None and interrupted is None and process.poll() is None:
+                        forward(number, None)
+                try:
+                    code = process.wait(timeout=1)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
@@ -32,4 +49,3 @@ def execute(argv, cwd, environment):
         raise SystemExit(128 + interrupted)
     if code:
         raise SystemExit(128 - code if code < 0 else code)
-

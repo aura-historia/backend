@@ -128,12 +128,18 @@ def lane_selection(manifest, expected, lane):
     return {"lane": lane, **select_packages(manifest, packages)}
 
 
-def legacy_package_selection(manifest, expected, name):
+def legacy_package_selection(manifest, expected, name, parity_packages=()):
     """Select one reviewed package for the opt-in old scheduling comparison."""
     owners = package_owners(manifest, expected)
     if name not in owners:
         raise ValueError(f"Unknown legacy comparison package: {name}")
-    return {"lanes": [owners[name]], "legacy_package": name, **select_packages(manifest, [name])}
+    packages = [name, *parity_packages]
+    allowed_parity = {package for package, record in manifest['packages'].items()
+                      if record['path'] in {'.', 'src/test-api/src/test-api-macros'}}
+    if len(packages) != len(set(packages)) or not set(parity_packages) <= allowed_parity or (parity_packages and name != 'test-api'):
+        raise ValueError('Only the test-api full control may include explicit root/proc-macro parity additions')
+    return {"lanes": sorted({owners[package] for package in packages}), "legacy_package": name,
+            "parity_packages": list(parity_packages), **select_packages(manifest, sorted(packages))}
 
 
 def tree_features(argv, cwd, output):

@@ -3,6 +3,9 @@ description: Run the independent workspace quality checks.
 runs:
   using: composite
   steps:
+    - name: Prepare hosted runner disk capacity
+      shell: bash
+      run: bash ci/prepare-runner-disk.sh
     - name: Install toolchain
       shell: bash
       run: rustup show
@@ -26,4 +29,6 @@ runs:
       run: cargo depgraph-check check
     - name: Clippy lint
       shell: bash
-      run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
+      run: |
+        python3 ci/guard-disk.py --target target --profiles "$RUNNER_TEMP/lint-profraw" --log "$RUNNER_TEMP/lint-disk.jsonl" -- \
+          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err

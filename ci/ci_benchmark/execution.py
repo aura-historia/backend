@@ -27,7 +27,7 @@ def environment_metadata(root, env):
             "github_runner_image": os.environ.get("ImageOS"), "github_runner_image_version": os.environ.get("ImageVersion"),
             "rustc": optional_command(["rustc", "-vV"], root), "cargo": optional_command(["cargo", "--version"], root),
             "grcov": optional_command(["grcov", "--version"], root), "docker": optional_command(["docker", "--version"], root),
-            "build_environment": {key: env.get(key) for key in ("CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG", "RUSTFLAGS", "LLVM_PROFILE_FILE")}}
+            "build_environment": {key: env.get(key) for key in ("CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG", "CARGO_PROFILE_DEV_DEBUG", "RUSTFLAGS", "LLVM_PROFILE_FILE")}}
 
 
 def fixture_references(root):

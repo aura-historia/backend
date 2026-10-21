@@ -81,6 +81,17 @@ class PackageLaneSelection(unittest.TestCase):
         self.assertEqual(lane_selection(reordered, reordered, "INFRASTRUCTURE"),
                          lane_selection(self.manifest, self.expected, "INFRASTRUCTURE"))
 
+    def test_full_legacy_parity_additions_are_unique_and_exclusive_to_test_api(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest['packages']['test-api'] = {'path': 'src/test-api', 'targets': [target('test-api', 'lib', 'test_api', 'INFRASTRUCTURE', True)]}
+        additions = ['aura-historia-parent', 'test-api-macros']
+        selected = legacy_package_selection(manifest, manifest, 'test-api', additions)
+        self.assertEqual(selected['packages'], ['aura-historia-parent', 'test-api', 'test-api-macros'])
+        self.assertEqual(len(selected['targets']), 3)
+        for owner, extra in [('crawler', additions), ('test-api', ['crawler']), ('test-api', additions*2)]:
+            with self.subTest(owner=owner, extra=extra), self.assertRaisesRegex(ValueError, 'parity additions'):
+                legacy_package_selection(manifest, manifest, owner, extra)
+
     def test_new_missing_duplicated_or_regated_ownership_requires_reviewed_manifest(self):
         for mutation in ("new_package", "missing_package", "new_target", "missing_target", "duplicate_target",
                          "required_features", "test", "doctest", "harness", "lane"):

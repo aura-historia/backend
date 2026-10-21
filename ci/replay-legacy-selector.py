@@ -50,8 +50,14 @@ def plan(manifest, expected, selected, full):
     names = sorted(by_path[path] for path in [*paths, *additions])
     if not names:
         raise ValueError('Comparison selected no packages')
+    rows = [{'package': by_path[path], 'id': 'legacy-' + by_path[path]} for path in sorted(paths)]
+    if additions:
+        owner = next((row for row in rows if row['package'] == 'test-api'), None)
+        if owner is None:
+            raise ValueError('Full parity additions require the original test-api job')
+        owner['parity_packages'] = ' '.join(by_path[path] for path in additions)
     return {'legacy_revision': LEGACY_REVISION, 'original_selection': selected, 'parity_added_paths': additions,
-            'packages': names, 'matrix': [{'package': name, 'id': 'legacy-' + name} for name in names]}
+            'parity_owner': 'test-api' if additions else None, 'packages': names, 'matrix': rows}
 
 
 def main():
