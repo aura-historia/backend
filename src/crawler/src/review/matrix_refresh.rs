@@ -11,7 +11,7 @@ use crate::review::model::SchemaMatrix;
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::error;
@@ -103,9 +103,7 @@ impl MatrixRefreshes {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<CrawlerReviewId, RefreshSlot>> {
         // The map holds no invariant a panicking holder could break halfway.
-        self.slots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.slots.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

@@ -1,14 +1,25 @@
-use super::*;
+use super::{ReviewServer, ReviewServerConfig};
+use crate::network::policy::NetworkErrorKind;
 use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
+use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind};
+use crate::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
-    CrawlerDomainConfiguration, CrawlerDomainRemoval,
+    CrawlerDomainAdministration, CrawlerDomainConfiguration, CrawlerDomainConfigurationError,
+    CrawlerDomainRemoval,
 };
 use crate::test_support::migrated_crawler_database;
+use crate::{CrawlerDomainId, CrawlerReviewId};
+use listing_source_core::{Domain, ListingSourceId};
+use serde_json::json;
 use sqlx::PgPool;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 use tokio::sync::Semaphore;
+use url::Url;
 
 const PAGE_HTML: &str = "<html><body><span class=\"id\">SKU</span><h1>Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>";
 
