@@ -56,7 +56,7 @@ class LaneDriverExecution(unittest.TestCase):
                 signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
             return install(number, handler)
 
-        with patch.object(DRIVER.signal, "signal", side_effect=restore), self.assertRaises(SystemExit) as failure:
+        with patch.object(signal, "signal", side_effect=restore), self.assertRaises(SystemExit) as failure:
             DRIVER.execute([sys.executable, "-c", "pass"], CI, os.environ)
         self.assertEqual(failure.exception.code, 128 + signal.SIGTERM)
         self.assertEqual({number: signal.getsignal(number) for number in before}, before)

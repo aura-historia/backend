@@ -6,13 +6,13 @@ import json
 import os
 import pathlib
 import shlex
-import signal
 import subprocess
 import sys
 
 from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
 from ci_inventory.discovery import attach_suites
 from ci_inventory.io import command, write_json
+from ci_inventory.process import execute
 from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection,
                                  libtest_commands, nextest_command, suite_identity,
                                  unmanaged_commands, unmanaged_environment, validate_special_cases)
@@ -44,34 +44,6 @@ def arguments():
     args.state_dir = args.state_dir.resolve()
     args.supervisor = args.supervisor.resolve()
     return args
-
-
-def execute(argv, cwd, environment):
-    print(f"test lane: {shlex.join(map(str, argv))}", flush=True)
-    process, interrupted = None, None
-
-    def forward(number, frame):
-        nonlocal interrupted
-        interrupted = number
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, number)
-            except ProcessLookupError:
-                pass
-
-    previous = {number: signal.signal(number, forward) for number in (signal.SIGINT, signal.SIGTERM)}
-    try:
-        process = subprocess.Popen(argv, cwd=cwd, env=environment, start_new_session=True)
-        if interrupted is not None:
-            forward(interrupted, None)
-        code = process.wait()
-    finally:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
-    if interrupted is not None:
-        raise SystemExit(128 + interrupted)
-    if code:
-        raise SystemExit(128 - code if code < 0 else code)
 
 
 def discover_lane(args, root):
