@@ -1,32 +1,36 @@
 use crate::geography::{GeographyData, PositionData};
 use geo::DerivedGeography;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use user_core::user_address::UserAddressId;
 use user_service::address_book::{
     CreateUserAddress, UpdateUserAddress, UserAddressPage, UserAddressResolution, UserAddressView,
 };
 
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateData {
     pub label: String,
     pub geography: GeographyData,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateData {
+    #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
     pub label: String,
     pub geography: GeographyData,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpectedData {
+    #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressData {
+    #[schemars(schema_with = "crate::wire::schema::user_address_id")]
     pub address_id: UserAddressId,
     pub label: String,
     pub geography: GeographyData,
@@ -48,19 +52,24 @@ impl From<UserAddressView> for AddressData {
         }
     }
 }
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PageQuery {
+    #[serde(default)]
+    #[schemars(schema_with = "crate::wire::schema::optional_user_address_id")]
     pub after: Option<UserAddressId>,
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 100))]
     pub limit: Option<u32>,
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct PageData {
     pub items: Vec<AddressData>,
+    #[schemars(schema_with = "crate::wire::schema::optional_user_address_id")]
     pub next: Option<UserAddressId>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct DerivedData {
     pub geography: Option<GeographyData>,
     pub position: Option<PositionData>,
@@ -73,13 +82,13 @@ impl From<DerivedGeography> for DerivedData {
         }
     }
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressAttributionData {
     pub provider: String,
     pub attribution_url: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct AddressResolutionData {
     pub status: &'static str,
     pub derived: Option<DerivedData>,

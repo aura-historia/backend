@@ -2,13 +2,14 @@ use geo::{
     AddressText, GeoPoint, GeographicDescription, PostalCode, SpatialPosition, SpatialPrecision,
     SubdivisionCode, country_from_code, reference::ReferenceRelease,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("invalid geographic input")]
 pub struct InvalidGeographyData;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GeographyData {
     pub reference_release: String,
@@ -59,7 +60,7 @@ impl From<GeographicDescription> for GeographyData {
         }
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PositionData {
     pub latitude_degrees: f64,

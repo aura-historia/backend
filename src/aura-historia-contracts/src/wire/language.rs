@@ -78,6 +78,9 @@ pub fn schema(generator: &mut SchemaGenerator) -> Schema {
 
 pub mod option {
     use super::*;
+    pub fn schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({"anyOf": [super::schema(generator), {"type":"null"}]})
+    }
     pub fn serialize<S: Serializer>(
         value: &Option<Language>,
         serializer: S,

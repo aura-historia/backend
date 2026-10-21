@@ -18,3 +18,8 @@ pub mod patch {
         deserialize_patch_code(deserializer, UserTier::from_code)
     }
 }
+
+pub fn schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    use strum::IntoEnumIterator;
+    schemars::json_schema!({"type":"string", "enum": UserTier::iter().map(UserTier::as_str).collect::<Vec<_>>()})
+}

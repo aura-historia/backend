@@ -15,6 +15,8 @@ macro_rules! ids {
     )*};
 }
 ids! {
+    user_id, optional_user_id, user_core::user_id::UserId;
+    user_address_id, optional_user_address_id, user_core::user_address::UserAddressId;
     product_listing_id, optional_product_listing_id, product_listing_core::product_listing_id::ProductListingId;
     event_id, optional_event_id, domain_primitives::event_id::EventId;
     listing_source_id, optional_listing_source_id, listing_source_core::ListingSourceId;

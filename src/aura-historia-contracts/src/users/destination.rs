@@ -1,4 +1,5 @@
 use geo::{PostalCode, country_from_code, reference::ReferenceRelease};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use user_core::user_address::{BrowsingDestination, UserAddressId};
 use user_service::address_book::DestinationView;
@@ -7,7 +8,7 @@ use user_service::address_book::DestinationView;
 #[error("invalid browsing destination")]
 pub struct InvalidDestinationData;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum DestinationData {
     // A struct variant so `deny_unknown_fields` applies; serde lets internally tagged unit
@@ -15,6 +16,7 @@ pub enum DestinationData {
     None {},
     Address {
         #[serde(rename = "addressId")]
+        #[schemars(schema_with = "crate::wire::schema::user_address_id")]
         address_id: UserAddressId,
     },
     CountryPostal {
@@ -57,13 +59,14 @@ impl From<BrowsingDestination> for DestinationData {
         }
     }
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetDestinationData {
+    #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
     pub destination: DestinationData,
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct DestinationResponse {
     pub version: u64,
     pub destination: DestinationData,
