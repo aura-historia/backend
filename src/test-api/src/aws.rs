@@ -24,6 +24,11 @@ static ENDPOINT_URL: OnceLock<String> = OnceLock::new();
 
 /// Returns the process fixture's host endpoint. Start it with [`get_aws_emulator`] first.
 pub fn get_endpoint_url() -> &'static str {
+    if let Some(config) = crate::environment::managed_environment() {
+        return config
+            .aws_endpoint()
+            .expect("managed profile has no AWS emulator");
+    }
     ENDPOINT_URL
         .get()
         .expect("AWS emulator endpoint not initialized; call get_aws_emulator first")
@@ -43,8 +48,9 @@ pub async fn get_aws_config() -> &'static SdkConfig {
         .await
 }
 
-struct AwsEmulatorFixture {
-    container: ContainerAsync<GenericImage>,
+/// An attached service capability; managed attachments own no Docker resource.
+pub struct AwsEmulatorFixture {
+    _container: Option<ContainerAsync<GenericImage>>,
     topology: AwsEmulatorTopology,
 }
 
@@ -54,10 +60,27 @@ static AWS_EMULATOR: OnceCell<AwsEmulatorFixture> = OnceCell::const_new();
 pub async fn get_aws_emulator(
     services: &[&str],
     extra_env_vars: &[(&str, &str)],
-) -> &'static ContainerAsync<GenericImage> {
+) -> &'static AwsEmulatorFixture {
+    if let Some(config) = crate::environment::managed_environment() {
+        config.assert_aws_topology(services, extra_env_vars);
+    }
     let requested_topology = AwsEmulatorTopology::new(services, extra_env_vars);
     let fixture = AWS_EMULATOR
         .get_or_init(|| async {
+            if let Some(config) = crate::environment::managed_environment() {
+                config.assert_aws_topology(services, extra_env_vars);
+                return AwsEmulatorFixture {
+                    _container: None,
+                    topology: AwsEmulatorTopology::new(
+                        &config
+                            .aws_services
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>(),
+                        &[],
+                    ),
+                };
+            }
             let normalized_env = requested_topology
                 .env
                 .iter()
@@ -69,13 +92,13 @@ pub async fn get_aws_emulator(
                 .expect("shouldn't fail setting AWS emulator endpoint URL");
             debug!(services = ?requested_topology.services, "Floci process fixture started");
             AwsEmulatorFixture {
-                container,
+                _container: Some(container),
                 topology: requested_topology,
             }
         })
         .await;
     AwsEmulatorTopology::new(services, extra_env_vars).assert_compatible_with(&fixture.topology);
-    &fixture.container
+    fixture
 }
 
 fn docker_remove(name: &str) {
@@ -135,6 +158,10 @@ fn find_free_port() -> u16 {
 pub async fn spin_up_aws_emulator(
     extra_env_vars: &[(&str, &str)],
 ) -> (ContainerAsync<GenericImage>, u16) {
+    assert!(
+        crate::environment::managed_environment().is_none(),
+        "managed test processes cannot start Floci containers"
+    );
     let started = std::time::Instant::now();
     install_cleanup();
     let _ = tracing_subscriber::fmt()

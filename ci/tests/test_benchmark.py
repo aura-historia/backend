@@ -114,6 +114,17 @@ test result: FAILED. 1 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; 
         (source / "aws.rs").write_text('const IMAGE_TAG: &str = "2.3.0";')
         (source / "opensearch.rs").write_text('.engine_version("OpenSearch_3.5")')
         self.assertIn("opensearchproject/opensearch:3.5.0", fixture_references(root))
+        managed = source / "environment"
+        managed.mkdir()
+        references = ['postgres:16-bookworm', 'floci/floci:2.3.0', 'opensearchproject/opensearch:3.5.0']
+        policy = managed / "services.rs"
+        policy.write_text("\n".join('const ' + name + ': &str = \n    "' + reference + '@sha256:' + 'a' * 64 + '";'
+                                    for name, reference in zip(("POSTGRES_IMAGE", "FLOCI_IMAGE", "OPENSEARCH_IMAGE"), references)))
+        self.assertEqual(6, len(fixture_references(root)))
+        policy.write_text('const POSTGRES_IMAGE: &str = "postgres:latest";')
+        with self.assertRaisesRegex(ValueError, "immutable digests"):
+            fixture_references(root)
+        policy.unlink()
         (source / "opensearch.rs").write_text('.engine_version("OpenSearch_2.19")')
         with self.assertRaisesRegex(ValueError, "Unreviewed"):
             fixture_references(root)

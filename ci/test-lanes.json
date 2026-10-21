@@ -2439,6 +2439,16 @@
         {
           "doctest": false,
           "harness": true,
+          "id": "test-api::bin::aura-test-env",
+          "lane": "INFRASTRUCTURE",
+          "required_features": [
+            "supervisor"
+          ],
+          "test": true
+        },
+        {
+          "doctest": false,
+          "harness": true,
           "id": "test-api::test::aws",
           "lane": "INFRASTRUCTURE",
           "required_features": [],
@@ -2448,6 +2458,14 @@
           "doctest": false,
           "harness": true,
           "id": "test-api::test::macro_lifecycle",
+          "lane": "INFRASTRUCTURE",
+          "required_features": [],
+          "test": true
+        },
+        {
+          "doctest": false,
+          "harness": true,
+          "id": "test-api::test::managed_environment",
           "lane": "INFRASTRUCTURE",
           "required_features": [],
           "test": true

@@ -6,15 +6,15 @@ use tokio::process::Command;
 #[tokio::test]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
-    let container = get_aws_emulator(&["opensearch"], &[]).await;
-
-    let host_ip = container.get_host().await.unwrap().to_string();
-    let host_port = container.get_host_port_ipv4(4566).await.unwrap();
-
-    assert_eq!(host_ip, "localhost");
-    assert!(host_port > 0, "a random port should be assigned");
-
-    assert_eq!(format!("http://{host_ip}:{host_port}"), get_endpoint_url());
+    get_aws_emulator(&["opensearch"], &[]).await;
+    let endpoint = url::Url::parse(get_endpoint_url()).unwrap();
+    assert_eq!(endpoint.host_str(), Some("localhost"));
+    assert!(endpoint.port().unwrap() > 0);
+    aws_sdk_opensearch::Client::new(test_api::aws::get_aws_config().await)
+        .list_domain_names()
+        .send()
+        .await
+        .expect("published Floci endpoint must accept real SDK requests");
 }
 
 #[tokio::test]

@@ -44,8 +44,16 @@ def fixture_references(root):
     image = reviewed_images.get((floci[1], opensearch[1]))
     if image is None:
         raise ValueError("Unreviewed Floci/OpenSearch engine image mapping")
-    return [os.environ.get("AURA_TEST_POSTGRES_IMAGE", postgres[1]), "floci/floci:" + floci[1],
-            image]
+    references = [os.environ.get("AURA_TEST_POSTGRES_IMAGE", postgres[1]), "floci/floci:" + floci[1], image]
+    managed = directory / "environment/services.rs"
+    if managed.exists():
+        # Managed lifecycle smoke uses immutable images alongside unmanaged regressions.
+        for name in ("POSTGRES_IMAGE", "FLOCI_IMAGE", "OPENSEARCH_IMAGE"):
+            match = re.search(r"const " + name + r':\s*&str\s*=\s*"([^"]+)";', managed.read_text())
+            if not match or not re.fullmatch(r"[^@]+@sha256:[0-9a-f]{64}", match[1]):
+                raise ValueError("Managed fixture images must have reviewed immutable digests")
+            references.append(match[1])
+    return list(dict.fromkeys(references))
 
 
 def images(root):

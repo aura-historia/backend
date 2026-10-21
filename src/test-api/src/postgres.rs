@@ -1,3 +1,5 @@
+pub(crate) mod tls;
+
 use crate::IntegrationTestService;
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
@@ -21,8 +23,7 @@ const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres
 const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
 const IMAGE_PULL_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
 const HOST_GATEWAY: &str = "host.docker.internal";
-const POSTGRES_TLS_ROOT_CERTIFICATE: &str = "/tmp/aura-historia-postgres-tls/ca.crt";
-const POSTGRES_TLS_ENTRYPOINT: &str = "set -eu\nmkdir -p /tmp/aura-historia-postgres-tls\nopenssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj /CN=AuraHistoriaTestCA -keyout /tmp/aura-historia-postgres-tls/ca.key -out /tmp/aura-historia-postgres-tls/ca.crt\nopenssl req -newkey rsa:2048 -nodes -sha256 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal -keyout /tmp/aura-historia-postgres-tls/server.key -out /tmp/aura-historia-postgres-tls/server.csr\nprintf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal\\nextendedKeyUsage=serverAuth\\n' > /tmp/aura-historia-postgres-tls/server.ext\nopenssl x509 -req -in /tmp/aura-historia-postgres-tls/server.csr -CA /tmp/aura-historia-postgres-tls/ca.crt -CAkey /tmp/aura-historia-postgres-tls/ca.key -CAcreateserial -out /tmp/aura-historia-postgres-tls/server.crt -days 1 -sha256 -extfile /tmp/aura-historia-postgres-tls/server.ext\nchown postgres:postgres /tmp/aura-historia-postgres-tls/server.crt /tmp/aura-historia-postgres-tls/server.key\nchmod 0600 /tmp/aura-historia-postgres-tls/server.key\nexec /usr/local/bin/docker-entrypoint.sh postgres -c fsync=off -c wal_level=logical -c ssl=on -c ssl_cert_file=/tmp/aura-historia-postgres-tls/server.crt -c ssl_key_file=/tmp/aura-historia-postgres-tls/server.key";
+use self::tls::{POSTGRES_TLS_ENTRYPOINT, POSTGRES_TLS_ROOT_CERTIFICATE};
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
 
@@ -164,6 +165,15 @@ where
 /// container is ever started. The container handle is intentionally leaked — it lives for
 /// the entire test-suite binary and is cleaned up by the `atexit` handler.
 async fn ensure_container_started() {
+    if let Some(config) = crate::environment::managed_environment() {
+        let endpoint = config
+            .postgres
+            .as_ref()
+            .expect("managed profile has no Postgres");
+        POSTGRES_HOST_PORT.get_or_init(|| endpoint.port);
+        POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| endpoint.root_certificate.clone());
+        return;
+    }
     POSTGRES_CONTAINER_STARTED
         .get_or_init(|| async {
             install_cleanup();
