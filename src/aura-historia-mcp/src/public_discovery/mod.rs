@@ -1,4 +1,4 @@
-//! Anonymous source, party-location and catalogue overview operations.
+//! Public source reads with optional delegated context, anonymous locations and overview.
 mod errors;
 mod sources;
 

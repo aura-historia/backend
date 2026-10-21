@@ -17,62 +17,74 @@
     {
       "name": "discoverPartyLocations",
       "operationId": "discoverPartyLocations",
-      "family": "public_discovery"
+      "family": "public_discovery",
+      "delegatedContext": false
     },
     {
       "name": "getAuction",
       "operationId": "getAuction",
-      "family": "auctions"
+      "family": "auctions",
+      "delegatedContext": true
     },
     {
       "name": "getAuctionCatalogue",
       "operationId": "getAuctionCatalogue",
-      "family": "auctions"
+      "family": "auctions",
+      "delegatedContext": true
     },
     {
       "name": "getProductListing",
       "operationId": "getProductListing",
-      "family": "product_listings"
+      "family": "product_listings",
+      "delegatedContext": true
     },
     {
       "name": "getProductListingByTitleSlug",
       "operationId": "getProductListingByTitleSlug",
-      "family": "product_listings"
+      "family": "product_listings",
+      "delegatedContext": true
     },
     {
       "name": "getProductListingHistory",
       "operationId": "getProductListingHistory",
-      "family": "product_listing_history"
+      "family": "product_listing_history",
+      "delegatedContext": true
     },
     {
       "name": "getPublicListingSourceBySlug",
       "operationId": "getPublicListingSourceBySlug",
-      "family": "public_discovery"
+      "family": "public_discovery",
+      "delegatedContext": true
     },
     {
       "name": "getPublicOverview",
       "operationId": "getPublicOverview",
-      "family": "public_discovery"
+      "family": "public_discovery",
+      "delegatedContext": false
     },
     {
       "name": "getSimilarProductListings",
       "operationId": "getSimilarProductListings",
-      "family": "product_listings"
+      "family": "product_listings",
+      "delegatedContext": true
     },
     {
       "name": "listAuctions",
       "operationId": "listAuctions",
-      "family": "auctions"
+      "family": "auctions",
+      "delegatedContext": true
     },
     {
       "name": "searchPublicListingSources",
       "operationId": "searchPublicListingSources",
-      "family": "public_discovery"
+      "family": "public_discovery",
+      "delegatedContext": true
     },
     {
       "name": "simpleSearchProductListings",
       "operationId": "simpleSearchProductListings",
-      "family": "product_listings"
+      "family": "product_listings",
+      "delegatedContext": true
     }
   ],
   "excludedOperationIds": [
@@ -87,5 +99,6 @@
     "provider webhooks/simulation",
     "OAuth protocol/control plane",
     "vendor-specific wrapper aliases"
-  ]
+  ],
+  "catalogue": "public subset of the hybrid endpoint"
 }

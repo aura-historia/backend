@@ -1,8 +1,8 @@
-//! Anonymous auction operation family. Release composition owns production registration.
+//! Public auction operation family. Release composition owns production registration.
 mod error;
 
 use crate::{AccessClass, OperationDefinition, OperationError, OperationPolicy, RegistryError};
-use application::{error::box_error, operation_context::Principal};
+use application::error::box_error;
 use auction_core::AuctionId;
 use auction_service::use_cases::{GetPublicAuctionUseCase, ListAuctionsUseCase};
 use aura_historia_contracts::auctions::{
@@ -43,13 +43,12 @@ fn list(service: Arc<dyn ListAuctionsUseCase>) -> Result<OperationDefinition, Re
         "listAuctions",
         "List public auctions with source, format, reported status, exact schedule range, created or scheduled sorting and continuation filters.",
         policy(),
-        move |query: DirectoryQuery, mut invocation| {
+        move |query: DirectoryQuery, invocation| {
             let service = Arc::clone(&service);
             async move {
                 let request = query
                     .try_into_request()
                     .map_err(|error| OperationError::InvalidArguments(box_error(error)))?;
-                invocation.operation.principal = Principal::Anonymous;
                 invocation
                     .execute(service.execute(&invocation.operation, request))
                     .await?
@@ -65,10 +64,9 @@ fn get(service: Arc<dyn GetPublicAuctionUseCase>) -> Result<OperationDefinition,
         "getAuction",
         "Get complete public auction details, source metadata, schedule, counts and catalogue links.",
         policy(),
-        move |input: AuctionArguments, mut invocation| {
+        move |input: AuctionArguments, invocation| {
             let service = Arc::clone(&service);
             async move {
-                invocation.operation.principal = Principal::Anonymous;
                 let view = invocation
                     .execute(service.execute(&invocation.operation, input.auction_id))
                     .await?
@@ -85,16 +83,15 @@ fn catalogue(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getAuctionCatalogue",
-        "Get public auction lots with language, currency, shipping presentation and stable catalogue continuation.",
+        "Get public auction lots with language, currency, shipping presentation and stable catalogue continuation. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
         policy(),
-        move |input: CatalogueArguments, mut invocation| {
+        move |input: CatalogueArguments, invocation| {
             let service = Arc::clone(&service);
             async move {
                 let request = input
                     .query
                     .try_into_request(input.auction_id)
                     .map_err(|error| OperationError::InvalidArguments(box_error(error)))?;
-                invocation.operation.principal = Principal::Anonymous;
                 invocation
                     .execute(service.execute(&invocation.operation, request))
                     .await?
