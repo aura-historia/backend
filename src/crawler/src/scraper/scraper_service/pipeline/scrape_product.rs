@@ -10,11 +10,12 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
     ExistingSchemaSelection, apply_cached_schemas,
 };
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
-use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
+use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
@@ -270,6 +271,35 @@ impl ScraperServiceImpl {
             Ok(fetched) => {
                 record_transport_success();
                 fetched
+            }
+            // The shop answered with a redirect, so it is responsive; where
+            // the redirect leads decides the outcome, as for a fetched target.
+            Err(FetchError::RedirectDisallowed { final_url }) => {
+                if is_redirect_to_non_product_page(url, &final_url, product_url_pattern) {
+                    record_transport_success();
+                    return Err(ScraperError::ProductListingRemoved {
+                        url: url.clone(),
+                        details: format!(
+                            "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
+                        ),
+                    });
+                }
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    NetworkErrorKind::RobotsDisallowed,
+                    None,
+                    None,
+                );
+                record_transport_success();
+                return Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind: NetworkErrorKind::RobotsDisallowed,
+                    details: format!(
+                        "product URL redirected to a URL robots.txt disallows: final={final_url}"
+                    ),
+                });
             }
             Err(FetchError::Network {
                 kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),

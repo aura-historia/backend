@@ -1,7 +1,7 @@
 use super::*;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind};
 use crate::scraper::scraper_service::domain::product::{DomainFetchHealth, FetchFailureSource};
-use crate::scraper::scraper_service::service::FetchError;
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperError};
 use std::time::Duration;
 

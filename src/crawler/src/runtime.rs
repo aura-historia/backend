@@ -175,12 +175,14 @@ where
         ),
     );
 
-    let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
+    // One fetcher for scraper and review server: both requests count against
+    // the same robots.txt cache and per-domain pacing.
+    let fetcher = Arc::new(ReqwestHtmlFetcher::with_auto_throttle_config(
         cron_config.scraper_auto_throttle_config(),
     ));
     let scraper_svc = Box::new(
         ScraperServiceImpl::new_with_schema_seed_pages(
-            fetcher,
+            Box::new(Arc::clone(&fetcher)),
             Box::new(schema_svc),
             Box::new(normalization_svc),
             Arc::new(
@@ -276,6 +278,7 @@ where
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
         ))),
         review_config,
+        fetcher,
     );
 
     CrawlerRuntime {

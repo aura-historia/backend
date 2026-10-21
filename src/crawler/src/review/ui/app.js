@@ -230,12 +230,34 @@ async function selectReview(id) {
     await loadSelectedReview(true);
 }
 
+const MATRIX_POLL_INTERVAL_MS = 3000;
+
+// A refresh fetches every review page at the shop's robots.txt Crawl-delay, so the server
+// answers 202 while it runs in the background; poll until the matrix or its error arrives.
+async function loadSchemaMatrix(reviewId, refresh) {
+    const matrix = await api(`/api/reviews/${reviewId}/matrix${refresh ? '?refresh=true' : ''}`);
+    return pollSchemaMatrix(reviewId, matrix);
+}
+
+async function pollSchemaMatrix(reviewId, matrix) {
+    if (matrix?.status !== 'refreshing') return matrix;
+    if (selectedId !== reviewId) return null;
+    if (selectedDetail?.review.review_id !== reviewId) {
+        document.getElementById('detail').innerHTML =
+            `<div class="muted">${escapeHtml(matrix.message || 'Refreshing schema matrix…')}</div>`;
+    }
+    await new Promise((resolve) => setTimeout(resolve, MATRIX_POLL_INTERVAL_MS));
+    return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
+}
+
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
-    const detail = await api(`/api/reviews/${selectedId}`);
+    const reviewId = selectedId;
+    const detail = await api(`/api/reviews/${reviewId}`);
     const matrix = detail.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? await api(`/api/reviews/${selectedId}/matrix${refreshMatrix ? '?refresh=true' : ''}`)
+        ? await loadSchemaMatrix(reviewId, refreshMatrix)
         : null;
+    if (selectedId !== reviewId) return;
     selectedDetail = detail;
     selectedMatrix = matrix;
     selectedReviewUpdatedAt = detail.review.updated;

@@ -25,9 +25,22 @@ On Linux the trust store is the system CA bundle (`SSL_CERT_FILE`/`SSL_CERT_DIR`
 
 Every crawler request (spider pages and robots.txt, scraper HTML fetches, image probes, and review live inspection) sends the single user agent `AuraHistoriaBot/<version> (+https://aura-historia.com)`, defined once in the crawler's network module.
 
-- The crawler identifies itself honestly instead of posing as a browser. Spider matches robots.txt groups against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
+- The crawler identifies itself honestly instead of posing as a browser. robots.txt groups are matched against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
-- A 401 or 403 from the crawl root is reported as `AccessDenied` (`crawl_root_access_denied`) with the root status and the user agent in the crawl diagnostics, including when robots.txt was refused first. Spider's own reading of the refusal (a JavaScript challenge, a recognised vendor block) keeps precedence. A refused robots.txt on an otherwise reachable root stays `robots_txt_request_denied`.
+- A 401 or 403 from the crawl root is reported as `AccessDenied` with the root status and the user agent in the crawl diagnostics. Spider's own reading of the refusal (a blocked status, a JavaScript challenge, a recognised vendor block) keeps precedence over the generic `crawl_root_access_denied` reason.
+
+## robots.txt
+
+Spider and scraper honour robots.txt through one RFC 9309 implementation in the crawler's network module:
+
+- The group naming `AuraHistoriaBot` applies, otherwise the `*` groups; the longest matching `Allow`/`Disallow` rule decides and `Allow` wins ties.
+- robots.txt redirects are followed up to five times, to any public host. A 4xx answer other than 429 (401 and 403 included), a redirect to a target the crawler may not request or too many redirects means robots.txt is unavailable and everything is allowed. A 429 or 5xx answer, or a transport failure (body read included) on a redirect target off the shop's host, means robots.txt is unreachable and everything is disallowed. A transport failure on the shop's own host fails the request or crawl like any other transport failure.
+- Percent escapes match regardless of hex case, so `Disallow: /*%2b*` covers `%2B` and `%2b` alike.
+- `Crawl-delay`, capped at 60 seconds, only ever raises the component's own delay between requests.
+
+The scraper checks robots.txt per origin before every HTML request, redirect hops included. It reuses a fetched policy for one hour and an unreachable one for 15 minutes; concurrent requests to an origin share one robots.txt fetch, which counts against the fetch timeouts and is not retried inline, for a redirect hop either. `Crawl-delay` is a minimum spacing between request starts on the shop's domain, bare and `www` host together, and waiting for it does not count against the fetch timeouts. Redirect hops take only the regular pacing delay, inside the attempt timeout. Scraper and review live inspection share one fetcher, so both count against the same spacing; a live inspection gives up after 25 seconds, and a request abandoned while it waits hands its start back. A schema-matrix refresh fetches every review page at that spacing, so it runs in the background, one per review, with a deadline of 90 seconds per page; the matrix endpoint answers `202` while it runs and reports the matrix or the failed fetch on the next poll. A refused URL is not requested: it fails with `RobotsDisallowed` or `RobotsUnreachable`, receives the URL retry cooldown described in [Scheduling and retries](scheduling-and-retries.md#fetch-retries), and neither opens nor closes a domain circuit, since nothing reached the shop. A redirect to a URL robots.txt disallows is judged by its target: a non-product target is a removal, like any redirect to a non-product page.
+
+The spider reads robots.txt once per crawl, after the root preflight. A root robots.txt disallows fails the crawl as `RobotsBlocked`; an unreachable robots.txt fails it as `ServerError`. The Spider library's own robots handling is off, and its only pre-fetch veto is a regex deny list. So the rules reach it as deny-list patterns, which are exact for `Disallow` rules and for literal-prefix `Allow` exceptions; rules that do not compile into a deny list fail the crawl as `RobotsBlocked`. Other `Allow` exceptions are not carved out, so the spider may skip more than robots.txt asks, never less. When such an exception was written for a `Disallow` (its pattern extends the `Disallow`, as Shopify's `Allow: /*/account/login` does), the crawl diagnostics count the rule and `crawler.spider.robots_rules_failing_closed` names it.
 
 ## Resource rails
 

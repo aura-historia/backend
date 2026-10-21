@@ -18,7 +18,9 @@ Spider fetches follow the same bounded inline principle. The crawl-root prefligh
 
 Schema-generation outcomes (exhausted regeneration, failed fresh normalization, rejected classification, pending review, exhausted LLM budget, and generated schemas that fail deterministic validation, recorded as `SchemaGenerationValidationFailed`) give the URL a 30-minute retry cooldown instead of an immediate retry.
 
-After final failure, the crawler records retry metadata and a future `next_retry_at`; it does not hold a worker open. HTTP 404 and 410 are terminal removals. Unsafe targets and other terminal outcomes are not retried immediately. Retryable transport and selected HTTP failures receive a durable cooldown.
+After final failure, the crawler records retry metadata and a future `next_retry_at`; it does not hold a worker open. HTTP 404 and 410 are terminal removals. Unsafe targets and other terminal outcomes are not retried immediately. Retryable transport and selected HTTP failures receive a durable cooldown. A URL robots.txt disallows (`RobotsDisallowed`) is retried after 24 hours; one refused because robots.txt was unreachable (`RobotsUnreachable`) is retried after 15 minutes. Neither is retried inline, and neither affects domain health ([robots.txt](networking.md#robotstxt)). After a `RobotsUnreachable` refusal the rest of the domain batch is deferred, since robots.txt refuses the whole origin.
+
+A domain batch also stops at a wall-clock budget (five minutes by default) and defers its remaining URLs. The pass waits for its slowest domain, so a shop with a long `Crawl-delay` would otherwise hold back every other domain's next pass; such a shop is scraped a few URLs per pass instead.
 
 ## Scraper domain circuits
 
