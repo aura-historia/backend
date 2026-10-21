@@ -313,7 +313,7 @@ pub async fn get_postgres_client() -> PgPool {
 
 /// Test helper representing a plain Postgres database for integration tests.
 ///
-/// Unlike AWS service helpers this helper does **not** use LocalStack. It spins up a real
+/// Unlike AWS service helpers this helper does **not** use Floci. It spins up a real
 /// Postgres Docker container via [`testcontainers`] and manages it independently.
 ///
 /// # Lifecycle
@@ -350,8 +350,8 @@ pub async fn get_postgres_client() -> PgPool {
 ///
 /// # Notes
 ///
-/// - `service_names` returns `&[]` because Postgres is not a LocalStack service. The
-///   `#[aura_integration_test]` macro will still start LocalStack if other services in the same
+/// - `service_names` returns `&[]` because Postgres is not a Floci service. The
+///   `#[aura_integration_test]` macro will still start Floci if other services in the same
 ///   test require it.
 /// - The container is shared across all tests within the same test-suite binary. Only the
 ///   data is reset between tests.
@@ -493,7 +493,7 @@ impl Postgres {
 
 #[async_trait]
 impl IntegrationTestService for Postgres {
-    /// Returns an empty slice because Postgres is managed independently of LocalStack.
+    /// Returns an empty slice because Postgres is managed independently of Floci.
     fn service_names(&self) -> &'static [&'static str] {
         &[]
     }

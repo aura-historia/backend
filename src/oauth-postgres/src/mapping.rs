@@ -11,6 +11,7 @@ use oauth_core::client::{
     InvalidOAuthRedirectUris, OAuthClient, OAuthClientName, OAuthRedirectUris,
     RehydratedOAuthClientState,
 };
+use oauth_core::resource::{AuraResource, InvalidResource};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -28,7 +29,7 @@ pub(crate) const OAUTH_CLIENT_VIEW_COLUMNS: &str = "\
     updated";
 pub(crate) const AUTHORIZATION_CODE_COLUMNS: &str = "\
     authorization_code AS code, client_id, user_id, redirect_uri, scopes, code_challenge, \
-    code_challenge_method, expires_at AS expires";
+    code_challenge_method, resource, expires_at AS expires";
 pub(crate) const THIRD_PARTY_EXCHANGE_CODE_COLUMNS: &str = "\
     third_party_exchange_code AS code, access_token_id, access_token, \
     access_token_expires_at AS access_token_expires, scopes, expires_at AS expires";
@@ -40,6 +41,8 @@ pub(crate) enum OAuthRowMappingError {
     InvalidUrl(#[source] url::ParseError),
     #[error("persisted OAuth redirect URI set is invalid")]
     InvalidRedirectUris(#[source] InvalidOAuthRedirectUris),
+    #[error("persisted OAuth resource is invalid")]
+    InvalidResource(#[source] InvalidResource),
     #[error("persisted OAuth scope is invalid: {0}")]
     InvalidScope(String),
     #[error("persisted OAuth code challenge method is invalid: {0}")]
@@ -129,6 +132,12 @@ impl TryFrom<AuthorizationCodeRow> for AuthorizationCode {
                 redirect_uri: url::Url::parse(&row.redirect_uri)
                     .map_err(OAuthRowMappingError::InvalidUrl)?,
                 scopes: parse_scopes(row.scopes)?,
+                resource: row
+                    .resource
+                    .as_deref()
+                    .map(AuraResource::try_from)
+                    .transpose()
+                    .map_err(OAuthRowMappingError::InvalidResource)?,
                 code_challenge: OAuthCodeChallenge::from(row.code_challenge),
                 code_challenge_method: parse_code_challenge_method(&row.code_challenge_method)?,
                 expires: row.expires,
@@ -306,9 +315,26 @@ mod tests {
             user_id,
             redirect_uri: "https://client.example/callback".to_owned(),
             scopes: vec![],
+            resource: None,
             code_challenge: "challenge".to_owned(),
             code_challenge_method: "S256".to_owned(),
             expires: time::OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_resource_instead_of_using_the_legacy_default() {
+        for resource in [
+            "",
+            "https://foreign.example",
+            "https://mcp.aura-historia.com/v1#fragment",
+        ] {
+            let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+            row.resource = Some(resource.to_owned());
+            assert!(matches!(
+                AuthorizationCode::try_from(row),
+                Err(OAuthRowMappingError::InvalidResource(_))
+            ));
         }
     }
 

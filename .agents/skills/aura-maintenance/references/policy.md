@@ -73,7 +73,7 @@ for corrupt state or edit requirements merely to match implementation.
 
 ## Execution and verification
 
-Read fixtures before running even Rust library tests: PostgreSQL, Docker and LocalStack
+Read fixtures before running even Rust library tests: PostgreSQL, Docker and Floci
 may be real dependencies. Cargo build scripts/proc macros, npm scripts and CDK synth
 execute code. Validate isolation, test credentials, endpoint scope, metadata-service access
 and credential files. Flags and credential-variable removal are not isolation. Use Cargo

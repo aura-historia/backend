@@ -1,42 +1,31 @@
+use super::types::{SearchFilterMatchesData, SearchFilterMatchesQuery};
 use super::util::{no_store, parse_json_query, parse_search_filter_id};
-use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR};
-use crate::product_listings::product_data::{
-    PersonalizedProductListingDetailsData, personalized_product_details_data,
+use crate::{
+    auth::protected_context,
+    error::{ApiError, BAD_QUERY_PARAMETER_VALUE},
+    state::SearchFiltersState,
 };
-use crate::state::SearchFiltersState;
-use crate::wire::parse_query_object_id;
-use axum::Json;
-use axum::extract::{Path, RawQuery, State};
-use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
-use localization::Language;
-use money::Currency;
-
-use crate::pagination_data::JsonCursoredData;
-use application::pagination::{Cursor, CursoredResult};
-use domain_primitives::sort::SortOrder;
-use product_listing_core::product_listing_id::ProductListingId;
-use search_filter_service::ports::SearchFilterMatchCursor;
-use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
+use axum::{
+    Json,
+    extract::{Path, RawQuery, State},
+    http::HeaderMap,
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListSearchFilterMatchesQuery {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-    #[serde(default)]
-    size: Option<SearchFilterMatchPageSize>,
+    #[serde(flatten)]
+    query: SearchFilterMatchesQuery,
     #[serde(default)]
     search_after: Option<String>,
+    // serde_qs scalar coercion is lost inside Serde's flattened map. Keep the
+    // original numeric extractor at the HTTP boundary, then reuse shared paging.
+    #[serde(default)]
+    size: Option<SearchFilterMatchPageSize>,
 }
-
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(transparent)]
 struct SearchFilterMatchPageSize(u64);
@@ -48,127 +37,96 @@ pub(super) async fn list_search_filter_matches(
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let search_filter_id = match parse_search_filter_id(&raw_search_filter_id) {
-        Ok(value) => value,
+        Ok(id) => id,
         Err(response) => return response,
     };
-    let query: ListSearchFilterMatchesQuery =
+    let mut query: ListSearchFilterMatchesQuery =
         match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
-            Ok(value) => value,
+            Ok(query) => query,
             Err(error) => {
                 return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
                     .with_detail(error.to_string())
                     .into_response();
             }
         };
-    let cursor = match matches_cursor(query.size, query.search_after.as_deref()) {
-        Ok(cursor) => cursor,
+    query.query.size = query.size.map(|size| size.0);
+    let search_after = match query
+        .search_after
+        .as_deref()
+        .map(|raw| parse_json_query::<Value>(raw, "searchAfter"))
+        .transpose()
+    {
+        Ok(value) => value,
         Err(error) => return error.into_response(),
+    };
+    let cursor = match query.query.cursor(search_after) {
+        Ok(cursor) => cursor,
+        Err(error) => return ApiError::from(error).into_response(),
     };
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
+    let request = search_filter_service::use_cases::ListSearchFilterMatchesRequest {
+        user_id,
+        search_filter_id,
+        language: query.query.language,
+        currency: query.query.currency,
+        cursor: Some(cursor),
+        order: domain_primitives::sort::SortOrder::Asc,
+    };
     match state
         .list_search_filter_matches
-        .execute(
-            &context,
-            ListSearchFilterMatchesRequest {
-                user_id,
-                search_filter_id,
-                language: query.language,
-                currency: query.currency,
-                cursor: Some(cursor),
-                order: SortOrder::Asc,
-            },
-        )
+        .execute(&context, request)
         .await
     {
-        Ok(result) => {
-            let search_after = match result
-                .cursor
-                .search_after
-                .map(matches_cursor_value)
-                .transpose()
-            {
-                Ok(value) => value,
-                Err(error) => return error.into_response(),
-            };
-            no_store(
-                Json(
-                    JsonCursoredData::<PersonalizedProductListingDetailsData>::from(
-                        CursoredResult {
-                            items: result
-                                .items
-                                .into_iter()
-                                .map(personalized_product_details_data)
-                                .collect(),
-                            cursor: Cursor {
-                                size: result.cursor.size,
-                                search_after,
-                            },
-                            total: result.total,
-                        },
-                    ),
-                )
-                .into_response(),
-            )
-        }
+        Ok(result) => match SearchFilterMatchesData::try_from(result) {
+            Ok(data) => no_store(Json(data).into_response()),
+            Err(error) => ApiError::from(error).into_response(),
+        },
         Err(error) => ApiError::from(error).into_response(),
     }
-}
-
-fn matches_cursor(
-    size: Option<SearchFilterMatchPageSize>,
-    search_after: Option<&str>,
-) -> Result<Cursor<SearchFilterMatchCursor>, ApiError> {
-    let size = size.map_or(21, |value| value.0).clamp(1, 100);
-    let search_after = search_after.map(parse_matches_cursor).transpose()?;
-    Ok(Cursor { size, search_after })
-}
-
-fn parse_matches_cursor(raw: &str) -> Result<SearchFilterMatchCursor, ApiError> {
-    let value: Value = parse_json_query(raw, "searchAfter")?;
-    let Value::Array(values) = value else {
-        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail("searchAfter must be a JSON array containing timestamp and product ID."));
-    };
-    let [Value::String(created), Value::String(product_listing_id)] = values.as_slice() else {
-        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail("searchAfter must contain an RFC3339 timestamp and ProductListing ID."));
-    };
-    let created = OffsetDateTime::parse(created, &Rfc3339).map_err(|error| {
-        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail(error.to_string())
-    })?;
-    let product_listing_id = parse_query_object_id::<ProductListingId>(
-        product_listing_id,
-        "searchAfter",
-        "ProductListing",
-    )?;
-    Ok(SearchFilterMatchCursor {
-        created,
-        product_listing_id,
-    })
-}
-
-fn matches_cursor_value(cursor: SearchFilterMatchCursor) -> Result<Value, ApiError> {
-    cursor
-        .created
-        .format(&Rfc3339)
-        .map(|created| json!([created, cursor.product_listing_id]))
-        .map_err(|_| {
-            ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
-                .with_detail("Search-filter match cursor failed internally.")
-        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aura_historia_contracts::saved_searches::matches_cursor_value;
     use listing_source_core::ListingSourceId;
+    use localization::Language;
+    use money::Currency;
+    use product_listing_core::product_listing_id::ProductListingId;
+    use serde_json::json;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    fn matches_cursor(
+        size: Option<u64>,
+        search_after: Option<&str>,
+    ) -> Result<
+        application::pagination::Cursor<search_filter_service::ports::SearchFilterMatchCursor>,
+        ApiError,
+    > {
+        let value = search_after
+            .map(|raw| parse_json_query(raw, "searchAfter"))
+            .transpose()?;
+        let query = SearchFilterMatchesQuery {
+            language: Language::En,
+            currency: Currency::Eur,
+            size,
+        };
+        Ok(query
+            .into_request(Default::default(), Default::default(), value)?
+            .cursor
+            .unwrap())
+    }
+    fn parse_matches_cursor(
+        raw: &str,
+    ) -> Result<search_filter_service::ports::SearchFilterMatchCursor, ApiError> {
+        aura_historia_contracts::saved_searches::parse_matches_cursor(parse_json_query(
+            raw,
+            "searchAfter",
+        )?)
+        .map_err(Into::into)
+    }
 
     #[test]
     fn should_default_match_currency_to_eur_and_parse_requested_currency()
@@ -177,8 +135,8 @@ mod tests {
         let requested_query: ListSearchFilterMatchesQuery =
             crate::wire::from_query_str("currency=USD")?;
 
-        assert_eq!(Currency::Eur, default_query.currency);
-        assert_eq!(Currency::Usd, requested_query.currency);
+        assert_eq!(Currency::Eur, default_query.query.currency);
+        assert_eq!(Currency::Usd, requested_query.query.currency);
         Ok(())
     }
 
@@ -186,15 +144,91 @@ mod tests {
     fn should_clamp_match_page_size_after_defaulting() -> Result<(), Box<dyn std::error::Error>> {
         for (size, expected) in [
             (None, 21),
-            (Some(SearchFilterMatchPageSize(0)), 1),
-            (Some(SearchFilterMatchPageSize(1)), 1),
-            (Some(SearchFilterMatchPageSize(21)), 21),
-            (Some(SearchFilterMatchPageSize(100)), 100),
-            (Some(SearchFilterMatchPageSize(101)), 100),
+            (Some(0), 1),
+            (Some(1), 1),
+            (Some(21), 21),
+            (Some(100), 100),
+            (Some(101), 100),
         ] {
             assert_eq!(expected, matches_cursor(size, None)?.size);
         }
         Ok(())
+    }
+
+    #[test]
+    fn should_parse_numeric_page_size_before_flattening_shared_presentation() {
+        for (raw, expected) in [("size=0", 0), ("size=1", 1), ("size=101", 101)] {
+            let parsed: ListSearchFilterMatchesQuery = crate::wire::from_query_str(raw).unwrap();
+            assert_eq!(expected, parsed.size.unwrap().0);
+        }
+    }
+
+    #[test]
+    fn should_decode_all_match_query_members_with_form_encoded_continuation() {
+        let product_listing_id = ProductListingId::new();
+        let created = "2026-10-21T12:00:00.123456789+02:00";
+        let cursor = json!([created, product_listing_id]).to_string();
+        let raw = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("language", "de-CH")
+            .append_pair("currency", "JPY")
+            .append_pair("size", &u64::MAX.to_string())
+            .append_pair("searchAfter", &cursor)
+            .finish();
+        let mut parsed: ListSearchFilterMatchesQuery = crate::wire::from_query_str(&raw).unwrap();
+        parsed.query.size = parsed.size.map(|size| size.0);
+        let search_after = parsed
+            .search_after
+            .map(|raw| parse_json_query(&raw, "searchAfter").unwrap());
+        let request = parsed
+            .query
+            .into_request(Default::default(), Default::default(), search_after)
+            .unwrap();
+        assert_eq!(Language::De, request.language);
+        assert_eq!(Currency::Jpy, request.currency);
+        let cursor = request.cursor.unwrap();
+        assert_eq!(100, cursor.size);
+        let cursor = cursor.search_after.unwrap();
+        assert_eq!(product_listing_id, cursor.product_listing_id);
+        assert_eq!(
+            OffsetDateTime::parse(created, &Rfc3339).unwrap(),
+            cursor.created
+        );
+    }
+
+    #[test]
+    fn should_preserve_match_cursor_formatting_cause_without_changing_safe_http_error() {
+        use std::error::Error;
+
+        let cursor = search_filter_service::ports::SearchFilterMatchCursor {
+            created: time::Date::from_calendar_date(-1, time::Month::January, 1)
+                .unwrap()
+                .midnight()
+                .assume_utc(),
+            product_listing_id: ProductListingId::new(),
+        };
+        let error = ApiError::from(matches_cursor_value(cursor).unwrap_err());
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .source()
+                .unwrap()
+                .downcast_ref::<time::error::Format>()
+                .is_some()
+        );
+        assert_eq!(
+            "HTTP 500 - SEARCH_FILTER_INTERNAL_ERROR: Search-filter match cursor failed internally.",
+            error.to_string()
+        );
+        assert_eq!(
+            json!({
+                "status": 500,
+                "title": "Internal Server Error",
+                "error": "SEARCH_FILTER_INTERNAL_ERROR",
+                "detail": "Search-filter match cursor failed internally."
+            }),
+            serde_json::to_value(error).unwrap()
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use aws_sdk_sqs::types::QueueAttributeName as A;
 use std::sync::LazyLock;
 use test_api::{
-    IntegrationTestService, Sqs, SqsQueuePair, WorkerSqs, aura_integration_test, get_sqs_client,
-    localstack,
+    IntegrationTestService, Sqs, SqsQueuePair, WorkerSqs, aura_integration_test, aws,
+    get_sqs_client,
 };
 
 static UNIQUE_A: LazyLock<SqsQueuePair> = LazyLock::new(|| SqsQueuePair::unique("scoped-cleanup"));
@@ -12,7 +12,7 @@ const SQS: Sqs = Sqs { name: "test_sqs" };
 
 #[aura_integration_test(services = [SQS])]
 async fn should_run_without_errors() {
-    assert!(SQS.queue_url().starts_with(localstack::get_endpoint_url()));
+    assert!(SQS.queue_url().starts_with(aws::get_endpoint_url()));
 }
 
 #[aura_integration_test(services = [SQS, &*UNIQUE_A, &*UNIQUE_B])]
@@ -110,7 +110,7 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
         assert_eq!(
             format!(
                 "{}/000000000000/aura-worker-{scope}-test{suffix}",
-                localstack::get_endpoint_url()
+                aws::get_endpoint_url()
             ),
             queues.queue_url()
         );

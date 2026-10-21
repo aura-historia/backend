@@ -1,13 +1,16 @@
 use application::error::BoxError;
 use bloomfilter::Bloom;
+use regex::{Regex, RegexSet};
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
+use spider::CaseInsensitiveString;
 use spider::page::AntiBotTech;
 use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
 use spider::utils::auto_throttle::AutoThrottleConfig;
 use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::borrow::Cow;
+use std::collections::{HashSet, VecDeque};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
@@ -202,6 +205,8 @@ pub struct CrawlDiagnostics {
     /// Pages emitted downstream after local filtering.
     pub accepted: usize,
     pub rejected_host: usize,
+    /// Pages refused by the URL blacklist, including links whose decoded form an admission
+    /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
     /// How robots.txt applied to the crawl: `rules` or
@@ -702,6 +707,54 @@ fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> 
     })
 }
 
+/// Decodes HTML character references in the links Spider finds. Spider reads `href` values
+/// raw, so `?c=&amp;id=113` would otherwise be requested with an `amp;id` parameter and
+/// answered with the wrong page. Spider has already resolved the link against the page URL, so
+/// this fixes references in the query and path text, not references that encode URL structure.
+///
+/// Spider admits a link (host whitelist, URL blacklist, robots.txt) on that raw text before it
+/// calls the decoder, so the decoded URL is only handed back when it passes the same rules.
+/// Otherwise Spider fetches the raw link it admitted, and the filter task drops it.
+struct FoundLinkDecoder {
+    host_whitelist: Regex,
+    /// Spider's URL deny list: the URL blacklist and the robots.txt rules.
+    deny_list: RegexSet,
+    refused: RefusedLinks,
+}
+
+/// Raw links whose decoded form the decoder refused, shared with the filter task.
+type RefusedLinks = Arc<Mutex<HashSet<String>>>;
+
+fn is_refused_link(refused: &RefusedLinks, url: &str) -> bool {
+    refused
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(url)
+}
+
+impl FoundLinkDecoder {
+    fn decode(&self, link: CaseInsensitiveString) -> CaseInsensitiveString {
+        let Cow::Owned(decoded) = html_escape::decode_html_entities(link.inner()) else {
+            return link;
+        };
+        // Judge the URL in the form reqwest requests.
+        match Url::parse(&decoded) {
+            Ok(url) if self.admits(url.as_str()) => String::from(url).into(),
+            _ => {
+                self.refused
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(link.inner().to_string());
+                link
+            }
+        }
+    }
+
+    fn admits(&self, url: &str) -> bool {
+        self.host_whitelist.is_match(url) && !self.deny_list.is_match(url)
+    }
+}
+
 impl SpiderImpl {
     async fn crawl_with_body_limit(
         &self,
@@ -733,9 +786,14 @@ impl SpiderImpl {
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
+        let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
+            SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
+        })?;
         let robots =
             admit_crawl(self.transport.as_ref(), &root_url, &client, request_timeout).await?;
         let delay_millis = crawl_delay_millis(self.config.delay_millis, robots.crawl_delay);
+        let refused_links = RefusedLinks::default();
+        let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client);
 
@@ -749,12 +807,12 @@ impl SpiderImpl {
         );
         // Spider silently drops a deny list that fails to compile, which
         // would drop robots.txt with it.
-        if regex::RegexSet::new(&blacklist_regex).is_err() {
-            return Err(SpiderDiscoveryError::preflight(
+        let deny_list = RegexSet::new(&blacklist_regex).map_err(|_| {
+            SpiderDiscoveryError::preflight(
                 CrawlFailureKind::RobotsBlocked,
                 "robots.txt rules do not compile into Spider's deny list",
-            ));
-        }
+            )
+        })?;
         let auto_throttle_config = AutoThrottleConfig {
             min_delay_ms: delay_millis,
             max_delay_ms: 60_000,
@@ -790,6 +848,14 @@ impl SpiderImpl {
         let max_pages_per_crawl = self.config.max_pages_per_crawl;
         tokio::spawn(async move {
             let started = tokio::time::Instant::now();
+            let link_decoder = FoundLinkDecoder {
+                host_whitelist: host_whitelist_regex,
+                deny_list,
+                refused: decoder_refused_links,
+            };
+            website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
+                (link_decoder.decode(link), html)
+            })));
             website.crawl().await;
             let outcome = LibraryOutcome {
                 completion: crawl_completion(
@@ -877,6 +943,11 @@ impl SpiderImpl {
                 }
 
                 let raw_url = page.get_url();
+
+                if is_refused_link(&refused_links, raw_url) {
+                    diagnostics.rejected_blacklist += 1;
+                    continue;
+                }
 
                 let Ok(parsed) = url::Url::parse(raw_url) else {
                     diagnostics.rejected_host += 1;
@@ -1110,6 +1181,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::robots::RobotsRules;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1451,6 +1523,164 @@ mod tests {
         assert_eq!(diagnostics.rejected_host, 0);
         assert_eq!(diagnostics.lagged, 0);
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
+        match target {
+            "/robots.txt" => {
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /private/\n".to_string())
+            }
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html>
+                    <a href="/single.asp?c=&amp;offset=20&amp;id=113">Product</a>
+                    <a href="/shop?currency=EUR&amp;page=8">Currency page</a>
+                    <a href="/index.php?category=26245&amp;page=3">Category page</a>
+                    <a href="/literal?x=1&y=2">Literal ampersand</a>
+                    <a href="/encoded?q=a%26b">Percent-encoded ampersand</a>
+                    <a href="/private&sol;page">Robots-disallowed once decoded</a>
+                    <a href="/post?p=1&amp;replytocom=55">Blacklisted once decoded</a>
+                    <a href="/double?cat=5&amp;amp;page=2">Double-encoded</a>"#
+                    .to_string(),
+            ),
+            _ => SiteResponse::Html("200 OK", "<p>page</p>".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_fetch_and_emit_entity_decoded_urls_when_hrefs_carry_html_entities() {
+        let site = TestSite::spawn(Arc::new(entity_encoded_href_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let request_log = site.finish().await;
+
+        let expected = [
+            "http://example.com/single.asp?c=&id=113&offset=20",
+            "http://example.com/shop?currency=EUR&page=8",
+            "http://example.com/index.php?category=26245&page=3",
+            "http://example.com/literal?x=1&y=2",
+            "http://example.com/encoded?q=a%26b",
+            // Decoded once, as a browser does; the shop answers the same URL.
+            "http://example.com/double?amp;page=2&cat=5",
+        ];
+        for url in expected {
+            assert!(discovered.contains(url), "missing {url} in {discovered:?}");
+        }
+        // The shop must receive the decoded query, or it renders the wrong page
+        // and every link discovered from it inherits the mistake.
+        for target in [
+            "/single.asp?c=&offset=20&id=113",
+            "/shop?currency=EUR&page=8",
+            "/index.php?category=26245&page=3",
+        ] {
+            assert!(
+                request_log
+                    .iter()
+                    .any(|(_, requested, ..)| requested == target),
+                "missing request for {target}: {request_log:?}"
+            );
+        }
+        // Decoding never turns a link Spider admitted into one that robots.txt or the
+        // blacklist refuses.
+        assert!(
+            !request_log
+                .iter()
+                .any(|(_, target, ..)| target.starts_with("/private/")
+                    || target.contains("&replytocom=")),
+            "decoded URL bypassed robots.txt or the blacklist: {request_log:?}"
+        );
+        // Spider still fetches the raw links the decoder refused, but they are never emitted.
+        assert!(
+            !discovered
+                .iter()
+                .any(|url| url.contains("replytocom") || url.contains("sol;")),
+            "refused link emitted: {discovered:?}"
+        );
+        assert_eq!(diagnostics.rejected_blacklist, 2, "{diagnostics:?}");
+    }
+
+    fn link_decoder_with_robots(robots_txt: &str) -> FoundLinkDecoder {
+        let root = Url::parse("https://www.example.com/").unwrap();
+        let mut deny_list: Vec<String> = CrawledUrl::blacklist_patterns()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        deny_list.extend(RobotsRules::parse(robots_txt).deny_list().patterns);
+        FoundLinkDecoder {
+            host_whitelist: Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
+            deny_list: RegexSet::new(deny_list).unwrap(),
+            refused: RefusedLinks::default(),
+        }
+    }
+
+    fn decode_link(decoder: &FoundLinkDecoder, link: &str) -> String {
+        decoder.decode(link.into()).inner().to_string()
+    }
+
+    #[test]
+    fn link_decoder_should_decode_character_references_seen_on_shops() {
+        let decoder = link_decoder_with_robots("");
+
+        for (link, expected) in [
+            (
+                "https://www.example.com/single.asp?c=&amp;offset=20&amp;id=113",
+                "https://www.example.com/single.asp?c=&offset=20&id=113",
+            ),
+            (
+                "https://www.example.com/shop?currency=EUR&amp;page=8",
+                "https://www.example.com/shop?currency=EUR&page=8",
+            ),
+            (
+                "https://www.example.com/index.php?category=26245&amp;page=3",
+                "https://www.example.com/index.php?category=26245&page=3",
+            ),
+            // The decoded URL is returned in the form reqwest requests.
+            (
+                "https://www.example.com/caf&eacute;?a=1&amp;b=2",
+                "https://www.example.com/caf%C3%A9?a=1&b=2",
+            ),
+            (
+                "https://www.example.com/literal?x=1&y=2",
+                "https://www.example.com/literal?x=1&y=2",
+            ),
+            (
+                "https://www.example.com/encoded?q=a%26b",
+                "https://www.example.com/encoded?q=a%26b",
+            ),
+        ] {
+            assert_eq!(decode_link(&decoder, link), expected);
+        }
+    }
+
+    #[test]
+    fn link_decoder_should_keep_raw_link_when_decoded_url_breaks_an_admission_rule() {
+        let decoder =
+            link_decoder_with_robots("User-agent: *\nDisallow: /private/\nDisallow: /admin\n");
+
+        for link in [
+            // robots.txt, which Spider matches on the path only
+            "https://www.example.com/private&sol;page",
+            // URL blacklist
+            "https://www.example.com/post?p=1&amp;replytocom=55",
+            // judged on the requested form, where `\..\` collapses to `/admin`
+            "https://www.example.com/a&bsol;..&bsol;admin",
+        ] {
+            assert_eq!(decode_link(&decoder, link), link);
+            assert!(
+                is_refused_link(&decoder.refused, link),
+                "{link} not recorded"
+            );
+        }
+    }
+
+    #[test]
+    fn link_decoder_should_decode_backslash_reference_like_a_literal_backslash() {
+        let decoder = link_decoder_with_robots("");
+        let link = "https://www.example.com/a&bsol;..&bsol;admin";
+
+        assert_eq!(decode_link(&decoder, link), "https://www.example.com/admin");
+        assert!(!is_refused_link(&decoder.refused, link));
     }
 
     #[test]

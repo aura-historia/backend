@@ -1,28 +1,16 @@
-use super::types::{PatchWatchlistData, watchlist_state};
+use super::types::PatchWatchlistData;
 use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE};
-use crate::patch_value::non_nullable_option;
+use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use crate::product_listings::product_data::personalized_product_details_data;
 use crate::state::WatchlistState;
 use crate::wire::parse_path_object_id;
+use aura_historia_contracts::product_listings::presentation::ProductListingPresentationData;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use localization::Language;
-use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
-use serde::Deserialize;
-use watchlist_service::use_cases::UpdateWatchlistProductListingCommand;
-
-#[derive(Debug, Deserialize)]
-struct PatchWatchlistQuery {
-    #[serde(default, with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-}
 
 pub async fn patch_watchlist(
     State(state): State<WatchlistState>,
@@ -31,7 +19,7 @@ pub async fn patch_watchlist(
     RawQuery(raw_query): RawQuery,
     body: String,
 ) -> Response {
-    let query: PatchWatchlistQuery =
+    let query: ProductListingPresentationData =
         match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
@@ -56,29 +44,15 @@ pub async fn patch_watchlist(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let notifications = match non_nullable_option(data.notifications, "notifications") {
-        Ok(notifications) => notifications,
-        Err(error) => return error.into_response(),
+    let command = match data.into_command(user_id, product_listing_id, query) {
+        Ok(command) => command,
+        Err(error) => {
+            return ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
     };
-    let state_field = match non_nullable_option(data.state, "state") {
-        Ok(state_field) => state_field.map(watchlist_state),
-        Err(error) => return error.into_response(),
-    };
-    match state
-        .update_watchlist_product
-        .execute(
-            &ctx,
-            UpdateWatchlistProductListingCommand {
-                user_id,
-                product_listing_id,
-                notifications,
-                state: state_field,
-                language: query.language,
-                currency: query.currency,
-            },
-        )
-        .await
-    {
+    match state.update_watchlist_product.execute(&ctx, command).await {
         Ok(result) => {
             no_store(Json(personalized_product_details_data(result.product)).into_response())
         }
@@ -100,7 +74,8 @@ mod tests {
     use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
-    use localization::Localized;
+    use localization::{Language, Localized};
+    use money::Currency;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
         product_listing::ProductListingPricing, source_listing_id::SourceListingId, title::Title,
@@ -122,10 +97,10 @@ mod tests {
     use watchlist_service::use_cases::{
         ListWatchlistError, ListWatchlistRequest, ListWatchlistResult, ListWatchlistUseCase,
         UnwatchProductListingCommand, UnwatchProductListingError, UnwatchProductListingResult,
-        UnwatchProductListingUseCase, UpdateWatchlistProductListingError,
-        UpdateWatchlistProductListingResult, UpdateWatchlistProductListingUseCase,
-        WatchProductListingCommand, WatchProductListingError, WatchProductListingResult,
-        WatchProductListingUseCase,
+        UnwatchProductListingUseCase, UpdateWatchlistProductListingCommand,
+        UpdateWatchlistProductListingError, UpdateWatchlistProductListingResult,
+        UpdateWatchlistProductListingUseCase, WatchProductListingCommand, WatchProductListingError,
+        WatchProductListingResult, WatchProductListingUseCase,
     };
 
     type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;

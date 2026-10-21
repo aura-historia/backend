@@ -129,6 +129,8 @@ describe("API CloudFront Web ACL", () => {
       "POST /v1/admin/oauth-clients",
       "POST /v1/oauth/token",
     ]);
+    // Public AS metadata needs no URI-bearing input; only the existing exact OAuth
+    // authorize/token paths carry resource and callback URIs through these checks.
     for (const outside of [
       "/v1/admin/oauth-clients/",
       "/v1/admin/oauth-clients/oc_01m5avv95qeyj84c66cn827eyh/",
@@ -140,6 +142,8 @@ describe("API CloudFront Web ACL", () => {
       "/v1/oauth/%74oken",
       "//v1/oauth/token",
       "/v1/oauth/authorize/../../me",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/",
       "/v1/oauth/revoke",
       "/v1/oauth/introspect",
       "/v1/oauth/clients/oc_01m5avv95qeyj84c66cn827eyh",

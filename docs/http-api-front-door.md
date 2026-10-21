@@ -124,6 +124,19 @@ Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits
 misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
 them. Configured CloudFront error TTLs are zero; application errors are also no-store.
 
+### OAuth authorization-server metadata
+
+The exact public `GET /.well-known/oauth-authorization-server` route belongs to the closed
+REST route catalog and requires neither bearer nor client credentials. It uses the
+CloudFront default cache-disabled behavior and origin `no-store` headers. OAuth credential
+responses and protocol errors use `no-store` and `Pragma: no-cache`. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
+and selects the same closed resource policy. Discovery, protocol errors and fixed-client
+setup are owned by the [OAuth contract](oauth.md).
+
+Metadata requires no URI-bearing request input and receives no WAF exemption. OAuth
+`resource` and callback URIs continue through the existing exact authorization/token path
+exceptions; unrelated paths retain the counted URL-target blocks.
+
 ## MCP front door
 
 MCP uses a separate Gateway, Lambda `live` alias, CloudFront distribution and Web ACL.
@@ -133,8 +146,8 @@ independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths onl
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
 The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
-`/.well-known/oauth-protected-resource/v1` are reserved for hybrid authentication;
-the foundation shell returns `404`, without fabricated OAuth metadata. No proxy,
+`/.well-known/oauth-protected-resource/v1` serve the
+[protected-resource metadata](mcp.md#operation-families-and-admission). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -209,17 +222,18 @@ curl -i "$mcp_origin/v1" \
 ```
 
 Require readiness `204`, a supported initialization result and successful discovery.
-The foundation registry is deliberately empty: `tools/list` returns `tools: []` and
-`ping` is the bounded public protocol call. After public families are released, also
+Compare `tools/list` with the release's disjoint public/authenticated manifests and
 call one actual listed public tool with bounded inputs and verify its complete
-result; do not install a synthetic production tool to make the smoke pass. Complete
+result. The [generic OAuth/MCP runbook](mcp.md#generic-oauth-acceptance-and-stage-smoke)
+provides a bounded optional command and a separate delegated-read check. Complete
 these checks before approving traffic:
 
 | Probe | Required result |
 | --- | --- |
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
-| Both reserved metadata paths; an unrelated `/v1/me` path | `404`, no REST response or invented metadata |
+| Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
+| An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |
 | Wrong Content-Type, unacceptable Accept, duplicate routing/credential headers | `415`, `406`, or `400`; no dispatch |
@@ -257,8 +271,9 @@ Coordinate these externally owned settings with the backend development cutover:
   generated operation paths already include `/v1`. Verify login, consent metadata,
   approval and code/token exchange end to end. Webapp-owned `/api/...` routes and client
   callback URLs are independent; change a callback only if it targets a renamed backend route.
-- Advertise Aura's authorization endpoint at `/v1/oauth/authorize` and token endpoint at
-  `/v1/oauth/token`, using the environment's API origin. Do not change provider OAuth URLs.
+- Aura discovery advertises the environment's webapp `/en/oauth/authorize` consent entry
+  and the API `/v1/oauth/token` endpoint. Backend consent approval uses `/v1/oauth/authorize`;
+  see the [OAuth contract](oauth.md). Do not change provider OAuth URLs.
 - Update each registered WooCommerce delivery URL to the API origin plus
   `/v1/webhooks/woocommerce/{listingSourceId}` and the signed Loops preference endpoint to
   `/v1/webhooks/loops`. Preserve provider authentication, signing secrets, delivery identity

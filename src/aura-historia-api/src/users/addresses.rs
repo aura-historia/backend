@@ -1,3 +1,10 @@
+#[cfg(test)]
+use aura_historia_contracts::users::destination::DestinationData;
+use aura_historia_contracts::users::{
+    addresses::{AddressData, CreateData, ExpectedData, PageData, PageQuery, UpdateData},
+    destination::{DestinationResponse, SetDestinationData},
+};
+
 use crate::{
     auth::protected_context,
     error::{
@@ -5,7 +12,6 @@ use crate::{
         BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, CONFLICT, FORBIDDEN, INVALID_CREDENTIALS,
         USER_ADDRESS_NOT_FOUND,
     },
-    parties::locations::{GeographyData, PositionData},
     state::UserAddressesState,
     wire::parse_path_object_id,
 };
@@ -15,14 +21,17 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use geo::{DerivedGeography, PostalCode, country_from_code, reference::ReferenceRelease};
 use geo_service::resolution::ResolutionError;
-use serde::{Deserialize, Serialize};
 use user_core::user_address::*;
 use user_service::address_book::*;
 
 fn bad() -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE).with_detail("Invalid address book input.")
+}
+impl From<aura_historia_contracts::users::destination::InvalidDestinationData> for ApiError {
+    fn from(_: aura_historia_contracts::users::destination::InvalidDestinationData) -> Self {
+        bad()
+    }
 }
 fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
     serde_json::from_str(body).map_err(|_| bad())
@@ -42,138 +51,18 @@ impl From<AddressBookError> for ApiError {
             | AddressBookError::Resolution(ResolutionError::Conflict) => Self::conflict(CONFLICT),
             AddressBookError::InvalidInput
             | AddressBookError::Resolution(ResolutionError::InvalidInput) => bad(),
-            AddressBookError::Storage(_)
+            error @ (AddressBookError::Storage(_)
             | AddressBookError::Transaction(_)
             | AddressBookError::Resolution(
                 ResolutionError::Storage(_) | ResolutionError::Transaction(_),
-            ) => Self::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE),
-            _ => Self::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR),
+            )) => Self::service_unavailable(ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE)
+                .with_cause(Box::new(error)),
+            error => {
+                Self::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR).with_cause(Box::new(error))
+            }
         }
     }
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CreateData {
-    label: String,
-    geography: GeographyData,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct UpdateData {
-    expected_version: u64,
-    label: String,
-    geography: GeographyData,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ExpectedData {
-    expected_version: u64,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AddressData {
-    address_id: UserAddressId,
-    label: String,
-    geography: GeographyData,
-    input_revision: u64,
-    version: u64,
-    preferred: bool,
-    resolution: AddressResolutionData,
-}
-impl From<UserAddressView> for AddressData {
-    fn from(v: UserAddressView) -> Self {
-        Self {
-            address_id: v.id,
-            label: v.label.as_str().into(),
-            geography: v.geography.into(),
-            input_revision: v.input_revision,
-            version: v.version,
-            preferred: v.preferred,
-            resolution: v.resolution.into(),
-        }
-    }
-}
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
-enum DestinationData {
-    // A struct variant so `deny_unknown_fields` applies; serde lets internally tagged unit
-    // variants ignore extra members.
-    None {},
-    Address {
-        #[serde(rename = "addressId")]
-        address_id: UserAddressId,
-    },
-    CountryPostal {
-        country: String,
-        #[serde(rename = "postalCode", default)]
-        postal_code: Option<String>,
-    },
-}
-impl DestinationData {
-    fn into_core(self) -> Result<BrowsingDestination, ApiError> {
-        Ok(match self {
-            Self::None {} => BrowsingDestination::None,
-            Self::Address { address_id } => BrowsingDestination::Address(address_id),
-            Self::CountryPostal {
-                country,
-                postal_code,
-            } => BrowsingDestination::CountryPostal {
-                country: country_from_code(&country, ReferenceRelease::CURRENT)
-                    .map_err(|_| bad())?,
-                postal_code: postal_code
-                    .map(PostalCode::new)
-                    .transpose()
-                    .map_err(|_| bad())?,
-            },
-        })
-    }
-}
-impl From<BrowsingDestination> for DestinationData {
-    fn from(v: BrowsingDestination) -> Self {
-        match v {
-            BrowsingDestination::None => Self::None {},
-            BrowsingDestination::Address(id) => Self::Address { address_id: id },
-            BrowsingDestination::CountryPostal {
-                country,
-                postal_code,
-            } => Self::CountryPostal {
-                country: country.alpha2().into(),
-                postal_code: postal_code.map(|p| p.as_str().to_owned()),
-            },
-        }
-    }
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SetDestinationData {
-    expected_version: u64,
-    destination: DestinationData,
-}
-#[derive(Serialize)]
-struct DestinationResponse {
-    version: u64,
-    destination: DestinationData,
-}
-impl From<DestinationView> for DestinationResponse {
-    fn from(v: DestinationView) -> Self {
-        Self {
-            version: v.version,
-            destination: v.destination.into(),
-        }
-    }
-}
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PageQuery {
-    after: Option<UserAddressId>,
-    limit: Option<u32>,
-}
-#[derive(Serialize)]
-struct PageData {
-    items: Vec<AddressData>,
-    next: Option<UserAddressId>,
-}
-
 pub(crate) async fn create(
     State(s): State<UserAddressesState>,
     headers: HeaderMap,
@@ -185,10 +74,7 @@ pub(crate) async fn create(
     };
     let command = (|| {
         let d: CreateData = parse(&body)?;
-        Ok::<_, ApiError>(CreateUserAddress {
-            label: UserAddressLabel::new(d.label).map_err(|_| bad())?,
-            geography: d.geography.into_core()?,
-        })
+        d.into_command().map_err(ApiError::from)
     })();
     let command = match command {
         Ok(v) => v,
@@ -231,11 +117,7 @@ pub(crate) async fn list(
         Err(_) => return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).into_response(),
     };
     match s.queries.list(&ctx, q.after, q.limit.unwrap_or(25)).await {
-        Ok(v) => Json(PageData {
-            items: v.items.into_iter().map(Into::into).collect(),
-            next: v.next,
-        })
-        .into_response(),
+        Ok(v) => Json(PageData::from(v)).into_response(),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -252,12 +134,7 @@ pub(crate) async fn update(
     let command = (|| {
         let id = parse_path_object_id(&raw, "address_id", "UserAddress")?;
         let d: UpdateData = parse(&body)?;
-        Ok::<_, ApiError>(UpdateUserAddress {
-            id,
-            expected_version: d.expected_version,
-            label: UserAddressLabel::new(d.label).map_err(|_| bad())?,
-            geography: d.geography.into_core()?,
-        })
+        d.into_command(id).map_err(ApiError::from)
     })();
     let c = match command {
         Ok(v) => v,
@@ -332,40 +209,12 @@ pub(crate) async fn set_destination(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
-#[derive(Serialize)]
-struct DerivedData {
-    geography: Option<GeographyData>,
-    position: Option<PositionData>,
-}
-impl From<DerivedGeography> for DerivedData {
-    fn from(v: DerivedGeography) -> Self {
-        Self {
-            geography: v.description().cloned().map(Into::into),
-            position: v.position().map(Into::into),
-        }
-    }
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AddressAttributionData {
-    provider: String,
-    attribution_url: String,
-}
-#[derive(Serialize)]
-struct AddressResolutionData {
-    status: &'static str,
-    derived: Option<DerivedData>,
-    attribution: Option<AddressAttributionData>,
-}
-impl From<UserAddressResolution> for AddressResolutionData {
-    fn from(v: UserAddressResolution) -> Self {
-        Self {
-            status: v.status.as_str(),
-            derived: v.derived.map(Into::into),
-            attribution: v.attribution.map(|a| AddressAttributionData {
-                provider: a.provider,
-                attribution_url: a.attribution_url,
-            }),
+impl From<aura_historia_contracts::users::addresses::InvalidAddressData> for ApiError {
+    fn from(error: aura_historia_contracts::users::addresses::InvalidAddressData) -> Self {
+        use aura_historia_contracts::users::addresses::InvalidAddressData;
+        match error {
+            InvalidAddressData::Label(_) => bad(),
+            InvalidAddressData::Geography(error) => error.into(),
         }
     }
 }

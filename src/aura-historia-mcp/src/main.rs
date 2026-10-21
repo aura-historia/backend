@@ -1,24 +1,47 @@
-use aura_historia_mcp::{AnonymousGate, Registry, TransportConfig, router};
+use aura_historia_mcp::{RotatingMcpRouter, TransportConfig, mcp_router};
+use aura_historia_runtime::{ProductListingConfig, RotatingRuntime, Runtime};
+use platform_lambda_bootstrap::materialize_google_application_credentials_from_env;
 use platform_observability::{LoggingConfig, init_with_directives};
 use std::sync::Arc;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // SDK trace events include protocol messages; private arguments/results must
-    // never enter operational logs, even if another component enables tracing.
-    init_with_directives(LoggingConfig::default(), &["rmcp=off"]);
-    let config = TransportConfig::from_env()?;
-    let address = config.bind_addr;
-    let app = router(config, Registry::default(), Arc::new(AnonymousGate))?;
-    if std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some() {
-        aura_historia_mcp::lambda::run(app).await?;
-    } else {
-        let listener = tokio::net::TcpListener::bind(address).await?;
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown())
-            .await?;
+type MainError = application::error::BoxError;
+
+fn main() -> Result<(), MainError> {
+    let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
+    if is_lambda {
+        // Injected ADC must be prepared before worker threads can read the environment.
+        materialize_google_application_credentials_from_env()?;
     }
-    Ok(())
+    // SDK trace events include protocol messages and must never enter operational logs.
+    init_with_directives(LoggingConfig::default(), &["rmcp=off"]);
+    let transport = TransportConfig::from_env()?;
+    let listing_config = ProductListingConfig::from_env()?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async move {
+            if is_lambda {
+                let app = Arc::new(RotatingMcpRouter::new(
+                    RotatingRuntime::from_env().await?,
+                    transport,
+                    listing_config,
+                ));
+                aura_historia_mcp::lambda::run(move || {
+                    let app = Arc::clone(&app);
+                    async move { app.current().await }
+                })
+                .await?;
+            } else {
+                let address = transport.bind_addr;
+                let runtime = Runtime::from_env().await?;
+                let app = mcp_router(transport, &listing_config, &runtime)?;
+                let listener = tokio::net::TcpListener::bind(address).await?;
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(shutdown())
+                    .await?;
+            }
+            Ok(())
+        })
 }
 
 async fn shutdown() {

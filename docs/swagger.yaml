@@ -18,7 +18,7 @@ info:
     \ tokens created via\n  `/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server\n\
     \  ingestion scenarios.\n\nWhen a route lists multiple security schemes, any one of the listed schemes may be accepted.\n\
     Some read endpoints can also be called without authentication, while a valid user token may enrich\nthe response with\
-    \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## Data and response conventions\n\
+    \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## MCP interface\n\nThe separate `https://mcp.aura-historia.com/v1` Streamable HTTP endpoint accepts opaque Aura access tokens only. Public calls may omit credentials; invalid supplied credentials receive HTTP 401, protected operations require their declared scopes, and insufficient grants receive HTTP 403 with the complete required scope set. Credential-free protected-resource metadata is served on the MCP host at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1`. See [the MCP contract](https://github.com/aura-historia/backend/blob/develop/docs/mcp.md) for protocol and discovery details.\n\n## Data and response conventions\n\
     \n- **PATCH:** an omitted request member remains unchanged. A documented nullable PATCH member\n  accepts `null` to clear\
     \ its value; `null` for any other member returns `400 BAD_BODY_VALUE`.\n  Use `[]`, not `null`, to replace a non-null\
     \ collection with an empty collection. Empty HTTP\n  bodies are invalid, `{}` is a valid object-PATCH no-op, and the partner-product\
@@ -26,8 +26,8 @@ info:
     \ and saved-search match reads accept optional **`language`** and\n  **`currency`** parameters. Currency defaults to `EUR`.\
     \ Detail pricing contains the seller's source\n  amounts, converted display amounts, and FX valuation metadata. Active\
     \ product-listings use the latest persisted\n  snapshot; sold product-listings use their immutable sale snapshot. Product\
-    \ history preserves immutable source values and accepts optional `currency` for historical FX display projections.\n  History text is not localized.\n- Request-wide errors are returned as **`application/problem+json`**\
-    \ using a consistent RFC 9457-style structure\n  with `status`, `title`, `error`, optional `source`, and optional `detail`\n\
+    \ history preserves immutable source values and accepts optional `currency` for historical FX display projections.\n  History text is not localized.\n- Request-wide REST errors are returned as **`application/problem+json`**\
+    \ using a consistent RFC 9457-style structure\n  with `status`, `title`, `error`, optional `source`, and optional `detail`. OAuth protocol errors instead return `application/json` with a standard OAuth `error`\n\
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Origin API responses include\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
@@ -54,6 +54,36 @@ servers:
   - url: https://api.aura-historia.com
     description: Production environment
 paths:
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: Discover the Aura OAuth authorization server
+      description: Public RFC 8414 metadata for fixed confidential clients. The issuer and endpoints use the configured environment; the authorization endpoint is the existing webapp consent URL. No refresh grant, dynamic registration, CIMD or authorization-response issuer parameter is advertised. Broader registered-client scopes remain supported; scopes_supported lists the relevant ordinary user vocabulary. See docs/oauth.md for fixed-client setup.
+      operationId: getOAuthAuthorizationServerMetadata
+      tags:
+        - OAuth
+      security: []
+      responses:
+        "200":
+          description: Public metadata; supplied credentials are not evaluated. CloudFront keeps this exact route uncached.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationServerMetadataData'
+              example:
+                issuer: https://api.aura-historia.com
+                authorization_endpoint: https://aura-historia.com/en/oauth/authorize
+                token_endpoint: https://api.aura-historia.com/v1/oauth/token
+                response_types_supported: [code]
+                response_modes_supported: [query]
+                grant_types_supported: [authorization_code]
+                token_endpoint_auth_methods_supported: [client_secret_post]
+                code_challenge_methods_supported: [S256]
+                scopes_supported: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
   /v1/health:
     get:
       summary: Check process liveness
@@ -3660,6 +3690,23 @@ paths:
           example:
             - IN_STOCK
             - LIMITED_AVAILABILITY
+        - name: orderability
+          in: query
+          required: false
+          description: Optional derived orderability groups. Values are ORed and combine with exact availability assertions.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ListingOrderabilityData"
+            uniqueItems: true
+        - name: includeUnspecifiedAvailability
+          in: query
+          required: false
+          description: Include listings without an availability assertion. Defaults to false when any availability or orderability predicate is supplied.
+          schema:
+            type: boolean
         - name: created
           in: query
           required: false
@@ -10427,6 +10474,20 @@ paths:
             type: string
             format: uri
           example: https://client.example/callback
+        - name: resource
+          in: query
+          required: false
+          description: >-
+            One exact shared Aura resource identifier (RFC 8707). Production accepts
+            https://api.aura-historia.com and https://mcp.aura-historia.com/v1; stage accepts only
+            https://api.stage.aura-historia.com and https://mcp.stage.aura-historia.com/v1.
+            MCP clients must supply the canonical MCP identifier. Omission selects the same-environment
+            shared Aura default (the issuer). Empty, repeated, foreign or noncanonical values fail with
+            400 OAuth invalid_target (invalid_request for other repeated parameters). The resolved value is bound to the authorization code.
+          schema:
+            type: string
+            format: uri
+          example: https://mcp.aura-historia.com/v1
         - name: scope
           in: query
           required: false
@@ -10481,95 +10542,35 @@ paths:
               schema:
                 type: string
               example: no-store
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
         "400":
-          description: Bad request — a required query parameter is missing, malformed, or has an unsupported value.
+          description: Invalid query, unknown client or unregistered callback, unsupported response type, invalid scope or resource. Errors are returned directly; no unvalidated callback redirect is sent.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                missing_response_type:
-                  summary: Missing response_type query parameter
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
-                    source:
-                      field: response_type
-                      type: QUERY
-                    detail: Missing query parameter response_type
+                invalid_request:
+                  value: { error: invalid_request }
                 unsupported_response_type:
-                  summary: Unsupported response_type value
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
-                    source:
-                      field: response_type
-                      type: QUERY
-                    detail: Unsupported response_type 'token'
-                missing_code_challenge:
-                  summary: Missing code_challenge query parameter
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
-                    source:
-                      field: code_challenge
-                      type: QUERY
-                    detail: Missing query parameter code_challenge
-                unsupported_code_challenge_method:
-                  summary: Unsupported code_challenge_method
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
-                    source:
-                      field: code_challenge_method
-                      type: QUERY
-                    detail: Unsupported code_challenge_method 'plain'
+                  value: { error: unsupported_response_type }
                 invalid_scope:
-                  summary: Requested scope not allowed for client
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_INVALID_SCOPE
-                    source:
-                      field: scope
-                      type: QUERY
-                    detail: Requested scope is not allowed for client.
-                invalid_redirect_uri:
-                  summary: Redirect URI not registered for client
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_INVALID_REDIRECT_URI
-                    source:
-                      field: redirect_uri
-                      type: QUERY
-                    detail: Redirect URI is not registered for client.
-                malformed_redirect_uri:
-                  summary: Redirect URI is not a valid absolute URI
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_QUERY_PARAMETER_VALUE
-                    source:
-                      field: redirect_uri
-                      type: QUERY
-                    detail: relative URL without a base
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_OBJECT_ID
-                    source:
-                      field: client_id
-                      type: QUERY
-                    detail: must be a valid OAuthClient ID
+                  value: { error: invalid_scope }
+                invalid_target:
+                  value: { error: invalid_target }
         "401":
           description: Unauthorized — the bearer token is missing or invalid (`INVALID_CREDENTIALS`).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
             application/problem+json:
               schema:
@@ -10586,6 +10587,11 @@ paths:
           description:
             Forbidden — the bearer is an Aura Historia access token. Approving an authorization request requires a
             Cognito access JWT, and no authorization code is issued.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
             application/problem+json:
               schema:
@@ -10595,26 +10601,48 @@ paths:
                 title: Forbidden
                 error: FORBIDDEN
                 detail: Aura Historia access tokens cannot approve OAuth authorization requests; use a Cognito access JWT.
-        "404":
-          description: No OAuth client is registered with the requested `client_id` (`OAUTH_CLIENT_NOT_FOUND`).
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: Not Found
-                error: OAUTH_CLIENT_NOT_FOUND
         "500":
-          description: Internal server error.
+          description: OAuth service failure, or an existing REST authentication dependency failure.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                server_error:
+                  value: { error: server_error }
             application/problem+json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/ApiError'
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: AUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary OAuth service failure, or an existing REST authentication dependency failure.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                temporarily_unavailable:
+                  value: { error: temporarily_unavailable }
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 503
+                title: Service Unavailable
+                error: AUTH_TEMPORARILY_UNAVAILABLE
   /v1/oauth/token:
     post:
       summary: OAuth2 token endpoint
@@ -10678,6 +10706,16 @@ paths:
                   format: uri
                   description: Must exactly match the `redirect_uri` used in the corresponding authorization request.
                   example: https://client.example/callback
+                resource:
+                  type: string
+                  format: uri
+                  description: >-
+                    Repeat the exact resource selected during authorization. Omission inherits the code's
+                    binding, including the shared Aura default for legacy callers. Substitution (even the
+                    other allowed alias), foreign/other-environment, empty and repeated values fail with
+                    400 OAuth invalid_target. The issued opaque token authorizes the shared Aura service
+                    through both REST and MCP under the original scopes; it has no exclusive transport audience.
+                  example: https://mcp.aura-historia.com/v1
                 client_id:
                   type: string
                   description: Canonical OAuthClient ID.
@@ -10694,149 +10732,83 @@ paths:
                   example: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
       responses:
         "200":
-          description: Access token issued successfully.
+          description: Access token issued. Nonexpiring tokens omit expires_in; no refresh token is issued.
           headers:
             Cache-Control:
-              description: Always set to `no-store`.
-              schema:
-                type: string
-              example: no-store
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OAuthTokenResponseData"
+                $ref: '#/components/schemas/OAuthTokenResponseData'
               example:
                 access_token: aurahistoria_abcdefghijk_verylongtokenvalue
-                token_type: BEARER
-                expires_in: null
-                scope: product-listings:write
+                token_type: Bearer
+                scope: users:read
                 third_party_exchange_code: 01970f22-2bf0-7000-8000-000000000099
         "400":
-          description:
-            Bad request — a required form field is missing, `client_id` is not a valid OAuthClient ID, `redirect_uri` is
-            malformed, or an authorization code error occurred (code not found, expired, mismatched client or redirect URI,
-            or invalid PKCE verifier).
+          description: Invalid form content type, malformed or repeated parameters, missing fields, unsupported header authentication, or invalid protocol input.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                missing_grant_type:
-                  summary: Missing grant_type form field
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: grant_type
-                      type: BODY
-                    detail: Missing form field grant_type
+                invalid_request:
+                  value: { error: invalid_request }
+                invalid_grant:
+                  value: { error: invalid_grant }
                 unsupported_grant_type:
-                  summary: Unsupported grant_type
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: grant_type
-                      type: BODY
-                    detail: Unsupported grant_type 'client_credentials'
-                code_not_found:
-                  summary: Authorization code not found or already used
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_AUTHORIZATION_CODE_NOT_FOUND
-                    detail: Authorization code not found.
-                code_expired:
-                  summary: Authorization code expired
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_AUTHORIZATION_CODE_EXPIRED
-                    detail: Authorization code expired.
-                code_client_mismatch:
-                  summary: Authorization code belongs to a different OAuth client
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH
-                    detail: Authorization code does not belong to client.
-                redirect_uri_mismatch:
-                  summary: Redirect URI does not match the authorization request
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH
-                    detail: Authorization code redirect_uri mismatch.
-                invalid_code_verifier:
-                  summary: PKCE code verifier does not match
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_INVALID_CODE_VERIFIER
-                    detail: PKCE code_verifier did not match code_challenge.
-                malformed_redirect_uri:
-                  summary: Redirect URI is not a valid absolute URI
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: redirect_uri
-                      type: BODY
-                    detail: relative URL without a base
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_OBJECT_ID
-                    source:
-                      field: client_id
-                      type: BODY
-                    detail: must be a valid OAuthClient ID
+                  value: { error: unsupported_grant_type }
+                invalid_target:
+                  value: { error: invalid_target }
         "401":
-          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
+          description: Unknown or invalid client credentials. Only client_secret_post is supported.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                invalid_client_secret:
-                  summary: Invalid client secret
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_OAUTH_CLIENT_SECRET
-                    detail: Invalid OAuth client secret.
-                malformed_client_secret:
-                  summary: Malformed client secret (the submitted value is never echoed)
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_CREDENTIALS
-                    source:
-                      field: client_secret
-                      type: BODY
-                    detail: Form field 'client_secret' is not a valid OAuth client secret.
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+                invalid_client:
+                  value: { error: invalid_client }
         "500":
-          description: Internal server error.
+          description: Internal failure; technical causes are not returned.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                server_error:
+                  value: { error: server_error }
+        "503":
+          description: Temporary failure.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                temporarily_unavailable:
+                  value: { error: temporarily_unavailable }
   /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}:
     get:
       summary: Exchange OAuth token by third-party code
@@ -10872,14 +10844,15 @@ paths:
               schema:
                 type: string
               example: no-store
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/OAuthTokenResponseData"
               example:
                 access_token: aurahistoria_abcdefghijk_verylongtokenvalue
-                token_type: BEARER
-                expires_in: null
+                token_type: Bearer
                 scope: product-listings:write
         "400":
           description:
@@ -10953,7 +10926,7 @@ paths:
 
         have been issued to that client; another client's token or a personal access token is
 
-        rejected with `403 FORBIDDEN` and is not revoked.
+        rejected with `403` and OAuth `access_denied` and is not revoked.
 
 
         After revocation the token is immediately inactive and introspection will return
@@ -10990,103 +10963,82 @@ paths:
                   example: aurahistoria_abcdefghijk_verylongsecretvalue
       responses:
         "200":
-          description: Token revoked successfully (or token was unknown/already inactive). Empty response body.
+          description: Token revoked or already unknown; empty body.
           headers:
             Cache-Control:
-              description: Always set to `no-store`.
-              schema:
-                type: string
-              example: no-store
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
         "400":
-          description:
-            Bad request — a required form field is missing, `client_id` is not a valid OAuthClient ID, or the token value
-            is invalid.
+          description: Invalid form content type, malformed or repeated parameters, missing fields, unsupported header authentication, or invalid protocol input.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                missing_token:
-                  summary: Missing token form field
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: token
-                      type: BODY
-                    detail: Missing form field token
-                malformed_token:
-                  summary: Malformed access token (the submitted value is never echoed)
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: token
-                      type: BODY
-                    detail: Form field 'token' is not a valid access token.
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_OBJECT_ID
-                    source:
-                      field: client_id
-                      type: BODY
-                    detail: must be a valid OAuthClient ID
+                invalid_request:
+                  value: { error: invalid_request }
         "401":
-          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
+          description: Unknown or invalid client credentials. Only client_secret_post is supported.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                invalid_client_secret:
-                  summary: Invalid client secret
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_OAUTH_CLIENT_SECRET
-                    detail: Invalid OAuth client secret.
-                malformed_client_secret:
-                  summary: Malformed client secret (the submitted value is never echoed)
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_CREDENTIALS
-                    source:
-                      field: client_secret
-                      type: BODY
-                    detail: Form field 'client_secret' is not a valid OAuth client secret.
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+                invalid_client:
+                  value: { error: invalid_client }
         "403":
-          description: Forbidden — the token was not issued to the authenticated OAuth client.
+          description: The token was not issued to the authenticated client and is not revoked.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 403
-                title: Forbidden
-                error: FORBIDDEN
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                access_denied:
+                  value: { error: access_denied }
         "500":
-          description: Internal server error.
+          description: Internal failure; technical causes are not returned.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                server_error:
+                  value: { error: server_error }
+        "503":
+          description: Temporary failure.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                temporarily_unavailable:
+                  value: { error: temporarily_unavailable }
   /v1/oauth/introspect:
     post:
       summary: OAuth2 token introspection endpoint
@@ -11132,113 +11084,75 @@ paths:
                   example: aurahistoria_abcdefghijk_verylongsecretvalue
       responses:
         "200":
-          description: "Introspection result. `active: false` means the token is unknown, expired, or revoked."
+          description: Token metadata; an unknown, expired or revoked token returns only active false.
           headers:
             Cache-Control:
-              description: Always set to `no-store`.
-              schema:
-                type: string
-              example: no-store
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OAuthIntrospectionResponseData"
+                $ref: '#/components/schemas/OAuthIntrospectionResponseData'
               examples:
-                active:
-                  summary: Active token
-                  value:
-                    active: true
-                    scope: product-listings:write
-                    client_id: oc_7b0gwc1x49e0mvbt3tfexfqgb5
-                    sub: usr_4hzreqwxgvef69j056bszwwm17
-                    token_type: Bearer
-                    exp: 1780000000
-                    iat: 1748400000
                 inactive:
-                  summary: Inactive / unknown token
-                  value:
-                    active: false
+                  value: { active: false }
         "400":
-          description:
-            Bad request — a required form field is missing, `client_id` is not a valid OAuthClient ID, or the token value
-            is invalid.
+          description: Invalid form content type, malformed or repeated parameters, missing fields, unsupported header authentication, or invalid protocol input.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                missing_token:
-                  summary: Missing token form field
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: token
-                      type: BODY
-                    detail: Missing form field token
-                malformed_token:
-                  summary: Malformed access token (the submitted value is never echoed)
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    source:
-                      field: token
-                      type: BODY
-                    detail: Form field 'token' is not a valid access token.
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_OBJECT_ID
-                    source:
-                      field: client_id
-                      type: BODY
-                    detail: must be a valid OAuthClient ID
+                invalid_request:
+                  value: { error: invalid_request }
         "401":
-          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
+          description: Unknown or invalid client credentials. Only client_secret_post is supported.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: '#/components/schemas/OAuthErrorData'
               examples:
-                invalid_client_secret:
-                  summary: Invalid client secret
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_OAUTH_CLIENT_SECRET
-                    detail: Invalid OAuth client secret.
-                malformed_client_secret:
-                  summary: Malformed client secret (the submitted value is never echoed)
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: INVALID_CREDENTIALS
-                    source:
-                      field: client_secret
-                      type: BODY
-                    detail: Form field 'client_secret' is not a valid OAuth client secret.
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+                invalid_client:
+                  value: { error: invalid_client }
         "500":
-          description: Internal server error.
+          description: Internal failure; technical causes are not returned.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
-
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                server_error:
+                  value: { error: server_error }
+        "503":
+          description: Temporary failure.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorData'
+              examples:
+                temporarily_unavailable:
+                  value: { error: temporarily_unavailable }
   /v1/admin/oauth-clients:
     get:
       summary: List OAuth client metadata for administration
@@ -17835,6 +17749,12 @@ components:
       schema: { type: string }
 
   headers:
+    OAuthNoStore:
+      description: OAuth credentials and protocol errors must not be stored.
+      schema: { type: string, enum: [no-store] }
+    OAuthNoCache:
+      description: Legacy cache prevention for OAuth credential traffic.
+      schema: { type: string, enum: [no-cache] }
     AsyncProductListingIdempotencyKey:
       description: Effective key, echoed on every evaluated report (including non-2xx); not guaranteed on pre-evaluation ApiError responses. CORS-exposed for browser clients.
       schema:
@@ -17931,6 +17851,49 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
   schemas:
+    OAuthErrorData:
+      type: object
+      additionalProperties: false
+      description: Standard OAuth protocol error. Submitted input, credentials and technical causes are never reflected. REST client-management and first-party authentication failures keep ApiError.
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, invalid_client, invalid_grant, unsupported_grant_type, unsupported_response_type, invalid_scope, invalid_target, access_denied, server_error, temporarily_unavailable]
+    OAuthAuthorizationServerMetadataData:
+      type: object
+      additionalProperties: false
+      required: [issuer, authorization_endpoint, token_endpoint, response_types_supported, response_modes_supported, grant_types_supported, token_endpoint_auth_methods_supported, code_challenge_methods_supported, scopes_supported]
+      properties:
+        issuer:
+          type: string
+          enum: ['https://api.aura-historia.com', 'https://api.stage.aura-historia.com']
+        authorization_endpoint:
+          type: string
+          enum: ['https://aura-historia.com/en/oauth/authorize', 'https://stage.aura-historia.com/en/oauth/authorize']
+        token_endpoint:
+          type: string
+          enum: ['https://api.aura-historia.com/v1/oauth/token', 'https://api.stage.aura-historia.com/v1/oauth/token']
+        response_types_supported:
+          type: array
+          items: { type: string, enum: [code] }
+        response_modes_supported:
+          type: array
+          items: { type: string, enum: [query] }
+        grant_types_supported:
+          type: array
+          items: { type: string, enum: [authorization_code] }
+        token_endpoint_auth_methods_supported:
+          type: array
+          items: { type: string, enum: [client_secret_post] }
+        code_challenge_methods_supported:
+          type: array
+          items: { type: string, enum: [S256] }
+        scopes_supported:
+          type: array
+          items:
+            type: string
+            enum: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
     DeliveryAssessmentGeography:
       type: object
       additionalProperties: false
@@ -22335,7 +22298,7 @@ components:
 
         The `access_token` is an Aura Historia bearer access token. `expires_in` is omitted
 
-        (`null`) for non-expiring tokens. `third_party_exchange_code` is only present on the
+        for non-expiring tokens. `third_party_exchange_code` is only present on the
 
         direct token exchange response.
 
@@ -22350,14 +22313,14 @@ components:
           description: The issued Aura Historia access token (plaintext bearer value).
           example: aurahistoria_abcdefghijk_verylongtokenvalue
         token_type:
-          $ref: "#/components/schemas/AccessTokenTypeData"
+          type: string
+          enum: [Bearer]
         expires_in:
           type: integer
           format: int64
           minimum: 0
-          nullable: true
-          description: Seconds until the access token expires. `null` when the token does not expire.
-          example: null
+          description: Seconds until expiry; omitted when the token does not expire.
+          example: 3600
         scope:
           type: string
           description: Space-separated list of scopes granted to the access token.
@@ -23352,7 +23315,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
+          description: "Optional localized title. Omit or send `null` when no title is available. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure."
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -23559,7 +23522,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure.
+          description: "Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure."
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"

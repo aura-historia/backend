@@ -19,6 +19,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
+| OAuth consent, shared resource and credential binding | [OAuth](oauth.md) |
 | MCP protocol compatibility, registry and bounded transport | [MCP transport](mcp.md) |
 | External search host setup, security and recovery | [OpenSearch stage](opensearch-stage.md) |
 | Public API requests/responses and change history | [OpenAPI](swagger.yaml), [changelog](CHANGELOG.md) |

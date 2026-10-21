@@ -1,8 +1,10 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, PRODUCT_LISTING_INTERNAL_ERROR};
-use crate::product_listings::product_listing_history_entry_data::ProductListingHistoryEntryData;
 use crate::state::ProductListingsState;
 use crate::wire::parse_path_object_id;
+use aura_historia_contracts::product_listings::history::{
+    ProductListingHistoryEntryData, ProductListingHistoryQueryData,
+};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
@@ -12,13 +14,6 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     GetProductListingHistoryRequest, ProductListingHistoryLookup,
 };
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct ProductListingHistoryQuery {
-    #[serde(default, with = "crate::wire::currency::option")]
-    currency: Option<Currency>,
-}
 
 pub async fn get_product_listing_history_by_id(
     State(state): State<ProductListingsState>,
@@ -26,7 +21,7 @@ pub async fn get_product_listing_history_by_id(
     Path(raw_product_listing_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query: ProductListingHistoryQuery =
+    let query: ProductListingHistoryQueryData =
         match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {

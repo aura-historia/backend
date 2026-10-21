@@ -23,6 +23,8 @@ mod credential_scopes;
 mod listing_sources;
 #[path = "api_cases/loops_webhook.rs"]
 mod loops_webhook;
+#[path = "api_cases/mcp_oauth/mod.rs"]
+mod mcp_oauth;
 #[path = "api_cases/newsletter.rs"]
 mod newsletter;
 #[path = "api_cases/notifications.rs"]

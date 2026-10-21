@@ -511,7 +511,22 @@ pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
             ProductListingSearchCacheTestPolicy::Disabled,
         )
         .await)
+        .layer(axum::middleware::from_fn(count_api_request))
     })
+}
+
+static API_REQUESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn api_request_count() -> usize {
+    API_REQUESTS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+async fn count_api_request(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    API_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    next.run(request).await
 }
 
 pub fn watchlist_api_app_with_single_connection_pool()
@@ -2138,6 +2153,7 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
@@ -2145,6 +2161,7 @@ async fn test_state(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+            oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByThirdPartyCodeHandler::new(
             unit_of_work.clone(),
@@ -2160,6 +2177,7 @@ async fn test_state(
             user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        oauth_core::resource::AuraResourcePolicy::production(),
     );
     state::AppState::new()
         .with_auctions(auctions_state)
@@ -2181,6 +2199,11 @@ async fn test_state(
         )))
         .with_parties(parties_state)
         .with_users(users_state)
+        .with_user_addresses(state::UserAddressesState {
+            commands: runtime.private_addresses().commands.clone(),
+            queries: runtime.private_addresses().queries.clone(),
+            authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        })
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_applications_state)
         .with_partnerships(partnerships_state)

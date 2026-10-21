@@ -7,7 +7,6 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use search_filter_service::use_cases::CreateSearchFilterCommand;
 
 pub(super) async fn create_search_filter(
     State(state): State<SearchFiltersState>,
@@ -22,26 +21,11 @@ pub(super) async fn create_search_filter(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let search = match product_listing_core::product_listing_search::ProductListingSearch::try_from(
-        data.search,
-    ) {
-        Ok(search) => search,
-        Err(error) => return error.into_response(),
+    let command = match data.into_command(user_id) {
+        Ok(command) => command,
+        Err(error) => return ApiError::from(error).into_response(),
     };
-    match state
-        .create_search_filter
-        .execute(
-            &context,
-            CreateSearchFilterCommand {
-                accept_shipping_destination: data.accept_shipping_destination.map(Into::into),
-                user_id,
-                name: data.name,
-                notifications: data.notifications,
-                search,
-            },
-        )
-        .await
-    {
+    match state.create_search_filter.execute(&context, command).await {
         Ok(result) => {
             let search_filter_id = result.filter.search_filter_id;
             let language = result.filter.search.language.as_str();

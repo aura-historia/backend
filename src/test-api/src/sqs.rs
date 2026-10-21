@@ -1,5 +1,5 @@
 use crate::IntegrationTestService;
-use crate::localstack::{get_aws_config, get_endpoint_url};
+use crate::aws::{get_aws_config, get_endpoint_url};
 use async_trait::async_trait;
 use aws_sdk_sqs::Client;
 use aws_sdk_sqs::types::{DeleteMessageBatchRequestEntry, QueueAttributeName};
@@ -14,10 +14,10 @@ use tracing::debug;
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static SQS_CLIENT: OnceCell<Client> = OnceCell::const_new();
 
-/// Returns a shared `aws_sdk_sqs::Client` for interacting with LocalStack.
+/// Returns a shared `aws_sdk_sqs::Client` for interacting with Floci.
 ///
 /// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, LocalStack endpoint).
+/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
 ///
 /// # Returns
 ///
@@ -30,7 +30,7 @@ pub async fn get_sqs_client() -> &'static Client {
     client
 }
 
-/// Marker type representing the SQS service in LocalStack-based tests.
+/// Marker type representing the SQS service in Floci-based tests.
 ///
 /// Implements the [`IntegrationTestService`] trait to support lifecycle management
 /// when used with the `#[aura_integration_test]` macro.
@@ -94,7 +94,7 @@ impl SqsQueuePair {
     }
 }
 
-/// Production-shaped worker queues, isolated by the process-local LocalStack container.
+/// Production-shaped worker queues, isolated by the process-local Floci container.
 /// Scope stays a string: test-api must not depend on the worker runtime.
 #[derive(Debug, Clone, Copy)]
 pub struct WorkerSqs {
@@ -210,9 +210,7 @@ impl IntegrationTestService for WorkerSqs {
     }
 
     async fn tear_down(&self) {
-        // LocalStack retains cancelled server-side long polls after purge. A new queue
-        // incarnation prevents the previous test's receive from hiding this test's jobs.
-        // LocalStack does not enforce AWS's 60-second queue recreation cooldown.
+        // A new queue incarnation prevents a cancelled receive from hiding the next test's jobs.
         for url in [self.queue_url(), self.dead_letter_queue_url()] {
             get_sqs_client()
                 .await
@@ -276,7 +274,7 @@ impl IntegrationTestService for SqsQueuePair {
             .expect("Queue URL not returned")
             .to_string();
 
-        // LocalStack may return a container-local :4566 URL. Verify its identity through
+        // Floci may return a container-local :4566 URL. Verify its identity through
         // the SDK, but expose the canonical host endpoint URL to callers and child processes.
         for (returned, canonical, name) in [
             (queue_url, self.queue_url(), &self.name),
@@ -308,7 +306,7 @@ impl IntegrationTestService for SqsQueuePair {
     async fn tear_down(&self) {
         let client = get_sqs_client().await;
         // Use purge_queue to remove ALL messages, including those with active visibility
-        // timeouts (invisible messages that drain_queue cannot reach). In LocalStack used
+        // timeouts (invisible messages that drain_queue cannot reach). In Floci used
         // for integration tests, the AWS-imposed 60-second cooldown between purge_queue
         // calls is not enforced, making this safe for per-test teardown.
         for queue_url in [self.queue_url(), self.dead_letter_queue_url()] {

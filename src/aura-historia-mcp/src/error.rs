@@ -15,6 +15,12 @@ pub enum OperationError {
     NotFound,
     #[error("operation conflicts with current state")]
     Conflict,
+    #[error("saved-search quota exceeded")]
+    SearchFilterQuotaExceeded,
+    #[error("saved-search feature requires a higher tier")]
+    SearchFilterRestrictedFeature,
+    #[error("watchlist quota exceeded")]
+    WatchlistQuotaExceeded,
     #[error("operation is not permitted")]
     Forbidden,
     #[error("service temporarily unavailable")]
@@ -34,7 +40,10 @@ impl OperationError {
             Self::InvalidInput => "INVALID_INPUT",
             Self::NotFound => "NOT_FOUND",
             Self::Conflict => "CONFLICT",
+            Self::WatchlistQuotaExceeded => "WATCHLIST_QUOTA_EXCEEDED",
             Self::Forbidden => "FORBIDDEN",
+            Self::SearchFilterQuotaExceeded => "SEARCH_FILTER_QUOTA_EXCEEDED",
+            Self::SearchFilterRestrictedFeature => "SEARCH_FILTER_RESTRICTED_FEATURE",
             Self::Unavailable(_) => "TEMPORARILY_UNAVAILABLE",
             Self::Internal(_) => return Err(ErrorData::internal_error("Operation failed", None)),
             Self::ResultTooLarge => {

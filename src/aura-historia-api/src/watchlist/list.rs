@@ -1,44 +1,21 @@
 use super::util::no_store;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, WATCHLIST_INTERNAL_ERROR};
-use crate::pagination_data::JsonCursoredData;
-use crate::product_listings::product_data::{
-    PersonalizedProductListingDetailsData, personalized_product_details_data,
-};
 use crate::state::WatchlistState;
-use crate::wire::parse_query_object_id;
-use application::pagination::{Cursor, CursoredResult};
+use aura_historia_contracts::watchlist::{
+    CursoredWatchlistData, ListWatchlistQueryData, WatchlistCursorError,
+};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use localization::Language;
-use money::Currency;
-use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_service::ports::ProductListingWatchlistDetailsCursor;
-use serde::Deserialize;
-use serde_json::{Value, json};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use watchlist_service::use_cases::ListWatchlistRequest;
-
-#[derive(Debug, Deserialize)]
-struct ListWatchlistQuery {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
-    language: Language,
-    #[serde(default, with = "crate::wire::currency")]
-    currency: Currency,
-    size: Option<u64>,
-    #[serde(rename = "searchAfter")]
-    search_after: Option<String>,
-}
 
 pub async fn list_watchlist(
     State(state): State<WatchlistState>,
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query: ListWatchlistQuery =
+    let query: ListWatchlistQueryData =
         match crate::wire::from_query_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
@@ -47,121 +24,54 @@ pub async fn list_watchlist(
                     .into_response();
             }
         };
-    let cursor = match watchlist_cursor(query.size, query.search_after.as_deref()) {
+    let cursor = match aura_historia_contracts::watchlist::watchlist_cursor(
+        query.size,
+        query.search_after.as_deref(),
+    ) {
         Ok(cursor) => cursor,
-        Err(error) => return error.into_response(),
+        Err(error) => return cursor_error(error).into_response(),
     };
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
-    match state
-        .list_watchlist
-        .execute(
-            &ctx,
-            ListWatchlistRequest {
-                user_id,
-                language: query.language,
-                currency: query.currency,
-                cursor,
-            },
-        )
-        .await
-    {
-        Ok(result) => {
-            let search_after = match result
-                .cursor
-                .search_after
-                .map(watchlist_cursor_value)
-                .transpose()
-            {
-                Ok(search_after) => search_after,
-                Err(error) => return error.into_response(),
-            };
-            no_store(
-                Json(
-                    JsonCursoredData::<PersonalizedProductListingDetailsData>::from(
-                        CursoredResult {
-                            items: result
-                                .items
-                                .into_iter()
-                                .map(personalized_product_details_data)
-                                .collect(),
-                            cursor: Cursor {
-                                size: result.cursor.size,
-                                search_after,
-                            },
-                            total: result.total,
-                        },
-                    ),
-                )
+    let request = watchlist_service::use_cases::ListWatchlistRequest {
+        user_id,
+        language: query.language,
+        currency: query.currency,
+        cursor,
+    };
+    match state.list_watchlist.execute(&ctx, request).await {
+        Ok(result) => match CursoredWatchlistData::try_from(result) {
+            Ok(data) => no_store(Json(data).into_response()),
+            Err(_) => ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
+                .with_detail("Watchlist cursor failed internally.")
                 .into_response(),
-            )
-        }
+        },
         Err(error) => ApiError::from(error).into_response(),
     }
 }
 
-fn watchlist_cursor(
-    size: Option<u64>,
-    search_after: Option<&str>,
-) -> Result<Cursor<ProductListingWatchlistDetailsCursor>, ApiError> {
-    let size = size.unwrap_or(21).clamp(1, 100);
-    let search_after = search_after
-        .map(|value| {
-            serde_json::from_str::<Value>(value)
-                .map_err(|error| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                        .with_query_field("searchAfter")
-                        .with_detail(error.to_string())
-                })
-                .and_then(parse_watchlist_cursor)
-        })
-        .transpose()?;
-    Ok(Cursor { size, search_after })
-}
-
-fn parse_watchlist_cursor(value: Value) -> Result<ProductListingWatchlistDetailsCursor, ApiError> {
-    let Value::Array(values) = value else {
-        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail("searchAfter must be a JSON array containing timestamp and product ID."));
+fn cursor_error(error: WatchlistCursorError) -> ApiError {
+    let code = if matches!(error, WatchlistCursorError::ProductListingId(_)) {
+        crate::error::INVALID_OBJECT_ID
+    } else {
+        BAD_QUERY_PARAMETER_VALUE
     };
-    let [Value::String(created), Value::String(product_listing_id)] = values.as_slice() else {
-        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail("searchAfter must contain an RFC3339 timestamp and ProductListing ID."));
-    };
-    let watchlist_created = OffsetDateTime::parse(created, &Rfc3339).map_err(|error| {
-        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail(error.to_string())
-    })?;
-    let product_listing_id = parse_query_object_id::<ProductListingId>(
-        product_listing_id,
-        "searchAfter",
-        "ProductListing",
-    )?;
-    Ok(ProductListingWatchlistDetailsCursor {
-        watchlist_created,
-        product_listing_id,
-    })
-}
-
-fn watchlist_cursor_value(cursor: ProductListingWatchlistDetailsCursor) -> Result<Value, ApiError> {
-    cursor
-        .watchlist_created
-        .format(&Rfc3339)
-        .map(|created| json!([created, cursor.product_listing_id]))
-        .map_err(|_| {
-            ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
-                .with_detail("Watchlist cursor failed internally.")
-        })
+    ApiError::bad_request(code)
+        .with_query_field("searchAfter")
+        .with_detail(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::pagination::Cursor;
+    use aura_historia_contracts::watchlist::{watchlist_cursor, watchlist_cursor_value};
+    use product_listing_core::product_listing_id::ProductListingId;
+    use serde_json::{Value, json};
+    use watchlist_service::use_cases::ListWatchlistRequest;
+
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
@@ -179,7 +89,6 @@ mod tests {
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing::ProductListingPricing;
-    use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_service::ports::ListingSourceSummary;
@@ -199,6 +108,13 @@ mod tests {
     use watchlist_service::use_cases::{
         UnwatchProductListingResult, UpdateWatchlistProductListingResult, WatchProductListingResult,
     };
+
+    fn parse_watchlist_cursor(
+        value: Value,
+    ) -> Result<product_listing_service::ports::ProductListingWatchlistDetailsCursor, ApiError>
+    {
+        aura_historia_contracts::watchlist::parse_watchlist_cursor(value).map_err(cursor_error)
+    }
 
     type ListRequests = Arc<Mutex<Vec<(OperationContext, ListWatchlistRequest)>>>;
 

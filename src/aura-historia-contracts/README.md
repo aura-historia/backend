@@ -57,3 +57,22 @@ serialized values against the output schema. Reuse the small
 Custom serializers need an explicit schema override when derive cannot describe
 what they accept or emit. Stored representations, including `shipping-json`, are
 separate contracts and must not change as a side effect of public DTO extraction.
+
+Listing detail, summary, presentation and search contracts live under `product_listings`.
+The listing MCP family assembles these existing values in thin object arguments; REST retains
+query/path extraction and its HTTP-only pending, caching and error representations. Geography
+and shipping filters and public shipping serializers are shared as well. Shipping terms retain
+the `shipping-json` codec's own DTO/schema owner and adapter-selected reference representation.
+The [listing fixtures](tests/listings.rs) check full filters, exact unsigned values, required nulls
+and public shipping redaction alongside the REST and MCP adapter fixtures.
+
+Saved-search CRUD, patches, match feedback and match continuation live under `saved_searches`.
+REST and MCP reuse the same DTOs, validation and service-view conversions; REST alone query-encodes
+match cursor arrays. The [saved-search fixture and schema tests](tests/saved_searches.rs) cover
+full listing criteria, patch omission/null rules, atomic availability updates and stored match
+shipping valuations. Account identity comes from each trusted transport context, never these DTOs.
+
+Watchlist entry, mutation, list query and paged personalized-detail contracts live in `watchlist`.
+REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
+patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
+compare schema validation with the complete input mapping, including null and omission rules.

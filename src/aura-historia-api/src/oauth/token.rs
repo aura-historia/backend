@@ -1,13 +1,14 @@
-use super::{no_store, parse_form, required_form, required_form_client_secret, scope_string};
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use super::error::OAuthError;
+use super::{
+    OAuthForm, no_store, required_form, required_form_client_id, required_form_client_secret,
+    scope_string,
+};
 use crate::state::OAuthState;
-use crate::wire::parse_body_object_id;
 use axum::{
     Json,
     extract::State,
     response::{IntoResponse, Response},
 };
-use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
 
 use oauth_service::use_cases::{
@@ -46,55 +47,44 @@ impl From<TokenResponse> for TokenResponseData {
     }
 }
 
-pub async fn token(State(state): State<OAuthState>, body: String) -> Response {
-    let form = parse_form(body);
+pub(crate) async fn token(State(state): State<OAuthState>, OAuthForm(form): OAuthForm) -> Response {
     let request = match request(&form) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     match state.token_by_authorization_code.execute(request).await {
         Ok(result) => no_store(Json(TokenResponseData::from(result)).into_response()),
-        Err(error) => ApiError::from(error).into_response(),
+        Err(error) => OAuthError::from(error).into_response(),
     }
 }
 
 fn request(
     form: &std::collections::HashMap<String, String>,
-) -> Result<TokenByAuthorizationCodeRequest, Response> {
+) -> Result<TokenByAuthorizationCodeRequest, OAuthError> {
     let grant_type = match required_form(form, "grant_type")? {
         "authorization_code" => OAuthGrantType::AuthorizationCode,
-        value => {
-            return Err(ApiError::bad_request(BAD_BODY_VALUE)
-                .with_detail(format!("Unsupported grant_type '{value}'."))
-                .into_response());
-        }
+        _ => return Err(OAuthError::UnsupportedGrantType),
     };
-    let code = OAuthAuthorizationCode::try_from(required_form(form, "code")?.to_owned()).map_err(
-        |error| {
-            ApiError::bad_request(BAD_BODY_VALUE)
-                .with_detail(error.to_string())
-                .into_response()
-        },
-    )?;
-    let redirect_uri = url::Url::parse(required_form(form, "redirect_uri")?).map_err(|error| {
-        ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail(error.to_string())
-            .into_response()
-    })?;
-    let client_id: OAuthClientId = parse_body_object_id(
-        required_form(form, "client_id")?,
-        "client_id",
-        "OAuthClient",
-    )
-    .map_err(IntoResponse::into_response)?;
-    let client_secret = required_form_client_secret(form)?;
+    let code = OAuthAuthorizationCode::try_from(required_form(form, "code")?.to_owned())
+        .map_err(|_| OAuthError::InvalidGrant)?;
+    let redirect_uri = url::Url::parse(required_form(form, "redirect_uri")?)
+        .map_err(|_| OAuthError::InvalidRequest)?;
+    let verifier = required_form(form, "code_verifier")?;
+    if !(43..=128).contains(&verifier.len())
+        || !verifier
+            .bytes()
+            .all(|value| value.is_ascii_alphanumeric() || b"-._~".contains(&value))
+    {
+        return Err(OAuthError::InvalidGrant);
+    }
     Ok(TokenByAuthorizationCodeRequest {
         grant_type,
         code,
         redirect_uri,
-        client_id,
-        client_secret,
-        code_verifier: OAuthCodeVerifier::from(required_form(form, "code_verifier")?),
+        client_id: required_form_client_id(form)?,
+        client_secret: required_form_client_secret(form)?,
+        code_verifier: OAuthCodeVerifier::from(verifier),
+        resource: form.get("resource").cloned(),
     })
 }
 
@@ -106,6 +96,36 @@ mod tests {
     use oauth_core::authorization_code::OAuthAuthorizationCode;
     use serde_json::json;
     use user_core::access_token::RawAccessToken;
+
+    #[test]
+    fn should_forward_the_exact_optional_resource_to_the_service() {
+        let mut values = form(&[
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", OAuthAuthorizationCode::new().to_string()),
+            ("redirect_uri", "https://client.example/callback".to_owned()),
+            ("client_id", OAuthClientId::new().to_string()),
+            (
+                "client_secret",
+                String::from(user_core::access_token::RawOAuthClientSecret::new()),
+            ),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned(),
+            ),
+        ]);
+        assert_eq!(None, request(&values).unwrap().resource);
+        for resource in [
+            "https://mcp.aura-historia.com/v1",
+            "https://foreign.example#fragment",
+            "",
+        ] {
+            values.insert("resource".to_owned(), resource.to_owned());
+            assert_eq!(
+                Some(resource.to_owned()),
+                request(&values).unwrap().resource
+            );
+        }
+    }
 
     #[tokio::test]
     async fn should_reject_malformed_client_secret_without_reflecting_it() {
@@ -119,18 +139,18 @@ mod tests {
                 ("redirect_uri", "https://client.example/callback".to_owned()),
                 ("client_id", OAuthClientId::new().to_string()),
                 ("client_secret", client_secret.clone()),
-                ("code_verifier", "code-verifier".to_owned()),
+                (
+                    "code_verifier",
+                    "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned(),
+                ),
             ]))
             .err()
             .unwrap_or_else(|| panic!("malformed client secret must be rejected"));
             let (status, body) = secret_free_problem(response, &client_secret).await;
 
             assert_eq!(401, status);
-            assert_eq!("INVALID_CREDENTIALS", body["error"]);
-            assert_eq!(
-                json!({"field": "client_secret", "type": "BODY"}),
-                body["source"]
-            );
+            assert_eq!("invalid_client", body["error"]);
+            assert_eq!(json!({"error": "invalid_client"}), body);
         }
     }
 }

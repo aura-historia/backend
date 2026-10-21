@@ -47,18 +47,24 @@ use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
-    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader,
-    SqlxAuctionEventAppenderFactory, SqlxAuctionReferenceValidatorFactory,
-    SqlxAuctionRepositoryFactory, SqlxPublicAuctionDetailsReader,
+    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionEventAppenderFactory,
+    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
-    queries::{
-        get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
-        list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
-    },
+    queries::{get_auction::GetAuctionHandler, search_admin_auctions::SearchAdminAuctionsHandler},
 };
-use aura_historia_runtime::Runtime;
+pub use aura_historia_runtime::product_listing_config::{
+    PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV,
+    PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV,
+    PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV,
+    PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV, VERTEX_AI_LOCATION_ENV,
+    VERTEX_AI_PROJECT_ID_ENV,
+};
+use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -66,23 +72,10 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use embedding::{
-    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
-    VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
-};
-use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
-use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
-use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
+use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
-    SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
-    SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
 };
-use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
-use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
-use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
-use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
-use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
-use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
@@ -98,11 +91,7 @@ use oauth_service::use_cases::{
     RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
     UpdateOAuthClientHandler,
 };
-use opensearch::{
-    OpenSearch, SearchParts,
-    auth::Credentials,
-    http::transport::{SingleNodeConnectionPool, TransportBuilder},
-};
+use opensearch::{OpenSearch, SearchParts};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
@@ -168,35 +157,14 @@ use party_service::use_cases::commands::update_party::UpdatePartyHandler;
 use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
-use product_listing_opensearch::{
-    OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
-};
 use product_listing_postgres::{
-    SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
-    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory, SqlxPublicCatalogueOverviewReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::readers::{CachedListingSourceSummaryReader, SourceSearchCacheConfig};
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetPublicCatalogueOverviewHandler, GetSimilarProductListingsHandler,
-    ProductListingSearchReadExecutionPolicy, SearchProductListingsHandler,
-    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
-    UpsertProductListingHandler, WithdrawProductListingHandler,
-};
-use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
-    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
-};
-use search_filter_service::use_cases::{
-    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
-    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
-    UpdateSearchFilterMatchFeedbackHandler,
+    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
+    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 
 use sqlx::PgPool;
@@ -205,7 +173,6 @@ use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
 use user_email_aws::{NewsletterConfirmationEmailConfig, SesNewsletterConfirmationEmailSender};
@@ -244,15 +211,8 @@ use user_service::use_cases::{
     RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
     SuspendUserHandler, UnsuspendUserHandler,
 };
-use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
-use watchlist_service::use_cases::{
-    ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
-    WatchProductListingHandler,
-};
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
-pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
-pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
@@ -277,58 +237,33 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
-pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS";
-pub const PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED";
-pub const PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES";
-pub const PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES";
-pub const PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV: &str =
-    "PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS";
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT: u64 = 4;
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS: u64 = 500;
-const DEFAULT_PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES: u64 = 512;
-const DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS: u64 = 30;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES: u64 = 4_096;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
-const DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS: u64 = 60;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
-const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
-const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
-const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
+    oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     cognito_user_pool_id: String,
-    vertex_ai_embedding: VertexAiEmbeddingConfig,
+    product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
-    product_listing_search_parallel_enrichment_enabled: bool,
-    product_listing_search_fx_cache: FxSearchCacheConfig,
-    product_listing_search_source_cache: SourceSearchCacheConfig,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -352,6 +287,10 @@ impl ApiConfig {
                     source,
                 })?;
 
+        let oauth_resource_policy = oauth_core::resource::AuraResourcePolicy::from_issuer(
+            &required_config(&mut get, OAUTH_ISSUER_URL_ENV)?,
+        )
+        .map_err(ApiConfigError::InvalidOAuthIssuer)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -364,11 +303,6 @@ impl ApiConfig {
             return Err(ApiConfigError::EmptyCognitoAppClientIds);
         }
         let cognito_user_pool_id = required_config(&mut get, COGNITO_USER_POOL_ID_ENV)?;
-        let vertex_ai_embedding = VertexAiEmbeddingConfig::new(
-            get(VERTEX_AI_PROJECT_ID_ENV)
-                .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
-            get(VERTEX_AI_LOCATION_ENV).unwrap_or_else(|| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
-        );
         let stripe_billing = StripeBillingConfig {
             api_key: required_config(&mut get, STRIPE_API_KEY_ENV)?,
             checkout_success_url: required_url_config(&mut get, STRIPE_CHECKOUT_SUCCESS_URL_ENV)?,
@@ -382,15 +316,7 @@ impl ApiConfig {
             ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
         };
 
-        let product_listing_search_parallel_enrichment_enabled = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        )?;
-        let product_listing_search_fx_cache =
-            parse_product_listing_search_fx_cache_config(&mut get)?;
-        let product_listing_search_source_cache =
-            parse_product_listing_search_source_cache_config(&mut get)?;
+        let product_listings = ProductListingConfig::from_getter(&mut get)?;
         let public_listing_source_read_max_in_flight = optional_bounded_usize_config(
             &mut get,
             PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV,
@@ -435,16 +361,14 @@ impl ApiConfig {
         Ok(Self {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
+            oauth_resource_policy,
             cognito_user_pool_id,
-            vertex_ai_embedding,
+            product_listings,
             stripe_billing,
             billing_prices,
             loops,
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
-            product_listing_search_parallel_enrichment_enabled,
-            product_listing_search_fx_cache,
-            product_listing_search_source_cache,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -452,6 +376,10 @@ impl ApiConfig {
 
     pub const fn bind_addr(&self) -> SocketAddr {
         self.bind_addr
+    }
+
+    pub fn oauth_resource_policy(&self) -> oauth_core::resource::AuraResourcePolicy {
+        self.oauth_resource_policy
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -463,7 +391,7 @@ impl ApiConfig {
     }
 
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
-        &self.vertex_ai_embedding
+        self.product_listings.vertex_ai_embedding()
     }
 
     fn stripe_billing(&self) -> &StripeBillingConfig {
@@ -486,30 +414,12 @@ impl ApiConfig {
         &self.loops_webhook_signing_secret
     }
 
-    fn product_listing_search_fx_cache_config(&self) -> FxSearchCacheConfig {
-        self.product_listing_search_fx_cache.clone()
-    }
-
-    fn product_listing_search_source_cache_config(&self) -> SourceSearchCacheConfig {
-        self.product_listing_search_source_cache.clone()
-    }
-
     /// Shared, non-queuing public ListingSource read budget for this API process.
     fn public_listing_source_read_budget(&self) -> PublicListingSourceReadBudget {
         PublicListingSourceReadBudget::new(
             self.public_listing_source_read_max_in_flight,
             self.public_listing_source_read_request_timeout,
         )
-    }
-
-    fn product_listing_search_read_execution_policy(
-        &self,
-    ) -> ProductListingSearchReadExecutionPolicy {
-        if self.product_listing_search_parallel_enrichment_enabled {
-            ProductListingSearchReadExecutionPolicy::Concurrent
-        } else {
-            ProductListingSearchReadExecutionPolicy::Sequential
-        }
     }
 }
 
@@ -528,22 +438,6 @@ where
 {
     let value = required_config(get, name)?;
     url::Url::parse(&value).map_err(|source| ApiConfigError::InvalidUrlConfig { name, source })
-}
-
-fn optional_bool_config<F>(
-    get: &mut F,
-    name: &'static str,
-    default: bool,
-) -> Result<bool, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    match get(name) {
-        Some(value) => value
-            .parse()
-            .map_err(|_| ApiConfigError::InvalidBooleanConfig { name, value }),
-        None => Ok(default),
-    }
 }
 
 fn optional_bounded_u64_config<F>(
@@ -595,76 +489,10 @@ where
     })
 }
 
-fn parse_product_listing_search_fx_cache_config<F>(
-    get: &mut F,
-) -> Result<FxSearchCacheConfig, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    let enabled = optional_bool_config(get, PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, true)?;
-    let max_entries = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES,
-        1,
-        8_192,
-    )?;
-    let latest_ttl_seconds = optional_bounded_u64_config(
-        get,
-        PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS,
-        0,
-        300,
-    )?;
-
-    FxSearchCacheConfig::new(
-        enabled,
-        max_entries,
-        Duration::from_secs(latest_ttl_seconds),
-    )
-    .map_err(ApiConfigError::FxSearchCacheConfig)
-}
-
-fn parse_product_listing_search_source_cache_config<F>(
-    get: &mut F,
-) -> Result<SourceSearchCacheConfig, ApiConfigError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    let enabled = optional_bool_config(get, PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV, true)?;
-    let max_entries = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES,
-        1,
-        65_536,
-    )?;
-    let max_accounted_bytes = optional_bounded_usize_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES,
-        1,
-        536_870_912,
-    )?;
-    let ttl_seconds = optional_bounded_u64_config(
-        get,
-        PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV,
-        DEFAULT_PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS,
-        1,
-        300,
-    )?;
-
-    SourceSearchCacheConfig::new(
-        enabled,
-        max_entries,
-        max_accounted_bytes,
-        Duration::from_secs(ttl_seconds),
-    )
-    .map_err(ApiConfigError::SourceSearchCacheConfig)
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ApiConfigError {
+    #[error("OAUTH_ISSUER_URL is not a configured Aura issuer")]
+    InvalidOAuthIssuer(#[source] oauth_core::resource::InvalidResource),
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -680,8 +508,6 @@ pub enum ApiConfigError {
     },
     #[error("{COGNITO_APP_CLIENT_IDS_ENV} must contain at least one client id")]
     EmptyCognitoAppClientIds,
-    #[error("invalid boolean configuration {name}: {value}")]
-    InvalidBooleanConfig { name: &'static str, value: String },
     #[error("invalid integer configuration {name}: {value}")]
     InvalidIntegerConfig { name: &'static str, value: String },
     #[error("integer configuration {name} must be between {min} and {max}: {value}")]
@@ -691,11 +517,9 @@ pub enum ApiConfigError {
         min: u64,
         max: u64,
     },
-    #[error("invalid product listing search FX cache configuration")]
-    FxSearchCacheConfig(#[source] fxrate_service::readers::FxSearchCacheConfigError),
-    #[error("invalid product listing search source cache configuration")]
-    SourceSearchCacheConfig(
-        #[source] product_listing_service::readers::SourceSearchCacheConfigError,
+    #[error(transparent)]
+    ProductListings(
+        #[from] aura_historia_runtime::product_listing_config::ProductListingConfigError,
     ),
     #[error("invalid Loops newsletter configuration")]
     LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
@@ -941,6 +765,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(oauth) = state.oauth {
         routes = routes.merge(
             Router::new()
+                .route(
+                    "/.well-known/oauth-authorization-server",
+                    get(oauth::discovery::discovery),
+                )
                 .route(
                     "/v1/admin/oauth-clients",
                     get(oauth::list_clients::list_clients)
@@ -1350,26 +1178,17 @@ async fn app_state_from_config_and_runtime(
         config.cognito_user_pool_id(),
     );
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let get_product_listing_history = GetProductListingHistoryHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingHistoryReaderFactory::new(),
-        SqlxFxRateSnapshotReader::new(pool.clone()),
-    );
-    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
-    let opensearch_client = opensearch_client_from_env()?;
-    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(LazyVertexAiEmbeddingGenerator::new(
-        config.vertex_ai_embedding().clone(),
-    ));
+    let product_listing_history = runtime.public_product_listing_history();
+    let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
+    let opensearch_client = listing_dependencies.opensearch.clone();
+    let embeddings = Arc::clone(&listing_dependencies.embeddings);
 
     let get_admin_overview = GetAdminOverviewHandler::new(
         unit_of_work.clone(),
         SqlxAdminOverviewReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let get_public_overview = GetPublicCatalogueOverviewHandler::new(
-        unit_of_work.clone(),
-        SqlxPublicCatalogueOverviewReaderFactory::new(),
-    );
+    let public_overview = runtime.public_overview();
     let create_auction = CreateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -1400,29 +1219,8 @@ async fn app_state_from_config_and_runtime(
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
         auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
     ));
-    let get_public_auction =
-        GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
-    let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
-    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
-        unit_of_work.clone(),
-        user_postgres::SqlxAddressBookFactory,
-        geo_postgres::SqlxResolutionRepositoryFactory,
-    ));
-    let shipping = product_listing_service::shipping::ShippingEnrichment::new(
-        Arc::new(shipping_service::assessment::AssessDeliveryHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::assessment::SqlxAssessmentReaderFactory,
-            address_book.clone(),
-        )),
-        Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(pool.clone())),
-    );
-    let get_auction_catalogue = GetAuctionCatalogueHandler::new(
-        unit_of_work.clone(),
-        SqlxAuctionCatalogueReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        SqlxPublicAuctionDetailsReader::new(pool.clone()),
-        shipping.clone(),
-    );
+    let public_auctions = runtime.public_auctions();
+    let address_book = runtime.private_addresses();
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
         SqlxAuctionRepositoryFactory::new(),
@@ -1457,8 +1255,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceSearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let get_own_user =
-        GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
+    let get_own_user = runtime.user_profile().get.clone();
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
         .map_err(ApiStateError::StripeBilling)?;
     let billing_prices = config.billing_prices().clone();
@@ -1497,11 +1294,7 @@ async fn app_state_from_config_and_runtime(
         SqlxPartySearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let update_user_profile = UpdateUserProfileHandler::new(
-        unit_of_work.clone(),
-        SqlxUserRepositoryFactory::new(),
-        SqlxUserAdminReaderFactory::new(),
-    );
+    let update_user_profile = runtime.user_profile().update.clone();
     let admin_update_user_profile = UpdateUserProfileHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
@@ -1562,25 +1355,6 @@ async fn app_state_from_config_and_runtime(
         loops_consent_provider,
         loops_webhook_target_list_id,
     );
-    let watch_product = WatchProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-    );
-    let update_watchlist_product = UpdateWatchlistProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-        SqlxProductListingDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-    let unwatch_product =
-        UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1682,39 +1456,7 @@ async fn app_state_from_config_and_runtime(
             SqlxNotificationDeliveryIntentRepositoryFactory::new(),
         ),
     );
-    let product_user_states = SqlxProductListingUserStateReader::new(pool.clone());
-    let get_similar_products = GetSimilarProductListingsHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingEmbeddingReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
-        SqlxListingSourceSummaryReader::new(pool.clone()),
-        product_user_states.clone(),
-        SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        shipping.clone(),
-    );
-    let search_products = SearchProductListingsHandler::new(
-        OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
-        CachedFxRateSnapshotReader::new(
-            SqlxFxRateSnapshotReader::new(pool.clone()),
-            config.product_listing_search_fx_cache_config(),
-        ),
-        Arc::clone(&embeddings),
-        CachedListingSourceSummaryReader::new(
-            SqlxListingSourceSummaryReader::new(pool.clone()),
-            config.product_listing_search_source_cache_config(),
-        ),
-        product_user_states,
-        SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        shipping.clone(),
-    )
-    .with_read_execution_policy(config.product_listing_search_read_execution_policy());
-    let get_product = GetProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
+    let public_product_listings = runtime.public_product_listings(listing_dependencies);
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
@@ -1756,13 +1498,6 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&submit_product_listing_ingestion),
         authorize_woocommerce_product,
     );
-    let list_watchlist = ListWatchlistHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingWatchlistDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
     let resolve_cognito_user =
@@ -1782,25 +1517,14 @@ async fn app_state_from_config_and_runtime(
         authenticate_user,
     )
     .map_err(ApiStateError::CognitoJwt)?;
+    let notifications = runtime.notifications();
     let notifications_state = NotificationsState::new(
-        Arc::new(ListNotificationsHandler::new(
-            SqlxNotificationListReader::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateAllNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationsHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
+        notifications.list.clone(),
+        notifications.update_notification_seen.clone(),
+        notifications.update_notifications_seen.clone(),
+        notifications.update_all_notifications_seen.clone(),
+        notifications.delete_notification.clone(),
+        notifications.delete_notifications.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let billing_state = BillingState::new(
@@ -1902,12 +1626,7 @@ async fn app_state_from_config_and_runtime(
             SqlxPartyLocationAccessFactory,
             location_admin(),
         )),
-        discovery: Some(Arc::new(
-            party_service::discovery::DiscoverPartyLocationsHandler::new(
-                unit_of_work.clone(),
-                party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory,
-            ),
-        )),
+        discovery: Some(Arc::clone(&runtime.public_party_locations().discover)),
         create: Arc::new(CreatePartyLocationHandler::new(
             unit_of_work.clone(),
             SqlxPartyLocationRepositoryFactory,
@@ -2087,10 +1806,10 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let users_state = UsersState {
-        get_own_user: Arc::new(get_own_user),
+        get_own_user,
         admin_get_user: Arc::new(admin_get_user),
         search_users: Arc::new(search_users),
-        update_user_profile: Arc::new(update_user_profile),
+        update_user_profile,
         admin_update_user_profile: Arc::new(admin_update_user_profile),
         change_user_role: Arc::new(change_user_role),
         change_user_tier: Arc::new(change_user_tier),
@@ -2150,60 +1869,27 @@ async fn app_state_from_config_and_runtime(
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
     let search_filters_state = SearchFiltersState::new(
-        Arc::new(ListOwnedSearchFiltersHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            CreateSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(GetOwnedSearchFilterHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            UpdateOwnedSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                search_filter_reader.clone(),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(DeleteOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-        )),
-        Arc::new(ListSearchFilterMatchesHandler::new(
-            unit_of_work.clone(),
-            search_filter_reader.clone(),
-            SqlxProductListingDetailsBatchReader::new(pool.clone()),
-            SqlxFxRateSnapshotRepositoryFactory,
-            shipping.clone(),
-        )),
-        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            SqlxSearchFilterMatchRepositoryFactory,
-        )),
+        Arc::clone(&saved_searches.list),
+        Arc::clone(&saved_searches.create),
+        Arc::clone(&saved_searches.get),
+        Arc::clone(&saved_searches.update),
+        Arc::clone(&saved_searches.delete),
+        Arc::clone(&saved_searches.matches),
+        Arc::clone(&saved_searches.feedback),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let watchlist = runtime.watchlist();
     let watchlist_state = WatchlistState {
-        list_watchlist: Arc::new(list_watchlist),
-        watch_product: Arc::new(watch_product),
-        update_watchlist_product: Arc::new(update_watchlist_product),
-        unwatch_product: Arc::new(unwatch_product),
+        list_watchlist: Arc::clone(&watchlist.list),
+        watch_product: Arc::clone(&watchlist.add),
+        update_watchlist_product: Arc::clone(&watchlist.update),
+        unwatch_product: Arc::clone(&watchlist.remove),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let oauth_state = OAuthState {
+        resource_policy: config.oauth_resource_policy(),
         create_client: Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -2234,6 +1920,7 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
@@ -2241,6 +1928,7 @@ async fn app_state_from_config_and_runtime(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
             unit_of_work.clone(),
@@ -2287,8 +1975,8 @@ async fn app_state_from_config_and_runtime(
     });
 
     let user_addresses_state = state::UserAddressesState {
-        commands: address_book.clone(),
-        queries: address_book.clone(),
+        commands: address_book.commands.clone(),
+        queries: address_book.queries.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
@@ -2308,16 +1996,16 @@ async fn app_state_from_config_and_runtime(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_public_auctions(PublicAuctionsState::new(
-            Arc::new(get_public_auction),
-            Arc::new(list_auctions),
-            Arc::new(get_auction_catalogue),
+            Arc::clone(&public_auctions.get),
+            Arc::clone(&public_auctions.list),
+            Arc::clone(&public_auctions.catalogue),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_admin_overview(AdminOverviewState::new(
             Arc::new(get_admin_overview),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
-        .with_public_overview(PublicOverviewState::new(Arc::new(get_public_overview)))
+        .with_public_overview(PublicOverviewState::new(Arc::clone(&public_overview.get)))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
         .with_shipping(shipping_state)
@@ -2331,12 +2019,12 @@ async fn app_state_from_config_and_runtime(
         .with_partnerships(partnerships_state)
         .with_products(
             ProductListingsState::new(
-                Arc::new(get_product),
-                Arc::new(get_similar_products),
-                Arc::new(search_products),
+                Arc::clone(&public_product_listings.get),
+                Arc::clone(&public_product_listings.similar),
+                Arc::clone(&public_product_listings.search),
                 Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
             )
-            .with_product_listing_history(Arc::new(get_product_listing_history)),
+            .with_product_listing_history(product_listing_history.get.clone()),
         )
         .with_partner_product_listings(partner_product_listings_state)
         .with_partner_product_listing_management(partner_product_listing_management_state)
@@ -2388,113 +2076,6 @@ fn valid_ingestion_queue_url(value: &str) -> bool {
     })
 }
 
-fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
-    let endpoint =
-        std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
-            name: "OPENSEARCH_ENDPOINT_URL",
-        })?;
-    let endpoint = url::Url::parse(&endpoint).map_err(|error| ApiStateError::OpenSearch {
-        detail: error.to_string(),
-    })?;
-    let stage = std::env::var("STAGE").unwrap_or_else(|_| "prod".to_owned());
-    let transport = if stage == "ephemeral" {
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
-    } else {
-        let username =
-            std::env::var("OPENSEARCH_USERNAME").map_err(|_| ApiStateError::MissingEnv {
-                name: "OPENSEARCH_USERNAME",
-            })?;
-        let password =
-            std::env::var("OPENSEARCH_PASSWORD").map_err(|_| ApiStateError::MissingEnv {
-                name: "OPENSEARCH_PASSWORD",
-            })?;
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
-            .auth(Credentials::Basic(username, password))
-            .build()
-    }
-    .map_err(|error| ApiStateError::OpenSearch {
-        detail: error.to_string(),
-    })?;
-    Ok(OpenSearch::new(transport))
-}
-
-trait GoogleAdcProvider: Send + Sync {
-    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError>;
-}
-
-struct DefaultGoogleAdcProvider;
-
-impl GoogleAdcProvider for DefaultGoogleAdcProvider {
-    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
-        google_application_default_credentials()
-    }
-}
-
-struct LazyVertexAiEmbeddingGenerator {
-    config: VertexAiEmbeddingConfig,
-    adc_provider: Arc<dyn GoogleAdcProvider>,
-    generator: OnceCell<VertexAiEmbeddingGenerator>,
-}
-
-impl LazyVertexAiEmbeddingGenerator {
-    fn new(config: VertexAiEmbeddingConfig) -> Self {
-        Self::with_adc_provider(config, Arc::new(DefaultGoogleAdcProvider))
-    }
-
-    fn with_adc_provider(
-        config: VertexAiEmbeddingConfig,
-        adc_provider: Arc<dyn GoogleAdcProvider>,
-    ) -> Self {
-        Self {
-            config,
-            adc_provider,
-            generator: OnceCell::new(),
-        }
-    }
-
-    async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
-        self.generator
-            .get_or_try_init(|| async {
-                Ok(VertexAiEmbeddingGenerator::new(
-                    self.config.clone(),
-                    self.adc_provider.credentials()?,
-                ))
-            })
-            .await
-    }
-}
-
-#[async_trait]
-impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
-    async fn embed_product(
-        &self,
-        title: &EmbeddingText,
-        additional_text: Option<&EmbeddingText>,
-        image_url: Option<&EmbeddingImageUrl>,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        self.generator()
-            .await?
-            .embed_product(title, additional_text, image_url)
-            .await
-    }
-
-    async fn embed_search_query(
-        &self,
-        query: &EmbeddingText,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        self.generator().await?.embed_search_query(query).await
-    }
-}
-
-fn google_application_default_credentials() -> Result<AccessTokenCredentials, EmbeddingError> {
-    GoogleCredentialsBuilder::default()
-        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
-        .build_access_token_credentials()
-        .map_err(|source| EmbeddingError::AuthenticationFailed {
-            source: Box::new(source),
-        })
-}
-
 fn compose_authenticator<P, R, A, U>(
     config: &ApiConfig,
     jwks_provider: P,
@@ -2531,8 +2112,8 @@ pub enum ApiStateError {
     MissingEnv { name: &'static str },
     #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]
     InvalidIngestionQueueUrl,
-    #[error("failed to configure OpenSearch: {detail}")]
-    OpenSearch { detail: String },
+    #[error(transparent)]
+    ListingProviders(#[from] aura_historia_runtime::ProductListingProviderError),
     #[error("failed to configure Cognito JWT authentication: {0}")]
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
@@ -2544,8 +2125,8 @@ pub enum ApiStateError {
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
-    let fx = config.product_listing_search_fx_cache_config();
-    let source = config.product_listing_search_source_cache_config();
+    let fx = config.product_listings.fx_cache();
+    let source = config.product_listings.source_cache();
     info!(
         fx_cache_enabled = fx.enabled(),
         fx_cache_max_entries = fx.max_entries(),
@@ -2554,7 +2135,8 @@ fn log_product_listing_search_cache_config(config: &ApiConfig) {
         source_cache_max_entries = source.max_entries(),
         source_cache_max_accounted_bytes = source.max_accounted_bytes(),
         source_cache_ttl_seconds = source.ttl().as_secs(),
-        parallel_enrichment_enabled = config.product_listing_search_parallel_enrichment_enabled,
+        parallel_enrichment_enabled = config.product_listings.read_execution_policy()
+            == ProductListingSearchReadExecutionPolicy::Concurrent,
         "configured public product-listing search cache policy"
     );
 }
@@ -2597,7 +2179,6 @@ mod readiness_tests;
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn valid_api_config_values() -> HashMap<&'static str, String> {
         HashMap::from([
@@ -2656,6 +2237,10 @@ mod tests {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
                 "aura-historia-ephemeral-email".to_owned(),
             ),
+            (
+                OAUTH_ISSUER_URL_ENV,
+                "https://api.aura-historia.com".to_owned(),
+            ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
             (
@@ -2663,6 +2248,39 @@ mod tests {
                 "http://127.0.0.1:3000".to_owned(),
             ),
         ])
+    }
+
+    #[test]
+    fn should_select_only_exact_oauth_issuers_and_require_explicit_configuration() {
+        for policy in [
+            oauth_core::resource::AuraResourcePolicy::production(),
+            oauth_core::resource::AuraResourcePolicy::stage(),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, policy.issuer().to_owned());
+            let config = ApiConfig::from_getter(|name| values.get(name).cloned()).unwrap();
+            assert_eq!(policy, config.oauth_resource_policy());
+        }
+        for issuer in [
+            "https://foreign.example",
+            "https://api.aura-historia.com/",
+            "https://mcp.aura-historia.com/v1",
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, issuer.to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|name| values.get(name).cloned()),
+                Err(ApiConfigError::InvalidOAuthIssuer(_))
+            ));
+        }
+        let mut values = valid_api_config_values();
+        values.remove(OAUTH_ISSUER_URL_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| values.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: OAUTH_ISSUER_URL_ENV
+            })
+        ));
     }
 
     #[test]
@@ -2879,42 +2497,6 @@ mod tests {
         );
     }
 
-    struct UnavailableGoogleAdcProvider {
-        calls: AtomicUsize,
-    }
-
-    impl GoogleAdcProvider for UnavailableGoogleAdcProvider {
-        fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            Err(EmbeddingError::AuthenticationFailed {
-                source: Box::new(std::io::Error::other("test Google ADC is unavailable")),
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn should_initialize_vertex_adapter_and_adc_only_when_embedding_needs_it() {
-        let adc_provider = Arc::new(UnavailableGoogleAdcProvider {
-            calls: AtomicUsize::new(0),
-        });
-        let embeddings = LazyVertexAiEmbeddingGenerator::with_adc_provider(
-            VertexAiEmbeddingConfig::new("test-project", "eu"),
-            Arc::clone(&adc_provider) as Arc<dyn GoogleAdcProvider>,
-        );
-
-        assert!(embeddings.generator.get().is_none());
-        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 0);
-
-        let result = embeddings.generator().await;
-
-        assert!(matches!(
-            result,
-            Err(EmbeddingError::AuthenticationFailed { .. })
-        ));
-        assert!(embeddings.generator.get().is_none());
-        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 1);
-    }
-
     #[test]
     fn should_default_and_apply_bounded_public_listing_source_read_configuration() {
         let mut absent = |_| None;
@@ -2995,143 +2577,6 @@ mod tests {
                 64,
             ),
             Err(ApiConfigError::InvalidIntegerConfig { .. })
-        ));
-    }
-
-    #[test]
-    fn should_default_parallel_product_listing_enrichment_to_disabled() {
-        let mut get = |_| None;
-
-        let enabled = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        );
-
-        assert!(matches!(enabled, Ok(false)));
-    }
-
-    #[test]
-    fn should_default_product_listing_search_cache_policies_to_enabled() {
-        let mut get = |_| None;
-
-        let fx = parse_product_listing_search_fx_cache_config(&mut get);
-        let source = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            fx,
-            Ok(ref config)
-                if config.enabled()
-                    && config.max_entries() == 512
-                    && config.latest_selection_ttl() == Duration::from_secs(30)
-        ));
-        assert!(matches!(
-            source,
-            Ok(ref config)
-                if config.enabled()
-                    && config.max_entries() == 4_096
-                    && config.max_accounted_bytes() == 8 * 1024 * 1024
-                    && config.ttl() == Duration::from_secs(60)
-        ));
-    }
-
-    #[test]
-    fn should_apply_explicit_product_listing_search_cache_policy() {
-        let mut get = |name| match name {
-            PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV => Some("false".to_owned()),
-            PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV => Some("128".to_owned()),
-            PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS_ENV => Some("0".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED_ENV => Some("false".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES_ENV => Some("256".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV => Some("65536".to_owned()),
-            PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV => Some("5".to_owned()),
-            _ => None,
-        };
-
-        let fx = parse_product_listing_search_fx_cache_config(&mut get);
-        let source = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            fx,
-            Ok(ref config)
-                if !config.enabled()
-                    && config.max_entries() == 128
-                    && config.latest_selection_ttl().is_zero()
-        ));
-        assert!(matches!(
-            source,
-            Ok(ref config)
-                if !config.enabled()
-                    && config.max_entries() == 256
-                    && config.max_accounted_bytes() == 65_536
-                    && config.ttl() == Duration::from_secs(5)
-        ));
-    }
-
-    #[test]
-    fn should_reject_out_of_range_product_listing_search_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV)
-                .then(|| "536870913".to_owned())
-        };
-
-        let result = parse_product_listing_search_source_cache_config(&mut get);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::OutOfRangeIntegerConfig { name, value, min: 1, max: 536_870_912 })
-                if name == PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES_ENV && value == "536870913"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_integer_product_listing_search_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV).then(|| "many".to_owned())
-        };
-
-        let result = parse_product_listing_search_fx_cache_config(&mut get);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidIntegerConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES_ENV && value == "many"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_boolean_product_listing_search_fx_cache_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV).then(|| "enabled".to_owned())
-        };
-
-        let result =
-            optional_bool_config(&mut get, PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV, false);
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidBooleanConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED_ENV && value == "enabled"
-        ));
-    }
-
-    #[test]
-    fn should_reject_non_boolean_parallel_product_listing_enrichment_configuration() {
-        let mut get = |name| {
-            (name == PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV)
-                .then(|| "enabled".to_owned())
-        };
-
-        let result = optional_bool_config(
-            &mut get,
-            PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV,
-            false,
-        );
-
-        assert!(matches!(
-            result,
-            Err(ApiConfigError::InvalidBooleanConfig { name, value })
-                if name == PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV && value == "enabled"
         ));
     }
 }

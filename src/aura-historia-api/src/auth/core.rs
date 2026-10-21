@@ -86,6 +86,8 @@ pub enum AuthError {
     TemporarilyUnavailable,
     #[error("auth service failed internally: {0}")]
     Internal(String),
+    #[error("Aura access token authentication failed")]
+    AuraAccessToken(#[source] aura_historia_auth::AccessTokenAuthenticationError),
 }
 
 #[async_trait::async_trait]

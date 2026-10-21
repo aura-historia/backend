@@ -12,10 +12,6 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use geo::{
-    AddressText, GeoPoint, GeographicDescription, PostalCode, SpatialPosition, SpatialPrecision,
-    SubdivisionCode, country_from_code, reference::ReferenceRelease,
-};
 use party_core::{
     party_id::PartyId,
     party_location::{
@@ -49,85 +45,14 @@ fn map_patch<T, U>(
     })
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct GeographyData {
-    reference_release: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    address_text: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    country: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    subdivision: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    postal_code: Option<String>,
-}
-impl GeographyData {
-    pub(crate) fn into_core(self) -> Result<GeographicDescription, ApiError> {
-        let release = ReferenceRelease::from_code(&self.reference_release).map_err(|_| bad())?;
-        GeographicDescription::new_in_release(
-            release,
-            self.address_text
-                .map(AddressText::new)
-                .transpose()
-                .map_err(|_| bad())?,
-            self.country
-                .map(|v| country_from_code(&v, release))
-                .transpose()
-                .map_err(|_| bad())?,
-            self.subdivision
-                .map(|v| SubdivisionCode::from_code(&v, release))
-                .transpose()
-                .map_err(|_| bad())?,
-            self.postal_code
-                .map(PostalCode::new)
-                .transpose()
-                .map_err(|_| bad())?,
-        )
-        .map_err(|_| bad())?
-        .ok_or_else(bad)
+pub(crate) use aura_historia_contracts::geography::{GeographyData, PositionData};
+
+impl From<aura_historia_contracts::geography::InvalidGeographyData> for ApiError {
+    fn from(_: aura_historia_contracts::geography::InvalidGeographyData) -> Self {
+        bad()
     }
 }
-impl From<GeographicDescription> for GeographyData {
-    fn from(v: GeographicDescription) -> Self {
-        Self {
-            reference_release: v.reference_release().as_str().to_owned(),
-            address_text: v.address_text().map(|v| v.as_str().to_owned()),
-            country: v.country().map(|v| v.alpha2().to_owned()),
-            subdivision: v.subdivision().map(|v| v.as_str().to_owned()),
-            postal_code: v.postal_code().map(|v| v.as_str().to_owned()),
-        }
-    }
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PositionData {
-    latitude_degrees: f64,
-    longitude_degrees: f64,
-    precision: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    accuracy_metres: Option<f64>,
-}
-impl PositionData {
-    fn into_core(self) -> Result<SpatialPosition, ApiError> {
-        SpatialPosition::new(
-            GeoPoint::new(self.latitude_degrees, self.longitude_degrees).map_err(|_| bad())?,
-            SpatialPrecision::from_code(&self.precision).ok_or_else(bad)?,
-            self.accuracy_metres,
-        )
-        .map_err(|_| bad())
-    }
-}
-impl From<SpatialPosition> for PositionData {
-    fn from(v: SpatialPosition) -> Self {
-        Self {
-            latitude_degrees: v.point().latitude_degrees(),
-            longitude_degrees: v.point().longitude_degrees(),
-            precision: v.precision().as_str().to_owned(),
-            accuracy_metres: v.accuracy_metres(),
-        }
-    }
-}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EvidenceData {
@@ -284,8 +209,10 @@ fn update_command(
             PartyLocationLabel::new(v).map_err(|_| bad())
         })?,
         roles: map_patch(non_nullable_patch(d.roles, "roles")?, role_set)?,
-        geography: map_patch(clearable(d.geography), GeographyData::into_core)?,
-        position: map_patch(clearable(d.position), PositionData::into_core)?,
+        geography: map_patch(clearable(d.geography), |v| {
+            v.into_core().map_err(Into::into)
+        })?,
+        position: map_patch(clearable(d.position), |v| v.into_core().map_err(Into::into))?,
         evidence: map_patch(clearable(d.evidence), EvidenceData::into_service)?,
     })
 }

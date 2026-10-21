@@ -10,6 +10,7 @@ test-api = { workspace = true }
 members = [
     "src/application",
     "src/aura-historia-api",
+    "src/aura-historia-auth",
     "src/aura-historia-contracts",
     "src/aura-historia-mcp",
     "src/aura-historia-runtime",
@@ -121,6 +122,7 @@ members = [
 ]
 
 [workspace.dependencies]
+aura-historia-auth = { path = "src/aura-historia-auth" }
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }
 aura-historia-runtime = { path = "src/aura-historia-runtime" }
@@ -269,7 +271,6 @@ syn = "3.0.1"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
 testcontainers = "0.24.0"
-testcontainers-modules = "0.12.1"
 thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.52.3", default-features = false }

@@ -112,21 +112,31 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
-  test("exposes only /v1 operations in Axum and OpenAPI with no legacy aliases, duplicates or catch-all", () => {
+  test("exposes canonical /v1 operations and exact AS discovery with no aliases or catch-all", () => {
     const catalog = catalogRouteKeys();
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(152);
+      expect(routes).toHaveLength(153);
       expect(new Set(routes).size).toBe(routes.length);
-      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key))).toBe(true);
+      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || key === "GET /.well-known/oauth-authorization-server")).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
       expect(routes.filter((key) => key.includes(" /api/"))).toEqual([]);
     }
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
+  });
+
+  test("serves exact AS discovery without bearer, client credentials or shared edge caching", () => {
+    const metadata = API_ROUTE_CATALOG.filter((route) => route.path === "/.well-known/oauth-authorization-server");
+    expect(metadata).toHaveLength(1);
+    expect(metadata[0]).toMatchObject({ method: "GET", auth: RouteAuthPolicy.Anonymous, policy: {
+      bearer: "NONE", authorization: RouteAuthorizationClass.Public,
+      oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None,
+    } });
+    expect(matchesSelectiveCacheBehavior(metadata[0].path)).toBe(false);
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
@@ -473,11 +483,11 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(152);
+    expect(routes).toHaveLength(153);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
-    // The four preserved collection IDs keep this cutover at 152 + 148 = 300 routes.
+    // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);
-    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)))).toBe(true);
+    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)) || route.Properties.RouteKey === "GET /.well-known/oauth-authorization-server")).toBe(true);
     expect(routes.filter((route) => String(route.Properties.RouteKey).includes(" /api/"))).toEqual([]);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))

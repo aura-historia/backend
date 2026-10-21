@@ -277,7 +277,9 @@ dependencies = [
  "auction-core",
  "auction-postgres",
  "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
+ "aura-historia-mcp",
  "aura-historia-runtime",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
@@ -300,10 +302,10 @@ dependencies = [
  "geo",
  "geo-postgres",
  "geo-service",
- "google-cloud-auth",
  "http 1.5.0",
  "httpdate",
  "indexmap 2.14.2",
+ "jsonschema",
  "jsonwebtokens",
  "lambda_http",
  "listing-source-core",
@@ -338,6 +340,7 @@ dependencies = [
  "product-service",
  "reqwest 0.12.28",
  "rstest",
+ "schemars 1.2.3",
  "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
@@ -377,6 +380,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-auth"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "thiserror 2.0.21",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
 name = "aura-historia-cdc-routing"
 version = "0.1.0"
 dependencies = [
@@ -410,14 +423,41 @@ name = "aura-historia-contracts"
 version = "0.1.0"
 dependencies = [
  "application",
+ "auction-core",
+ "auction-service",
+ "base64 0.23.1",
+ "domain-primitives",
+ "fxrate-core",
+ "geo",
  "jsonschema",
+ "listing-source-core",
+ "listing-source-service",
  "localization",
  "money",
+ "notification-core",
+ "notification-service",
+ "partnership-core",
+ "party-core",
+ "party-service",
  "product-listing-core",
+ "product-listing-service",
  "schemars 1.2.3",
+ "search-filter-core",
+ "search-filter-service",
  "serde",
+ "serde-email",
  "serde_json",
+ "shipping-core",
+ "shipping-json",
+ "shipping-service",
  "strum 0.28.0",
+ "thiserror 2.0.21",
+ "time",
+ "url",
+ "user-core",
+ "user-service",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -444,24 +484,58 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-service",
+ "aura-historia-auth",
  "aura-historia-contracts",
+ "aura-historia-runtime",
  "axum",
  "base64 0.23.1",
+ "domain-primitives",
+ "embedding",
+ "fxrate-core",
+ "fxrate-service",
+ "geo",
+ "geo-service",
  "http-body-util",
  "jsonschema",
  "lambda_http",
+ "listing-source-core",
+ "listing-source-service",
+ "localization",
+ "money",
+ "notification-core",
+ "notification-service",
+ "oauth-core",
+ "party-core",
+ "party-service",
  "platform-lambda-bootstrap",
  "platform-observability",
+ "platform-postgres",
+ "product-listing-core",
+ "product-listing-service",
  "rmcp",
  "schemars 1.2.3",
+ "search-filter-core",
+ "search-filter-service",
  "serde",
  "serde_json",
+ "serial_test",
+ "shipping-core",
+ "shipping-service",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tokio-util",
  "tower",
  "url",
+ "user-core",
+ "user-service",
  "uuid",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -477,18 +551,42 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-postgres",
+ "auction-service",
+ "embedding",
+ "fxrate-postgres",
+ "fxrate-service",
+ "geo-postgres",
+ "google-cloud-auth",
  "listing-source-core",
  "listing-source-postgres",
  "listing-source-service",
+ "notification-postgres",
+ "notification-service",
+ "opensearch",
+ "party-postgres",
+ "party-service",
  "platform-lambda-bootstrap",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "product-listing-service",
+ "search-filter-postgres",
+ "search-filter-service",
  "serial_test",
+ "shipping-postgres",
+ "shipping-service",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
  "tokio",
+ "url",
+ "user-postgres",
+ "user-service",
  "uuid",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -2066,6 +2164,7 @@ dependencies = [
  "futures",
  "fxrate-postgres",
  "google-cloud-auth",
+ "html-escape",
  "httpdate",
  "imagesize",
  "indexmap 2.14.2",
@@ -2814,7 +2913,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6946,7 +7045,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7438,7 +7537,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7518,7 +7617,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8187,6 +8286,7 @@ dependencies = [
  "money",
  "party-core",
  "product-listing-core",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "shipping-core",
@@ -9057,7 +9157,6 @@ dependencies = [
  "test-api",
  "test-api-macros",
  "testcontainers",
- "testcontainers-modules",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -9101,15 +9200,6 @@ dependencies = [
  "tokio-tar",
  "tokio-util",
  "url",
-]
-
-[[package]]
-name = "testcontainers-modules"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac95cde96549fc19c6bf19ef34cc42bd56e264c1cb97e700e21555be0ecf9e2"
-dependencies = [
- "testcontainers",
 ]
 
 [[package]]
@@ -9301,9 +9391,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.19"
+version = "0.7.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
+checksum = "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b"
 dependencies = [
  "bytes",
  "futures-core",
@@ -10151,7 +10241,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

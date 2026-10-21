@@ -2,6 +2,23 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-21 — Authenticated MCP and Aura OAuth (#2228)
+
+- The stable MCP endpoint now exposes 38 operations: the existing 12 public tools plus 9 own-account/address/destination, 7 saved-search/match-feedback, 4 watchlist and 6 notification tools. Protected families retain complete shared REST contracts, independent read/write scopes, ownership, quotas, pagination and version conflicts. Mutations preserve their existing retry semantics and are never automatically retried. See the [MCP contract](mcp.md) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).
+- Ten public listing, history, auction and source tools accept validated delegated context. Private listing sections follow their individual read scopes; hidden-item, tier and sensitive-image policy applies independently. Anonymous access remains available, and location discovery and public overview remain anonymous. Published integer schemas include unsigned bounds matching the existing wire types.
+- MCP revalidates opaque Aura credentials, expiry, revocation and user suspension on every request. Protected calls use HTTP `401`/`403` challenges with resource metadata and complete required scope sets; invalid supplied credentials never become anonymous. Authentication-store outages return `503`. Both protected-resource metadata paths identify the exact MCP resource and matching Aura issuer.
+- `GET /v1/oauth/authorize` and `POST /v1/oauth/token` accept one optional `resource` from the configured environment's exact REST/MCP identifiers. Authorization codes retain that binding; exchange may repeat it or omit it to inherit the binding. Foreign, other-environment, empty, repeated or substituted resources return `400 invalid_target`. Existing integrations omitting `resource` retain the shared Aura default, and opaque tokens remain usable across both transports with their existing scopes and revocation.
+- Public RFC 8414 metadata at `/.well-known/oauth-authorization-server` advertises the matching browser consent URL, canonical `/v1/oauth/token`, authorization code, S256 and `client_secret_post`. It omits refresh grants, dynamic registration, CIMD, revocation/introspection discovery and authorization-response `iss` support. First-party approval still defaults to nonexpiring tokens, which omit `expires_in`; no token migration or refresh token is introduced.
+- OAuth authorization input and token/revocation/introspection failures use standard, secret-free OAuth JSON errors. Invalid clients return `401 invalid_client`; unknown authorization clients return `400 invalid_request`. Duplicate parameters and malformed form/query encoding are rejected. Credential responses, redirects and protocol errors carry `Cache-Control: no-store` and `Pragma: no-cache`. REST client-management and first-party authentication/authority errors retain their existing vocabulary. See the [OAuth contract](oauth.md).
+
+## 2026-10-20 — Complete listing-search filter documentation (#2235)
+
+- OpenAPI now documents the existing `orderability` and `includeUnspecifiedAvailability` query filters on `GET /v1/product-listings`. They retain the same availability-query semantics as saved searches.
+
+## 2026-10-20 — Anonymous MCP catalogue (#2239)
+
+- Add twelve anonymous listing, history, auction, source, location and overview tools at the canonical MCP endpoint, using the existing operation IDs and complete shared contracts. Search retains its full filters and continuations; listing history remains complete and unpaginated. Newsletter, private/write/admin and control-plane operations are excluded. See the [public MCP contract](mcp.md#public-catalogue) and [selected-operation manifest](../src/aura-historia-mcp/public-operations.json).
+
 ## 2026-10-20 — Delegated credentials cannot obtain OAuth credentials (#2214)
 
 - `GET /v1/oauth/authorize` now requires a Cognito access JWT. A valid Aura Historia access token, including one with `access-tokens:write` and every requested scope, receives `403 FORBIDDEN` and no authorization code is issued. Previously such a token could approve a request and obtain a non-expiring OAuth token that outlived it. Approvals made with a Cognito access JWT and token issuance at `POST /v1/oauth/token` are unchanged.
