@@ -524,19 +524,6 @@
         }
       ]
     },
-    "ci-determinator": {
-      "path": "src/ci-determinator",
-      "targets": [
-        {
-          "doctest": false,
-          "harness": true,
-          "id": "ci-determinator::bin::ci-determinator",
-          "lane": "REMAINING",
-          "required_features": [],
-          "test": true
-        }
-      ]
-    },
     "classifier-model": {
       "path": "src/classifier-model",
       "targets": [

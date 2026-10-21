@@ -154,6 +154,16 @@ through lint, artifact upload and coverage validation. Sonar scan/gate duration 
 the previous per-package fanout need their own same-source workflow evidence before
 claiming a complete CI speedup or selecting the final lane count.
 
+The unused `ci-determinator` package and its three selector self-tests are retired.
+Legacy replay must build the original tool and retain its selection/build scheduling
+cost: source is available at `5c9bccac4e5c3d1e34ee021b7bbadcf78db592d4`.
+An isolated workspace can supply that revision's inherited `serde_json` declaration
+and locked dependency versions without restoring the package to current CI. Run the
+compiled selector from the final source checkout against the recorded change base.
+Account explicitly for the legacy root/proc-macro omissions and required exceptional
+phases when comparing complete test corpora. Reconstructing the old scheduling is
+not equivalent to replacing its build/selector work with a metadata-only matrix.
+
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository
 PR to bootstrap its first run before default-branch registration. It checks out
