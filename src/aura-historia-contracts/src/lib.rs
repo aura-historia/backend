@@ -17,3 +17,4 @@ pub mod auctions;
 pub mod geography;
 pub mod saved_searches;
 pub mod users;
+pub mod watchlist;

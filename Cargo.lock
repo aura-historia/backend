@@ -451,6 +451,8 @@ dependencies = [
  "url",
  "user-core",
  "user-service",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -525,6 +527,8 @@ dependencies = [
  "user-core",
  "user-service",
  "uuid",
+ "watchlist-core",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -572,6 +576,8 @@ dependencies = [
  "user-postgres",
  "user-service",
  "uuid",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]

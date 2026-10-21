@@ -71,3 +71,8 @@ REST and MCP reuse the same DTOs, validation and service-view conversions; REST 
 match cursor arrays. The [saved-search fixture and schema tests](tests/saved_searches.rs) cover
 full listing criteria, patch omission/null rules, atomic availability updates and stored match
 shipping valuations. Account identity comes from each trusted transport context, never these DTOs.
+
+Watchlist entry, mutation, list query and paged personalized-detail contracts live in `watchlist`.
+REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
+patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
+compare schema validation with the complete input mapping, including null and omission rules.

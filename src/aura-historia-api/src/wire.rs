@@ -180,18 +180,6 @@ pub(crate) mod listing_availability {
     }
 }
 
-pub(crate) mod watchlist_state {
-    use super::*;
-    use watchlist_core::watchlist_state::WatchlistState;
-
-    pub(crate) fn serialize<S>(value: &WatchlistState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, WatchlistState::as_str)
-    }
-}
-
 pub(crate) mod partnership_application_state {
     use super::*;
     use partnership_core::partnership_application_state::PartnershipApplicationState;

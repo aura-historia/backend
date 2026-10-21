@@ -166,9 +166,8 @@ use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingLifecycleGuardFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
@@ -219,11 +218,6 @@ use user_service::use_cases::{
     AuthenticateAccessTokenHandler, AuthenticateUserHandler, ConfirmNewsletterSubscriptionHandler,
     RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
     SuspendUserHandler, UnsuspendUserHandler,
-};
-use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
-use watchlist_service::use_cases::{
-    ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
-    WatchProductListingHandler,
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
@@ -1370,25 +1364,6 @@ async fn app_state_from_config_and_runtime(
         loops_consent_provider,
         loops_webhook_target_list_id,
     );
-    let watch_product = WatchProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-    );
-    let update_watchlist_product = UpdateWatchlistProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxWatchlistRepositoryFactory,
-        SqlxWatchlistQuotaReaderFactory,
-        SqlxUserTierEntitlementsFactory::new(),
-        SqlxProductListingLifecycleGuardFactory::new(),
-        SqlxProductListingDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-    let unwatch_product =
-        UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1532,13 +1507,6 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&submit_product_listing_ingestion),
         authorize_woocommerce_product,
     );
-    let list_watchlist = ListWatchlistHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingWatchlistDetailsReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        shipping.clone(),
-    );
-
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
     let resolve_cognito_user =
@@ -1932,11 +1900,12 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&saved_searches.feedback),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let watchlist = runtime.watchlist();
     let watchlist_state = WatchlistState {
-        list_watchlist: Arc::new(list_watchlist),
-        watch_product: Arc::new(watch_product),
-        update_watchlist_product: Arc::new(update_watchlist_product),
-        unwatch_product: Arc::new(unwatch_product),
+        list_watchlist: Arc::clone(&watchlist.list),
+        watch_product: Arc::clone(&watchlist.add),
+        update_watchlist_product: Arc::clone(&watchlist.update),
+        unwatch_product: Arc::clone(&watchlist.remove),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let oauth_state = OAuthState {

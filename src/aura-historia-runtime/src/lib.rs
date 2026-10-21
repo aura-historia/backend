@@ -19,6 +19,7 @@ mod public_product_listings;
 mod rotation;
 mod saved_searches;
 mod user_profile;
+mod watchlist;
 
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
@@ -34,6 +35,7 @@ pub use public_product_listings::{ProductListingDependencies, PublicProductListi
 pub use rotation::{RotatingRuntime, RuntimeLease};
 pub use saved_searches::SavedSearches;
 pub use user_profile::UserProfile;
+pub use watchlist::Watchlist;
 
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
@@ -53,6 +55,7 @@ pub struct Runtime {
     public_party_locations: OnceLock<PublicPartyLocations>,
     public_overview: OnceLock<PublicOverview>,
     saved_searches: OnceLock<SavedSearches>,
+    watchlist: OnceLock<Watchlist>,
 }
 
 impl Runtime {
@@ -70,6 +73,7 @@ impl Runtime {
             public_party_locations: OnceLock::new(),
             public_overview: OnceLock::new(),
             saved_searches: OnceLock::new(),
+            watchlist: OnceLock::new(),
         }
     }
 
@@ -147,6 +151,11 @@ impl Runtime {
         self.saved_searches.get_or_init(|| {
             SavedSearches::compose(&self.postgres, self.listing_shipping().clone(), embeddings)
         })
+    }
+
+    pub fn watchlist(&self) -> &Watchlist {
+        self.watchlist
+            .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
     }
 
     pub fn public_overview(&self) -> &PublicOverview {

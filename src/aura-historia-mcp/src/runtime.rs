@@ -35,6 +35,9 @@ fn production_registry(
         runtime.private_addresses().clone(),
     )?);
     registered.extend(crate::tools::saved_searches::operations(saved_searches)?);
+    registered.extend(crate::tools::watchlist::operations(
+        runtime.watchlist().clone(),
+    )?);
     crate::Registry::new(registered)
 }
 
