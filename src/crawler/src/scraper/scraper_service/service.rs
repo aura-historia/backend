@@ -569,8 +569,8 @@ impl ScraperServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
-    use crate::network::policy::{NetworkErrorKind, RetryPolicy};
+    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error};
+    use crate::network::policy::{CrawlerClientError, NetworkErrorKind, RetryPolicy};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
     use std::time::{Duration, Instant};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -636,6 +636,47 @@ mod tests {
             alpha: 0.15,
             enabled: true,
         }
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_rejects_an_ip_literal_target_before_connecting() {
+        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher
+            .fetch(&Url::parse("http://127.0.0.1/product").unwrap())
+            .await
+            .expect_err("an IP literal is never a public crawl target");
+
+        assert!(matches!(
+            error,
+            FetchError::Network {
+                kind: NetworkErrorKind::UnsafeTarget,
+                ..
+            }
+        ));
+    }
+
+    /// A client that cannot be built says nothing about the target: it must
+    /// neither mark the URL unsafe nor hide the cause.
+    #[test]
+    fn client_fetch_error_should_keep_the_cause_of_an_unavailable_trust_store() {
+        let error = client_fetch_error(CrawlerClientError::TrustStore(rustls::Error::General(
+            "no CA certificates were loaded".to_owned(),
+        )))
+        .error;
+
+        let FetchError::Network { kind, details } = error else {
+            panic!("expected a network fetch error, got {error:?}");
+        };
+        assert_eq!(kind, NetworkErrorKind::Unknown);
+        assert!(
+            details.contains("platform TLS trust store is unavailable")
+                && details.contains("no CA certificates were loaded"),
+            "{details}"
+        );
     }
 
     #[tokio::test]
