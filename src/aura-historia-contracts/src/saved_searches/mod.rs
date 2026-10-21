@@ -424,7 +424,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
@@ -432,7 +432,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotBiddingOpens",
@@ -440,7 +440,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
     lot_bidding_opens_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotScheduledCloses",
@@ -448,7 +448,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
     lot_scheduled_closes_query: Option<RangeQuery<OffsetDateTime>>,
 }
 

@@ -55,6 +55,15 @@ async fn should_forward_complete_create_fixture_and_trusted_delegated_context_on
     let fixture = Fixture::default();
     let registry = fixture.registry();
     let input = create_input();
+    let schema = Value::Object(
+        (*registry
+            .get("createUserSearchFilter")
+            .unwrap()
+            .tool()
+            .input_schema)
+            .clone(),
+    );
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&input));
     let result = registry
         .get("createUserSearchFilter")
         .unwrap()
@@ -81,6 +90,33 @@ async fn should_forward_complete_create_fixture_and_trusted_delegated_context_on
         matches!(&context.principal,Principal::DelegatedUser {user_id,capabilities} if *user_id==fixture.user && capabilities==&[CredentialCapability::SearchFiltersWrite].into())
     );
     assert_eq!("saved-search-test", context.request_id.to_string());
+}
+#[tokio::test]
+async fn should_reject_null_creation_date_ranges_in_the_published_schema_and_runtime() {
+    let fixture = Fixture::default();
+    let registry = fixture.registry();
+    let operation = registry.get("createUserSearchFilter").unwrap();
+    let schema = Value::Object((*operation.tool().input_schema).clone());
+    let schema = jsonschema::validator_for(&schema).unwrap();
+    for field in [
+        "created",
+        "updated",
+        "lotBiddingOpens",
+        "lotScheduledCloses",
+    ] {
+        let input = json!({"name":"Saved", "search":{field:null}});
+        assert!(!schema.is_valid(&input), "{field}");
+        assert!(matches!(
+            operation
+                .call(
+                    input,
+                    fixture.context(CredentialCapability::SearchFiltersWrite)
+                )
+                .await,
+            Err(OperationError::InvalidArguments(_))
+        ));
+    }
+    assert!(fixture.calls.lock().unwrap().is_empty());
 }
 #[tokio::test]
 async fn should_forward_patch_nulls_atomic_availability_and_shipping_acceptance() {

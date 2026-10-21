@@ -94,6 +94,104 @@ fn should_keep_feedback_boolean_null_and_omission_distinct() {
 }
 
 #[test]
+fn should_reject_null_date_ranges_on_creation_but_clear_them_in_patches() {
+    let create_schema = validator::<CreateSearchFilterData>(true);
+    let patch_schema = validator::<UpdateSearchFilterData>(true);
+    let omitted = json!({"name":"Saved", "search":{}});
+    assert!(create_schema.is_valid(&omitted));
+    assert!(
+        serde_json::from_value::<CreateSearchFilterData>(omitted)
+            .unwrap()
+            .into_command(Default::default())
+            .is_ok()
+    );
+    for field in [
+        "created",
+        "updated",
+        "lotBiddingOpens",
+        "lotScheduledCloses",
+    ] {
+        let create = json!({"name":"Saved", "search":{field:null}});
+        assert!(
+            serde_json::from_value::<CreateSearchFilterData>(create.clone()).is_err(),
+            "{field} creation must retain REST's object-only date range codec"
+        );
+        assert!(!create_schema.is_valid(&create), "{field}");
+
+        let patch = json!({"search":{field:null}});
+        assert!(patch_schema.is_valid(&patch), "{field}");
+        let patch = serde_json::from_value::<UpdateSearchFilterData>(patch)
+            .unwrap()
+            .into_fields()
+            .unwrap()
+            .3;
+        let actual = match field {
+            "created" => patch.created_query,
+            "updated" => patch.updated_query,
+            "lotBiddingOpens" => patch.lot_bidding_opens_query,
+            "lotScheduledCloses" => patch.lot_scheduled_closes_query,
+            _ => unreachable!(),
+        };
+        assert_eq!(PatchField::Clear, actual, "{field}");
+    }
+}
+
+#[test]
+fn should_preserve_concrete_date_and_unsigned_price_range_patches() {
+    use domain_primitives::query::range_query::RangeQuery;
+
+    let min = "2026-01-01T12:00:00.123456789+02:00";
+    let max = "2026-12-31T23:59:59.987654321Z";
+    let value = json!({"search":{
+        "price":{"min":null,"max":u64::MAX},
+        "created":{"min":min,"max":null},
+        "updated":{"max":max},
+        "lotBiddingOpens":{},
+        "lotScheduledCloses":{"min":min,"max":max}
+    }});
+    assert!(validator::<UpdateSearchFilterData>(true).is_valid(&value));
+    let patch = serde_json::from_value::<UpdateSearchFilterData>(value)
+        .unwrap()
+        .into_fields()
+        .unwrap()
+        .3;
+    let min = OffsetDateTime::parse(min, &time::format_description::well_known::Rfc3339).unwrap();
+    let max = OffsetDateTime::parse(max, &time::format_description::well_known::Rfc3339).unwrap();
+    assert_eq!(
+        PatchField::Set(RangeQuery {
+            min: None,
+            max: Some(u64::MAX.into())
+        }),
+        patch.price_query
+    );
+    assert_eq!(
+        PatchField::Set(RangeQuery {
+            min: Some(min),
+            max: None
+        }),
+        patch.created_query
+    );
+    assert_eq!(
+        PatchField::Set(RangeQuery {
+            min: None,
+            max: Some(max)
+        }),
+        patch.updated_query
+    );
+    assert_eq!(
+        PatchField::Set(RangeQuery::default()),
+        patch.lot_bidding_opens_query
+    );
+    assert_eq!(
+        PatchField::Set(RangeQuery {
+            min: Some(min),
+            max: Some(max)
+        }),
+        patch.lot_scheduled_closes_query
+    );
+}
+
+#[test]
 fn should_preserve_saved_search_response_and_match_snapshot_schemas() {
     let user_id = UserId::new();
     let data: CreateSearchFilterData = serde_json::from_value(fixture()).unwrap();
