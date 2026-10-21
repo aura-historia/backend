@@ -696,16 +696,7 @@ impl ReviewServer {
     }
 
     async fn fetch_live_html(&self, page: &CrawlerReviewPage) -> Result<String, HttpResponse> {
-        let url = Url::parse(&page.url).map_err(|err| {
-            HttpResponse::json(
-                400,
-                &json!({
-                    "error": "invalid live review page url",
-                    "url": page.url,
-                    "details": err.to_string(),
-                }),
-            )
-        })?;
+        let url = review_page_url(page)?;
         self.fetch_live(&url)
             .await
             .map(|fetched| fetched.html)
@@ -989,6 +980,19 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
         }
         CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
     }
+}
+
+fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
+    Url::parse(&page.url).map_err(|err| {
+        HttpResponse::json(
+            400,
+            &json!({
+                "error": "invalid live review page url",
+                "url": page.url,
+                "details": err.to_string(),
+            }),
+        )
+    })
 }
 
 fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
