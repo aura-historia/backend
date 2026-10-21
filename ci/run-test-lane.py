@@ -58,13 +58,13 @@ def execute(argv, cwd, environment):
         if interrupted is not None:
             forward(interrupted, None)
         code = process.wait()
-        if interrupted is not None:
-            raise SystemExit(128 + interrupted)
-        if code:
-            raise SystemExit(128 - code if code < 0 else code)
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
+    if interrupted is not None:
+        raise SystemExit(128 + interrupted)
+    if code:
+        raise SystemExit(128 - code if code < 0 else code)
 
 
 def discover_lane(args, root):
