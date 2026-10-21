@@ -53,9 +53,10 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
-four mutation/retry/open-world annotations. The
-[selected-operation manifest](../src/aura-historia-mcp/public-operations.json) records
-the exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
+four mutation/retry/open-world annotations. The disjoint
+[public](../src/aura-historia-mcp/public-operations.json) and
+[authenticated](../src/aura-historia-mcp/authenticated-operations.json) manifests together record
+the endpoint's exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
 captures narrow service handles and calls the shared
 inbound application use case directly. Use shared `aura-historia-contracts`
@@ -112,6 +113,33 @@ causes remain attached to internal error types and never appear in client
 messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
+
+## Watchlist tools
+
+| Operation | Scope | Result |
+| --- | --- | --- |
+| `getWatchlistProductListings` | `watchlist:read` | Complete personalized listing page with returned item count and optional total/cursor |
+| `addWatchlistProduct` | `watchlist:write` | Created watchlist entry, including notification setting and state |
+| `deleteWatchlistProduct` | `watchlist:write` | Bodyless REST outcome represented as `{ "result": null }` |
+| `patchWatchlistProduct` | `watchlist:write` | Complete personalized listing after notification/state changes |
+
+Every request targets the validated delegated user's own watchlist; no user identifier argument
+is accepted. Reads retain language/currency defaults and size clamping. Serialize the returned
+`searchAfter` timestamp/listing-ID array as a JSON string for the next request. Add notifications
+default to `true` when omitted or null. Patch omission preserves a field; explicit null is invalid
+for notification/state fields, and only `ACTIVE` or `INACTIVE_BY_USER` can be requested. Update
+also accepts the shared language/currency presentation options. Service-owned hidden-content,
+image, tier and scoped `userState` disclosure rules apply to complete listing results.
+
+Duplicate adds return `CONFLICT`; missing removes/updates return `NOT_FOUND`; activation/add
+quota failures return `WATCHLIST_QUOTA_EXCEEDED`. Mutations are annotated idempotent because duplicate
+adds and missing removes make no further state change, and patch sets absolute values. Repeated
+calls still retain their conflict/missing outcomes; deactivation/removal are destructive. These hints
+do not grant authority or authorize retries. A mutation timeout leaves the outcome unknown;
+inspect current state before deciding whether to retry. REST and MCP reuse shared watchlist
+contracts and the same typed runtime service family. The
+[operation fixtures](../src/aura-historia-mcp/src/tools/watchlist/tests.rs) and
+[local database acceptance](../src/aura-historia-mcp/tests/watchlist_postgres.rs) cover the boundary.
 
 ## Public catalogue
 

@@ -1,0 +1,70 @@
+{
+  "endpoint": "https://mcp.aura-historia.com/v1",
+  "schemaSource": {
+    "method": "tools/list",
+    "input": "inputSchema",
+    "output": "outputSchema"
+  },
+  "operations": [
+    {
+      "name": "addWatchlistProduct",
+      "operationId": "addWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteWatchlistProduct",
+      "operationId": "deleteWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "getWatchlistProductListings",
+      "operationId": "getWatchlistProductListings",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "patchWatchlistProduct",
+      "operationId": "patchWatchlistProduct",
+      "family": "watchlist",
+      "access": "protected",
+      "requiredScopes": [
+        "watchlist:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

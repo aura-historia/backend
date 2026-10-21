@@ -1,5 +1,5 @@
 //! Module-local public listing registrations. Release composition selects this family.
-mod error;
+pub(crate) mod error;
 #[cfg(test)]
 mod tests;
 
