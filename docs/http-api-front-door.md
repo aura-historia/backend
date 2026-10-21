@@ -222,17 +222,18 @@ curl -i "$mcp_origin/v1" \
 ```
 
 Require readiness `204`, a supported initialization result and successful discovery.
-The foundation registry is deliberately empty: `tools/list` returns `tools: []` and
-`ping` is the bounded public protocol call. After public families are released, also
+Compare `tools/list` with the release's disjoint public/authenticated manifests and
 call one actual listed public tool with bounded inputs and verify its complete
-result; do not install a synthetic production tool to make the smoke pass. Complete
+result. The [generic OAuth/MCP runbook](mcp.md#generic-oauth-acceptance-and-stage-smoke)
+provides a bounded optional command and a separate delegated-read check. Complete
 these checks before approving traffic:
 
 | Probe | Required result |
 | --- | --- |
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
-| Both reserved metadata paths; an unrelated `/v1/me` path | `404`, no REST response or invented metadata |
+| Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
+| An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |
 | Wrong Content-Type, unacceptable Accept, duplicate routing/credential headers | `415`, `406`, or `400`; no dispatch |

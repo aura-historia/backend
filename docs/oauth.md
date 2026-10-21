@@ -116,6 +116,17 @@ A successful exchange retains `access_token`, `token_type: Bearer` and the space
 `scope`. Nonexpiring tokens omit `expires_in`; no refresh token is invented. Existing
 one-time third-party exchange codes remain a separate API extension.
 
+Nonexpiring grants stay usable until the owner revokes them, the user is suspended, or the
+authoritative grant changes; they do not require periodic refresh or reauthentication.
+This makes secure server-side storage and a discoverable disconnect control essential.
+Use Aura's existing account token listing/revocation controls to inspect scope/expiry and
+disconnect an individual connection without displaying its bearer. Revocation rejects the
+next REST or MCP authorization check. It does not retroactively cancel work already
+authorized. After revocation, reconnect through a new human authorization and code exchange;
+the old bearer cannot be refreshed. A deliberately expiring token is rejected after expiry.
+See [generic MCP acceptance and stage verification](mcp.md#generic-oauth-acceptance-and-stage-smoke)
+for local coverage and the optional bounded stage command.
+
 ## Protocol errors and cache prevention
 
 Authorization input/client/resource/scope failures and token, revocation and introspection
