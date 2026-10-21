@@ -7,17 +7,17 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 /// This macro wraps an async test function and automatically:
 /// - Parses the `services = [ServiceA, ServiceB, ...]` attribute
-/// - Spins up LocalStack with only the specified LocalStack services
+/// - Shares a Floci container when a service requires AWS emulation
 /// - Calls each service's `set_up().await` before the test
 /// - Executes the test body
 /// - Calls each service's `tear_down().await` after the test
-/// - Keeps non-LocalStack services, like Postgres, managed by their service helper
+/// - Keeps services such as Postgres managed by their service helper
 ///
 /// # Requirements
 ///
 /// Each service provided:
 /// - must be a valid identifier for a type implementing trait `IntegrationTestService`
-/// - must return LocalStack service names from `service_names()` or `&[]` for non-LocalStack services
+/// - must return AWS service names from `service_names()` or `&[]` for other services
 /// - must define an `async fn set_up()`
 /// - may define an `async fn tear_down()`
 ///
@@ -49,7 +49,7 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 /// # See also
 ///
-/// - [`test_api::localstack::spin_up_localstack_with_services`] for how LocalStack is started.
+/// - [`test_api::aws::spin_up_aws_emulator`] for how Floci is started.
 ///
 #[proc_macro_attribute]
 pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -140,8 +140,8 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
                 result
             };
 
-            let __localstack = if !__services.is_empty() {
-                Some(test_api::localstack::get_localstack(&__services, &__env_vars).await)
+            let __aws_emulator = if !__services.is_empty() {
+                Some(test_api::aws::get_aws_emulator(&__services, &__env_vars).await)
             } else {
                 None
             };
@@ -173,7 +173,7 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
                 "Integration test teardown complete."
             );
 
-            drop(__localstack);
+            drop(__aws_emulator);
 
             match (__body_result, __teardown_result) {
                 (Err(body_panic), Err(cleanup_panic)) => {

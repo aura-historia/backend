@@ -1,5 +1,5 @@
 use crate::IntegrationTestService;
-use crate::localstack::{get_aws_config, get_endpoint_url};
+use crate::aws::{get_aws_config, get_endpoint_url};
 use async_trait::async_trait;
 use aws_sdk_sesv2::Client;
 use serde::Deserialize;
@@ -7,16 +7,17 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
-/// Sender identity verified for LocalStack SES integration tests.
+/// Sender identity verified for Floci SES integration tests.
 const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
 /// A lazily-initialized, globally shared SESv2 client for integration testing.
 static SES_CLIENT: OnceCell<Client> = OnceCell::const_new();
+static SENDER_VERIFIED: OnceCell<()> = OnceCell::const_new();
 
-/// Returns a shared `aws_sdk_sesv2::Client` for interacting with LocalStack.
+/// Returns a shared `aws_sdk_sesv2::Client` for interacting with Floci.
 ///
 /// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, LocalStack endpoint).
+/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
 pub async fn get_ses_client() -> &'static Client {
     let client = SES_CLIENT
         .get_or_init(|| async { Client::new(get_aws_config().await) })
@@ -25,12 +26,12 @@ pub async fn get_ses_client() -> &'static Client {
     client
 }
 
-/// Marker type representing the SES service in LocalStack-based tests.
+/// Marker type representing the SES service in Floci-based tests.
 ///
 /// Implements [`IntegrationTestService`] for use with the `#[aura_integration_test]` macro.
 ///
 /// On [`set_up`](IntegrationTestService::set_up), verifies the sender email identity
-/// (`no-reply@notify.aura-historia.com`) for LocalStack tests.
+/// (`no-reply@notify.aura-historia.com`) for Floci tests.
 pub struct Ses();
 
 #[async_trait]
@@ -40,7 +41,9 @@ impl IntegrationTestService for Ses {
     }
 
     async fn set_up(&self) {
-        verify_sender_identity(SENDER_EMAIL).await;
+        SENDER_VERIFIED
+            .get_or_init(|| verify_sender_identity(SENDER_EMAIL))
+            .await;
     }
 
     async fn tear_down(&self) {
@@ -52,33 +55,50 @@ impl IntegrationTestService for Ses {
 // SES identity verification
 // ---------------------------------------------------------------------------
 
-/// Verifies an email identity in LocalStack SES so that it can be used as a
+/// Verifies an email identity in Floci SES so that it can be used as a
 /// sender address.
 ///
-/// On real AWS this would trigger a verification email; LocalStack marks the
+/// On real AWS this would trigger a verification email; Floci marks the
 /// identity as verified immediately.
 pub async fn verify_sender_identity(email: &str) {
     let client = get_ses_client().await;
-    client
+    match client
         .create_email_identity()
         .email_identity(email)
         .send()
         .await
-        .unwrap_or_else(|e| panic!("shouldn't fail verifying SES email identity '{email}': {e}"));
+    {
+        Ok(_) => {}
+        Err(error)
+            if error
+                .as_service_error()
+                .is_some_and(|error| error.is_already_exists_exception()) => {}
+        Err(error) => panic!("shouldn't fail creating SES email identity '{email}': {error}"),
+    }
+    let identity = client
+        .get_email_identity()
+        .email_identity(email)
+        .send()
+        .await
+        .expect("shouldn't fail reading SES identity verification");
+    assert!(
+        identity.verified_for_sending_status(),
+        "SES identity must be verified"
+    );
     info!("Verified SES sender identity '{email}'.");
 }
 
 // ---------------------------------------------------------------------------
-// LocalStack /_aws/ses introspection types
+// Floci /_aws/ses introspection types
 // ---------------------------------------------------------------------------
 
-/// Response shape returned by LocalStack's `GET /_aws/ses` endpoint.
+/// Response shape returned by Floci's `GET /_aws/ses` endpoint.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SentEmailsResponse {
     pub messages: Vec<SentEmail>,
 }
 
-/// A single email captured by LocalStack's in-memory SES store.
+/// A single email captured by Floci's in-memory SES store.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SentEmail {
@@ -109,9 +129,9 @@ pub struct SentEmailBody {
 // Helper functions for querying sent emails
 // ---------------------------------------------------------------------------
 
-/// Retrieves all emails sent through LocalStack SES.
+/// Retrieves all emails sent through Floci SES.
 ///
-/// Queries the `/_aws/ses` internal endpoint which LocalStack exposes for
+/// Queries the `/_aws/ses` internal endpoint which Floci exposes for
 /// retrospecting sent messages.
 pub async fn get_sent_emails() -> Vec<SentEmail> {
     let url = format!("{}/_aws/ses", get_endpoint_url());
@@ -119,7 +139,9 @@ pub async fn get_sent_emails() -> Vec<SentEmail> {
         .get(&url)
         .send()
         .await
-        .unwrap_or_else(|e| panic!("shouldn't fail querying LocalStack SES endpoint: {e}"));
+        .unwrap_or_else(|e| panic!("shouldn't fail querying Floci SES endpoint: {e}"))
+        .error_for_status()
+        .expect("SES inspection endpoint must succeed");
 
     let body = response
         .json::<SentEmailsResponse>()
@@ -129,7 +151,7 @@ pub async fn get_sent_emails() -> Vec<SentEmail> {
     body.messages
 }
 
-/// Retrieves emails sent through LocalStack SES filtered by source email.
+/// Retrieves emails sent through Floci SES filtered by source email.
 ///
 /// Uses the `email` query parameter on the `/_aws/ses` endpoint.
 pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
@@ -139,7 +161,9 @@ pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
         .query(&[("email", source_email)])
         .send()
         .await
-        .unwrap_or_else(|e| panic!("shouldn't fail querying LocalStack SES endpoint: {e}"));
+        .unwrap_or_else(|e| panic!("shouldn't fail querying Floci SES endpoint: {e}"))
+        .error_for_status()
+        .expect("SES inspection endpoint must succeed");
 
     let body = response
         .json::<SentEmailsResponse>()
@@ -149,7 +173,7 @@ pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
     body.messages
 }
 
-/// Deletes all sent emails from LocalStack's in-memory SES store.
+/// Deletes all sent emails from Floci's in-memory SES store.
 ///
 /// Intended for test isolation — call this in `tear_down` so that each test
 /// starts with a clean slate.
@@ -159,11 +183,13 @@ pub async fn clear_sent_emails() {
         .delete(&url)
         .send()
         .await
-        .unwrap_or_else(|e| panic!("shouldn't fail clearing LocalStack SES messages: {e}"));
-    debug!("Cleared all sent emails from LocalStack SES.");
+        .unwrap_or_else(|e| panic!("shouldn't fail clearing Floci SES messages: {e}"))
+        .error_for_status()
+        .expect("SES inspection cleanup must succeed");
+    debug!("Cleared all sent emails from Floci SES.");
 }
 
-/// Polls LocalStack SES for an email whose subject contains the given string.
+/// Polls Floci SES for an email whose subject contains the given string.
 ///
 /// Retries every 2 seconds for up to `timeout` duration.
 ///
@@ -180,7 +206,7 @@ pub async fn wait_for_ses_email(subject_contains: &str, timeout: Duration) -> bo
             info!(
                 subject = %matched.subject,
                 to = ?matched.destination.to_addresses,
-                "Found matching email in LocalStack SES."
+                "Found matching email in Floci SES."
             );
             return true;
         }
@@ -204,7 +230,7 @@ pub async fn wait_for_ses_email(subject_contains: &str, timeout: Duration) -> bo
     }
 }
 
-/// Polls LocalStack SES for an email whose subject contains the given string
+/// Polls Floci SES for an email whose subject contains the given string
 /// **and** that was sent to a specific recipient address.
 ///
 /// Retries every 2 seconds for up to `timeout` duration.
@@ -232,7 +258,7 @@ pub async fn wait_for_ses_email_to(
             info!(
                 subject = %matched.subject,
                 to = ?matched.destination.to_addresses,
-                "Found matching email in LocalStack SES."
+                "Found matching email in Floci SES."
             );
             return true;
         }

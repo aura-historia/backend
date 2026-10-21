@@ -1,11 +1,8 @@
 use crate::IntegrationTestService;
-use crate::localstack::{LOCALSTACK_CONTAINER_PORT, get_aws_config, get_endpoint_url};
+use crate::aws::{aws_emulator_container_name, get_aws_config, get_endpoint_url};
 use application::error::{BoxError, box_error};
 use async_trait::async_trait;
 
-use aws_sdk_opensearch::operation::create_domain::CreateDomainOutput;
-
-use aws_sdk_opensearch::types::DomainEndpointOptions;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::http::response::Response;
@@ -15,16 +12,16 @@ use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::process::Command;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
 
 /// Name of the hybrid search pipeline — must stay in sync with
-/// `product::opensearch::repository::HYBRID_SEARCH_PIPELINE_NAME`.
+/// `product_listing_opensearch::product_listing_search_reader::HYBRID_SEARCH_PIPELINE_NAME`.
 ///
-/// A direct import is not possible because `product` tests depend on `test-api` as a
-/// dev-dependency, making a `test-api → product` dependency circular.
+/// The search adapter's tests depend on `test-api`, so importing it here would be circular.
 const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
@@ -51,10 +48,10 @@ fn test_access_policies() -> String {
     .to_string()
 }
 
-/// Returns a shared `opensearch::OpenSearch`-Client for interacting with LocalStack.
+/// Returns a shared `opensearch::OpenSearch`-Client for interacting with Floci.
 ///
 /// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, LocalStack endpoint).
+/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
 ///
 /// # Returns
 ///
@@ -62,8 +59,7 @@ fn test_access_policies() -> String {
 pub async fn get_opensearch_client() -> &'static Client {
     let client = OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            let endpoint_url = Url::parse(&format!("{}/{TEST_DOMAIN_NAME}", get_endpoint_url()))
-                .expect("shouldn't fail parsing OpenSearch endpoint URL");
+            let endpoint_url = domain_endpoint();
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
                 .build()
                 .expect("shouldn't fail creating OpenSearch-Transport");
@@ -74,21 +70,17 @@ pub async fn get_opensearch_client() -> &'static Client {
     client
 }
 
-/// Marker type representing the OpenSearch service in LocalStack-based tests.
+/// Marker type representing the OpenSearch service in Floci-based tests.
 ///
 /// Implements the `IntegrationTestService` trait to support lifecycle management
 /// when used with the `#[aura_integration_test]` macro.
 ///
-/// ### Dependencies
-///
-/// LocalStack requires **S3** to be activated when using OpenSearch.
-/// You need to supply S3 manually with `#[aura_integration_test(services = [OpenSearch, S3])]`
 pub struct OpenSearch();
 
 #[async_trait]
 impl IntegrationTestService for OpenSearch {
     fn service_names(&self) -> &'static [&'static str] {
-        &["opensearch", "s3"]
+        &["opensearch"]
     }
 
     async fn set_up(&self) {
@@ -102,21 +94,35 @@ impl IntegrationTestService for OpenSearch {
     }
 }
 
-fn test_domain_access_policy() -> String {
-    serde_json::json!({
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "es:ESHttp*",
-                "Resource": format!(
-                    "arn:aws:es:eu-central-1:000000000000:domain/{TEST_DOMAIN_NAME}/*"
-                )
-            }
-        ]
-    })
-    .to_string()
+fn domain_endpoint() -> Url {
+    // Floci reports a container IP in DescribeDomain. Host clients must use the published port.
+    let container_name = format!(
+        "floci-aws-{}-opensearch-000000000000-eu-central-1-{TEST_DOMAIN_NAME}",
+        aws_emulator_container_name()
+    );
+    let output = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{(index (index .NetworkSettings.Ports \"9200/tcp\") 0).HostPort}}",
+            &container_name,
+        ])
+        .output()
+        .expect("shouldn't fail inspecting OpenSearch port binding");
+    assert!(
+        output.status.success(),
+        "OpenSearch container must have a published port"
+    );
+    let port = String::from_utf8(output.stdout)
+        .expect("OpenSearch port binding must be UTF-8")
+        .trim()
+        .parse::<u16>()
+        .expect("OpenSearch port binding must be a TCP port");
+    let mut endpoint = Url::parse(get_endpoint_url()).expect("AWS emulator endpoint must be a URL");
+    endpoint
+        .set_port(Some(port))
+        .expect("OpenSearch endpoint must accept a port");
+    endpoint
 }
 
 async fn set_up_open_search() {
@@ -136,74 +142,15 @@ async fn set_up_open_search() {
     );
 }
 
-async fn set_up_domain() -> Result<CreateDomainOutput, BoxError> {
-    let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
-    let custom_endpoint =
-        format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
-    let access_policy = test_domain_access_policy();
-
-    match client
-        .describe_domain()
-        .domain_name(TEST_DOMAIN_NAME)
-        .send()
-        .await
-    {
-        Ok(_response) => {
-            // Domain already exists — it may have been created without path-based routing
-            // registered. Call update_domain_config to ensure LocalStack routes /test-domain/*.
-            debug!(
-                "OpenSearch domain '{}' already exists; updating custom endpoint to '{}'",
-                TEST_DOMAIN_NAME, custom_endpoint
-            );
-            let update_result = client
-                .update_domain_config()
-                .domain_name(TEST_DOMAIN_NAME)
-                .access_policies(&access_policy)
-                .domain_endpoint_options(
-                    DomainEndpointOptions::builder()
-                        .custom_endpoint(&custom_endpoint)
-                        .custom_endpoint_enabled(true)
-                        .build(),
-                )
-                .access_policies(test_access_policies())
-                .send()
-                .await;
-            match update_result {
-                Ok(_) => debug!(
-                    "Custom endpoint for '{}' updated successfully.",
-                    TEST_DOMAIN_NAME
-                ),
-                Err(e) => debug!(
-                    "Could not update custom endpoint for '{}' (may already be set): {e}",
-                    TEST_DOMAIN_NAME
-                ),
-            }
-            return Ok(CreateDomainOutput::builder().build());
-        }
-        Err(_) => {
-            debug!(
-                "OpenSearch domain '{}' does not exist, creating it",
-                TEST_DOMAIN_NAME
-            );
-        }
-    }
-
-    client
+async fn set_up_domain() -> Result<(), BoxError> {
+    aws_sdk_opensearch::Client::new(get_aws_config().await)
         .create_domain()
         .domain_name(TEST_DOMAIN_NAME)
-        .access_policies(access_policy)
-        .domain_endpoint_options(
-            DomainEndpointOptions::builder()
-                // Must use the container-internal port (not the host-mapped port) so that
-                // LocalStack can resolve this URL from inside the container when registering
-                // the domain. The OpenSearch client uses get_endpoint_url() for host access.
-                .custom_endpoint(custom_endpoint)
-                .custom_endpoint_enabled(true)
-                .build(),
-        )
+        .engine_version("OpenSearch_3.5")
         .access_policies(test_access_policies())
         .send()
         .await
+        .map(|_| ())
         .map_err(box_error)
 }
 
@@ -293,7 +240,7 @@ async fn ensure_index_exists(
 /// Registers the hybrid search pipeline on the local OpenSearch cluster.
 ///
 /// Uses [`HYBRID_SEARCH_PIPELINE_NAME`] as the pipeline ID so it matches what
-/// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
+/// the product listing search reader references via the
 /// `search_pipeline` query parameter.
 ///
 /// Registers a `score-ranker-processor` pipeline using Reciprocal Rank Fusion (RRF) —

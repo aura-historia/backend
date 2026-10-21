@@ -2,7 +2,7 @@ use std::sync::{Mutex, Once};
 
 /// Global registry of cleanup functions to call when the process is interrupted.
 ///
-/// Each test-infrastructure module (LocalStack, Postgres, …) registers its own `cleanup`
+/// Each test-infrastructure module (Floci, Postgres, …) registers its own `cleanup`
 /// function here via [`register_signal_cleanup`]. The shared `ctrlc` handler installed
 /// once for the whole process iterates over every registered function so that all related
 /// Docker containers are removed on `CTRL+C` or CI-cancellation (SIGTERM).

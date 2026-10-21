@@ -2,9 +2,9 @@
 mod api_gateway;
 #[cfg(feature = "aura-historia-api")]
 mod aura_historia_api;
+pub mod aws;
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
-pub mod localstack;
 #[cfg(feature = "opensearch")]
 mod opensearch;
 #[cfg(feature = "postgres")]
@@ -48,7 +48,7 @@ pub use tracing;
 ///
 /// # Required Items
 ///
-/// - `SERVICE_NAME`: The name of the AWS service as expected by LocalStack (e.g., `"s3"`).
+/// - `service_names()`: AWS services required by the fixture (e.g., `&["s3"]`).
 /// - `async fn set_up()`: Prepares the service for the test (e.g., create buckets).
 ///
 /// # Optional
@@ -62,9 +62,9 @@ pub use tracing;
 ///
 #[async_trait]
 pub trait IntegrationTestService: Sized {
-    /// The AWS LocalStack service names. Return `&[]` for non-LocalStack services like Postgres.
+    /// AWS services required by the fixture. Return `&[]` for other services such as Postgres.
     fn service_names(&self) -> &'static [&'static str];
-    /// Extra environment variables to set on the LocalStack container.
+    /// Extra environment variables to set on the Floci container.
     fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
         vec![]
     }
