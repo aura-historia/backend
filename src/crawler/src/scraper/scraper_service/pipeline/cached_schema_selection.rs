@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
-use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
+use crate::scraper::normalization::error::NormalizationFailureScope;
 
 use crate::scraper::normalization::product_normalization_service::{
     NormalizationFailure, NormalizationSuccess, ProductNormalizationContext, prepare_product,
@@ -135,17 +135,9 @@ impl ScraperServiceImpl {
             let raw = candidate.raw;
             let mut validated_raw = raw.clone();
             let images = std::mem::take(&mut validated_raw.images);
-            validated_raw.images = match filter_valid_image_urls(
-                images,
-                &context.effective_url,
-                &*self.image_validator,
-            )
-            .await
-            {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
-            };
+            validated_raw.images =
+                filter_valid_image_urls(images, &context.effective_url, &*self.image_validator)
+                    .await;
             match prepare_product(validated_raw.clone(), context.clone()) {
                 Ok(prepared) => {
                     let score = score_prepared_product(&validated_raw, &prepared);

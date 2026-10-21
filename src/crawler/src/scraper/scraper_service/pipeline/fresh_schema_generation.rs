@@ -1,6 +1,6 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_GENERATION_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
+use crate::scraper::normalization::error::NormalizationFailureScope;
 
 use crate::scraper::normalization::product_normalization_service::{
     NormalizationFailure, NormalizationSuccess, ProductNormalizationContext,
@@ -65,20 +65,7 @@ impl ScraperServiceImpl {
         let mut validated_raw = reapplied.clone();
         let images = std::mem::take(&mut validated_raw.images);
         validated_raw.images =
-            match filter_valid_image_urls(images, ctx.url, &*self.image_validator).await {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(norm_err)
-                    if norm_err.failure_scope() == NormalizationFailureScope::CandidateData =>
-                {
-                    return Err(ScraperError::FreshSchemaNormalizationFailed {
-                        url: ctx.url.clone(),
-                        attempts: 1,
-                        last_norm_error: Box::new(norm_err),
-                    });
-                }
-                Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
-            };
+            filter_valid_image_urls(images, ctx.url, &*self.image_validator).await;
         let validated_image_urls = validated_raw.images.clone();
 
         let normalization = self

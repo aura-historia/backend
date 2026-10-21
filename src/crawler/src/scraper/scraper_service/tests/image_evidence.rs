@@ -444,8 +444,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
             primary_validation: ImageValidation::Valid,
         },
     )
-    .await
-    .unwrap_or_else(|error| panic!("valid image probe must select images: {error}"));
+    .await;
     let rejected_primary = filter_valid_image_urls(
         raw.images.clone(),
         &url,
@@ -453,8 +452,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
             primary_validation: ImageValidation::Invalid,
         },
     )
-    .await
-    .unwrap_or_else(|error| panic!("invalid image probe must select fallback images: {error}"));
+    .await;
 
     assert_eq!(
         accepted_primary,
