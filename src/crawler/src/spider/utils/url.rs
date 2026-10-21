@@ -134,10 +134,15 @@ impl CrawledUrl {
     }
 
     pub fn is_blacklisted(&self) -> bool {
-        let raw = self.0.as_str();
+        Self::is_blacklisted_url(self.0.as_str())
+    }
+
+    /// Applies the same rule as [`Self::blacklist_patterns`] to a URL that has not been
+    /// normalized, as Spider does with the links it admits.
+    pub fn is_blacklisted_url(url: &str) -> bool {
         BLACKLIST_URL_SUBSTRINGS
             .iter()
-            .any(|pattern| raw.contains(pattern))
+            .any(|pattern| url.contains(pattern))
     }
 
     pub fn blacklist_patterns() -> Vec<CompactString> {

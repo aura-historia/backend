@@ -162,7 +162,13 @@ CREATE TABLE crawler_review_pages (
     review_id      UUID        NOT NULL REFERENCES crawler_reviews(review_id) ON DELETE CASCADE,
     url            TEXT        NOT NULL,
     role           TEXT        NOT NULL CHECK (
-        role IN ('PRIMARY', 'SEED', 'TRIGGERING_REPAIR_PAGE', 'TRIGGERING_GENERATION_PAGE')
+        role IN (
+            'PRIMARY',
+            'SEED',
+            'TRIGGERING_REPAIR_PAGE',
+            'TRIGGERING_GENERATION_PAGE',
+            'REVIEWER_ADDED'
+        )
     ),
     html_hash      TEXT        NOT NULL,
     fetched        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
