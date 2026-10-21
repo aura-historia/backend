@@ -1,5 +1,6 @@
 use crate::error::{ApiError, INVALID_OBJECT_ID};
 use crate::patch_value::PatchValue;
+pub(crate) use aura_historia_contracts::wire::{measurement_unit, user_role, user_tier};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -459,5 +460,3 @@ mod tests {
         Ok(())
     }
 }
-
-pub(crate) use aura_historia_contracts::wire::{measurement_unit, user_role, user_tier};

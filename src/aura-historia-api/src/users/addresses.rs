@@ -206,6 +206,16 @@ pub(crate) async fn set_destination(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
+impl From<aura_historia_contracts::users::addresses::InvalidAddressData> for ApiError {
+    fn from(error: aura_historia_contracts::users::addresses::InvalidAddressData) -> Self {
+        use aura_historia_contracts::users::addresses::InvalidAddressData;
+        match error {
+            InvalidAddressData::Label(_) => bad(),
+            InvalidAddressData::Geography(error) => error.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,15 +239,5 @@ mod tests {
             json!({"kind":"NONE"}),
             serde_json::to_value(DestinationData::from(BrowsingDestination::None)).unwrap()
         );
-    }
-}
-
-impl From<aura_historia_contracts::users::addresses::InvalidAddressData> for ApiError {
-    fn from(error: aura_historia_contracts::users::addresses::InvalidAddressData) -> Self {
-        use aura_historia_contracts::users::addresses::InvalidAddressData;
-        match error {
-            InvalidAddressData::Label(_) => bad(),
-            InvalidAddressData::Geography(error) => error.into(),
-        }
     }
 }
