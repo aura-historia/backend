@@ -31,6 +31,8 @@ not executed by these listing commands. Custom harnesses require an explicit
 adapter/review; an unsupported target is never treated as a zero-test binary.
 Compilation and listing must succeed before counts are authoritative. A source-only
 inventory uses null counts and `NOT_DISCOVERED`, rather than estimates.
+Both complete and ignored doctest listings must announce every eligible target.
+Ambiguous crate names fail until package-specific discovery can distinguish them.
 
 Case names come from compiled harnesses, so parameterized cases remain distinct.
 Ignored cases are retained. Platform-dependent and feature-dependent source
@@ -89,8 +91,10 @@ the corresponding image tag through a reviewed [Floci release mapping](https://g
 An unreviewed Floci/engine combination fails closed. Missing image identity remains null. The image
 snapshot is a cache observation, not proof that every listed image was used.
 The runner image/version, CPU/memory, exact tool versions, build flags, SHA, dirty
-state and run/job IDs are part of each record. grcov is pinned and its downloaded
-archive checksum is verified; the test toolchain comes from `rust-toolchain.toml`.
+state and run/job IDs are part of each record. GitHub's workflow ref and SHA also
+identify the workflow definition when dispatching a different measured source SHA.
+grcov is pinned and its downloaded archive checksum is verified; the test toolchain
+comes from `rust-toolchain.toml`.
 
 To reproduce a pair locally, choose a new target directory and two new output
 directories, retain the same checkout and flags, and install the workflow's grcov:
@@ -130,6 +134,8 @@ Coverage artifacts retain raw profiles and LCOV. The JSON reports both LCOV reco
 sums and a file/line/function/branch identity union. The union does not reconcile
 different compiler branch IDs and is not a Sonar coverage total. Missing metrics
 are null or explicitly unobserved; they are never replaced with zero.
+Collected LCOV must have complete source records and grcov summaries matching the
+emitted entries; truncated or inconsistent output fails the measurement.
 
 After a workflow finishes, collect its full scheduling/job/step envelope:
 
@@ -138,10 +144,12 @@ python3 ci/collect-ci-run.py RUN_ID --output /tmp/baseline/workflow.json
 gh run download RUN_ID --pattern 'baseline-*' --dir /tmp/baseline/artifacts
 ```
 
-The completed-run collector records the actual run attempt. Workflow duration is
-GitHub's completed `updated_at` minus `created_at`, including scheduling and
-finalization. Job scheduling delay is measured only when the API provides a job
-creation timestamp; workflow creation is never substituted. Per-package local
+The completed-run collector records the actual run attempt. Workflow duration uses
+the attempt endpoint's completed `updated_at` minus `created_at`, including
+scheduling and finalization. The run endpoint retains the first creation time after
+a rerun and cannot measure a later attempt. Job scheduling delay is measured only
+when the API provides a job creation timestamp; workflow creation is never
+substituted. Per-package local
 measurement duration excludes scheduling and artifact upload. Keep the workflow
 envelope with all six job artifacts to make the baseline independently auditable.
 
@@ -163,7 +171,8 @@ concatenated for Sonar, so repeated dependency source records can occur; the
 baseline collector exposes sums and identity unions without changing that merge.
 
 Historical [run 2579](https://github.com/aura-historia/backend/actions/runs/39579788255)
-took 1,580 seconds and had 110 test jobs. Its API acceptance binary ran 370 tests
+spanned 1,580 seconds from creation to the last job completion and had 110 test
+jobs. Its API acceptance binary ran 370 tests
 in 513.63 seconds. The actual checkout was merge commit
 `cd92443039846187a96ae0113d7b991aeeb4127d`, distinct from the run's reported PR head.
 Its logs record 5,543 passed and five ignored cases, grcov 0.10.7, mixed runner

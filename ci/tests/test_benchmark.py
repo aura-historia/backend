@@ -18,6 +18,7 @@ class BenchmarkMetrics(unittest.TestCase):
         self.path.write_text("""SF:src/lib.rs
 DA:1,0
 DA:2,1
+FN:1,example
 FNDA:0,example
 BRDA:2,0,0,-
 LF:2
@@ -30,6 +31,7 @@ end_of_record
 SF:src/lib.rs
 DA:1,2
 DA:2,0
+FN:1,example
 FNDA:1,example
 BRDA:2,0,0,1
 LF:2
@@ -50,6 +52,29 @@ end_of_record
         self.path.write_text("grcov failed\n")
         with self.assertRaisesRegex(ValueError, "no LCOV"):
             coverage_totals(self.path)
+
+    def test_truncated_malformed_or_inconsistent_coverage_cannot_be_collected(self):
+        valid = "SF:src/lib.rs\nDA:1,1\nLF:1\nLH:1\nFNF:0\nFNH:0\nBRF:0\nBRH:0\nend_of_record\n"
+        invalid = (valid.replace("end_of_record\n", ""), valid.replace("LF:1\n", ""),
+                   valid.replace("LF:1", "LF:2"), valid.replace("DA:1,1", "DA:1,-1"),
+                   valid.replace("SF:src/lib.rs", "SF:"), valid.replace("DA:1,1", "DA:0,1"),
+                   valid.replace("LF:1", "LF:1\nLF:1"), "SF:src/lib.rs\nend_of_record\n",
+                   valid.replace("end_of_record", "SF:other.rs\nend_of_record"),
+                   valid.replace("LF:1", "FN:1,missing-count\nLF:1"),
+                   "DA:1,1\n" + valid)
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                self.path.write_text(raw)
+                with self.assertRaises(ValueError):
+                    coverage_totals(self.path)
+
+    def test_emitted_functions_with_same_name_are_counted_before_identity_union(self):
+        self.path.write_text("SF:src/lib.rs\nFN:1,same\nFN:2,same\nFNDA:0,same\nFNDA:1,same\n"
+                             "LF:0\nLH:0\nFNF:2\nFNH:1\nBRF:0\nBRH:0\nend_of_record\n")
+        totals = coverage_totals(self.path)
+        self.assertEqual(totals["record_sums"]["functions_found"], 2)
+        self.assertEqual(totals["identity_union"]["functions_found"], 1)
+        self.assertEqual(totals["identity_union"]["functions_hit"], 1)
 
     def test_interleaved_harness_output_and_failed_body_preserve_partial_phase_records(self):
         self.path.write_text('''test sample ... AURA_CI_TIMING {"phase":"SETUP","owner":"sample","pid":1,"elapsed_seconds":0.25}

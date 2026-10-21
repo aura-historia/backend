@@ -63,9 +63,15 @@ def attach_suites(catalog, suites, root, output):
 
 
 def discover_doctests(catalog, root, output):
-    targets = {target["name"]: target for package in catalog["packages"] for target in package["targets"] if target["doctest"]}
-    seen = set()
+    targets = {}
+    for package in catalog["packages"]:
+        for target in package["targets"]:
+            if target["doctest"]:
+                if target["name"] in targets:
+                    raise ValueError(f"Ambiguous rustdoc target name requires package-specific discovery: {target['name']}")
+                targets[target["name"]] = target
     for ignored_only in (False, True):
+        seen = set()
         argv = ["cargo", "test", "--locked", "--workspace", "--all-features", "--doc", "--", "--list", "--format", "terse"]
         if ignored_only:
             argv.append("--ignored")
@@ -78,15 +84,20 @@ def discover_doctests(catalog, root, output):
         for line in raw.splitlines():
             heading = re.fullmatch(r"\s*Doc-tests (\S+)\s*", line)
             if heading:
+                if heading[1] not in targets or heading[1] in seen:
+                    raise ValueError(f"Unknown or repeated doctest target heading: {heading[1]}")
                 current = targets[heading[1]]
+                seen.add(heading[1])
                 if not ignored_only:
                     current["doctest_discovery"] = {"status": "LISTED", "feature_scope": "WORKSPACE_ALL_FEATURES", "cases": [], "ignored_cases": []}
-                    seen.add(current["id"])
-            elif current and listed_cases(line):
+            elif listed_cases(line):
+                if current is None:
+                    raise ValueError("Doctest case has no target heading")
                 current["doctest_discovery"]["ignored_cases" if ignored_only else "cases"].extend(sorted(listed_cases(line)))
+        if seen != set(targets):
+            raise ValueError("Doctest targets disappeared from " + ("ignored" if ignored_only else "complete") +
+                             " listing: " + ", ".join(sorted(set(targets) - seen)))
     for target in targets.values():
-        if target["id"] not in seen:
-            raise ValueError(f"Doctest target disappeared: {target['id']}")
         discovery = target["doctest_discovery"]
         discovery["test_count"] = len(discovery["cases"])
         discovery["ignored_count"] = len(discovery["ignored_cases"])

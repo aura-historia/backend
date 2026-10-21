@@ -100,7 +100,9 @@ def main():
     artifact = {"schema_version": 1, "kind": "PACKAGE_BASELINE", "stages": [],
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "run": {"id": os.environ.get("GITHUB_RUN_ID"), "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-                "job": os.environ.get("GITHUB_JOB"), "job_queued_at": args.job_queued_at, "job_started_at": args.job_started_at},
+                "job": os.environ.get("GITHUB_JOB"), "job_queued_at": args.job_queued_at, "job_started_at": args.job_started_at,
+                "repository": os.environ.get("GITHUB_REPOSITORY"), "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF"),
+                "workflow_sha": os.environ.get("GITHUB_WORKFLOW_SHA")},
         "observations": None, "error": None}
     try:
         if args.repeat < 1:

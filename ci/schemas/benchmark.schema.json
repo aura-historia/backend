@@ -20,7 +20,12 @@
     },
     "run": {
       "type": "object", "required": ["id", "attempt", "job", "job_queued_at", "job_started_at"],
-      "properties": { "scheduling_delay_seconds": { "type": ["number", "null"], "minimum": 0 } }
+      "properties": {
+        "scheduling_delay_seconds": { "type": ["number", "null"], "minimum": 0 },
+        "repository": { "type": ["string", "null"] },
+        "workflow_ref": { "type": ["string", "null"] },
+        "workflow_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" }
+      }
     },
     "runner": { "type": "object", "required": ["os", "logical_cpus", "memory_total_kib", "rustc", "cargo", "grcov", "docker", "build_environment"] },
     "stages": {

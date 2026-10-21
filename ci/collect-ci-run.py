@@ -29,6 +29,9 @@ def main():
     run = api(base)
     if run["status"] != "completed":
         raise SystemExit("Workflow must be completed before collecting whole-workflow duration")
+    # The run endpoint keeps the first attempt's created_at after a rerun. Its
+    # attempt endpoint supplies the creation time matching the jobs below.
+    run = api(f"{base}/attempts/{run['run_attempt']}")
     jobs, page = [], 1
     while True:
         batch = api(f"{base}/attempts/{run['run_attempt']}/jobs?per_page=100&page={page}")["jobs"]
@@ -40,7 +43,7 @@ def main():
         "run_id": args.run_id, "attempt": run["run_attempt"], "head_sha": run["head_sha"], "url": run["html_url"],
         "created_at": run["created_at"], "run_started_at": run["run_started_at"], "updated_at": run["updated_at"],
         "conclusion": run["conclusion"], "workflow_seconds": seconds(run["created_at"], run["updated_at"]),
-        "duration_method": "GitHub completed run updated_at minus created_at; includes scheduling, jobs and finalization",
+        "duration_method": "GitHub completed run attempt updated_at minus created_at; includes scheduling, jobs and finalization",
         "jobs": [{"id": job["id"], "name": job["name"], "conclusion": job["conclusion"],
                   "runner_name": job["runner_name"], "labels": job["labels"],
                   "created_at": job.get("created_at"), "started_at": job["started_at"], "completed_at": job["completed_at"],

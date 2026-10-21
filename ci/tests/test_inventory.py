@@ -2,12 +2,13 @@ import copy
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from ci_inventory.catalog import build_catalog, check_manifest, tree_features
-from ci_inventory.discovery import attach_suites, listed_cases
+from ci_inventory.discovery import attach_suites, discover_doctests, listed_cases
 
 
 class InventoryContract(unittest.TestCase):
@@ -84,6 +85,42 @@ fn sample() { get_postgres_client(); let sql = "CREATE PUBLICATION example"; }
                 "ci_inventory.discovery.list_harness", return_value=({"sample"}, set())):
             with self.assertRaisesRegex(ValueError, "parity mismatch"):
                 attach_suites(catalog, {"root": suite}, self.root, self.root)
+
+    def test_duplicate_crate_names_cannot_silently_remove_a_doctest_target(self):
+        catalog, _ = build_catalog(self.metadata, self.root)
+        duplicate = copy.deepcopy(catalog["packages"][0])
+        duplicate["name"] = "another-package"
+        duplicate["targets"][0]["id"] = "another-package::lib::root"
+        catalog["packages"].append(duplicate)
+        with self.assertRaisesRegex(ValueError, "Ambiguous rustdoc"):
+            discover_doctests(catalog, self.root, self.root)
+
+    def test_both_complete_and_ignored_doctest_listings_require_every_target(self):
+        for outputs in (("", ""), ("Doc-tests root\n", "")):
+            with self.subTest(outputs=outputs):
+                catalog, _ = build_catalog(self.metadata, self.root)
+                processes = [types.SimpleNamespace(returncode=0, stdout=raw) for raw in outputs]
+                with patch("ci_inventory.discovery.subprocess.run", side_effect=processes):
+                    with self.assertRaisesRegex(ValueError, "targets disappeared"):
+                        discover_doctests(catalog, self.root, self.root)
+
+    def test_unknown_repeated_or_missing_doctest_headings_fail_closed(self):
+        for raw in ("Doc-tests unknown\n", "Doc-tests root\nDoc-tests root\n", "example: test\n"):
+            with self.subTest(raw=raw):
+                catalog, _ = build_catalog(self.metadata, self.root)
+                with patch("ci_inventory.discovery.subprocess.run", return_value=types.SimpleNamespace(returncode=0, stdout=raw)):
+                    with self.assertRaises(ValueError):
+                        discover_doctests(catalog, self.root, self.root)
+
+    def test_doctest_ignored_cases_remain_part_of_complete_inventory(self):
+        catalog, _ = build_catalog(self.metadata, self.root)
+        processes = [types.SimpleNamespace(returncode=0, stdout="Doc-tests root\nexample: test\n") for _ in range(2)]
+        with patch("ci_inventory.discovery.subprocess.run", side_effect=processes):
+            discover_doctests(catalog, self.root, self.root)
+        discovery = catalog["packages"][0]["targets"][0]["doctest_discovery"]
+        self.assertEqual(discovery["cases"], ["example"])
+        self.assertEqual(discovery["ignored_cases"], ["example"])
+        self.assertEqual(discovery["ignored_count"], 1)
 
     def test_parameterized_names_are_not_collapsed_to_source_function_count(self):
         self.assertEqual(listed_cases("sample::case_1: test\nsample::case_2: test\n2 tests, 0 benchmarks"),
