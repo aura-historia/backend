@@ -30,6 +30,10 @@ fn production_registry(
         .saved_searches(Arc::clone(&dependencies.embeddings))
         .clone();
     let mut registered = operations(PublicServices::from_runtime(runtime, dependencies))?;
+    registered.extend(crate::tools::account::operations(
+        runtime.user_profile().clone(),
+        runtime.private_addresses().clone(),
+    )?);
     registered.extend(crate::tools::saved_searches::operations(saved_searches)?);
     crate::Registry::new(registered)
 }

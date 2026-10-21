@@ -53,3 +53,12 @@ pub mod option {
         json_schema!({"anyOf": [super::schema(generator), {"type": "null"}]})
     }
 }
+
+pub mod patch {
+    use super::*;
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<crate::patch_value::PatchValue<Currency>, D::Error> {
+        super::super::deserialize_patch_code(deserializer, Currency::from_code)
+    }
+}

@@ -1234,11 +1234,7 @@ async fn app_state_from_config_and_runtime(
         auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
     ));
     let public_auctions = runtime.public_auctions();
-    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
-        unit_of_work.clone(),
-        user_postgres::SqlxAddressBookFactory,
-        geo_postgres::SqlxResolutionRepositoryFactory,
-    ));
+    let address_book = runtime.private_addresses();
     let shipping = runtime.listing_shipping().clone();
     let update_auction = UpdateAuctionHandler::new(
         unit_of_work.clone(),
@@ -1274,8 +1270,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceSearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let get_own_user =
-        GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
+    let get_own_user = runtime.user_profile().get.clone();
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
         .map_err(ApiStateError::StripeBilling)?;
     let billing_prices = config.billing_prices().clone();
@@ -1314,11 +1309,7 @@ async fn app_state_from_config_and_runtime(
         SqlxPartySearchReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let update_user_profile = UpdateUserProfileHandler::new(
-        unit_of_work.clone(),
-        SqlxUserRepositoryFactory::new(),
-        SqlxUserAdminReaderFactory::new(),
-    );
+    let update_user_profile = runtime.user_profile().update.clone();
     let admin_update_user_profile = UpdateUserProfileHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
@@ -1867,10 +1858,10 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let users_state = UsersState {
-        get_own_user: Arc::new(get_own_user),
+        get_own_user,
         admin_get_user: Arc::new(admin_get_user),
         search_users: Arc::new(search_users),
-        update_user_profile: Arc::new(update_user_profile),
+        update_user_profile,
         admin_update_user_profile: Arc::new(admin_update_user_profile),
         change_user_role: Arc::new(change_user_role),
         change_user_tier: Arc::new(change_user_tier),
@@ -2035,8 +2026,8 @@ async fn app_state_from_config_and_runtime(
     });
 
     let user_addresses_state = state::UserAddressesState {
-        commands: address_book.clone(),
-        queries: address_book.clone(),
+        commands: address_book.commands.clone(),
+        queries: address_book.queries.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
