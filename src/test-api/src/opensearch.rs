@@ -311,9 +311,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
     };
 }
 
-async fn set_up_indices() -> Result<(), Error> {
-    let client = get_opensearch_client().await;
-
+async fn set_up_indices(client: &Client) -> Result<(), Error> {
     // Register the native-hybrid RRF search pipeline before creating indices.
     register_hybrid_search_pipeline(client).await;
 
@@ -330,7 +328,7 @@ async fn set_up_indices() -> Result<(), Error> {
 async fn wait_until_indices_are_set_up() -> Result<(), Error> {
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        match set_up_indices().await {
+        match set_up_indices(get_opensearch_client().await).await {
             Ok(()) => return Ok(()),
             Err(err) if std::time::Instant::now() < deadline => {
                 debug!(error = %err, "OpenSearch indices are not ready yet; retrying setup.");
