@@ -101,9 +101,17 @@ remain alongside the phase logs. Cargo control outcomes remain in those logs.
 Coverage preserves the Sonar source/exclusion policy. LLVM entry counters are
 normalized to repository source paths; branch records use block zero and branch ID
 `2 * condition_start_column + outcome` (`0` for true, `1` for false), preserving
-condition identity when other conditions are absent from a lane build. Duplicate
-source/line/branch records are unioned,
-zero branch outcomes remain zero, and summaries are recomputed from the merged
+condition identity when other conditions are absent from a lane build. Function
+names and entry counts come from LLVM JSON because the pinned LLVM LCOV writer
+crashes on functions with branch mappings but no code regions. Ordinary function
+locations use the first code region; a branch-only function uses its earliest
+recorded condition as a source anchor when all branch mappings belong to its owned
+primary file. A record with no code or branch mapping is omitted from LCOV only
+when its entry count is zero; diagnostics retain its exact name, primary filename,
+count and reason. Nonzero unmapped records and ambiguous anchors fail export.
+Repeated records for the same source condition (including identical macro-generated
+evaluation paths within a function) are unioned; a shared start with a different
+end or region kind fails. Zero branch outcomes remain zero, and summaries are recomputed from the merged
 entries. Ambiguous branch locations and invalid source lines fail export.
 [`merge-coverage.py`](../ci/merge-coverage.py) requires the exact nonempty, valid
 lane reports before emitting one deterministic source record per file. Missing

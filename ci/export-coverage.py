@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 
-from ci_coverage import apply_branch_regions, parse_lcov, render, source_path
+from ci_coverage import apply_branch_regions, apply_function_records, parse_lcov, render, source_path
 from ci_inventory.io import command, write_json
 
 
@@ -76,9 +76,10 @@ def export(profiles, nextest, cargo_artifacts, doctests, output, root):
     host = next(line.split(": ", 1)[1] for line in command(["rustc", "-Vv"]).splitlines() if line.startswith("host: "))
     llvm = sysroot / "lib" / "rustlib" / host / "bin"
     output.parent.mkdir(parents=True, exist_ok=True)
-    write_json(output.with_suffix(".objects.json"), {"objects": list(map(str, objects)), "profiles": list(map(str, raw)),
-               "execution_profiles": list(map(str, execution)), "cargo_artifacts": list(map(str, cargo_artifacts)),
-               "rustc": command(["rustc", "-Vv"]).strip(), "llvm_cov": command([str(llvm / "llvm-cov"), "--version"]).strip()})
+    provenance = {"objects": list(map(str, objects)), "profiles": list(map(str, raw)),
+                  "execution_profiles": list(map(str, execution)), "cargo_artifacts": list(map(str, cargo_artifacts)),
+                  "rustc": command(["rustc", "-Vv"]).strip(), "llvm_cov": command([str(llvm / "llvm-cov"), "--version"]).strip()}
+    write_json(output.with_suffix(".objects.json"), provenance)
     with tempfile.TemporaryDirectory(prefix="llvm-coverage-", dir=output.parent) as temporary:
         directory = pathlib.Path(temporary)
         inputs = directory / "profiles.txt"
@@ -89,9 +90,13 @@ def export(profiles, nextest, cargo_artifacts, doctests, output, root):
                 f"--instr-profile={directory / 'merged.profdata'}"]
         for format, suffix in (("lcov", "lcov"), ("text", "json")):
             with (directory / suffix).open("w") as stream:
-                run_llvm([*argv, f"--format={format}"], stream)
+                run_llvm([*argv, f"--format={format}", *(["--skip-functions"] if format == "lcov" else [])], stream)
         sources = parse_lcov((directory / "lcov").read_text(), root)
-        apply_branch_regions(sources, json.loads((directory / "json").read_text()), root)
+        data = json.loads((directory / "json").read_text())
+        unmapped = apply_function_records(sources, data, root)
+        provenance.update(unmapped_zero_count_functions=unmapped, unmapped_zero_count_function_count=len(unmapped))
+        write_json(output.with_suffix(".objects.json"), provenance)
+        apply_branch_regions(sources, data, root)
         result = directory / "normalized.lcov"
         result.write_text(render(sources))
         result.replace(output)

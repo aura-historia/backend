@@ -7,7 +7,7 @@ import unittest
 
 CI = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CI))
-from ci_coverage import apply_branch_regions, combine, parse_lcov, render
+from ci_coverage import apply_branch_regions, apply_function_records, combine, parse_lcov, render
 from ci_benchmark.lcov import coverage_totals
 from ci_inventory.discovery import nextest_data
 from ci_inventory.phases import coverage_environment
@@ -48,6 +48,51 @@ class NormalizedCoverage(unittest.TestCase):
         self.assertIn("BRDA:2,8,1,0", self.report.read_text())
         self.assertEqual(coverage_totals(self.report)["identity_union"]["branches_hit"], 1)
 
+    def test_json_functions_retain_working_lcov_names_locations_and_counts(self):
+        sources = parse_lcov("SF:src/lib.rs\nFN:1,choose\nFNDA:7,choose\nDA:2,7\nend_of_record\n", self.root)
+        before = render(sources)
+        data = {"data": [{"functions": [{"name": "choose", "count": 7, "filenames": ["src/lib.rs"],
+                 "regions": [[1, 1, 3, 2, 7, 0, 0, 0]], "branches": []}]}]}
+        apply_function_records(sources, data, self.root)
+        self.assertEqual(render(sources), before)
+
+    def test_branch_only_function_keeps_json_counter_and_anchors_to_existing_condition(self):
+        sources = parse_lcov("SF:src/lib.rs\nDA:2,3\nend_of_record\n", self.root)
+        function = {"name": "choose", "count": 3, "filenames": ["src/lib.rs"], "regions": [],
+                    "branches": [[2, 8, 2, 12, 1, 2, 0, 0, 4]]}
+        apply_function_records(sources, {"data": [{"functions": [function]}]}, self.root)
+        self.assertEqual(sources["src/lib.rs"]["definitions"], {"choose": 2})
+        self.assertEqual(sources["src/lib.rs"]["functions"], {"choose": 3})
+        for branches in ([[4, 8, 4, 12, 0, 0, 0, 0, 4]], [[2, 0, 2, 12, 0, 0, 0, 0, 4]],
+                         [[2, 999, 2, 12, 0, 0, 0, 0, 4]], [[2, 8, 2, 12, 0, 0, 0, 0, 4], [4, 8, 4, 12, 0, 0, 0, 0, 4]],
+                         [[2, 8, 2, 12, 0, 0, 1, 0, 4]]):
+            function["branches"] = branches
+            function["filenames"] = ["src/lib.rs", "/registry/other.rs"]
+            with self.subTest(branches=branches), self.assertRaises(ValueError):
+                apply_function_records(sources, {"data": [{"functions": [function]}]}, self.root)
+
+    def test_unmapped_zero_count_functions_are_reported_and_executed_unmapped_functions_fail(self):
+        sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nend_of_record\n", self.root)
+        function = {"name": "unmapped", "count": 0, "filenames": ["src/lib.rs"], "regions": [], "branches": []}
+        before = render(sources)
+        unmapped = apply_function_records(sources, {"data": [{"functions": [function]}]}, self.root)
+        self.assertEqual(render(sources), before)
+        self.assertEqual(unmapped, [{"name": "unmapped", "primary_filename": "src/lib.rs", "count": 0,
+                                    "reason": "NO_CODE_OR_BRANCH_REGIONS"}])
+        function["count"] = 1
+        with self.assertRaisesRegex(ValueError, "Executed LLVM function has no source anchor"):
+            apply_function_records(sources, {"data": [{"functions": [function]}]}, self.root)
+
+    def test_missing_json_sources_cannot_erase_existing_branch_coverage(self):
+        for data in ({"data": []}, {"data": [{"functions": [], "files": []}]}):
+            sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nBRDA:2,0,16,1\nend_of_record\n", self.root)
+            with self.subTest(data=data), self.assertRaisesRegex(ValueError, "source records differ"):
+                apply_branch_regions(sources, data, self.root)
+        sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nBRDA:2,0,16,1\nend_of_record\n", self.root)
+        data = {"data": [{"functions": [], "files": [{"filename": "src/lib.rs", "branches": []}]}]}
+        with self.assertRaisesRegex(ValueError, "omitted LCOV branch coverage"):
+            apply_branch_regions(sources, data, self.root)
+
     def test_ambiguous_branch_spans_fail_instead_of_merging_different_conditions(self):
         sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nend_of_record\n", self.root)
         data = {"data": [{"functions": [], "files": [{"filename": "src/lib.rs", "branches": [
@@ -55,12 +100,24 @@ class NormalizedCoverage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Ambiguous"):
             apply_branch_regions(sources, data, self.root)
 
-    def test_duplicate_branch_origins_within_one_function_fail_closed(self):
-        sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nend_of_record\n", self.root)
-        function = {"filenames": ["src/lib.rs"], "branches": [
-            [2, 8, 2, 12, 1, 0, 0, 0, 4], [2, 8, 2, 12, 0, 1, 0, 0, 4]]}
+    def test_tracing_macro_evaluation_paths_union_the_same_user_condition(self):
+        source = 'tracing::info!(outcome = if persisted.outcome.changed() { "CHANGED" } else { "UNCHANGED" });'
+        (self.root / "src/lib.rs").write_text(source + "\n")
+        column = source.index("persisted.outcome.changed()") + 1
+        branches = [[1, column, 1, column + 27, 1, 0, 0, 0, 4],
+                    [1, column, 1, column + 27, 0, 1, 0, 0, 4]]
+        sources = parse_lcov("SF:src/lib.rs\nDA:1,2\nend_of_record\n", self.root)
+        function = {"filenames": ["src/lib.rs"], "branches": branches}
+        data = {"data": [{"functions": [function], "files": [{"filename": "src/lib.rs", "branches": branches}]}]}
+        apply_branch_regions(sources, data, self.root)
+        self.assertEqual(sources["src/lib.rs"]["branches"], {(1, 0, 2 * column): 1, (1, 0, 2 * column + 1): 1})
+        branches[1][3] += 1
         with self.assertRaisesRegex(ValueError, "within a function"):
-            apply_branch_regions(sources, {"data": [{"functions": [function], "files": []}]}, self.root)
+            apply_branch_regions(sources, data, self.root)
+        branches[1][3] -= 1
+        branches[1][6] = 1
+        with self.assertRaisesRegex(ValueError, "file mapping"):
+            apply_branch_regions(sources, data, self.root)
 
     def test_external_sources_are_omitted_but_missing_or_invalid_repository_sources_fail(self):
         text = "SF:/rustc/library/std.rs\nDA:999999,1\nend_of_record\nSF:src/lib.rs\nDA:1,1\nend_of_record\n"
