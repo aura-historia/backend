@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-auction-postgres = { workspace = true }
-auction-service = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
-google-cloud-auth = { workspace = true }
+auction-postgres = { workspace = true }
+auction-service = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }
 geo-postgres = { workspace = true }
+google-cloud-auth = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 opensearch = { workspace = true }
@@ -24,6 +24,8 @@ platform-postgres-secretsmanager = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
 shipping-postgres = { workspace = true }
 shipping-service = { workspace = true }
 sqlx = { workspace = true }

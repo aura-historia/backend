@@ -16,6 +16,8 @@ mod public_party_locations;
 mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
+mod saved_searches;
+pub use saved_searches::SavedSearches;
 
 pub use postgres::PostgresConfigError;
 pub use product_listing_config::ProductListingConfig;
@@ -44,6 +46,7 @@ pub struct Runtime {
     listing_shipping: OnceLock<product_listing_service::shipping::ShippingEnrichment>,
     public_party_locations: OnceLock<PublicPartyLocations>,
     public_overview: OnceLock<PublicOverview>,
+    saved_searches: OnceLock<SavedSearches>,
 }
 
 impl Runtime {
@@ -58,6 +61,7 @@ impl Runtime {
             listing_shipping: OnceLock::new(),
             public_party_locations: OnceLock::new(),
             public_overview: OnceLock::new(),
+            saved_searches: OnceLock::new(),
         }
     }
 
@@ -116,6 +120,15 @@ impl Runtime {
     pub fn public_party_locations(&self) -> &PublicPartyLocations {
         self.public_party_locations
             .get_or_init(|| PublicPartyLocations::compose(&self.postgres))
+    }
+
+    pub fn saved_searches(
+        &self,
+        embeddings: Arc<dyn embedding::EmbeddingGenerator>,
+    ) -> &SavedSearches {
+        self.saved_searches.get_or_init(|| {
+            SavedSearches::compose(&self.postgres, self.listing_shipping().clone(), embeddings)
+        })
     }
 
     pub fn public_overview(&self) -> &PublicOverview {

@@ -57,10 +57,7 @@ fn null_top_level_members_preserve_concrete_updates_and_nested_clears()
         serde_json::json!({"search": {"productQuery": null}}),
     ] {
         let data: UpdateSearchFilterData = serde_json::from_value(body)?;
-        assert_eq!(
-            crate::error::BAD_BODY_VALUE,
-            data.into_fields().unwrap_err().code()
-        );
+        assert_eq!("BAD_BODY_VALUE", data.into_fields().unwrap_err().code());
     }
     Ok(())
 }
@@ -160,9 +157,8 @@ fn should_round_trip_and_validate_saved_filter_auction_ids()
         Some(&serde_json::json!([auction_id.to_string()])),
         value.get("auctionId")
     );
-    let decoded = ProductListingSearch::try_from(serde_json::from_value::<
-        ProductListingSearchData,
-    >(value)?)?;
+    let decoded =
+        ProductListingSearch::try_from(serde_json::from_value::<ProductListingSearchData>(value)?)?;
     assert_eq!(search, decoded);
 
     for invalid in [
@@ -175,7 +171,7 @@ fn should_round_trip_and_validate_saved_filter_auction_ids()
         let error = ProductListingSearch::try_from(data)
             .err()
             .ok_or("invalid ID accepted")?;
-        assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
+        assert_eq!("INVALID_OBJECT_ID", error.code());
     }
     Ok(())
 }
@@ -193,9 +189,8 @@ fn should_round_trip_and_validate_saved_filter_excluded_product_listing_ids()
         value.get("excludeProductListingId")
     );
     assert!(value.get("excludeProductId").is_none());
-    let decoded = ProductListingSearch::try_from(serde_json::from_value::<
-        ProductListingSearchData,
-    >(value)?)?;
+    let decoded =
+        ProductListingSearch::try_from(serde_json::from_value::<ProductListingSearchData>(value)?)?;
     assert_eq!(search, decoded);
 
     let data: ProductListingSearchData = serde_json::from_value(serde_json::json!({
@@ -204,13 +199,12 @@ fn should_round_trip_and_validate_saved_filter_excluded_product_listing_ids()
     let error = ProductListingSearch::try_from(data)
         .err()
         .ok_or("invalid ID accepted")?;
-    assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
+    assert_eq!("INVALID_OBJECT_ID", error.code());
     Ok(())
 }
 
 #[test]
-fn should_patch_set_and_clear_saved_filter_auction_ids()
--> Result<(), Box<dyn std::error::Error>> {
+fn should_patch_set_and_clear_saved_filter_auction_ids() -> Result<(), Box<dyn std::error::Error>> {
     let auction_id = AuctionId::new();
     let set: UpdateSearchFilterData = serde_json::from_value(serde_json::json!({
         "search": { "auctionId": [auction_id.to_string()] }
@@ -262,8 +256,7 @@ fn should_preserve_absent_and_configured_empty_availability_queries()
 }
 
 #[test]
-fn should_require_an_atomic_availability_query_patch() -> Result<(), Box<dyn std::error::Error>>
-{
+fn should_require_an_atomic_availability_query_patch() -> Result<(), Box<dyn std::error::Error>> {
     let clear: UpdateSearchFilterData = serde_json::from_str(
         r#"{ "search": {
             "availability": null,

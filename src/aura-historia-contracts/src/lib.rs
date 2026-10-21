@@ -13,3 +13,5 @@ pub mod shipping;
 pub mod shipping_search;
 
 pub mod auctions;
+
+pub mod saved_searches;

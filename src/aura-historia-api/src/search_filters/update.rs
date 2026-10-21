@@ -7,7 +7,6 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use search_filter_service::use_cases::UpdateOwnedSearchFilterCommand;
 
 pub(super) async fn update_search_filter(
     State(state): State<SearchFiltersState>,
@@ -27,25 +26,13 @@ pub(super) async fn update_search_filter(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let accept_shipping_destination = data.accept_shipping_destination.clone().map(Into::into);
-    let (name, notifications, state_field, search) = match data.into_fields() {
-        Ok(fields) => fields,
-        Err(error) => return error.into_response(),
+    let command = match data.into_command(user_id, search_filter_id) {
+        Ok(command) => command,
+        Err(error) => return ApiError::from(error).into_response(),
     };
     match state
         .update_owned_search_filter
-        .execute(
-            &context,
-            UpdateOwnedSearchFilterCommand {
-                accept_shipping_destination,
-                user_id,
-                search_filter_id,
-                name,
-                notifications,
-                state: state_field,
-                search,
-            },
-        )
+        .execute(&context, command)
         .await
     {
         Ok(result) => {

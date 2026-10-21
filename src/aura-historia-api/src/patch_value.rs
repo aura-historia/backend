@@ -52,31 +52,8 @@ pub(crate) mod rfc3339 {
     }
 }
 
-pub(crate) mod rfc3339_range {
-    use super::PatchValue;
-    use domain_primitives::query::range_query::RangeQuery;
-    use serde::{Deserialize, Deserializer};
-    use time::OffsetDateTime;
-
-    #[derive(Deserialize)]
-    #[serde(transparent)]
-    struct Rfc3339RangeValue(
-        #[serde(with = "domain_primitives::query::range_query::range_rfc3339")]
-        RangeQuery<OffsetDateTime>,
-    );
-
-    pub(crate) fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<PatchValue<RangeQuery<OffsetDateTime>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Option::<Rfc3339RangeValue>::deserialize(deserializer).map(|value| match value {
-            Some(value) => PatchValue::Value(value.0),
-            None => PatchValue::Null,
-        })
-    }
-}
+#[cfg(test)]
+use aura_historia_contracts::patch_value::rfc3339_range;
 
 #[cfg(test)]
 mod tests {

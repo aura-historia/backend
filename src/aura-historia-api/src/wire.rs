@@ -157,24 +157,6 @@ where
     })
 }
 
-fn deserialize_patch_set_code<'de, T, D>(
-    deserializer: D,
-    parse: fn(&str) -> Option<T>,
-    expected: Option<&'static [&'static str]>,
-) -> Result<PatchValue<HashSet<T>>, D::Error>
-where
-    T: Eq + Hash,
-    D: Deserializer<'de>,
-{
-    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
-        values
-            .into_iter()
-            .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, expected)))
-            .collect::<Result<HashSet<_>, D::Error>>()
-            .map(PatchValue::Value)
-    })
-}
-
 fn invalid_code<E>(value: &str, expected: Option<&'static [&'static str]>) -> E
 where
     E: serde::de::Error,
@@ -189,7 +171,7 @@ pub(crate) mod currency {
     use super::*;
     use money::Currency;
 
-    pub(crate) use aura_historia_contracts::wire::currency::{deserialize, serialize};
+    pub(crate) use aura_historia_contracts::wire::currency::deserialize;
 
     pub(crate) mod option {
         pub(crate) use aura_historia_contracts::wire::currency::option::{deserialize, serialize};
@@ -212,7 +194,7 @@ pub(crate) mod language {
     use aura_historia_contracts::wire::language::parse;
     use localization::Language;
 
-    pub(crate) use aura_historia_contracts::wire::language::{deserialize, serialize};
+    pub(crate) use aura_historia_contracts::wire::language::deserialize;
 
     pub(crate) mod option {
         use super::*;
@@ -271,19 +253,6 @@ pub(crate) mod listing_availability {
         pub(crate) use aura_historia_contracts::wire::listing::availability_option::{
             deserialize, serialize,
         };
-    }
-
-    pub(crate) mod patch_set {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<PatchValue<HashSet<ListingAvailability>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_set_code(deserializer, parse, None)
-        }
     }
 
     pub(crate) mod patch {
@@ -375,18 +344,6 @@ pub(crate) mod user_role {
         {
             deserialize_patch_code(deserializer, UserRole::from_code, None)
         }
-    }
-}
-
-pub(crate) mod search_filter_state {
-    use super::*;
-    use search_filter_core::search_filter_state::SearchFilterState;
-
-    pub(crate) fn serialize<S>(value: &SearchFilterState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, SearchFilterState::as_str)
     }
 }
 

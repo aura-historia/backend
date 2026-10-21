@@ -166,24 +166,14 @@ use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsReaderFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingLifecycleGuardFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
     UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
-};
-use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
-    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
-};
-use search_filter_service::use_cases::{
-    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
-    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
-    UpdateSearchFilterMatchFeedbackHandler,
 };
 
 use sqlx::PgPool;
@@ -1203,7 +1193,6 @@ async fn app_state_from_config_and_runtime(
     );
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listing_history = runtime.public_product_listing_history();
-    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
     let opensearch_client = listing_dependencies.opensearch.clone();
     let embeddings = Arc::clone(&listing_dependencies.embeddings);
@@ -1941,50 +1930,15 @@ async fn app_state_from_config_and_runtime(
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
     let search_filters_state = SearchFiltersState::new(
-        Arc::new(ListOwnedSearchFiltersHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            CreateSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(GetOwnedSearchFilterHandler::new(
-            search_filter_reader.clone(),
-        )),
-        Arc::new(
-            UpdateOwnedSearchFilterHandler::new(
-                unit_of_work.clone(),
-                SqlxSearchFilterRepositoryFactory,
-                Arc::clone(&embeddings),
-                search_filter_reader.clone(),
-                SqlxSearchFilterQuotaReaderFactory,
-                SqlxUserTierEntitlementsFactory::new(),
-            )
-            .with_shipping_destinations(address_book.clone()),
-        ),
-        Arc::new(DeleteOwnedSearchFilterHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-        )),
-        Arc::new(ListSearchFilterMatchesHandler::new(
-            unit_of_work.clone(),
-            search_filter_reader.clone(),
-            SqlxProductListingDetailsBatchReader::new(pool.clone()),
-            SqlxFxRateSnapshotRepositoryFactory,
-            shipping.clone(),
-        )),
-        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
-            unit_of_work.clone(),
-            SqlxSearchFilterRepositoryFactory,
-            SqlxSearchFilterMatchRepositoryFactory,
-        )),
+        Arc::clone(&saved_searches.list),
+        Arc::clone(&saved_searches.create),
+        Arc::clone(&saved_searches.get),
+        Arc::clone(&saved_searches.update),
+        Arc::clone(&saved_searches.delete),
+        Arc::clone(&saved_searches.matches),
+        Arc::clone(&saved_searches.feedback),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let watchlist_state = WatchlistState {

@@ -62,3 +62,9 @@ The runtime unit suite checks clean-environment anonymous startup, warm reuse, c
 replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment
 configuration without mutating a multithreaded test process. PostgreSQL integration tests use the
 repository's isolated Docker fixture and business migrations.
+
+`Runtime::saved_searches(embeddings)` supplies the seven saved-search and match-feedback inbound
+handles. REST and MCP reuse this family with the same PostgreSQL pool, shipping enrichment and
+existing lazy embedding provider. Selecting the family requires only its explicit embedding
+handle; it does not load unrelated provider settings. Services own tier/ownership checks,
+transactions, destination acceptance and materialized match semantics.

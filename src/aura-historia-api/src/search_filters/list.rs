@@ -23,20 +23,7 @@ pub(super) async fn list_search_filters(
         .await
     {
         Ok(result) => {
-            let size = result.items.len() as u64;
-            no_store(
-                Json(PaginatedData {
-                    items: result
-                        .items
-                        .into_iter()
-                        .map(SearchFilterData::from)
-                        .collect(),
-                    from: 0,
-                    size,
-                    total: Some(size),
-                })
-                .into_response(),
-            )
+            no_store(Json(PaginatedData::<SearchFilterData>::from(result.items)).into_response())
         }
         Err(error) => ApiError::from(error).into_response(),
     }
