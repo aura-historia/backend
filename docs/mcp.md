@@ -54,7 +54,8 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
 four mutation/retry/open-world annotations. The
-[selected-operation manifest](../src/aura-historia-mcp/public-operations.json) records
+[public](../src/aura-historia-mcp/public-operations.json) and
+[authenticated](../src/aura-historia-mcp/authenticated-operations.json) manifests together record
 the exact allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
 captures narrow service handles and calls the shared
@@ -181,6 +182,27 @@ contract/operation suites retain detailed input, mapping, validation and error p
 Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
+
+## Notification inbox
+
+The six notification operations share REST contracts and service use cases. `listNotifications`
+requires `notifications:read`; mutations require `notifications:write`. Every call operates on
+the delegated user's inbox. Stored listing snapshots, all notification payload kinds, localized
+titles and prices are preserved. The service reads the user's sensitive-content preference
+internally; listing notifications requires no additional user, saved-search or watchlist scope.
+
+Listing accepts `language`, `size` (default 21, clamped to 1–100) and `searchAfter`. Serialize the
+returned `[created, notificationId]` cursor array as a JSON string for continuation. `size` counts
+returned items; an exhausted page omits `searchAfter`, and no total is supplied.
+
+`updateNotificationSeen` sets one owned item's `seen`. `updateNotificationsSeen` sets selected
+`notificationIds`, deduplicates them, ignores missing/foreign IDs and rejects an empty selection.
+`updateAllNotificationsSeen` applies the supplied `seen` boolean to the entire inbox, including
+unlisted pages. `deleteNotification` permanently deletes one `notificationId` and returns not
+found for missing/foreign items. `deleteNotifications` accepts only `{}` and permanently deletes
+the entire own inbox; it has no ID selection or request body. Successful mutations acknowledge
+with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
+reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
 ## Bounds, metadata and runtime configuration
 

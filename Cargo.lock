@@ -494,6 +494,8 @@ dependencies = [
  "listing-source-service",
  "localization",
  "money",
+ "notification-core",
+ "notification-service",
  "oauth-core",
  "party-core",
  "party-service",

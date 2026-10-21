@@ -1,0 +1,100 @@
+{
+  "endpoint": "https://mcp.aura-historia.com/v1",
+  "schemaSource": {
+    "method": "tools/list",
+    "input": "inputSchema",
+    "output": "outputSchema"
+  },
+  "operations": [
+    {
+      "name": "deleteNotification",
+      "operationId": "deleteNotification",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "deleteNotifications",
+      "operationId": "deleteNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "listNotifications",
+      "operationId": "listNotifications",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateAllNotificationsSeen",
+      "operationId": "updateAllNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationSeen",
+      "operationId": "updateNotificationSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "updateNotificationsSeen",
+      "operationId": "updateNotificationsSeen",
+      "family": "notifications",
+      "access": "protected",
+      "requiredScopes": [
+        "notifications:write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

@@ -96,7 +96,24 @@ async fn rotation_probe() -> Result<(), TestError> {
     let (_, old_list, _) = post(old.clone(), "tools/list", json!({})).await;
     let (_, same_list, _) = post(same, "tools/list", json!({})).await;
     assert_eq!(old_list, same_list);
-    assert_eq!(12, old_list["result"]["tools"].as_array().unwrap().len());
+    let mut expected = std::collections::BTreeSet::new();
+    for manifest in [
+        include_str!("../../../public-operations.json"),
+        include_str!("../../../authenticated-operations.json"),
+    ] {
+        let manifest: Value = serde_json::from_str(manifest)?;
+        for operation in manifest["operations"].as_array().unwrap() {
+            assert_eq!(operation["name"], operation["operationId"]);
+            assert!(expected.insert(operation["name"].as_str().unwrap().to_owned()));
+        }
+    }
+    let listed = old_list["result"]["tools"].as_array().unwrap();
+    let actual = listed
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(listed.len(), actual.len());
+    assert_eq!(expected, actual);
 
     *credentials.version.lock().unwrap() = Some("version-2");
     let (left, right) = tokio::join!(app.current(), app.current());

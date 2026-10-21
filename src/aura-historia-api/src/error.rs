@@ -402,6 +402,11 @@ impl ApiError {
         self
     }
 
+    pub(crate) fn with_cause(mut self, cause: application::error::BoxError) -> Self {
+        self.cause = Some(cause);
+        self
+    }
+
     fn status_code(&self) -> StatusCode {
         match StatusCode::from_u16(self.status) {
             Ok(status) => status,

@@ -1,5 +1,10 @@
 //! Shared notification inbox wire contracts and presentation.
+mod query;
 mod wire;
+pub use query::{
+    InvalidNotificationCursor, ListNotificationsQuery, NotificationsPageData,
+    parse_notification_cursor,
+};
 
 use crate::product_listings::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, ProductListingPriceData};
@@ -22,34 +27,40 @@ use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
     product_listing_price::ProductListingPrice, title::Title,
 };
+use schemars::JsonSchema;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationSeenData {
     pub seen: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationsSeenData {
+    #[schemars(schema_with = "crate::wire::schema::notification_ids")]
     pub notification_ids: Vec<String>,
     pub seen: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationData {
+    #[schemars(schema_with = "crate::wire::schema::notification_id")]
     notification_id: NotificationId,
     seen: bool,
     #[serde(with = "time::serde::rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::datetime")]
     updated: OffsetDateTime,
     #[serde(with = "crate::notifications::wire::kind")]
+    #[schemars(schema_with = "wire::kind::schema")]
     kind: NotificationKind,
     payload: NotificationContentData,
 }
@@ -72,30 +83,20 @@ impl From<(ListedNotification, NotificationPresentationPreferences)> for Notific
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(untagged)]
 enum NotificationContentData {
     Watchlist(WatchlistNotificationPayloadData),
     SearchFilter(SearchFilterNotificationPayloadData),
     PartnershipApplication(PartnershipApplicationNotificationPayloadData),
 }
 
-impl Serialize for NotificationContentData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Self::Watchlist(payload) => payload.serialize(serializer),
-            Self::SearchFilter(payload) => payload.serialize(serializer),
-            Self::PartnershipApplication(payload) => payload.serialize(serializer),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct WatchlistNotificationPayloadData {
+    #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
+    #[schemars(schema_with = "crate::wire::schema::listing_source_id")]
     listing_source_id: ListingSourceId,
     source_listing_id: String,
     listing_source_slug_id: String,
@@ -103,12 +104,14 @@ struct WatchlistNotificationPayloadData {
     listing_source_name: String,
     title: Option<LocalizedTextData>,
     image: Option<ProductListingImageData>,
+    #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
+    #[schemars(schema_with = "crate::wire::schema::url")]
     view_url: Url,
     change: WatchlistNotificationChangeData,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(
     tag = "type",
     rename_all = "SCREAMING_SNAKE_CASE",
@@ -121,18 +124,23 @@ enum WatchlistNotificationChangeData {
     },
     AvailabilityChange {
         #[serde(with = "crate::wire::listing::availability_option")]
+        #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         old_availability: Option<ListingAvailability>,
         #[serde(with = "crate::wire::listing::availability_option")]
+        #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         new_availability: Option<ListingAvailability>,
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct SearchFilterNotificationPayloadData {
+    #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
+    #[schemars(schema_with = "crate::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
     user_search_filter_name: String,
+    #[schemars(schema_with = "crate::wire::schema::listing_source_id")]
     listing_source_id: ListingSourceId,
     source_listing_id: String,
     listing_source_slug_id: String,
@@ -140,18 +148,23 @@ struct SearchFilterNotificationPayloadData {
     listing_source_name: String,
     title: Option<LocalizedTextData>,
     image: Option<ProductListingImageData>,
+    #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
+    #[schemars(schema_with = "crate::wire::schema::url")]
     view_url: Url,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct PartnershipApplicationNotificationPayloadData {
+    #[schemars(schema_with = "wire::partnership_application_id_schema")]
     partnership_application_id: PartnershipApplicationId,
     #[serde(with = "crate::notifications::wire::decision")]
+    #[schemars(schema_with = "wire::decision::schema")]
     decision: PartnershipApplicationDecision,
     party_name: String,
     listing_source_name: String,
+    #[schemars(schema_with = "crate::wire::schema::optional_url")]
     image: Option<Url>,
 }
 

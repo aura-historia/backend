@@ -14,10 +14,11 @@ pub fn mcp_router(
     runtime: &Runtime,
 ) -> Result<Router, McpStartupError> {
     let dependencies = ProductListingDependencies::from_env(listings)?;
-    let registry = crate::Registry::new(operations(PublicServices::from_runtime(
-        runtime,
-        dependencies,
-    ))?)?;
+    let mut definitions = operations(PublicServices::from_runtime(runtime, dependencies))?;
+    definitions.extend(crate::tools::notifications::operations(
+        runtime.notifications().clone(),
+    )?);
+    let registry = crate::Registry::new(definitions)?;
     let gate = AuraTokenGate::new(
         runtime.access_token_authentication().clone(),
         transport.resource_policy,

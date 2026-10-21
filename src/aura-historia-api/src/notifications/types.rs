@@ -1,6 +1,6 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
 pub(crate) use aura_historia_contracts::notifications::{
-    NotificationData, UpdateNotificationSeenData, UpdateNotificationsSeenData,
+    UpdateNotificationSeenData, UpdateNotificationsSeenData,
 };
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
