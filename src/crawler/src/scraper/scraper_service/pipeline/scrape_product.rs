@@ -292,6 +292,7 @@ impl ScraperServiceImpl {
                     None,
                     None,
                 );
+                record_transport_success();
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind: NetworkErrorKind::RobotsDisallowed,

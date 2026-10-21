@@ -306,9 +306,11 @@ impl ReqwestHtmlFetcher {
         }
     }
 
-    /// Redirect hops run inside the timed attempt, so they take only the
-    /// latency throttle, without the `Crawl-delay` spacing. A target robots.txt disallows is reported with its
-    /// URL, so the pipeline can judge where the source URL led.
+    /// Checks a redirect hop against robots.txt. Hops run inside the timed
+    /// attempt, so the caller paces them with the latency throttle only,
+    /// without the `Crawl-delay` spacing. A target robots.txt disallows is
+    /// reported with its URL, so the pipeline can judge where the source URL
+    /// led.
     async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
         match robots.check(url) {
@@ -322,7 +324,6 @@ impl ReqwestHtmlFetcher {
             }
             Err(refusal) => return Err(robots_refusal_error(url, refusal)),
         }
-        self.pace(url, None).await;
         Ok(())
     }
 
@@ -338,6 +339,7 @@ impl ReqwestHtmlFetcher {
             let domain = current_url.host_str().map(str::to_owned);
             if redirect_count > 0 {
                 limit.robots(self.admit_redirect(&current_url)).await?;
+                self.pace(&current_url, None).await;
             }
             let started = Instant::now();
             let client = self.http_client_for(&current_url).await?;

@@ -291,16 +291,22 @@ fn parse_crawl_delay(value: &str) -> Option<Duration> {
 /// Brings patterns and request paths into one form: non-ASCII characters
 /// percent-encoded and every escape in upper-case hex (RFC 3986 treats
 /// `%2b` and `%2B` as equal), so a literal non-ASCII pattern still matches.
+/// An escape cut short by the end, as a prefix pattern may write it, is
+/// upper-cased too.
 fn normalize_percent_encoding(pattern: &str) -> String {
     let mut normalized = String::with_capacity(pattern.len());
     let mut chars = pattern.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '%' {
             let hex: String = chars.clone().take(2).collect();
-            if hex.len() == 2 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            let complete_or_cut_short = hex.len() == 2 || chars.clone().nth(hex.len()).is_none();
+            if !hex.is_empty()
+                && complete_or_cut_short
+                && hex.chars().all(|c| c.is_ascii_hexdigit())
+            {
                 normalized.push('%');
                 normalized.push_str(&hex.to_ascii_uppercase());
-                chars.nth(1);
+                chars.nth(hex.len() - 1);
                 continue;
             }
         }
