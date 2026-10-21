@@ -152,6 +152,11 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
                 elapsed_ms = __setup_started.elapsed().as_millis(),
                 "Integration test setup complete."
             );
+            test_api::benchmark::record_timing(
+                "SETUP",
+                concat!(module_path!(), "::", stringify!(#fn_name)),
+                __setup_started.elapsed(),
+            );
 
             let __body_started = std::time::Instant::now();
             let __body_result = test_api::FutureExt::catch_unwind(
@@ -160,6 +165,11 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
             test_api::tracing::debug!(
                 elapsed_ms = __body_started.elapsed().as_millis(),
                 "Integration test body complete."
+            );
+            test_api::benchmark::record_timing(
+                "BODY",
+                concat!(module_path!(), "::", stringify!(#fn_name)),
+                __body_started.elapsed(),
             );
 
             let __teardown_started = std::time::Instant::now();
@@ -171,6 +181,11 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
             test_api::tracing::debug!(
                 elapsed_ms = __teardown_started.elapsed().as_millis(),
                 "Integration test teardown complete."
+            );
+            test_api::benchmark::record_timing(
+                "TEARDOWN",
+                concat!(module_path!(), "::", stringify!(#fn_name)),
+                __teardown_started.elapsed(),
             );
 
             drop(__aws_emulator);

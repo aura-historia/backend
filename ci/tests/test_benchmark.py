@@ -1,0 +1,87 @@
+import pathlib
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from ci_benchmark.metrics import coverage_totals, observations
+from ci_benchmark.execution import fixture_references
+
+
+class BenchmarkMetrics(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.path = pathlib.Path(self.temporary.name) / "evidence.txt"
+
+    def test_concatenated_lcov_reports_sum_and_union_without_double_counting_lines(self):
+        self.path.write_text("""SF:src/lib.rs
+DA:1,0
+DA:2,1
+FNDA:0,example
+BRDA:2,0,0,-
+LF:2
+LH:1
+FNF:1
+FNH:0
+BRF:1
+BRH:0
+end_of_record
+SF:src/lib.rs
+DA:1,2
+DA:2,0
+FNDA:1,example
+BRDA:2,0,0,1
+LF:2
+LH:1
+FNF:1
+FNH:1
+BRF:1
+BRH:1
+end_of_record
+""")
+        totals = coverage_totals(self.path)
+        self.assertEqual(totals["record_sums"]["lines_found"], 4)
+        self.assertEqual(totals["identity_union"]["lines_found"], 2)
+        self.assertEqual(totals["identity_union"]["lines_hit"], 2)
+        self.assertEqual(totals["identity_union"]["branches_hit"], 1)
+
+    def test_missing_coverage_records_fail_instead_of_claiming_zero_coverage(self):
+        self.path.write_text("grcov failed\n")
+        with self.assertRaisesRegex(ValueError, "no LCOV"):
+            coverage_totals(self.path)
+
+    def test_interleaved_harness_output_and_failed_body_preserve_partial_phase_records(self):
+        self.path.write_text('''test sample ... AURA_CI_TIMING {"phase":"SETUP","owner":"sample","pid":1,"elapsed_seconds":0.25}
+thread sample panicked
+AURA_CI_TIMING {"phase":"BODY","owner":"sample","pid":1,"elapsed_seconds":0.1}
+AURA_CI_TIMING {"phase":"TEARDOWN","owner":"sample","pid":1,"elapsed_seconds":0.01}
+test result: FAILED. 1 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.0s
+''')
+        actual = observations(self.path)
+        self.assertEqual(actual["tests"]["totals"]["failed"], 1)
+        self.assertEqual(actual["fixture_timings"]["seconds"]["TEARDOWN"], [0.01])
+        self.assertEqual(actual["fixture_timings"]["seconds"]["POSTGRES_STARTUP"], [])
+
+    def test_no_phase_samples_are_not_reported_as_zero_duration_measurements(self):
+        self.path.write_text("no structured observations\n")
+        actual = observations(self.path)
+        self.assertEqual(actual["fixture_timings"]["status"], "NOT_OBSERVED")
+        self.assertEqual(actual["tests"]["status"], "UNAVAILABLE")
+        self.assertIsNone(actual["tests"]["totals"])
+
+    def test_fixture_image_mapping_requires_review_when_engine_or_emulator_changes(self):
+        root = pathlib.Path(self.temporary.name)
+        source = root / "src/test-api/src"
+        source.mkdir(parents=True)
+        (source / "postgres.rs").write_text('const POSTGRES_IMAGE: &str = "postgres:16-bookworm";')
+        (source / "aws.rs").write_text('const IMAGE_TAG: &str = "2.3.0";')
+        (source / "opensearch.rs").write_text('.engine_version("OpenSearch_3.5")')
+        self.assertIn("opensearchproject/opensearch:3.5.0", fixture_references(root))
+        (source / "opensearch.rs").write_text('.engine_version("OpenSearch_2.19")')
+        with self.assertRaisesRegex(ValueError, "Unreviewed"):
+            fixture_references(root)
+
+
+if __name__ == "__main__":
+    unittest.main()

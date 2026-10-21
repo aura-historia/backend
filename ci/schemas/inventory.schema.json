@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura-historia.com/ci/inventory.schema.json",
+  "title": "Cargo target and executable test inventory",
+  "type": "object",
+  "required": ["schema_version", "revision", "dirty", "toolchain", "summary", "packages", "discovery", "feature_comparison"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "dirty": { "type": "boolean" },
+    "toolchain": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["packages", "targets", "doctest_targets", "test_count", "ignored_count", "doctest_count"],
+      "properties": {
+        "packages": { "type": "integer", "minimum": 1 },
+        "targets": { "type": "integer", "minimum": 1 },
+        "doctest_targets": { "type": "integer", "minimum": 0 },
+        "test_count": { "$ref": "#/$defs/count" },
+        "ignored_count": { "$ref": "#/$defs/count" },
+        "doctest_count": { "$ref": "#/$defs/count" }
+      }
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version", "path", "features", "targets", "current_ci_eligible"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "path": { "type": "string" },
+          "features": { "type": "object" },
+          "current_ci_eligible": { "type": "boolean" },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "kind", "source", "test", "doctest", "required_features", "harness", "lane", "runner", "source_signals", "discovery", "doctest_discovery"],
+              "properties": {
+                "id": { "type": "string" },
+                "lane": { "enum": ["API", "CRAWLER", "INFRASTRUCTURE", "REMAINING"] },
+                "source_signals": {
+                  "type": "object",
+                  "required": ["scope", "evidence", "fixtures", "review_required", "lexical_test_attributes"],
+                  "properties": {
+                    "scope": { "const": "SOURCE_SUBTREE_CONSERVATIVE" },
+                    "evidence": { "type": "array", "items": {
+                      "type": "object", "required": ["kind", "path", "line"],
+                      "properties": { "kind": { "type": "string" }, "path": { "type": "string" }, "line": { "type": "integer", "minimum": 1 } }
+                    } },
+                    "fixtures": { "type": "array", "items": { "type": "string" } },
+                    "review_required": { "type": "array", "items": { "type": "string" } }
+                  }
+                },
+                "discovery": { "$ref": "#/$defs/discovery" },
+                "doctest_discovery": { "$ref": "#/$defs/discovery" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "discovery": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["NOT_DISCOVERED", "VERIFIED"] } } },
+    "feature_comparison": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["NOT_COLLECTED", "COLLECTED"] } } }
+  },
+  "$defs": {
+    "count": { "type": ["integer", "null"], "minimum": 0 },
+    "discovery": {
+      "type": "object", "required": ["status", "test_count"],
+      "properties": {
+        "status": { "enum": ["NOT_DISCOVERED", "NOT_APPLICABLE", "VERIFIED", "LISTED", "NOT_A_STANDARD_TEST_HARNESS"] },
+        "test_count": { "$ref": "#/$defs/count" },
+        "ignored_count": { "$ref": "#/$defs/count" },
+        "cases": { "type": "array" }
+      }
+    }
+  }
+}

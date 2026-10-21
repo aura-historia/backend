@@ -141,6 +141,7 @@ async fn set_up_open_search() {
         elapsed_ms = started.elapsed().as_millis(),
         "OpenSearch structural bootstrap complete."
     );
+    crate::benchmark::record_timing("OPENSEARCH_STARTUP", "PROCESS", started.elapsed());
 }
 
 async fn set_up_domain() -> Result<(), BoxError> {
@@ -359,6 +360,7 @@ pub(crate) async fn clear_all_indices() {
         elapsed_ms = started.elapsed().as_millis(),
         "Cleared OpenSearch documents for test isolation."
     );
+    crate::benchmark::record_timing("OPENSEARCH_RESET", "PROCESS", started.elapsed());
 }
 
 /// Clears all documents from the specified OpenSearch index.

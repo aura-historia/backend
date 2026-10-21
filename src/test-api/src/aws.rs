@@ -135,6 +135,7 @@ fn find_free_port() -> u16 {
 pub async fn spin_up_aws_emulator(
     extra_env_vars: &[(&str, &str)],
 ) -> (ContainerAsync<GenericImage>, u16) {
+    let started = std::time::Instant::now();
     install_cleanup();
     let _ = tracing_subscriber::fmt()
         .json()
@@ -170,5 +171,6 @@ pub async fn spin_up_aws_emulator(
         .start()
         .await
         .expect("shouldn't fail starting Floci");
+    crate::benchmark::record_timing("FLOCI_STARTUP", "PROCESS", started.elapsed());
     (container, port)
 }

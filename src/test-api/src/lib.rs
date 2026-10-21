@@ -3,6 +3,8 @@ mod api_gateway;
 #[cfg(feature = "aura-historia-api")]
 mod aura_historia_api;
 pub mod aws;
+#[doc(hidden)]
+pub mod benchmark;
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
 #[cfg(feature = "opensearch")]
