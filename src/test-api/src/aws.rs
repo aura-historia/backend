@@ -3,6 +3,25 @@ mod topology;
 #[cfg(all(test, feature = "sqs", feature = "ses", feature = "s3"))]
 mod runtime_tests;
 
+// These library regressions share one process-owned fixture under unmanaged libtest.
+#[cfg(all(
+    test,
+    any(
+        feature = "opensearch",
+        all(feature = "sqs", feature = "ses", feature = "s3")
+    )
+))]
+pub(crate) const RUNTIME_TEST_SERVICES: &[&str] = &[
+    #[cfg(feature = "opensearch")]
+    "opensearch",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "sqs",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "sesv2",
+    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
+    "s3",
+];
+
 use self::topology::AwsEmulatorTopology;
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::net::TcpListener;

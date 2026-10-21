@@ -15,7 +15,7 @@ fn should_use_fresh_clients_for_setup_reads_and_cleanup_after_prior_runtimes_sto
     let setup = runtime();
     let id = ProductListingId::new().to_string();
     let (session, index) = setup.block_on(async {
-        crate::aws::get_aws_emulator(&["opensearch"], &[]).await;
+        crate::aws::get_aws_emulator(crate::aws::RUNTIME_TEST_SERVICES, &[]).await;
         let session = TestContext::acquire("OpenSearch runtime lifetime", Isolation::Isolated)
             .await
             .unwrap();

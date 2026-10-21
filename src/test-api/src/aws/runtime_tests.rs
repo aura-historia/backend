@@ -222,7 +222,7 @@ async fn assert_resources_removed(resources: AwsResources) {
 fn should_own_aws_connections_across_setup_reads_and_cleanup_runtimes() {
     let setup = runtime();
     let (session, resources) = setup.block_on(async {
-        get_aws_emulator(&["sqs", "sesv2", "s3"], &[]).await;
+        get_aws_emulator(RUNTIME_TEST_SERVICES, &[]).await;
         assert!(
             get_aws_config().await.http_client().is_none(),
             "shared fixture configuration must not retain a runtime's HTTP connection pool"
