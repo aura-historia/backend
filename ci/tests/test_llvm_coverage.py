@@ -83,6 +83,21 @@ class NormalizedCoverage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Executed LLVM function has no source anchor"):
             apply_function_records(sources, {"data": [{"functions": [function]}]}, self.root)
 
+    def test_source_resolution_is_refreshed_between_exports(self):
+        sources = parse_lcov("SF:src/lib.rs\nDA:1,1\nend_of_record\n", self.root)
+        with tempfile.TemporaryDirectory() as temporary:
+            external = pathlib.Path(temporary) / "lib.rs"
+            external.write_text("fn external() {}\n")
+            function = {"name": "choose", "count": 7, "filenames": [str(external)],
+                        "regions": [[1, 1, 3, 2, 7, 0, 0, 0]], "branches": []}
+            data = {"data": [{"functions": [function]}]}
+            apply_function_records(sources, data, self.root)
+            self.assertEqual(sources["src/lib.rs"]["functions"], {})
+            external.unlink()
+            external.symlink_to(self.root / "src/lib.rs")
+            apply_function_records(sources, data, self.root)
+            self.assertEqual(sources["src/lib.rs"]["functions"], {"choose": 7})
+
     def test_missing_json_sources_cannot_erase_existing_branch_coverage(self):
         for data in ({"data": []}, {"data": [{"functions": [], "files": []}]}):
             sources = parse_lcov("SF:src/lib.rs\nDA:2,1\nBRDA:2,0,16,1\nend_of_record\n", self.root)

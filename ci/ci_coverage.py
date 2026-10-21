@@ -98,7 +98,7 @@ def parse_lcov(text, root):
     return sources
 
 
-def function_line(function, source, root):
+def function_line(function, source, root, lines):
     """Anchor branch-only functions to an observed condition in their primary file."""
     if function["regions"]:
         region = function["regions"][0]
@@ -106,7 +106,6 @@ def function_line(function, source, root):
             raise ValueError("Unexpected LLVM function region format")
         return region[0]
     locations = []
-    lines = (root / source).read_bytes().splitlines()
     for region in function["branches"]:
         if len(region) != 9:
             raise ValueError("Unexpected LLVM branch region format")
@@ -126,15 +125,18 @@ def apply_function_records(sources, data, root):
     """Use JSON counters; LLVM's LCOV writer crashes on branch-only functions."""
     for record in sources.values():
         record["definitions"], record["functions"] = {}, {}
-    line_counts = {source: len((root / source).read_bytes().splitlines()) for source in sources}
-    unmapped = []
+    source_lines = {source: (root / source).read_bytes().splitlines() for source in sources}
+    line_counts = {source: len(lines) for source, lines in source_lines.items()}
+    source_paths, unmapped = {}, []
     for section in data["data"]:
         for function in section["functions"]:
             if (not function["filenames"] or not isinstance(function["regions"], list)
                     or not isinstance(function["branches"], list)):
                 raise ValueError("Invalid LLVM function mappings")
             filename = function["filenames"][0]
-            source = source_path(filename, root)
+            if filename not in source_paths:
+                source_paths[filename] = source_path(filename, root)
+            source = source_paths[filename]
             if source is None:
                 continue
             name, count = function["name"], unsigned(str(function["count"]))
@@ -148,7 +150,7 @@ def apply_function_records(sources, data, root):
                 continue
             if source not in sources:
                 raise ValueError(f"LLVM function source has no LCOV record: {source}")
-            number = line_number(str(function_line(function, source, root)), source, line_counts)
+            number = line_number(str(function_line(function, source, root, source_lines[source])), source, line_counts)
             record = sources[source]
             if name in record["definitions"] and record["definitions"][name] != number:
                 raise ValueError(f"Conflicting LLVM function location: {source}:{name}")
@@ -158,6 +160,7 @@ def apply_function_records(sources, data, root):
 
 
 def validate_branch_origins(section, root):
+    source_paths = {}
     for function in section["functions"]:
         spans = {}
         for region in function["branches"]:
@@ -166,7 +169,10 @@ def validate_branch_origins(section, root):
             file_id = unsigned(str(region[6]))
             if file_id >= len(function["filenames"]):
                 raise ValueError("Invalid LLVM branch file mapping")
-            source = source_path(function["filenames"][file_id], root)
+            filename = function["filenames"][file_id]
+            if filename not in source_paths:
+                source_paths[filename] = source_path(filename, root)
+            source = source_paths[filename]
             if source is not None:
                 location, span = (source, region[0], region[1]), (region[2], region[3], region[8])
                 if location in spans and spans[location] != span:
