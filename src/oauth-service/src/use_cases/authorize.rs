@@ -12,6 +12,7 @@ use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     RehydratedAuthorizationCodeState,
 };
+use oauth_core::resource::AuraResourcePolicy;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use user_core::access_token::Scope;
@@ -29,6 +30,7 @@ pub struct AuthorizeRequest {
     pub response_type: OAuthResponseType,
     pub client_id: OAuthClientId,
     pub redirect_uri: url::Url,
+    pub resource: Option<String>,
     pub scope: HashSet<Scope>,
     pub state: Option<OAuthState>,
     pub code_challenge: OAuthCodeChallenge,
@@ -53,13 +55,15 @@ pub struct AuthorizeHandler<U, C, A> {
     unit_of_work: U,
     clients: C,
     codes: A,
+    resource_policy: AuraResourcePolicy,
 }
 impl<U, C, A> AuthorizeHandler<U, C, A> {
-    pub fn new(unit_of_work: U, clients: C, codes: A) -> Self {
+    pub fn new(unit_of_work: U, clients: C, codes: A, resource_policy: AuraResourcePolicy) -> Self {
         Self {
             unit_of_work,
             clients,
             codes,
+            resource_policy,
         }
     }
 }
@@ -90,6 +94,10 @@ where
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
         let user_id = authorized_user_id(context, &request.scope)?;
+        let resource = self
+            .resource_policy
+            .resolve(request.resource.as_deref())
+            .map_err(|_| OAuthServiceError::InvalidResource)?;
         let mut tx = self.unit_of_work.begin().await?;
         let client = self
             .clients
@@ -114,6 +122,7 @@ where
             client_id: request.client_id,
             user_id,
             redirect_uri: request.redirect_uri.clone(),
+            resource: Some(resource),
             scopes: request.scope,
             code_challenge: request.code_challenge,
             code_challenge_method: request.code_challenge_method,

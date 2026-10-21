@@ -1974,3 +1974,6 @@ async fn should_introspect_and_revoke_oauth_access_token() {
         .unwrap_or_else(|error| panic!("failed to revoke token: {error}"));
     assert_eq!(reqwest::StatusCode::OK, response.status());
 }
+
+#[path = "oauth_resource.rs"]
+mod resource;

@@ -10444,6 +10444,20 @@ paths:
             type: string
             format: uri
           example: https://client.example/callback
+        - name: resource
+          in: query
+          required: false
+          description: >-
+            One exact shared Aura resource identifier (RFC 8707). Production accepts
+            https://api.aura-historia.com and https://mcp.aura-historia.com/v1; stage accepts only
+            https://api.stage.aura-historia.com and https://mcp.stage.aura-historia.com/v1.
+            MCP clients must supply the canonical MCP identifier. Omission selects the same-environment
+            shared Aura default (the issuer). Empty, repeated, foreign or noncanonical values fail with
+            400 OAUTH_INVALID_RESOURCE. The resolved value is bound to the authorization code.
+          schema:
+            type: string
+            format: uri
+          example: https://mcp.aura-historia.com/v1
         - name: scope
           in: query
           required: false
@@ -10545,6 +10559,12 @@ paths:
                       field: code_challenge_method
                       type: QUERY
                     detail: Unsupported code_challenge_method 'plain'
+                invalid_resource:
+                  summary: Resource is foreign, ambiguous, noncanonical or from another environment
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: OAUTH_INVALID_RESOURCE
                 invalid_scope:
                   summary: Requested scope not allowed for client
                   value:
@@ -10695,6 +10715,16 @@ paths:
                   format: uri
                   description: Must exactly match the `redirect_uri` used in the corresponding authorization request.
                   example: https://client.example/callback
+                resource:
+                  type: string
+                  format: uri
+                  description: >-
+                    Repeat the exact resource selected during authorization. Omission inherits the code's
+                    binding, including the shared Aura default for legacy callers. Substitution (even the
+                    other allowed alias), foreign/other-environment, empty and repeated values fail with
+                    400 OAUTH_INVALID_RESOURCE. The issued opaque token authorizes the shared Aura service
+                    through both REST and MCP under the original scopes; it has no exclusive transport audience.
+                  example: https://mcp.aura-historia.com/v1
                 client_id:
                   type: string
                   description: Canonical OAuthClient ID.
@@ -10786,6 +10816,12 @@ paths:
                     title: Bad Request
                     error: OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH
                     detail: Authorization code redirect_uri mismatch.
+                invalid_resource:
+                  summary: Resource is invalid or differs from the authorization code binding
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: OAUTH_INVALID_RESOURCE
                 invalid_code_verifier:
                   summary: PKCE code verifier does not match
                   value:

@@ -1,4 +1,7 @@
-use super::{no_store, parse_form, required_form, required_form_client_secret, scope_string};
+use super::{
+    no_store, parse_form, reject_duplicate_resource, required_form, required_form_client_secret,
+    scope_string,
+};
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::OAuthState;
 use crate::wire::parse_body_object_id;
@@ -47,6 +50,9 @@ impl From<TokenResponse> for TokenResponseData {
 }
 
 pub async fn token(State(state): State<OAuthState>, body: String) -> Response {
+    if let Err(response) = reject_duplicate_resource(&body) {
+        return response;
+    }
     let form = parse_form(body);
     let request = match request(&form) {
         Ok(value) => value,
@@ -92,6 +98,7 @@ fn request(
         grant_type,
         code,
         redirect_uri,
+        resource: form.get("resource").cloned(),
         client_id,
         client_secret,
         code_verifier: OAuthCodeVerifier::from(required_form(form, "code_verifier")?),
@@ -106,6 +113,33 @@ mod tests {
     use oauth_core::authorization_code::OAuthAuthorizationCode;
     use serde_json::json;
     use user_core::access_token::RawAccessToken;
+
+    #[test]
+    fn should_forward_the_exact_optional_resource_to_the_service() {
+        let mut values = form(&[
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", OAuthAuthorizationCode::new().to_string()),
+            ("redirect_uri", "https://client.example/callback".to_owned()),
+            ("client_id", OAuthClientId::new().to_string()),
+            (
+                "client_secret",
+                String::from(user_core::access_token::RawOAuthClientSecret::new()),
+            ),
+            ("code_verifier", "code-verifier".to_owned()),
+        ]);
+        assert_eq!(None, request(&values).unwrap().resource);
+        for resource in [
+            "https://mcp.aura-historia.com/v1",
+            "https://foreign.example#fragment",
+            "",
+        ] {
+            values.insert("resource".to_owned(), resource.to_owned());
+            assert_eq!(
+                Some(resource.to_owned()),
+                request(&values).unwrap().resource
+            );
+        }
+    }
 
     #[tokio::test]
     async fn should_reject_malformed_client_secret_without_reflecting_it() {

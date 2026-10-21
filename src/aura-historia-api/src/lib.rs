@@ -261,6 +261,7 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
@@ -279,6 +280,7 @@ const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
+    oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
@@ -309,6 +311,10 @@ impl ApiConfig {
                     source,
                 })?;
 
+        let oauth_resource_policy = oauth_core::resource::AuraResourcePolicy::from_issuer(
+            &required_config(&mut get, OAUTH_ISSUER_URL_ENV)?,
+        )
+        .map_err(ApiConfigError::InvalidOAuthIssuer)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -379,6 +385,7 @@ impl ApiConfig {
         Ok(Self {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
+            oauth_resource_policy,
             cognito_user_pool_id,
             product_listings,
             stripe_billing,
@@ -393,6 +400,10 @@ impl ApiConfig {
 
     pub const fn bind_addr(&self) -> SocketAddr {
         self.bind_addr
+    }
+
+    pub fn oauth_resource_policy(&self) -> oauth_core::resource::AuraResourcePolicy {
+        self.oauth_resource_policy
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -504,6 +515,8 @@ where
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiConfigError {
+    #[error("OAUTH_ISSUER_URL is not a configured Aura issuer")]
+    InvalidOAuthIssuer(#[source] oauth_core::resource::InvalidResource),
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -2008,6 +2021,7 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
@@ -2015,6 +2029,7 @@ async fn app_state_from_config_and_runtime(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
+            config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
             unit_of_work.clone(),
@@ -2323,6 +2338,10 @@ mod tests {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
                 "aura-historia-ephemeral-email".to_owned(),
             ),
+            (
+                OAUTH_ISSUER_URL_ENV,
+                "https://api.aura-historia.com".to_owned(),
+            ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
             (
@@ -2330,6 +2349,39 @@ mod tests {
                 "http://127.0.0.1:3000".to_owned(),
             ),
         ])
+    }
+
+    #[test]
+    fn should_select_only_exact_oauth_issuers_and_require_explicit_configuration() {
+        for policy in [
+            oauth_core::resource::AuraResourcePolicy::production(),
+            oauth_core::resource::AuraResourcePolicy::stage(),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, policy.issuer().to_owned());
+            let config = ApiConfig::from_getter(|name| values.get(name).cloned()).unwrap();
+            assert_eq!(policy, config.oauth_resource_policy());
+        }
+        for issuer in [
+            "https://foreign.example",
+            "https://api.aura-historia.com/",
+            "https://mcp.aura-historia.com/v1",
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(OAUTH_ISSUER_URL_ENV, issuer.to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|name| values.get(name).cloned()),
+                Err(ApiConfigError::InvalidOAuthIssuer(_))
+            ));
+        }
+        let mut values = valid_api_config_values();
+        values.remove(OAUTH_ISSUER_URL_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| values.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: OAUTH_ISSUER_URL_ENV
+            })
+        ));
     }
 
     #[test]

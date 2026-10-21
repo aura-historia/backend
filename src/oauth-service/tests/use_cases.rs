@@ -12,6 +12,7 @@ use oauth_core::authorization_code::{
 use oauth_core::client::{
     OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
 };
+use oauth_core::resource::AuraResourcePolicy;
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -215,6 +216,7 @@ fn authorization_code(client_id: OAuthClientId, expires: OffsetDateTime) -> Auth
         scopes: HashSet::from([Scope::ProductListingsWrite]),
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
+        resource: None,
         expires,
     })
 }
@@ -245,6 +247,7 @@ fn authorize_request(client_id: OAuthClientId, scope: HashSet<Scope>) -> Authori
         state: None,
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
+        resource: None,
     }
 }
 
@@ -263,9 +266,11 @@ async fn redeem_authorization_code(
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
         grant_type: OAuthGrantType::AuthorizationCode,
+        resource: None,
         code: code_value,
         redirect_uri,
         client_id,
@@ -1156,8 +1161,12 @@ async fn should_commit_authorization_code_exchange_when_valid() {
     let raw_secret = RawOAuthClientSecret::new();
     let client = client_with_secret(&raw_secret);
     lock(&ports.0).client = Some(client.clone());
-    let authorize =
-        AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone());
+    let authorize = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    );
     let auth = authorize
         .execute(
             &first_party_context(),
@@ -1171,6 +1180,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
                     "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
                 ),
                 code_challenge_method: CodeChallengeMethod::S256,
+                resource: None,
             },
         )
         .await
@@ -1188,9 +1198,11 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
         grant_type: OAuthGrantType::AuthorizationCode,
+        resource: None,
         code,
         redirect_uri: url("https://client.example/callback"),
         client_id: client.client_id(),
@@ -1230,9 +1242,11 @@ async fn should_commit_consumed_authorization_code_when_expired() {
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
         grant_type: OAuthGrantType::AuthorizationCode,
+        resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
         client_id: client.client_id(),
@@ -1366,9 +1380,11 @@ async fn should_roll_back_authorization_code_consumption_when_access_token_inser
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
         grant_type: OAuthGrantType::AuthorizationCode,
+        resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
         client_id: client.client_id(),
@@ -1408,9 +1424,11 @@ async fn should_roll_back_authorization_code_consumption_when_exchange_code_inse
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
         grant_type: OAuthGrantType::AuthorizationCode,
+        resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
         client_id: client.client_id(),
@@ -1435,21 +1453,27 @@ async fn should_reject_authorize_with_invalid_scope() {
     let raw_secret = RawOAuthClientSecret::new();
     let client = client_with_secret(&raw_secret);
     lock(&ports.0).client = Some(client.clone());
-    let err = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::User(UserId::new())),
-            AuthorizeRequest {
-                response_type: OAuthResponseType::Code,
-                client_id: client.client_id(),
-                redirect_uri: url("https://client.example/callback"),
-                scope: HashSet::from([Scope::UsersRead]),
-                state: None,
-                code_challenge: OAuthCodeChallenge::from("challenge"),
-                code_challenge_method: CodeChallengeMethod::S256,
-            },
-        )
-        .await
-        .unwrap_err();
+    let err = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::User(UserId::new())),
+        AuthorizeRequest {
+            response_type: OAuthResponseType::Code,
+            client_id: client.client_id(),
+            redirect_uri: url("https://client.example/callback"),
+            scope: HashSet::from([Scope::UsersRead]),
+            state: None,
+            code_challenge: OAuthCodeChallenge::from("challenge"),
+            code_challenge_method: CodeChallengeMethod::S256,
+            resource: None,
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, OAuthServiceError::InvalidScope));
     let state = lock(&ports.0);
     assert_eq!(1, state.transaction_begins);
@@ -1463,15 +1487,20 @@ async fn should_allow_authorize_for_a_direct_user_principal() {
     let client = client_with_secret(&raw_secret);
     lock(&ports.0).client = Some(client.clone());
 
-    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::User(UserId::new())),
-            authorize_request(
-                client.client_id(),
-                HashSet::from([Scope::ProductListingsWrite]),
-            ),
-        )
-        .await;
+    let result = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::User(UserId::new())),
+        authorize_request(
+            client.client_id(),
+            HashSet::from([Scope::ProductListingsWrite]),
+        ),
+    )
+    .await;
 
     assert!(result.is_ok());
 }
@@ -1479,12 +1508,17 @@ async fn should_allow_authorize_for_a_direct_user_principal() {
 #[tokio::test]
 async fn should_reject_authorize_for_anonymous_principal_before_transaction() {
     let ports = FakePorts::default();
-    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::Anonymous),
-            authorize_request(OAuthClientId::new(), HashSet::new()),
-        )
-        .await;
+    let result = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::Anonymous),
+        authorize_request(OAuthClientId::new(), HashSet::new()),
+    )
+    .await;
 
     assert!(matches!(
         result,
@@ -1496,15 +1530,20 @@ async fn should_reject_authorize_for_anonymous_principal_before_transaction() {
 #[tokio::test]
 async fn should_reject_authorize_for_delegated_principal_without_write_capability() {
     let ports = FakePorts::default();
-    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::DelegatedUser {
-                user_id: UserId::new(),
-                capabilities: BTreeSet::from([Scope::ProductListingsWrite]),
-            }),
-            authorize_request(OAuthClientId::new(), HashSet::new()),
-        )
-        .await;
+    let result = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::DelegatedUser {
+            user_id: UserId::new(),
+            capabilities: BTreeSet::from([Scope::ProductListingsWrite]),
+        }),
+        authorize_request(OAuthClientId::new(), HashSet::new()),
+    )
+    .await;
 
     assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
     assert_eq!(0, lock(&ports.0).transaction_begins);
@@ -1517,18 +1556,23 @@ async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
     let client = client_with_secret(&raw_secret);
     lock(&ports.0).client = Some(client.clone());
 
-    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::DelegatedUser {
-                user_id: UserId::new(),
-                capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
-            }),
-            authorize_request(
-                client.client_id(),
-                HashSet::from([Scope::ProductListingsWrite]),
-            ),
-        )
-        .await;
+    let result = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::DelegatedUser {
+            user_id: UserId::new(),
+            capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+        }),
+        authorize_request(
+            client.client_id(),
+            HashSet::from([Scope::ProductListingsWrite]),
+        ),
+    )
+    .await;
 
     assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
     assert_eq!(0, lock(&ports.0).transaction_begins);
@@ -1541,13 +1585,17 @@ async fn should_reject_delegated_authorize_without_creating_a_code() {
         let client = client_with_secret(&RawOAuthClientSecret::new());
         lock(&ports.0).client = Some(client.clone());
 
-        let result =
-            AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-                .execute(
-                    &delegated_admin_context(),
-                    authorize_request(client.client_id(), scope),
-                )
-                .await;
+        let result = AuthorizeHandler::new(
+            FakeUnitOfWork(ports.clone()),
+            ports.clone(),
+            ports.clone(),
+            AuraResourcePolicy::production(),
+        )
+        .execute(
+            &delegated_admin_context(),
+            authorize_request(client.client_id(), scope),
+        )
+        .await;
 
         assert!(
             matches!(
@@ -1590,16 +1638,20 @@ async fn should_stop_a_delegated_admin_from_registering_and_approving_its_own_cl
     // A client whose secret and redirect URI the delegate controls must not help either.
     let client = client_with_secret(&RawOAuthClientSecret::new());
     lock(&ports.0).client = Some(client.clone());
-    let approval =
-        AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-            .execute(
-                &delegated_admin,
-                authorize_request(
-                    client.client_id(),
-                    HashSet::from([Scope::ProductListingsWrite]),
-                ),
-            )
-            .await;
+    let approval = AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &delegated_admin,
+        authorize_request(
+            client.client_id(),
+            HashSet::from([Scope::ProductListingsWrite]),
+        ),
+    )
+    .await;
     assert!(matches!(
         approval,
         Err(OAuthServiceError::DelegatedAuthorizationForbidden)
@@ -1788,3 +1840,6 @@ async fn should_succeed_when_revoking_an_unknown_token() {
     assert_eq!(0, state.deleted_raw);
     assert_eq!(1, state.transaction_commits);
 }
+
+#[path = "use_cases/resource.rs"]
+mod resource;

@@ -276,6 +276,7 @@ pub(crate) const OAUTH_INVALID_CODE_VERIFIER: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_CODE_VERIFIER");
 pub(crate) const OAUTH_INVALID_REDIRECT_URI: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_REDIRECT_URI");
+pub(crate) const OAUTH_INVALID_RESOURCE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_RESOURCE");
 pub(crate) const OAUTH_INVALID_SCOPE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_SCOPE");
 pub(crate) const OAUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("OAUTH_TEMPORARILY_UNAVAILABLE");
@@ -3009,6 +3010,9 @@ impl From<OAuthServiceError> for ApiError {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
             }
             OAuthServiceError::InvalidScope => ApiError::bad_request(OAUTH_INVALID_SCOPE),
+            OAuthServiceError::InvalidResource | OAuthServiceError::AuthorizationCodeResourceMismatch => {
+                ApiError::bad_request(OAUTH_INVALID_RESOURCE)
+            }
             OAuthServiceError::AuthorizationCodeNotFound => {
                 ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
             }

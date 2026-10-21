@@ -24,6 +24,10 @@ pub enum OAuthServiceError {
     InvalidRedirectUri,
     #[error("Requested scope is not allowed for client")]
     InvalidScope,
+    #[error("resource is not an exact configured Aura resource identifier")]
+    InvalidResource,
+    #[error("Authorization code resource mismatch")]
+    AuthorizationCodeResourceMismatch,
     #[error("Authorization code not found")]
     AuthorizationCodeNotFound,
     #[error("Authorization code expired")]
