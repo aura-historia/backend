@@ -38,6 +38,9 @@ fn production_registry(
     registered.extend(crate::tools::watchlist::operations(
         runtime.watchlist().clone(),
     )?);
+    registered.extend(crate::tools::notifications::operations(
+        runtime.notifications().clone(),
+    )?);
     crate::Registry::new(registered)
 }
 

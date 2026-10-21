@@ -12,6 +12,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - OAuth authorization input and token/revocation/introspection failures now return standard OAuth JSON errors (`invalid_request`, `invalid_client`, `invalid_grant`, `unsupported_grant_type`, `unsupported_response_type`, `invalid_scope`, `invalid_target`) with fixed secret-free bodies. Invalid clients now uniformly return `401`; unknown authorize clients return `400 invalid_request`. REST client-management and first-party authentication/authority errors retain their existing vocabulary.
 - Reject duplicate parameters and malformed form/query encoding; keep standard form-urlencoded token/revocation requests. Credential responses and protocol errors include `Cache-Control: no-store` and `Pragma: no-cache`. Nonexpiring tokens omit `expires_in` and no refresh token is issued. See [OAuth](oauth.md) for fixed-client registration and exact callbacks.
 
+## 2026-10-21 — MCP notification inbox (#2246)
+
+- Add the six own-inbox tools using existing notification scopes, complete payloads and pagination. Selected-ID seen updates, all-seen updates and destructive single/delete-all operations preserve REST semantics and bodyless business acknowledgments. See the [notification MCP contract](mcp.md#notification-inbox).
+
 ## 2026-10-21 — Authenticated MCP account and address tools (#2243)
 
 - Add all nine own-account, address-book and browsing-destination operations to the existing MCP endpoint. The tools reuse complete REST contracts and service authorization, including profile patch states, geographic resolution/attribution, pagination, address ownership and version conflicts. Reads require `users:read`; mutations require `users:write`. Address creation remains non-idempotent. See the [account tool contract](mcp.md#own-account-addresses-and-browsing-destination) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).

@@ -74,15 +74,8 @@ use billing_service::use_cases::{
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
-    SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
-    SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
 };
-use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
-use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
-use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
-use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
-use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
-use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
@@ -1524,25 +1517,14 @@ async fn app_state_from_config_and_runtime(
         authenticate_user,
     )
     .map_err(ApiStateError::CognitoJwt)?;
+    let notifications = runtime.notifications();
     let notifications_state = NotificationsState::new(
-        Arc::new(ListNotificationsHandler::new(
-            SqlxNotificationListReader::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(UpdateAllNotificationsSeenHandler::new(
-            SqlxNotificationSeenWriter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
-        Arc::new(DeleteNotificationsHandler::new(
-            SqlxNotificationDeleter::new(pool.clone()),
-        )),
+        notifications.list.clone(),
+        notifications.update_notification_seen.clone(),
+        notifications.update_notifications_seen.clone(),
+        notifications.update_all_notifications_seen.clone(),
+        notifications.delete_notification.clone(),
+        notifications.delete_notifications.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let billing_state = BillingState::new(

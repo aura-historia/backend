@@ -18,6 +18,8 @@ geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
 listing-source-service = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
 oauth-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }

@@ -7,6 +7,8 @@ owns hosting, certificates, Origin/CORS and stage verification. Native and Lambd
 points share one registry and authenticate each request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
+The shared registry contains 38 operations: 12 public, 9 account, 7 saved-search, 4 watchlist
+and 6 notification operations. Ten public operations forward validated delegated context.
 
 ## Protocol compatibility
 
@@ -302,6 +304,27 @@ lag. An empty page is a current result, not evidence that matching has finished.
 automatically retried. A timeout, unavailable response or response-size failure can follow a
 committed write; creation with an unknown outcome must be reconciled by listing own filters
 before deciding whether to submit another create. The adapters do not claim exactly-once execution.
+
+## Notification inbox
+
+The six notification operations share REST contracts and service use cases. `listNotifications`
+requires `notifications:read`; mutations require `notifications:write`. Every call operates on
+the delegated user's inbox. Stored listing snapshots, all notification payload kinds, localized
+titles and prices are preserved. The service reads the user's sensitive-content preference
+internally; listing notifications requires no additional user, saved-search or watchlist scope.
+
+Listing accepts `language`, `size` (default 21, clamped to 1–100) and `searchAfter`. Serialize the
+returned `[created, notificationId]` cursor array as a JSON string for continuation. `size` counts
+returned items; an exhausted page omits `searchAfter`, and no total is supplied.
+
+`updateNotificationSeen` sets one owned item's `seen`. `updateNotificationsSeen` sets selected
+`notificationIds`, deduplicates them, ignores missing/foreign IDs and rejects an empty selection.
+`updateAllNotificationsSeen` applies the supplied `seen` boolean to the entire inbox, including
+unlisted pages. `deleteNotification` permanently deletes one `notificationId` and returns not
+found for missing/foreign items. `deleteNotifications` accepts only `{}` and permanently deletes
+the entire own inbox; it has no ID selection or request body. Successful mutations acknowledge
+with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
+reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
 ## Bounds, metadata and runtime configuration
 
