@@ -297,8 +297,8 @@ python3 ci/test-context-smoke.py --binary ./target/debug/aura-test-env \
 
 Ordinary all-feature `cargo test` runs the same driver with two slots through
 `isolated_context::should_verify_managed_context_isolation_and_recovery`, including
-cleanup-failure recovery. This case owns its supervisor and must run in the unmanaged
-control phase, separately from managed fixture lanes. It reuses Cargo's compiled
+cleanup-failure recovery. Run it in the [unmanaged control phase](#exceptional-execution-phases).
+It reuses Cargo's compiled
 executables and preserves the inherited coverage profile destination for all children.
 The driver's optional `--slots 1|2|4` selects one round; its default remains all three.
 
