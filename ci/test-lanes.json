@@ -2457,6 +2457,14 @@
         {
           "doctest": false,
           "harness": true,
+          "id": "test-api::test::isolated_context",
+          "lane": "INFRASTRUCTURE",
+          "required_features": [],
+          "test": true
+        },
+        {
+          "doctest": false,
+          "harness": true,
           "id": "test-api::test::macro_lifecycle",
           "lane": "INFRASTRUCTURE",
           "required_features": [],

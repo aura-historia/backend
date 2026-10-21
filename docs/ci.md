@@ -126,8 +126,11 @@ boundaries. This bypasses the fixture's info-level tracing subscriber without
 changing it. Default test runs emit no new timing records. Both comparison sides
 must contain and enable the same instrumentation. It adds timing/logging overhead;
 phase records are measurements of the instrumented run. Setup includes nested
-Postgres/OpenSearch startup/migrations; teardown includes resets. These durations
-overlap and must not be summed as wall time. Body records exclude macro setup and
+Postgres/OpenSearch startup/migrations; teardown includes legacy resets.
+`CONTEXT_ACQUIRE`, `POSTGRES_SLOT_RESET` and `CONTEXT_CLEANUP` expose lease
+waiting/recovery, baseline preparation/cloning, and owned shutdown/resource removal;
+see the [context lifecycle contract](../src/test-api/README.md#isolated-test-contexts).
+All remain inside full suite/workflow time. These durations overlap and must not be summed as wall time. Body records exclude macro setup and
 teardown, but include helpers called by the test. Failed/cancelled phases can lack
 a completion record. Ordinary libtest tests have no separate body measurement.
 Normal timing records are written as complete lines in one buffer; recognized
