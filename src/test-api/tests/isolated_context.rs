@@ -200,6 +200,27 @@ async fn exercise_context(context: &TestContext, action: &str) {
         .await
         .unwrap();
     send_email(&source, &marker).await;
+    let secondary_source = context.register_sender("secondary").await.unwrap();
+    let config_path = PathBuf::from(std::env::var_os("AURA_TEST_ENV_CONFIG").unwrap());
+    let manifest_path = config_path
+        .parent()
+        .unwrap()
+        .join(format!("slot-{}.json", context.slot()));
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&tokio::fs::read(manifest_path).await.unwrap()).unwrap();
+    assert!(
+        manifest["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|resource| resource["kind"] == "SENDER" && resource["name"] == secondary_source),
+        "labeled sender ownership must be durable before identity creation"
+    );
+    test_api::verify_sender_identity(&secondary_source).await;
+    send_email(&secondary_source, "secondary marker").await;
+    let secondary_messages = test_api::get_sent_emails_from(&secondary_source).await;
+    assert_eq!(1, secondary_messages.len());
+    assert_eq!("secondary marker", secondary_messages[0].subject);
     use std::sync::atomic::Ordering;
     assert!(context.api_state::<std::sync::Arc<ApiState>>().is_err());
     let state = std::sync::Arc::new(ApiState {
@@ -238,7 +259,7 @@ async fn exercise_context(context: &TestContext, action: &str) {
     );
     let output = PathBuf::from(std::env::var_os("AURA_CONTEXT_OUTPUT").unwrap());
     let report = serde_json::json!({"run":context.run_id(),"slot":context.slot(),"test":marker,"database":database,
-            "index":index,"queue":queues.queue_url(),"bucket":bucket,"sender":source,"configuration_set":configuration_set});
+            "index":index,"queue":queues.queue_url(),"bucket":bucket,"sender":source,"secondary_sender":secondary_source,"configuration_set":configuration_set});
     tokio::fs::write(&output, serde_json::to_vec(&report).unwrap())
         .await
         .unwrap();
@@ -339,6 +360,23 @@ async fn assert_recovered(previous: &serde_json::Value) {
             .await
             .is_empty()
     );
+    assert!(
+        test_api::get_sent_emails_from(previous["secondary_sender"].as_str().unwrap())
+            .await
+            .is_empty()
+    );
+    for sender in ["sender", "secondary_sender"] {
+        assert!(
+            test_api::get_ses_client()
+                .await
+                .get_email_identity()
+                .email_identity(previous[sender].as_str().unwrap())
+                .send()
+                .await
+                .is_err(),
+            "owned sender identity must be removed during recovery"
+        );
+    }
     let s3 = aws_sdk_s3::Client::from_conf(
         aws_sdk_s3::config::Builder::from(test_api::aws::get_aws_config().await)
             .force_path_style(true)
@@ -529,4 +567,78 @@ async fn unmanaged_context_child() {
             .await;
         session.finish().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn cleanup_failure_child() {
+    if std::env::var_os("AURA_CONTEXT_CLEANUP_FAILURE").is_none() {
+        return;
+    }
+    let session = TestContext::acquire_explicit("resource cleanup failure", Isolation::Isolated)
+        .await
+        .unwrap();
+    let context = session.context().clone();
+    test_api::aws::get_aws_emulator(&["sqs"], &[]).await;
+    let queue = context.queue_name("survivor", false).await.unwrap();
+    let client = test_api::get_sqs_client().await;
+    let queue_url = client
+        .create_queue()
+        .queue_name(&queue)
+        .send()
+        .await
+        .unwrap()
+        .queue_url
+        .unwrap();
+    context
+        .scope(test_api::Postgres::new("src/test-api/tests/fixtures/rds_migrations").set_up())
+        .await;
+    let pool = context.postgres_pool().await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let administrator = test_api::get_postgres_client().await;
+    administrator
+        .execute(sqlx::AssertSqlSafe(format!(
+            "ALTER DATABASE \"{database}\" WITH IS_TEMPLATE true"
+        )))
+        .await
+        .unwrap();
+    let slot = context.slot();
+    assert!(
+        session.finish().await.is_err(),
+        "injected template protection must fail database removal"
+    );
+    let queue_result = client
+        .get_queue_attributes()
+        .queue_url(queue_url)
+        .send()
+        .await;
+    administrator
+        .execute(sqlx::AssertSqlSafe(format!(
+            "ALTER DATABASE \"{database}\" WITH IS_TEMPLATE false"
+        )))
+        .await
+        .unwrap();
+    let next = TestContext::acquire_explicit("resource cleanup recovery", Isolation::Isolated)
+        .await
+        .unwrap();
+    assert_eq!(slot, next.context().slot());
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)")
+            .bind(&database)
+            .fetch_one(&administrator)
+            .await
+            .unwrap();
+    next.finish().await.unwrap();
+    administrator.close().await;
+    assert!(
+        !exists,
+        "the next holder must recover the retained database manifest"
+    );
+    assert!(
+        queue_result.is_err(),
+        "one failed database removal must not skip deleting the owned queue"
+    );
 }

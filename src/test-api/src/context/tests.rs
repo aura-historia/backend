@@ -206,6 +206,14 @@ async fn should_complete_concurrent_metadata_writes_before_releasing_the_slot() 
         .unwrap();
     let context = session.context().clone();
     let path = context.0.path.clone();
+    for label in [
+        "",
+        "UPPERCASE",
+        "sender@example.test",
+        "a-label-that-is-too-long",
+    ] {
+        assert!(context.register_sender(label).await.is_err());
+    }
     let mut writers = Vec::new();
     for _ in 0..8 {
         let context = context.clone();

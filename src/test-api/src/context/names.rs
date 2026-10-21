@@ -49,5 +49,13 @@ mod tests {
         );
         assert!(resource(&run, &test, "bucket.too-long", 63, "").is_err());
         assert!(resource(&run, &test, "-invalid", 64, "").is_err());
+        assert_eq!(
+            64,
+            resource(&run, &test, &"s".repeat(13), 64, "")
+                .unwrap()
+                .len()
+        );
+        assert!(resource(&run, &test, &"s".repeat(14), 64, "").is_err());
+        assert!(resource(&run, &test, "sender@example.test", 64, "").is_err());
     }
 }

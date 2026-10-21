@@ -288,6 +288,16 @@ impl TestContext {
         .await?
     }
 
+    /// Durably register a labeled SES sender before verifying or using its identity.
+    pub async fn register_sender(&self, label: &str) -> Result<String> {
+        let email = self.own(
+            Kind::Sender,
+            format!("{}@example.test", self.name(label, 64, "")?),
+        )?;
+        self.persist_resources().await?;
+        Ok(email)
+    }
+
     pub fn sender_email(&self) -> Result<String> {
         self.own(
             Kind::Sender,

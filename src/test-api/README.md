@@ -151,8 +151,11 @@ preserve redrive, visibility, encryption and policy metadata. Enable the corresp
 fixture features (`sqs`, `s3`, `ses`, `opensearch`, `postgres`) for every resource a lane
 may recover. Unsupported recovery fails before a new test body.
 
-SES uses a unique verified sender. Capture helpers inspect that source, and cleanup
-removes only its returned message IDs. Floci 2.3.0 supports source filtering on GET
+SES uses a unique verified sender. For another owned sender, await
+`context.register_sender("secondary")` before passing the returned address to
+`verify_sender_identity()`; registration persists recovery ownership before creation.
+Capture helpers inspect the default source, and cleanup removes only each owned
+sender's returned message IDs. Floci 2.3.0 supports source filtering on GET
 and message-ID filtering on DELETE; an email parameter on DELETE is not scoped
 cleanup. Unfiltered managed deletion is permitted only inside the legacy exclusive
 scope. Test-owned SES configuration sets/identities are removed with the context.
@@ -186,7 +189,10 @@ context.spawn(async move {
 
 Normal teardown stops/joins owned tasks and servers, closes pools, removes only
 registered resources, then releases the reservation. Dropping a session transfers its
-reservation and bounded cleanup to a separate runtime thread. A killed process cannot
+reservation and cleanup to a separate runtime thread. A cleanup deadline reports
+failure to the caller while delayed joins continue holding the reservation and API
+state; resources are removed only after owned shutdown actually completes. Timeout
+failures retain recovery metadata. A killed process cannot
 run Drop: its persistent slot manifest is recovered before the next holder proceeds.
 Cleanup failure remains visible and retains recovery metadata. Corrupt/foreign
 ownership fails closed. New generation names protect a reused slot from a late old
