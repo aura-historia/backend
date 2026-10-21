@@ -90,7 +90,7 @@ async fn pending_schema_review(pool: &PgPool) -> (ListingSourceId, CrawlerReview
     (listing_source_id, review_id)
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_listing_source_domain()
 {
     let pool = get_postgres_client().await;
@@ -151,7 +151,7 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
     assert_eq!(sold.url, sold_url.as_str());
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -192,7 +192,7 @@ async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains(
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reached() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -231,7 +231,7 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
     ));
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -248,7 +248,7 @@ async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review()
     assert!(matches!(result, Err(ReviewRepositoryError::NotPending(_))));
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_rejected() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -302,7 +302,7 @@ fn with_html(pages: Vec<CrawlerReviewPage>) -> Vec<(CrawlerReviewPage, String)> 
         .collect()
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_during_evaluation() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -336,7 +336,7 @@ async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_durin
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -373,7 +373,7 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_to_remove_review_page_when_reviewer_did_not_add_it() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -399,7 +399,7 @@ async fn should_refuse_to_remove_review_page_when_reviewer_did_not_add_it() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_page() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -455,7 +455,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_spelling() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -480,7 +480,7 @@ async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_
     }
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_not_count_seed_pages_against_reviewer_page_limit() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());

@@ -457,7 +457,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     assert_eq!(edits[0]["operation"], "approved_schema_live_update");
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_live() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -533,7 +533,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     assert_eq!(live().await, vec![schema("h1.current")]);
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_approved_append_review_editable_when_approval_merged_it_into_live_schemas() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -594,7 +594,7 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_report_approved_review_as_stale_when_its_stored_candidate_no_longer_decodes() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
