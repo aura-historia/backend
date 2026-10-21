@@ -35,6 +35,20 @@ Generating selectors does not execute tests or change the current workflow.
 Lane feature unification and compiled case/ignored/doctest parity still require
 validation before using those selectors for required CI.
 
+[`run-test-lane.py`](../ci/run-test-lane.py) is an opt-in local sequential driver;
+the required workflow does not use it yet. It accepts repeated `--lane` selections
+and requires explicit `--harness nextest|libtest`, `--slots`, `--profile`,
+`--supervisor`, `--state-dir` and `--output` arguments. It refreshes and validates
+compiled Nextest/libtest case parity before running the selected packages. A
+pristine PostgreSQL bootstrap runs in a fresh environment; ordinary managed tests
+and explicit doctests share the main environment; fixture lifecycle controls run
+afterward with managed/Nextest identity cleared. Coverage variables are inherited.
+The fixture guide owns the [exact exceptional cases](../src/test-api/README.md#exceptional-execution-phases).
+Stock libtest partitions crawler library `runtime::`/`logging::` cases using full
+discovered names and executes that same set sequentially; `llm_runtime::` stays
+ordinary. Harness/slot choices, feature recovery requirements and final CI adoption
+must be validated against the reviewed migrations and measured runner results.
+
 `--discover` refreshes `cargo nextest list --locked --workspace --all-features
 --all-targets`, compares every case and ignored flag with each binary's libtest
 `--list` and `--ignored --list`, then separately lists workspace doctests with
