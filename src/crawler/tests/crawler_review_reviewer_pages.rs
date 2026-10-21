@@ -1,12 +1,13 @@
-use crawler::CrawlerReviewId;
 use crawler::review::model::{
-    PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, STATUS_PENDING_REVIEW, SchemaReviewPageInput,
+    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, STATUS_PENDING_REVIEW,
+    SchemaReviewPageInput,
 };
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEW_PAGES, ReviewRepositoryError,
 };
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::{CrawlerReviewId, CrawlerReviewPageId};
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 use sqlx::PgPool;
@@ -161,6 +162,7 @@ async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains(
         "https://shop.example.com/products/1",
         "https://example.com.evil.test/products/1",
         "ftp://example.com/products/1",
+        "https://user:secret@example.com/products/1",
     ] {
         let target = url(raw);
         let checked = repository
@@ -201,6 +203,17 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
         .await;
     assert!(matches!(
         duplicate,
+        Err(ReviewRepositoryError::DuplicateReviewPage(_))
+    ));
+    let duplicate_with_fragment = repository
+        .add_reviewer_page(
+            review_id,
+            &url("https://www.example.com/products/1#gallery"),
+            PRODUCT_HTML,
+        )
+        .await;
+    assert!(matches!(
+        duplicate_with_fragment,
         Err(ReviewRepositoryError::DuplicateReviewPage(_))
     ));
 
@@ -288,5 +301,115 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
             )
             .await
             .unwrap()
+    );
+}
+
+fn with_html(pages: Vec<CrawlerReviewPage>) -> Vec<(CrawlerReviewPage, String)> {
+    pages
+        .into_iter()
+        .map(|page| (page, PRODUCT_HTML.to_owned()))
+        .collect()
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_during_evaluation() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .await
+        .unwrap();
+
+    repository
+        .add_reviewer_page(
+            review_id,
+            &url("https://example.com/products/sold"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let stored = repository
+        .store_schema_matrix_if_current(review_id, &evaluated)
+        .await;
+
+    assert!(matches!(
+        stored,
+        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation)
+    ));
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert!(
+        detail
+            .review
+            .validation_summary
+            .get("schema_matrix")
+            .is_none()
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    let page = repository
+        .add_reviewer_page(
+            review_id,
+            &url("https://example.com/products/sold"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .await
+        .unwrap();
+    repository
+        .store_schema_matrix_if_current(review_id, &evaluated)
+        .await
+        .unwrap();
+
+    repository
+        .remove_reviewer_page(page.review_page_id)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.pages.len(), 1);
+    assert_eq!(detail.pages[0].role, PAGE_ROLE_PRIMARY);
+    assert!(
+        detail
+            .review
+            .validation_summary
+            .get("schema_matrix")
+            .is_none()
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_refuse_to_remove_review_page_when_reviewer_did_not_add_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    let primary = repository.get_review_pages(review_id).await.unwrap()[0].review_page_id;
+
+    let removed_primary = repository.remove_reviewer_page(primary).await;
+    let removed_unknown = repository
+        .remove_reviewer_page(CrawlerReviewPageId::new())
+        .await;
+
+    assert!(matches!(
+        removed_primary,
+        Err(ReviewRepositoryError::NotReviewerAddedPage(id)) if id == primary
+    ));
+    assert!(matches!(
+        removed_unknown,
+        Err(ReviewRepositoryError::ReviewPageNotFound(_))
+    ));
+    assert_eq!(
+        repository.get_review_pages(review_id).await.unwrap().len(),
+        1
     );
 }

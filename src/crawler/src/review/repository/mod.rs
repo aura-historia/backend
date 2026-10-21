@@ -1,4 +1,3 @@
-use crate::network::policy::url_matches_configured_domain;
 use crate::review::model::*;
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema::{
@@ -19,8 +18,10 @@ use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
 
+mod reviewer_page_url;
 mod schema_payload;
 
+use reviewer_page_url::{is_allowed_reviewer_page_url, reviewer_page_url, without_credentials};
 use schema_payload::{
     approval_product_schemas, parse_schemas_payload, update_schema_field_payload,
     validate_product_schemas,
@@ -48,18 +49,24 @@ pub enum ReviewRepositoryError {
     InvalidUrlPatternCandidate,
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
-    #[error("review candidate changed during schema-matrix evaluation")]
+    #[error("review candidate or pages changed during schema-matrix evaluation")]
     CandidateChangedDuringEvaluation,
     #[error(
         "approved review {0} no longer holds the live product schemas; edit the review whose candidate is live"
     )]
     StaleApprovedReview(CrawlerReviewId),
-    #[error("URL `{0}` is not an http(s) URL on a domain of the review's ListingSource")]
+    #[error(
+        "URL `{0}` is not an http(s) URL without credentials on a domain of the review's ListingSource"
+    )]
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
     DuplicateReviewPage(String),
     #[error("review {0} already has the maximum of {MAX_REVIEW_PAGES} pages")]
     ReviewPageLimitReached(CrawlerReviewId),
+    #[error("review page not found: {0}")]
+    ReviewPageNotFound(CrawlerReviewPageId),
+    #[error("review page {0} was not added by a reviewer and cannot be removed")]
+    NotReviewerAddedPage(CrawlerReviewPageId),
 }
 
 /// Upper bound on pages per review: a live schema-matrix refresh refetches every page.
@@ -74,6 +81,8 @@ pub struct EvaluatedSchemaMatrix {
     pub matrix: SchemaMatrix,
     candidate_version: i64,
     candidate_hash: String,
+    /// The review pages the matrix covers, sorted so it compares with the stored page set.
+    page_ids: Vec<uuid::Uuid>,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -556,8 +565,9 @@ impl CrawlerReviewRepository {
         review_id: CrawlerReviewId,
         url: &Url,
     ) -> Result<(), ReviewRepositoryError> {
+        let url = reviewer_page_url(url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, url).await?;
+        lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
         transaction.rollback().await?;
         Ok(())
     }
@@ -570,8 +580,9 @@ impl CrawlerReviewRepository {
         url: &Url,
         raw_html: &str,
     ) -> Result<CrawlerReviewPage, ReviewRepositoryError> {
+        let url = reviewer_page_url(url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, url).await?;
+        lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
         let page = sqlx::query(
             "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
              VALUES ($1, $2, $3, $4, $5) \
@@ -585,14 +596,7 @@ impl CrawlerReviewRepository {
         .fetch_one(&mut *transaction)
         .await
         .and_then(row_to_page)?;
-        sqlx::query(
-            "UPDATE crawler_reviews \
-             SET validation_summary = validation_summary - 'schema_matrix', updated = NOW() \
-             WHERE review_id = $1 AND jsonb_typeof(validation_summary) = 'object'",
-        )
-        .bind(review_id.as_uuid())
-        .execute(&mut *transaction)
-        .await?;
+        drop_cached_schema_matrix(&mut transaction, review_id).await?;
         transaction.commit().await?;
         info!(
             review_id = %review_id,
@@ -600,6 +604,50 @@ impl CrawlerReviewRepository {
             "Reviewer added a page to a product schema review"
         );
         Ok(page)
+    }
+
+    /// Removes a page a reviewer added, for example once the shop has deleted it and every
+    /// live matrix refresh would fail on it, and drops the cached schema matrix.
+    pub async fn remove_reviewer_page(
+        &self,
+        review_page_id: CrawlerReviewPageId,
+    ) -> Result<(), ReviewRepositoryError> {
+        let mut transaction = self.pool.begin().await?;
+        let page = sqlx::query(
+            "SELECT r.review_id, r.status, p.role \
+             FROM crawler_review_pages p JOIN crawler_reviews r ON r.review_id = p.review_id \
+             WHERE p.review_page_id = $1 \
+             FOR UPDATE OF r",
+        )
+        .bind(review_page_id.as_uuid())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::ReviewPageNotFound(review_page_id))?;
+        let review_id = crawler_review_id_from_uuid(page.try_get("review_id")?)?;
+        let role: String = page.try_get("role")?;
+        if role != PAGE_ROLE_REVIEWER_ADDED {
+            return Err(ReviewRepositoryError::NotReviewerAddedPage(review_page_id));
+        }
+        let status: String = page.try_get("status")?;
+        if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
+            return Err(ReviewRepositoryError::NotPending(review_id));
+        }
+
+        let deleted = sqlx::query("DELETE FROM crawler_review_pages WHERE review_page_id = $1")
+            .bind(review_page_id.as_uuid())
+            .execute(&mut *transaction)
+            .await?;
+        if deleted.rows_affected() == 0 {
+            return Err(ReviewRepositoryError::ReviewPageNotFound(review_page_id));
+        }
+        drop_cached_schema_matrix(&mut transaction, review_id).await?;
+        transaction.commit().await?;
+        info!(
+            review_id = %review_id,
+            review_page_id = %review_page_id,
+            "Reviewer removed a page from a product schema review"
+        );
+        Ok(())
     }
 
     pub async fn update_candidate_payload(
@@ -811,8 +859,19 @@ impl CrawlerReviewRepository {
                 let existing =
                     lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
                 let schemas =
-                    approval_product_schemas(&reason, existing.as_ref(), reviewed_schemas)?;
+                    approval_product_schemas(&reason, existing.as_ref(), reviewed_schemas.clone())?;
                 persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
+                if schemas != reviewed_schemas {
+                    // The review keeps the merged list that went live, so edits through it are
+                    // not refused as stale.
+                    sqlx::query(
+                        "UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1",
+                    )
+                    .bind(review_id.as_uuid())
+                    .bind(json!({ "schemas": schemas }))
+                    .execute(&mut *transaction)
+                    .await?;
+                }
             }
             other => {
                 return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -908,10 +967,16 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
         let schemas = parse_schemas_payload(&candidate_payload)?;
+        let mut page_ids: Vec<uuid::Uuid> = pages
+            .iter()
+            .map(|(page, _)| *page.review_page_id.as_uuid())
+            .collect();
+        page_ids.sort_unstable();
         Ok(EvaluatedSchemaMatrix {
             matrix: evaluate_schema_matrix_for_live_review_pages(review_id, &schemas, &pages),
             candidate_version: review.try_get("candidate_version")?,
             candidate_hash: review.try_get("candidate_hash")?,
+            page_ids,
         })
     }
 
@@ -935,12 +1000,17 @@ impl CrawlerReviewRepository {
                  updated = NOW()
              WHERE review_id = $1
                AND candidate_version = $3
-               AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4",
+               AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4
+               AND $5::uuid[] = ARRAY(
+                   SELECT review_page_id FROM crawler_review_pages
+                   WHERE review_id = $1 ORDER BY review_page_id
+               )",
         )
         .bind(review_id.as_uuid())
         .bind(matrix)
         .bind(evaluated.candidate_version)
         .bind(&evaluated.candidate_hash)
+        .bind(&evaluated.page_ids)
         .execute(&self.pool)
         .await?;
 
@@ -1063,6 +1133,22 @@ async fn persist_approved_schema_edit(
     Ok(())
 }
 
+/// Drops the cached schema matrix after the review's page set changed.
+async fn drop_cached_schema_matrix(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE crawler_reviews \
+         SET validation_summary = validation_summary - 'schema_matrix', updated = NOW() \
+         WHERE review_id = $1 AND jsonb_typeof(validation_summary) = 'object'",
+    )
+    .bind(review_id.as_uuid())
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 /// Locks the review and checks that `url` may become a reviewer page of it: the review is a
 /// pending or approved product schema review, `url` is an http(s) URL on a domain of the
 /// review's ListingSource, it is not a page of the review yet, and the page limit is not reached.
@@ -1097,13 +1183,9 @@ async fn lock_reviewer_page_target(
     .bind(review.try_get::<uuid::Uuid, _>("listing_source_id")?)
     .fetch_all(&mut **transaction)
     .await?;
-    let on_listing_source_domain = matches!(url.scheme(), "http" | "https")
-        && domains
-            .iter()
-            .any(|domain| url_matches_configured_domain(url, domain));
-    if !on_listing_source_domain {
+    if !is_allowed_reviewer_page_url(url, &domains) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
-            url.to_string(),
+            without_credentials(url).to_string(),
         ));
     }
 

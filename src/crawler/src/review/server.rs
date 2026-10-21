@@ -412,6 +412,16 @@ impl ReviewServer {
             };
         }
 
+        if request.method == "DELETE" && request.path.starts_with("/api/review-pages/") {
+            let Some(page_id) = parse_page_id_with_suffix(request.path, "") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid page id" }));
+            };
+            return match self.repository.remove_reviewer_page(page_id).await {
+                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Err(error) => reviewer_page_error(error),
+            };
+        }
+
         if request.method == "GET"
             && request.path.starts_with("/api/review-pages/")
             && request.path.ends_with("/inspect")
@@ -737,16 +747,6 @@ impl ReviewServer {
             .fetch(&url)
             .await
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
-        if !fetched.status.is_success() {
-            return Err(HttpResponse::json(
-                502,
-                &json!({
-                    "error": "review page did not return a successful status",
-                    "url": url.as_str(),
-                    "status": fetched.status.as_u16(),
-                }),
-            ));
-        }
         self.repository
             .add_reviewer_page(review_id, &fetched.final_url, &fetched.html)
             .await
@@ -1062,7 +1062,7 @@ fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::CandidateChangedDuringEvaluation => HttpResponse::json(
             409,
-            &json!({ "error": "review candidate changed; refresh and evaluate again" }),
+            &json!({ "error": "review candidate or pages changed; refresh and evaluate again" }),
         ),
         other => internal_error(other),
     }
@@ -1070,7 +1070,7 @@ fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
 
 fn reviewer_page_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
-        ReviewRepositoryError::NotFound(_) => {
+        ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
             HttpResponse::json(404, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::DuplicateReviewPage(_) => {
@@ -1078,6 +1078,7 @@ fn reviewer_page_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
         | ReviewRepositoryError::ReviewPageLimitReached(_)
+        | ReviewRepositoryError::NotReviewerAddedPage(_)
         | ReviewRepositoryError::UnsupportedArtifact(_, _)
         | ReviewRepositoryError::NotPending(_) => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
