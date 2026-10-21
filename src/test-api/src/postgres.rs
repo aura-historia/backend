@@ -293,6 +293,11 @@ fn install_cleanup() {
     });
 }
 
+pub(crate) async fn base_options() -> PgConnectOptions {
+    ensure_container_started().await;
+    fixture_postgres_connect_options()
+}
+
 /// Returns a fresh [`PgPool`] connected to the test Postgres container.
 ///
 /// A **new pool is created on every call** and is owned by the caller. This is intentional:
@@ -312,6 +317,9 @@ fn install_cleanup() {
 /// A newly created [`PgPool`] that the caller should drop before its Tokio runtime shuts down
 /// (i.e. before the test function returns).
 pub async fn get_postgres_client() -> PgPool {
+    if let Some(context) = crate::TestContext::current() {
+        return context.postgres_pool().await.expect("scoped Postgres pool");
+    }
     ensure_container_started().await;
 
     let pool = PgPool::connect_with(fixture_postgres_connect_options())
@@ -512,6 +520,13 @@ impl IntegrationTestService for Postgres {
 
     /// Starts the Postgres container and applies migrations according to the selected lifecycle.
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            context
+                .prepare_postgres(self)
+                .await
+                .expect("prepare isolated Postgres baseline");
+            return;
+        }
         ensure_container_started().await;
 
         if self.migrate_once {
@@ -543,6 +558,9 @@ impl IntegrationTestService for Postgres {
     /// Table definitions (DDL) are intentionally kept intact so that the next test's
     /// `set_up` can rely on `CREATE TABLE IF NOT EXISTS` being a no-op.
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         let started = Instant::now();
         let mut conn = open_connection().await;
 

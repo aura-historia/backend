@@ -33,6 +33,7 @@ pub(super) async fn bootstrap(
         aws_endpoint: None,
         opensearch_endpoint: None,
         aws_services: profile.services(),
+        directory: None,
     };
     if profile.postgres() {
         config.postgres = Some(start_postgres(run, &network, dir).await?);

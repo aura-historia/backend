@@ -85,6 +85,28 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            if crate::environment::managed_environment().is_none() {
+                OPENSEARCH_BOOTSTRAPPED
+                    .get_or_init(|| async { set_up_open_search().await })
+                    .await;
+            }
+            let index = context
+                .product_listings_index()
+                .expect("scoped product index");
+            context
+                .persist_resources()
+                .await
+                .expect("persist scoped index");
+            ensure_index_exists(
+                get_opensearch_client().await,
+                &index,
+                PRODUCT_LISTINGS_INDEX_MAPPING_STR,
+            )
+            .await
+            .expect("create scoped product index");
+            return;
+        }
         if let Some(config) = crate::environment::managed_environment() {
             assert!(
                 config.opensearch_endpoint().is_some(),
@@ -98,6 +120,9 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         clear_all_indices().await;
     }
 }
@@ -226,7 +251,7 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 
 async fn ensure_index_exists(
     client: &Client,
-    index: &'static str,
+    index: &str,
     mapping: &'static str,
 ) -> Result<(), Error> {
     let mapping: serde_json::Value =
@@ -346,7 +371,7 @@ pub(crate) async fn clear_all_indices() {
     const INDICES: &[&str] = &["product-listings", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
-            Ok(_) => refresh_index(index).await,
+            Ok(_) => {}
             Err(e) => {
                 debug!("Skipping clear for OpenSearch index '{index}' (may not exist yet): {e}")
             }

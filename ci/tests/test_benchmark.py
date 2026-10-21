@@ -1,3 +1,4 @@
+import json
 import pathlib
 import sys
 import tempfile
@@ -87,6 +88,20 @@ test result: FAILED. 1 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; 
         self.assertEqual(actual["tests"]["totals"]["failed"], 1)
         self.assertEqual(actual["fixture_timings"]["seconds"]["TEARDOWN"], [0.01])
         self.assertEqual(actual["fixture_timings"]["seconds"]["POSTGRES_STARTUP"], [])
+
+    def test_context_lifecycle_observations_are_collected_and_unknown_phases_still_fail(self):
+        phases = ("CONTEXT_ACQUIRE", "POSTGRES_SLOT_RESET", "CONTEXT_CLEANUP")
+        self.path.write_text("".join("AURA_CI_TIMING " + json.dumps({
+            "phase": phase, "owner": "isolated::sample", "pid": 1, "elapsed_seconds": 0.125,
+        }) + "\n" for phase in phases))
+        actual = observations(self.path)["fixture_timings"]
+        self.assertEqual(actual["status"], "COLLECTED")
+        self.assertEqual(len(actual["records"]), len(phases))
+        for phase in phases:
+            self.assertEqual(actual["seconds"][phase], [0.125])
+        self.path.write_text('AURA_CI_TIMING {"phase":"UNKNOWN","elapsed_seconds":0.1}\n')
+        with self.assertRaisesRegex(ValueError, "Malformed benchmark timing record"):
+            observations(self.path)
 
     def test_no_phase_samples_are_not_reported_as_zero_duration_measurements(self):
         self.path.write_text("no structured observations\n")
