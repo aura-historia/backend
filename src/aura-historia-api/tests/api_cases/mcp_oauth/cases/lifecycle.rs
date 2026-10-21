@@ -217,3 +217,97 @@ async fn should_handle_denial_and_untrusted_callback_without_issuing_a_credentia
         assert_eq!(0, count);
     }
 }
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
+async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter() {
+    let client = GenericClient::registered().await;
+    let user = api_support::seed_user("USER").await;
+    let mcp = McpServer::start().await;
+    let missing = mcp.lambda_call("getUserAccount", json!({}), None).await;
+    assert_eq!(401, missing["statusCode"]);
+    assert!(
+        missing["headers"]["www-authenticate"]
+            .as_str()
+            .unwrap()
+            .contains("resource_metadata=")
+    );
+    let read = client.link(user, "users:read").await;
+    let read_token = read["access_token"].as_str().unwrap();
+    let account = lambda_result(
+        mcp.lambda_call("getUserAccount", json!({}), Some(read_token))
+            .await,
+    );
+    assert_eq!(json!(user), account["userId"]);
+    assert_eq!(
+        account,
+        successful_result(
+            mcp.call("getUserAccount", json!({}), Some(read_token))
+                .await
+        )
+        .await
+    );
+    let denied = mcp
+        .lambda_call(
+            "updateUserAccount",
+            json!({"firstName":"Lambda owner"}),
+            Some(read_token),
+        )
+        .await;
+    assert_eq!(403, denied["statusCode"]);
+    assert!(
+        denied["headers"]["www-authenticate"]
+            .as_str()
+            .unwrap()
+            .contains("error=\"insufficient_scope\"")
+    );
+    let write = client.link(user, "users:read users:write").await;
+    let write_token = write["access_token"].as_str().unwrap();
+    let updated = lambda_result(
+        mcp.lambda_call(
+            "updateUserAccount",
+            json!({"firstName":"Lambda owner"}),
+            Some(write_token),
+        )
+        .await,
+    );
+    assert_eq!("Lambda owner", updated["firstName"]);
+    assert_eq!(
+        updated,
+        successful_result(
+            mcp.call("getUserAccount", json!({}), Some(write_token))
+                .await
+        )
+        .await
+    );
+    client.revoke(write_token).await;
+    let revoked = mcp
+        .lambda_call("getUserAccount", json!({}), Some(write_token))
+        .await;
+    assert_eq!(401, revoked["statusCode"]);
+    assert!(
+        revoked["headers"]["www-authenticate"]
+            .as_str()
+            .unwrap()
+            .contains("error=\"invalid_token\"")
+    );
+    assert_eq!(
+        StatusCode::UNAUTHORIZED,
+        mcp.call("getUserAccount", json!({}), Some(write_token))
+            .await
+            .status()
+    );
+    assert_eq!(
+        200,
+        mcp.lambda_call("getUserAccount", json!({}), Some(read_token))
+            .await["statusCode"]
+    );
+}
+
+fn lambda_result(response: Value) -> Value {
+    assert_eq!(200, response["statusCode"]);
+    let body: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    assert!(body.get("error").is_none(), "{body}");
+    assert_ne!(json!(true), body["result"]["isError"], "{body}");
+    body["result"]["structuredContent"].clone()
+}

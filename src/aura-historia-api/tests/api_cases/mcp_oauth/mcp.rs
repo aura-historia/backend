@@ -7,6 +7,7 @@ pub struct McpServer {
     pub http: reqwest::Client,
     pub origin: String,
     pub pool: sqlx::PgPool,
+    app: axum::Router,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -26,13 +27,15 @@ impl McpServer {
             &runtime,
         )
         .unwrap();
+        let native = app.clone();
         let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(listener, native).await.unwrap();
         });
         Self {
             http: reqwest::Client::new(),
             origin: format!("http://{address}"),
             pool,
+            app,
             task,
         }
     }
@@ -91,6 +94,56 @@ impl McpServer {
         let body: Value = response.json().await.unwrap();
         assert!(body["result"].get("nextCursor").is_none());
         body["result"]["tools"].as_array().unwrap().clone()
+    }
+
+    pub async fn lambda_call(&self, name: &str, arguments: Value, token: Option<&str>) -> Value {
+        use lambda_http::{
+            lambda_runtime::{Context, LambdaEvent},
+            request::LambdaRequest,
+        };
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use tower::ServiceExt;
+
+        let mut headers = json!({
+            "host":self.origin.strip_prefix("http://").unwrap(),
+            "content-type":"application/json", "accept":"application/json,text/event-stream",
+            "mcp-protocol-version":"2026-07-28", "mcp-method":"tools/call", "mcp-name":name
+        });
+        if let Some(token) = token {
+            headers["authorization"] = json!(format!("Bearer {token}"));
+        }
+        let message = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{
+            "name":name, "arguments":arguments, "_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                "io.modelcontextprotocol/clientInfo":{"name":"generic-oauth-lambda","version":"1"},
+                "io.modelcontextprotocol/clientCapabilities":{}
+            }
+        }});
+        let payload: LambdaRequest = serde_json::from_value(json!({
+            "version":"2.0", "routeKey":"ANY /v1", "rawPath":"/v1", "rawQueryString":"",
+            "headers":headers, "requestContext":{
+                "stage":"$default", "http":{"method":"POST", "path":"/v1",
+                "protocol":"HTTP/1.1", "sourceIp":"127.0.0.1", "userAgent":"generic-oauth-lambda"}
+            }, "body":message.to_string(), "isBase64Encoded":false
+        }))
+        .unwrap();
+        let app = self.app.clone();
+        let service = lambda_http::service_fn(move |request| {
+            aura_historia_mcp::lambda::handle_http_api_v2_request(app.clone(), request)
+        });
+        let mut context = Context::default();
+        context.request_id = "generic-oauth-lambda".into();
+        context.deadline = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+            + Duration::from_secs(30))
+        .as_millis() as u64;
+        let response = lambda_http::Adapter::from(service)
+            .oneshot(LambdaEvent { payload, context })
+            .await
+            .unwrap();
+        let response = serde_json::to_value(response).unwrap();
+        assert_eq!("no-store", response["headers"]["cache-control"]);
+        assert!(response["headers"].get("mcp-session-id").is_none());
+        response
     }
 }
 

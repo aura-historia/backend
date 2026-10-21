@@ -31,6 +31,7 @@ async fn should_publish_the_disjoint_manifests_as_the_actual_production_registry
         tools.iter().map(|t| t["name"].as_str().unwrap()).collect()
     );
     assert_eq!(expected.len(), tools.len());
+    assert_release_counts(&public, &protected, &tools, &expected);
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
         let (entry, manifest) = expected[name];
@@ -46,6 +47,57 @@ async fn should_publish_the_disjoint_manifests_as_the_actual_production_registry
         jsonschema::validator_for(&tool["outputSchema"]).unwrap();
     }
     assert_shared_schemas(&tools);
+}
+
+fn assert_release_counts(
+    public: &Value,
+    protected: &Value,
+    tools: &[Value],
+    expected: &BTreeMap<&str, (&Value, &Value)>,
+) {
+    assert_eq!(12, public["operations"].as_array().unwrap().len());
+    assert_eq!(26, protected["operations"].as_array().unwrap().len());
+    assert_eq!(38, tools.len());
+    let mut family_counts = BTreeMap::new();
+    let mut access_counts = BTreeMap::new();
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        let (entry, _) = expected[name];
+        *family_counts
+            .entry(entry["family"].as_str().unwrap())
+            .or_default() += 1_usize;
+        *access_counts
+            .entry(tool["_meta"]["aura.historia/access"].as_str().unwrap())
+            .or_default() += 1_usize;
+    }
+    assert_eq!(
+        BTreeMap::from([
+            ("account", 9),
+            ("auctions", 3),
+            ("notifications", 6),
+            ("product_listing_history", 1),
+            ("product_listings", 4),
+            ("public_discovery", 4),
+            ("saved_searches", 7),
+            ("watchlist", 4),
+        ]),
+        family_counts
+    );
+    assert_eq!(
+        BTreeMap::from([("public", 12), ("protected", 26)]),
+        access_counts
+    );
+    for (delegated, count) in [(true, 10), (false, 2)] {
+        assert_eq!(
+            count,
+            public["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|operation| operation["delegatedContext"] == delegated)
+                .count()
+        );
+    }
 }
 
 fn assert_shared_schemas(tools: &[Value]) {

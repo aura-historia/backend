@@ -25,7 +25,7 @@ fn should_verify_generic_oauth_and_real_hybrid_mcp() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("10 passed; 0 failed"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("11 passed; 0 failed"));
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         if line.starts_with("test result:")
             || (line.starts_with("test mcp_oauth::cases::") && line.ends_with(" ... ok"))

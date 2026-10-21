@@ -338,10 +338,10 @@ must validate the exact callback and state, handle `access_denied` without excha
 code, and keep its secret and verifier out of browser URLs and logs.
 
 The [local generic acceptance fixture](../src/aura-historia-api/tests/api_cases/mcp_oauth/mod.rs)
-drives actual OAuth/REST HTTP routes and the production MCP router against isolated local
-PostgreSQL. It checks the disjoint manifests against `tools/list`, validates published schemas
-and compares account schemas to the shared API contracts. Run it with Docker and the repository's
-test infrastructure available:
+drives actual OAuth/REST HTTP routes, native MCP HTTP and the actual Lambda adapter against
+isolated local PostgreSQL. It checks the disjoint manifests against `tools/list`, validates
+published schemas and compares account schemas to the shared API contracts. Run it with Docker
+and the repository's test infrastructure available:
 
 ```sh
 cargo test --locked -p aura-historia-api --test api \
