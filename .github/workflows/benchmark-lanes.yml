@@ -31,6 +31,8 @@ on:
         required: true
         type: choice
         options: ['1', '2', '4']
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
@@ -43,39 +45,98 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  plan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["ci/lanes-four","ci/lanes-three","ci/lanes-one"]'), github.event.label.name))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      revision: ${{ steps.plan.outputs.revision }}
+      layout: ${{ steps.plan.outputs.layout }}
+      scenario: ${{ steps.plan.outputs.scenario }}
+      repetition: ${{ steps.plan.outputs.repetition }}
+      harness: ${{ steps.plan.outputs.harness }}
+      slots: ${{ steps.plan.outputs.slots }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        name: Validate opt-in source and configuration
+        env:
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVISION: ${{ inputs.revision }}
+          LAYOUT: ${{ inputs.layout }}
+          SCENARIO: ${{ inputs.scenario }}
+          REPETITION: ${{ inputs.repetition }}
+          HARNESS: ${{ inputs.harness }}
+          SLOTS: ${{ inputs.slots }}
+        run: |
+          python3 - <<'PYPLAN'
+          import json, os, re
+          env = os.environ
+          if env['EVENT'] == 'pull_request':
+              values = dict(revision=env['HEAD_SHA'], layout=env['LABEL'].removeprefix('ci/lanes-'),
+                            scenario='FULL', repetition=env['GITHUB_RUN_NUMBER'], harness='nextest', slots='4')
+          else:
+              values = {name: env[name.upper()] for name in ('revision', 'layout', 'scenario', 'repetition', 'harness', 'slots')}
+          assert re.fullmatch('[0-9a-f]{40}', values['revision'])
+          assert re.fullmatch('[0-9a-f]{40}', env['GITHUB_WORKFLOW_SHA'])
+          assert values['layout'] in ('four', 'three', 'one')
+          assert values['scenario'] in ('FULL', 'API', 'LEAF')
+          assert re.fullmatch('[1-9][0-9]*', values['repetition'])
+          assert values['harness'] in ('nextest', 'libtest')
+          assert values['slots'] in ('1', '2', '4')
+          api = dict(id='api', lanes='API', profile='api')
+          crawler = dict(id='crawler', lanes='CRAWLER', profile='postgres')
+          integration = dict(id='integration', lanes='INFRASTRUCTURE', profile='api')
+          remaining = dict(id='remaining', lanes='REMAINING', profile='none')
+          layouts = {'four': [api, crawler, integration, remaining],
+                     'three': [api, crawler, dict(integration, lanes='INFRASTRUCTURE REMAINING')],
+                     'one': [dict(id='all', lanes='API CRAWLER INFRASTRUCTURE REMAINING', profile='api')]}
+          with open(env['GITHUB_OUTPUT'], 'a') as output:
+              for name, value in values.items(): output.write(f'{name}={value}\n')
+              output.write('matrix=' + json.dumps(layouts[values['layout']]) + '\n')
+          print(json.dumps(dict(values, workflow_sha=env['GITHUB_WORKFLOW_SHA']), sort_keys=True))
+          PYPLAN
+
   lint:
+    needs: [plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.revision }}
+          ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
       - name: Verify immutable lint source
         env:
-          REVISION: ${{ inputs.revision }}
+          REVISION: ${{ needs.plan.outputs.revision }}
         run: |
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$REVISION"
       - uses: ./.github/actions/lint-workspace
 
   test:
-    name: Measure ${{ inputs.layout }} ${{ matrix.job.id }}
+    needs: [plan]
+    name: Measure ${{ needs.plan.outputs.layout }} ${{ matrix.job.id }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        job: ${{ fromJSON(inputs.layout == 'four' && '[{"id":"api","lanes":"API","profile":"api"},{"id":"crawler","lanes":"CRAWLER","profile":"postgres"},{"id":"integration","lanes":"INFRASTRUCTURE","profile":"api"},{"id":"remaining","lanes":"REMAINING","profile":"none"}]' || inputs.layout == 'three' && '[{"id":"api","lanes":"API","profile":"api"},{"id":"crawler","lanes":"CRAWLER","profile":"postgres"},{"id":"integration","lanes":"INFRASTRUCTURE REMAINING","profile":"api"}]' || '[{"id":"all","lanes":"API CRAWLER INFRASTRUCTURE REMAINING","profile":"api"}]') }}
+        job: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Validate measurement inputs
         env:
-          REVISION: ${{ inputs.revision }}
-          REPETITION: ${{ inputs.repetition }}
-          LAYOUT: ${{ inputs.layout }}
-          SCENARIO: ${{ inputs.scenario }}
-          SLOTS: ${{ inputs.slots }}
+          REVISION: ${{ needs.plan.outputs.revision }}
+          REPETITION: ${{ needs.plan.outputs.repetition }}
+          LAYOUT: ${{ needs.plan.outputs.layout }}
+          SCENARIO: ${{ needs.plan.outputs.scenario }}
+          SLOTS: ${{ needs.plan.outputs.slots }}
         run: |
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$REPETITION" =~ ^[1-9][0-9]*$ ]]
@@ -84,11 +145,11 @@ jobs:
           [[ "$SLOTS" =~ ^(1|2|4)$ ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.revision }}
+          ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
       - name: Verify source and tools
         env:
-          REVISION: ${{ inputs.revision }}
+          REVISION: ${{ needs.plan.outputs.revision }}
         run: |
           test "$(git rev-parse HEAD)" = "$REVISION"
           rustup show
@@ -110,11 +171,11 @@ jobs:
         env:
           LANES: ${{ matrix.job.lanes }}
           PROFILE: ${{ matrix.job.profile }}
-          HARNESS: ${{ inputs.harness }}
-          SLOTS: ${{ inputs.slots }}
-          SCENARIO: ${{ inputs.scenario }}
-          LAYOUT: ${{ inputs.layout }}
-          REPETITION: ${{ inputs.repetition }}
+          HARNESS: ${{ needs.plan.outputs.harness }}
+          SLOTS: ${{ needs.plan.outputs.slots }}
+          SCENARIO: ${{ needs.plan.outputs.scenario }}
+          LAYOUT: ${{ needs.plan.outputs.layout }}
+          REPETITION: ${{ needs.plan.outputs.repetition }}
         run: |
           mkdir -p "$RUNNER_TEMP/measurement"
           printf 'layout=%s\nscenario=%s\nrepetition=%s\n' "$LAYOUT" "$SCENARIO" "$REPETITION" > "$RUNNER_TEMP/measurement/inputs.txt"
@@ -140,7 +201,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lane-measurement-${{ inputs.layout }}-${{ matrix.job.id }}-${{ inputs.repetition }}-attempt-${{ github.run_attempt }}
+          name: lane-measurement-${{ needs.plan.outputs.layout }}-${{ matrix.job.id }}-${{ needs.plan.outputs.repetition }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/measurement/inputs.txt
             ${{ runner.temp }}/measurement/COLD_TARGET/
@@ -149,8 +210,8 @@ jobs:
           retention-days: 14
 
   quality:
-    needs: [lint, test]
-    if: always()
+    needs: [plan, lint, test]
+    if: always() && needs.plan.result != 'skipped'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -165,7 +226,7 @@ jobs:
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.revision }}
+          ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -174,7 +235,7 @@ jobs:
           merge-multiple: false
       - name: Validate every measured report
         env:
-          EXPECTED: ${{ inputs.layout == 'four' && 'api crawler integration remaining' || inputs.layout == 'three' && 'api crawler integration' || 'all' }}
+          EXPECTED: ${{ needs.plan.outputs.layout == 'four' && 'api crawler integration remaining' || needs.plan.outputs.layout == 'three' && 'api crawler integration' || 'all' }}
         run: |
           for lane in $EXPECTED; do mv "coverage-artifacts/coverage-$lane/coverage.lcov" "coverage-artifacts/coverage-$lane/$lane.lcov"; done
           read -ra lanes <<< "$EXPECTED"

@@ -144,6 +144,13 @@ runner hardware/image, flags and image identities. It reports supervisor compila
 separately and includes startup/cleanup within test time. Successful Nextest output
 is retained for fixture timing observations.
 
+Before this workflow is registered on the default branch, add `ci/lanes-four`,
+`ci/lanes-three` or `ci/lanes-one` to a same-repository pull request. The guarded
+label event checks out its actual head SHA and screens only that layout with
+Nextest/four slots/FULL; its run number identifies the repetition. Dispatch inputs
+remain explicit for other configurations. Source SHA and workflow SHA are validated
+and recorded separately. Labels do not start measurements for fork pull requests.
+
 The scenario input labels the actual frozen FULL, API or LEAF source revision; it
 does not filter new tests or synthesize source invalidation. Same-revision warm
 measurements describe a reused target with unchanged source. Small-change cache
