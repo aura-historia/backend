@@ -193,3 +193,13 @@ run as a repeated cold/warm pair.
 The checked-in [reference observations](../ci/baselines/reference-2579.json)
 retain the selected package stage data, coverage totals, missing values and source
 artifact hashes without embedding the original job logs in Git.
+
+## Job infrastructure supervisor
+
+The [fixture developer guide](../src/test-api/README.md#job-supervisor) owns the
+versioned managed environment contract, profiles, credential policy, ownership,
+signal/GC recovery and real-service smoke command. This infrastructure can be used
+with any child runner. Its slot count describes capacity; it does not make legacy
+global-reset fixtures safe to run concurrently. CI runner selection and state
+isolation are separate follow-on changes. Supervisor diagnostics use their own
+`AURA_TEST_ENV` record prefix and do not alter the benchmark timing schema.

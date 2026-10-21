@@ -3,6 +3,11 @@ name = "test-api"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "aura-test-env"
+path = "src/bin/aura-test-env.rs"
+required-features = ["supervisor"]
+
 [dependencies]
 application = { workspace = true }
 test-api-macros = { workspace = true }
@@ -12,6 +17,7 @@ derive_builder = { workspace = true }
 serial_test = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 testcontainers = { workspace = true }
 sqlx = { workspace = true, optional = true }
@@ -56,3 +62,5 @@ postgres = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
+
+supervisor = ["postgres", "opensearch", "sqs"]

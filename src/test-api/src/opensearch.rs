@@ -61,6 +61,7 @@ pub async fn get_opensearch_client() -> &'static Client {
         .get_or_init(|| async {
             let endpoint_url = domain_endpoint().await;
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
+                .disable_proxy()
                 .build()
                 .expect("shouldn't fail creating OpenSearch-Transport");
             opensearch::OpenSearch::new(transport)
@@ -84,6 +85,13 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn set_up(&self) {
+        if let Some(config) = crate::environment::managed_environment() {
+            assert!(
+                config.opensearch_endpoint().is_some(),
+                "managed profile has no OpenSearch"
+            );
+            return;
+        }
         OPENSEARCH_BOOTSTRAPPED
             .get_or_init(|| async { set_up_open_search().await })
             .await;
@@ -95,6 +103,14 @@ impl IntegrationTestService for OpenSearch {
 }
 
 async fn domain_endpoint() -> Url {
+    if let Some(config) = crate::environment::managed_environment() {
+        return Url::parse(
+            config
+                .opensearch_endpoint()
+                .expect("managed profile has no OpenSearch"),
+        )
+        .expect("managed endpoint was validated");
+    }
     // Floci reports a container IP in DescribeDomain. Host clients must use the published port.
     let container_name = format!(
         "floci-aws-{}-opensearch-000000000000-eu-central-1-{TEST_DOMAIN_NAME}",
@@ -134,7 +150,7 @@ async fn set_up_open_search() {
     wait_until_domain_processed(TEST_DOMAIN_NAME)
         .await
         .expect("shouldn't fail waiting for domain  to complete processing");
-    wait_until_indices_are_set_up()
+    bootstrap_indices(get_opensearch_client().await)
         .await
         .expect("shouldn't fail setting up indices");
     debug!(
@@ -235,7 +251,12 @@ async fn ensure_index_exists(
             .error_for_status_code()?;
     }
 
-    refresh_index(index).await;
+    client
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
+        .send()
+        .await?
+        .error_for_status_code()?;
     Ok(())
 }
 
@@ -248,9 +269,9 @@ async fn ensure_index_exists(
 /// Registers a `score-ranker-processor` pipeline using Reciprocal Rank Fusion (RRF) —
 /// the same native hybrid-fusion technique used in production.
 ///
-/// Panics if the pipeline cannot be registered, so hybrid tests fail fast with a meaningful
-/// message rather than surfacing a confusing "pipeline not defined" 400 error later.
-async fn register_hybrid_search_pipeline(client: &Client) {
+/// Returns the original registration failure so bootstrap can retry readiness or report
+/// its cause before a test reaches a hybrid query.
+async fn register_hybrid_search_pipeline(client: &Client) -> Result<(), Error> {
     // The pipeline name constant contains only alphanumeric characters and hyphens, which
     // are safe to embed in a URL path without encoding.
     debug_assert!(
@@ -274,7 +295,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
         ]
     });
 
-    match client
+    client
         .send(
             Method::Put,
             &path,
@@ -283,37 +304,14 @@ async fn register_hybrid_search_pipeline(client: &Client) {
             Some(JsonBody::new(rrf_body)),
             None,
         )
-        .await
-    {
-        Ok(resp) if resp.status_code().is_success() => {
-            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' (RRF)");
-            true
-        }
-        Ok(resp) => {
-            debug!(
-                status = %resp.status_code(),
-                "score-ranker-processor RRF pipeline registration returned non-success"
-            );
-            panic!(
-                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: HTTP {status}",
-                status = resp.status_code()
-            );
-        }
-        Err(e) => {
-            debug!(
-                error = %e,
-                "score-ranker-processor RRF pipeline registration failed"
-            );
-            panic!(
-                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: {e}"
-            );
-        }
-    };
+        .await?
+        .error_for_status_code()?;
+    Ok(())
 }
 
 async fn set_up_indices(client: &Client) -> Result<(), Error> {
     // Register the native-hybrid RRF search pipeline before creating indices.
-    register_hybrid_search_pipeline(client).await;
+    register_hybrid_search_pipeline(client).await?;
 
     ensure_index_exists(
         client,
@@ -325,10 +323,10 @@ async fn set_up_indices(client: &Client) -> Result<(), Error> {
     Ok(())
 }
 
-async fn wait_until_indices_are_set_up() -> Result<(), Error> {
+pub(crate) async fn bootstrap_indices(client: &Client) -> Result<(), Error> {
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        match set_up_indices(get_opensearch_client().await).await {
+        match set_up_indices(client).await {
             Ok(()) => return Ok(()),
             Err(err) if std::time::Instant::now() < deadline => {
                 debug!(error = %err, "OpenSearch indices are not ready yet; retrying setup.");

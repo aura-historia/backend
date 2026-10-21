@@ -5,6 +5,7 @@ mod aura_historia_api;
 pub mod aws;
 #[doc(hidden)]
 pub mod benchmark;
+pub mod environment;
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
 #[cfg(feature = "opensearch")]

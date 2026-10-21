@@ -9160,6 +9160,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typed-builder",
+ "url",
  "uuid",
 ]
 

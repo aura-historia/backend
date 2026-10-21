@@ -1,4 +1,4 @@
-mod tls;
+pub(crate) mod tls;
 
 use crate::IntegrationTestService;
 use async_trait::async_trait;
@@ -165,6 +165,15 @@ where
 /// container is ever started. The container handle is intentionally leaked — it lives for
 /// the entire test-suite binary and is cleaned up by the `atexit` handler.
 async fn ensure_container_started() {
+    if let Some(config) = crate::environment::managed_environment() {
+        let endpoint = config
+            .postgres
+            .as_ref()
+            .expect("managed profile has no Postgres");
+        POSTGRES_HOST_PORT.get_or_init(|| endpoint.port);
+        POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| endpoint.root_certificate.clone());
+        return;
+    }
     POSTGRES_CONTAINER_STARTED
         .get_or_init(|| async {
             install_cleanup();
