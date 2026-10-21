@@ -78,7 +78,8 @@ no SDK cleanup. Disk observations stream and retain free bytes, owned Cargo/prof
 sizes and hosted Docker storage summaries. A best-effort three-GiB floor cancels
 through the same process owner, preserving time and space for cleanup/diagnostics;
 it cannot guarantee capacity against a sudden large allocation. Directory/Docker
-size sampling is less frequent and bounded; missing observations remain null.
+size sampling is less frequent and bounded, and stops below the floor; missing
+observations remain null.
 
 Coverage keeps the existing stable grcov export and Sonar source/exclusion policy.
 Each lane writes one process/module-unique profile namespace and one named LCOV

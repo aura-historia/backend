@@ -26,7 +26,7 @@ class DiskGuard:
     def __init__(self, root, target, profiles, log, minimum):
         self.root, self.paths, self.log, self.minimum = root, {'target': target, 'profiles': profiles}, log, minimum
         self.last_print = self.last_sizes = -float('inf')
-        self.sizes, self.docker, self.low, self.command = {}, None, False, None
+        self.sizes, self.docker, self.low, self.command = dict.fromkeys(self.paths), None, False, None
         log.parent.mkdir(parents=True, exist_ok=True)
 
     def check(self):
@@ -43,7 +43,7 @@ class DiskGuard:
             return signal.SIGTERM
         self.low = self.low or free < self.minimum
         if now - self.last_print >= 20 or free < self.minimum:
-            if now - self.last_sizes >= 60:
+            if free >= self.minimum and now - self.last_sizes >= 60:
                 self.sizes = {name: observe(['du', '-sk', str(path)], self.root) if path.exists() else None
                               for name, path in self.paths.items()}
                 if os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted':
@@ -51,7 +51,8 @@ class DiskGuard:
                 self.last_sizes = now
             record = {'time': time.time(), 'free_bytes': free, 'free_by_path': free_by_path, 'minimum_bytes': self.minimum,
                       'sizes_kib': self.sizes, 'hosted_docker_storage': self.docker,
-                      'sizes_sampled_monotonic': self.last_sizes, 'command': self.command}
+                      'sizes_sampled_monotonic': None if self.last_sizes == -float('inf') else self.last_sizes,
+                      'command': self.command}
             line = json.dumps(record, sort_keys=True)
             print('DISK_OBSERVATION ' + line, flush=True)
             try:
@@ -88,7 +89,9 @@ def main():
     except SystemExit as error:
         return 99 if guard.low and error.code == 128 + signal.SIGTERM else error.code
     finally:
-        guard.last_print = guard.last_sizes = -float('inf')
+        guard.last_print = -float('inf')
+        if not guard.low:
+            guard.last_sizes = -float('inf')
         guard.check()
     return 99 if guard.low else 0
 

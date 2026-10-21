@@ -30,6 +30,34 @@ class BoundedDiskGuard(unittest.TestCase):
             self.assertIsNone(record['sizes_kib']['profiles'])
             self.assertNotIn('docker', record['sizes_kib'])
 
+    def test_low_space_cancels_without_waiting_for_expensive_observations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            guard = GUARD.DiskGuard(root, root, root, root/'disk.jsonl', 100)
+            with patch.object(GUARD.shutil, 'disk_usage', return_value=shutil._ntuple_diskusage(1000, 950, 50)), patch.object(
+                    GUARD, 'observe', return_value='123\t/path') as observe, patch.dict(os.environ, RUNNER_ENVIRONMENT='github-hosted'):
+                self.assertEqual(guard.check(), signal.SIGTERM)
+            observe.assert_not_called()
+            record = json.loads((root/'disk.jsonl').read_text())
+            self.assertEqual(record['sizes_kib'], {'target': None, 'profiles': None})
+            self.assertIsNone(record['hosted_docker_storage'])
+            self.assertIsNone(record['sizes_sampled_monotonic'])
+
+    def test_low_space_retains_previous_size_sample_and_its_timestamp(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            guard = GUARD.DiskGuard(root, root, root, root/'disk.jsonl', 100)
+            with patch.object(GUARD.time, 'monotonic', side_effect=[0, 61]), patch.object(
+                    GUARD.shutil, 'disk_usage', side_effect=[shutil._ntuple_diskusage(1000, 500, 500)]*3 +
+                    [shutil._ntuple_diskusage(1000, 950, 50)]*3), patch.object(
+                    GUARD, 'observe', return_value='123\t/path') as observe, patch.dict(os.environ, RUNNER_ENVIRONMENT='self-hosted'):
+                self.assertIsNone(guard.check())
+                self.assertEqual(guard.check(), signal.SIGTERM)
+            self.assertEqual(observe.call_count, 2)
+            record = json.loads((root/'disk.jsonl').read_text().splitlines()[-1])
+            self.assertEqual(record['sizes_kib'], {'target': '123\t/path', 'profiles': '123\t/path'})
+            self.assertEqual(record['sizes_sampled_monotonic'], 0)
+
     def test_expensive_sizes_are_bounded_and_sampled_less_often_than_free_space(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
