@@ -9,6 +9,14 @@ import subprocess
 from .io import command, write_json
 
 
+def nextest_data(raw):
+    records = [json.loads(line) for line in raw.splitlines()]
+    reports = [record for record in records if "rust-suites" in record]
+    if len(reports) != 1 or any("reason" not in record and "rust-suites" not in record for record in records):
+        raise ValueError("Discovery must contain Cargo messages and exactly one Nextest report")
+    return reports[0]
+
+
 def listed_cases(raw):
     return {match[1] for line in raw.splitlines() if (match := re.fullmatch(r"(.+): (?:test|benchmark)", line))}
 

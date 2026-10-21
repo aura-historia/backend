@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 
-from ci_coverage import apply_branch_regions, parse_lcov, render
+from ci_coverage import apply_branch_regions, parse_lcov, render, source_path
 from ci_inventory.io import command, write_json
 
 
@@ -23,7 +23,7 @@ def run_llvm(argv, output=None):
         print(f"coverage {pathlib.Path(argv[0]).name} {format}: {time.monotonic() - started:.3f}s", flush=True)
 
 
-def executable_objects(nextest, cargo_artifacts, doctests):
+def coverage_objects(nextest, cargo_artifacts, doctests, root):
     data = json.loads(nextest.read_text())
     meta = data["rust-build-meta"]
     objects = {pathlib.Path(suite["binary-path"]).resolve() for suite in data["rust-suites"].values()}
@@ -33,31 +33,45 @@ def executable_objects(nextest, cargo_artifacts, doctests):
     for artifact in cargo_artifacts:
         for line in artifact.read_text().splitlines():
             item = json.loads(line)
-            if item["reason"] == "compiler-artifact" and item.get("executable"):
+            if item.get("reason") != "compiler-artifact":
+                continue
+            if item.get("executable"):
                 objects.add(pathlib.Path(item["executable"]).resolve())
+            elif "proc-macro" in item.get("target", {}).get("kind", []) and source_path(item["target"]["src_path"], root):
+                libraries = [pathlib.Path(filename).resolve() for filename in item["filenames"] if filename.endswith(".so")]
+                if not libraries:
+                    raise ValueError("Compiled repository proc-macro has no recorded shared object")
+                objects.update(libraries)
     for path in doctests.rglob("*"):
         if path.is_file() and os.access(path, os.X_OK):
             with path.open("rb") as stream:
                 if stream.read(4) == b"\x7fELF":
                     objects.add(path.resolve())
     if not objects:
-        raise ValueError("No compiled coverage executables were recorded")
+        raise ValueError("No compiled coverage objects were recorded")
     for path in objects:
         if not path.is_file():
-            raise ValueError(f"Compiled coverage executable is missing: {path}")
+            raise ValueError(f"Compiled coverage object is missing: {path}")
     return sorted(objects)
 
 
-def export(profiles, nextest, cargo_artifacts, doctests, output, root):
-    objects = executable_objects(nextest, cargo_artifacts, doctests)
-    raw = sorted(path for path in profiles.rglob("*.profraw") if "discovery" not in path.relative_to(profiles).parts)
-    if not raw or any(not path.stat().st_size for path in raw):
+def coverage_profiles(profiles):
+    raw = sorted(profiles.rglob("*.profraw"))
+    execution = [path for path in raw if "discovery" not in path.relative_to(profiles).parts]
+    if not execution or any(not path.stat().st_size for path in raw):
         raise ValueError("No nonempty execution coverage profiles were written")
+    return raw, execution
+
+
+def export(profiles, nextest, cargo_artifacts, doctests, output, root):
+    objects = coverage_objects(nextest, cargo_artifacts, doctests, root)
+    raw, execution = coverage_profiles(profiles)
     sysroot = pathlib.Path(command(["rustc", "--print", "sysroot"]).strip())
     host = next(line.split(": ", 1)[1] for line in command(["rustc", "-Vv"]).splitlines() if line.startswith("host: "))
     llvm = sysroot / "lib" / "rustlib" / host / "bin"
     output.parent.mkdir(parents=True, exist_ok=True)
     write_json(output.with_suffix(".objects.json"), {"objects": list(map(str, objects)), "profiles": list(map(str, raw)),
+               "execution_profiles": list(map(str, execution)), "cargo_artifacts": list(map(str, cargo_artifacts)),
                "rustc": command(["rustc", "-Vv"]).strip(), "llvm_cov": command([str(llvm / "llvm-cov"), "--version"]).strip()})
     with tempfile.TemporaryDirectory(prefix="llvm-coverage-", dir=output.parent) as temporary:
         directory = pathlib.Path(temporary)

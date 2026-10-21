@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
-from ci_inventory.discovery import attach_suites
+from ci_inventory.discovery import attach_suites, nextest_data
 from ci_inventory.io import command, write_json
 from ci_inventory.process import execute
 from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection, coverage_environment,
@@ -61,12 +61,16 @@ def discover_lane(args, root):
         raise ValueError("Custom harness needs an explicit adapter before lane execution")
     argv = ["cargo", "nextest", "list", *cargo_args(selection, args.features),
             "--all-targets", "--message-format", "json"]
+    if os.environ.get("AURA_CI_COVERAGE_DIR"):
+        argv.extend(["--cargo-message-format", "json-render-diagnostics"])
     print(f"test lane discovery: {shlex.join(argv)}", flush=True)
     with (args.output / "compile.log").open("w") as log:
         process = subprocess.run(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=log)
+    if os.environ.get("AURA_CI_COVERAGE_DIR"):
+        (args.output / "compile.jsonl").write_text(process.stdout)
     if process.returncode:
         raise RuntimeError(f"Nextest discovery failed ({process.returncode}); see {args.output / 'compile.log'}")
-    data = json.loads(process.stdout)
+    data = nextest_data(process.stdout)
     write_json(args.output / "nextest.json", data)
     attach_suites(catalog, data["rust-suites"], root, args.output)
     suites = {}

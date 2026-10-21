@@ -86,11 +86,14 @@ observations remain null.
 The same periodic record includes nullable host memory total/available KiB.
 
 [`export-coverage.py`](../ci/export-coverage.py) uses compiled Nextest/Cargo
-executable metadata, including child binaries and the supervisor. Rustdoc retains
+object metadata, including child binaries, the supervisor and repository
+proc-macro shared libraries. Rustdoc retains
 objects separately per crate so merged doctests cannot overwrite another crate's
 executable. The driver requires every lane-owned doctest target to complete.
-Fresh phase profile directories retain process/module identity; discovery profiles
-are excluded from execution coverage. Object paths, profiles and compiler versions
+Fresh phase profile directories retain process/module identity. Compilation and
+discovery profiles preserve macro-expansion coverage separately from test execution;
+they cannot replace required execution profiles. Cached builds contribute only the
+compiler work actually performed. Object paths, profiles and compiler versions
 are retained with test diagnostics. Each Nextest invocation preserves its JUnit
 report before the next phase, including failures; slowest cases and stage timings
 remain alongside the phase logs. Cargo control outcomes remain in those logs.

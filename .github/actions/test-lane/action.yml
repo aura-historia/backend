@@ -166,7 +166,7 @@ runs:
         PROFILE: ${{ inputs.profile }}
         LEGACY_PACKAGE: ${{ inputs.legacy_package }}
       run: |
-        arguments=()
+        arguments=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/discovery/compile.jsonl")
         if [[ "$PROFILE" != none || "$LEGACY_PACKAGE" == test-api || "$LEGACY_PACKAGE" == database-migration-lambda ]]; then
           arguments+=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl")
         fi

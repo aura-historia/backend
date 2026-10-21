@@ -9,6 +9,7 @@ CI = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CI))
 from ci_coverage import apply_branch_regions, combine, parse_lcov, render
 from ci_benchmark.lcov import coverage_totals
+from ci_inventory.discovery import nextest_data
 from ci_inventory.phases import coverage_environment
 
 SPEC = importlib.util.spec_from_file_location("export_coverage", CI / "export-coverage.py")
@@ -86,20 +87,62 @@ class CompiledCoverageObjects(unittest.TestCase):
                 "target-directory": str(root), "non-test-binaries": {"pkg": [{"path": child.name}]}}}))
             cargo = root / "cargo.jsonl"
             cargo.write_text(json.dumps({"reason": "compiler-artifact", "executable": str(supervisor)}) + "\n")
-            self.assertEqual(EXPORTER.executable_objects(nextest, [cargo], root / "doctests"),
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root),
                              sorted([unit, child, supervisor, doctest]))
             profiles = root / "profiles"
             (profiles / "discovery").mkdir(parents=True)
             (profiles / "discovery/list.profraw").write_bytes(b"listing is not execution")
             with self.assertRaisesRegex(ValueError, "execution coverage profiles"):
                 EXPORTER.export(profiles, nextest, [cargo], root / "doctests", root / "out.lcov", root)
+            executed = profiles / "managed/test.profraw"
+            executed.parent.mkdir()
+            executed.write_bytes(b"test execution")
+            raw, execution = EXPORTER.coverage_profiles(profiles)
+            self.assertEqual(raw, sorted([profiles / "discovery/list.profraw", executed]))
+            self.assertEqual(execution, [executed])
             (profiles / "empty.profraw").touch()
             with self.assertRaisesRegex(ValueError, "execution coverage profiles"):
                 EXPORTER.export(profiles, nextest, [cargo], root / "doctests", root / "out.lcov", root)
             self.assertFalse((root / "out.lcov").exists())
             child.unlink()
-            with self.assertRaisesRegex(ValueError, "executable is missing"):
-                EXPORTER.executable_objects(nextest, [cargo], root / "doctests")
+            with self.assertRaisesRegex(ValueError, "object is missing"):
+                EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+
+    def test_recorded_repository_proc_macro_shared_objects_are_retained_and_required(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "src/macros/lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("fn expand() {}\n")
+            library = root / "actual-cargo-output.so"
+            library.write_bytes(b"\x7fELFfixture")
+            nextest = root / "nextest.json"
+            data = {"rust-suites": {}, "rust-build-meta": {"non-test-binaries": {}}}
+            nextest.write_text(json.dumps(data))
+            artifact = {"reason": "compiler-artifact", "executable": None, "filenames": [str(library)],
+                        "target": {"kind": ["proc-macro"], "src_path": str(source)}}
+            external = dict(artifact, target={"kind": ["proc-macro"], "src_path": "/registry/dependency/lib.rs"},
+                            filenames=[str(root / "unselected-external.so")])
+            cargo = root / "compile.jsonl"
+            cargo.write_text("\n".join(map(json.dumps, [artifact, external, data])) + "\n")
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root), [library])
+            library.unlink()
+            with self.assertRaisesRegex(ValueError, "object is missing"):
+                EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+            artifact["filenames"] = []
+            cargo.write_text(json.dumps(artifact) + "\n")
+            with self.assertRaisesRegex(ValueError, "no recorded shared object"):
+                EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+
+    def test_forwarded_cargo_messages_keep_exactly_one_nextest_report(self):
+        data = {"rust-suites": {}, "rust-build-meta": {}}
+        cargo = {"reason": "compiler-artifact", "executable": None}
+        raw = "\n".join(map(json.dumps, [cargo, {"reason": "build-finished", "success": True}, data])) + "\n"
+        self.assertEqual(nextest_data(raw), data)
+        self.assertEqual(nextest_data(json.dumps(data)), data)
+        for invalid in ("", json.dumps(cargo), json.dumps(data) + "\n" + json.dumps(data), "{}", "broken"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                nextest_data(invalid)
 
     def test_phase_profiles_preserve_credentials_and_subprocess_inheritance(self):
         with tempfile.TemporaryDirectory() as temporary:
