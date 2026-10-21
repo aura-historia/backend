@@ -10,7 +10,7 @@ pub(super) async fn search(
 > {
     let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
         get_opensearch_client().await.clone(),
-        &products_index(),
+        products_index(),
     );
     reader
         .search(&ProductListingSearchReadRequest {

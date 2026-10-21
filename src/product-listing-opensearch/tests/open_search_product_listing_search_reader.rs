@@ -337,7 +337,7 @@ async fn should_resume_server_issued_score_and_date_cursors_unchanged() {
         index_products(documents.into_iter().map(|listing| listing.document)).await?;
         let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
             get_opensearch_client().await.clone(),
-            &products_index(),
+            products_index(),
         );
         for sort in [
             SortProductListingField::Score,
@@ -676,7 +676,7 @@ async fn shipping_search_agrees_with_pure_membership_and_preserves_nested_rows_a
         )?);
         let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
             get_opensearch_client().await.clone(),
-            &products_index(),
+            products_index(),
         );
         let mut request = ProductListingSearchReadRequest {
             compiled_search: CompiledProductListingSearch::new(query, price_filter(None)?)?,
