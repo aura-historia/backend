@@ -62,8 +62,9 @@ cache restoration and uses checksum-verified, pinned Nextest and grcov archives.
 The job supervisor owns service cleanup, including cancellation; no job prunes
 shared Docker resources. Failure retains test/compile diagnostics and any coverage
 produced without allowing a failed lane to pass the final gate.
-Diagnostics retain their workflow attempt, including that attempt's LCOV when
-available. A rerun replaces the stable required coverage artifact only; the final
+Execution diagnostics upload before coverage export, and final diagnostics retain
+their workflow attempt, including that attempt's LCOV when available. A rerun
+replaces the stable required coverage artifact only; the final
 gate still requires each lane's current result to succeed.
 Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
 CPU, memory, runner image/version and configured cache suffix/exact-hit result.

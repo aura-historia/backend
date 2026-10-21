@@ -137,6 +137,15 @@ runs:
           --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
           --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
 
+    - name: Preserve execution diagnostics before coverage export
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: tests-${{ inputs.id }}-execution-attempt-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/lane/${{ inputs.id }}/
+        if-no-files-found: warn
+        retention-days: 7
+
     - name: Export existing grcov coverage
       if: always()
       shell: bash
