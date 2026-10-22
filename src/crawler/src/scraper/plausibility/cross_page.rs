@@ -20,9 +20,14 @@ pub enum CrossPageCheck {
 }
 
 impl CrossPageCheck {
-    const fn description(self) -> &'static str {
+    /// Every check, so tests can pin how the review console names each code.
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 1] = [Self::RepeatedAcrossPages];
+
+    /// How the review console describes the check.
+    pub(crate) const fn description(self) -> &'static str {
         match self {
-            Self::RepeatedAcrossPages => "repeats a value of another product's page",
+            Self::RepeatedAcrossPages => "repeats a value of another product page",
         }
     }
 }

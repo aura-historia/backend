@@ -75,7 +75,20 @@ pub enum PlausibilityCheck {
 }
 
 impl PlausibilityCheck {
-    const fn description(self) -> &'static str {
+    /// Every check, so tests can pin how the review console names each code.
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 7] = [
+        Self::Blank,
+        Self::TooLong,
+        Self::AllZeroDigits,
+        Self::MarkupTokens,
+        Self::DuplicateValues,
+        Self::InvalidIdentifier,
+        Self::WordList,
+    ];
+
+    /// How the reason of a rejection and the review console describe the check.
+    pub(crate) const fn description(self) -> &'static str {
         match self {
             Self::Blank => "is blank",
             Self::TooLong => "is longer than a label",
