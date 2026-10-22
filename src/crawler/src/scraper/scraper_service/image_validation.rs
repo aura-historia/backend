@@ -58,9 +58,10 @@ impl ImageValidator for ReqwestImageValidator {
             return cached;
         }
 
-        let validation = match validate_image_url(url) {
-            Some(validation) => validation,
-            None => probe_image_dimensions(url).await,
+        let validation = match ImageUrlHint::of(url) {
+            ImageUrlHint::Dimensions(validation) => validation,
+            ImageUrlHint::ThumbnailName => ImageValidation::Invalid,
+            ImageUrlHint::NoHint => probe_image_dimensions(url).await,
         };
 
         self.cache
@@ -84,28 +85,15 @@ pub(crate) async fn filter_valid_image_urls(
 
     for raw in raw_images {
         for raw_candidate in split_image_candidate_group(&raw) {
-            let trimmed = raw_candidate.trim();
-            if trimmed.is_empty() {
+            let Some(resolved) = resolve_image_candidate(raw_candidate, base_url) else {
+                tracing::debug!("Discarding invalid image URL candidate");
                 continue;
-            }
-
-            let resolved = match Url::parse(trimmed).or_else(|_| base_url.join(trimmed)) {
-                Ok(url) => url,
-                Err(_) => {
-                    tracing::debug!("Discarding invalid image URL candidate");
-                    continue;
-                }
             };
 
-            // Security validation always runs first. Deterministic local quality
-            // rejections may then discard a target without replacing that result.
-            let validation = match (
-                validator.validate(&resolved).await,
-                validate_image_url(&resolved),
-            ) {
-                (_, Some(ImageValidation::Invalid)) => ImageValidation::Invalid,
-                (validation, _) => validation,
-            };
+            // Security validation always runs first. The URL hint may then
+            // discard a target without replacing that result.
+            let validation =
+                ImageUrlHint::of(&resolved).settle(validator.validate(&resolved).await);
             match validation {
                 ImageValidation::Invalid => {}
                 ImageValidation::Valid | ImageValidation::Unknown => {
@@ -122,20 +110,55 @@ pub(crate) async fn filter_valid_image_urls(
     valid
 }
 
-fn validate_image_url(url: &Url) -> Option<ImageValidation> {
-    if let Some((width, height)) = dimensions_from_query(url) {
-        return Some(validation_for_dimensions(width, height));
+/// Resolves one raw image candidate against the page URL. `None` means the
+/// candidate is not a usable URL.
+pub(crate) fn resolve_image_candidate(raw_candidate: &str, base_url: &Url) -> Option<Url> {
+    let trimmed = raw_candidate.trim();
+    if trimmed.is_empty() {
+        return None;
     }
-    if let Some((width, height)) = dimensions_from_path(url.path()) {
-        return Some(validation_for_dimensions(width, height));
+    Url::parse(trimmed).or_else(|_| base_url.join(trimmed)).ok()
+}
+
+/// What an image URL's text says about the image before any probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageUrlHint {
+    /// Query `w`/`h` or `width`/`height`, or path dimensions such as
+    /// `-300x200.`, give the image's size.
+    Dimensions(ImageValidation),
+    /// The URL gives no size and names a thumbnail.
+    ThumbnailName,
+    /// The URL gives no size and no other hint.
+    NoHint,
+}
+
+impl ImageUrlHint {
+    fn of(url: &Url) -> Self {
+        if let Some((width, height)) =
+            dimensions_from_query(url).or_else(|| dimensions_from_path(url.path()))
+        {
+            return Self::Dimensions(validation_for_dimensions(width, height));
+        }
+        if names_thumbnail(url.as_str()) {
+            return Self::ThumbnailName;
+        }
+        Self::NoHint
     }
 
-    let lower = url.as_str().to_ascii_lowercase();
-    if lower.contains("thumbnail") || lower.contains("thumb") {
-        return Some(ImageValidation::Invalid);
+    /// Combines the hint with a validator or probe result. The hint can only
+    /// reject an image, never accept one the validator rejected.
+    fn settle(self, validation: ImageValidation) -> ImageValidation {
+        match self {
+            Self::Dimensions(ImageValidation::Invalid) | Self::ThumbnailName => {
+                ImageValidation::Invalid
+            }
+            Self::Dimensions(_) | Self::NoHint => validation,
+        }
     }
+}
 
-    None
+pub(crate) fn names_thumbnail(url_text: &str) -> bool {
+    url_text.to_ascii_lowercase().contains("thumb")
 }
 
 fn validation_for_dimensions(width: usize, height: usize) -> ImageValidation {
@@ -296,13 +319,19 @@ mod tests {
     #[test]
     fn rejects_small_dimensions_from_path() {
         let url = Url::parse("https://example.com/photo-100x100.jpg").unwrap();
-        assert_eq!(validate_image_url(&url), Some(ImageValidation::Invalid));
+        assert_eq!(
+            ImageUrlHint::of(&url),
+            ImageUrlHint::Dimensions(ImageValidation::Invalid)
+        );
     }
 
     #[test]
     fn accepts_large_dimensions_from_query() {
         let url = Url::parse("https://example.com/photo.jpg?width=640&height=640").unwrap();
-        assert_eq!(validate_image_url(&url), Some(ImageValidation::Valid));
+        assert_eq!(
+            ImageUrlHint::of(&url),
+            ImageUrlHint::Dimensions(ImageValidation::Valid)
+        );
     }
 
     #[tokio::test]

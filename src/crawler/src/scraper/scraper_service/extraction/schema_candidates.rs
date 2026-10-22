@@ -3,6 +3,7 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::plausibility::PlausibilityFindings;
+use crate::scraper::scraper_service::image_validation::{names_thumbnail, resolve_image_candidate};
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -220,9 +221,8 @@ pub fn rank_applicable_schemas(
                     .into_iter()
                     .find_map(|raw_candidate| {
                         let candidate = raw_candidate.trim();
-                        let viable = !candidate.to_ascii_lowercase().contains("thumb")
-                            && (url::Url::parse(candidate).is_ok()
-                                || base_url.join(candidate).is_ok());
+                        let viable = !names_thumbnail(candidate)
+                            && resolve_image_candidate(candidate, &base_url).is_some();
                         viable.then(|| candidate.to_owned())
                     })
             })
