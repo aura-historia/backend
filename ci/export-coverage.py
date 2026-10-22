@@ -17,10 +17,28 @@ from ci_inventory.io import command, write_json
 def run_llvm(argv, output=None):
     started = time.monotonic()
     try:
-        subprocess.run(argv, stdout=output, check=True)
+        process = subprocess.run(argv, stdout=output, stderr=subprocess.PIPE, text=True)
+        sys.stderr.write(process.stderr)
+        process.check_returncode()
+        return process.stderr
     finally:
         format = next((argument for argument in argv if argument.startswith("--format=")), "")
         print(f"coverage {pathlib.Path(argv[0]).name} {format}: {time.monotonic() - started:.3f}s", flush=True)
+
+
+def report_mismatches(argv):
+    print("coverage mismatch diagnostics: llvm-cov report --dump", flush=True)
+    diagnostic = {"exit_code": None, "stderr": None}
+    try:
+        diagnostic["stderr"] = run_llvm([argv[0], "report", "--dump", *argv[2:]], subprocess.DEVNULL)
+        diagnostic["exit_code"] = 0
+    except subprocess.CalledProcessError as error:
+        diagnostic.update(exit_code=error.returncode, stderr=error.stderr)
+    except OSError as error:
+        diagnostic["error"] = str(error)
+        print(f"coverage mismatch diagnostics: {error}", file=sys.stderr)
+    print(f"coverage mismatch diagnostics exit: {diagnostic['exit_code']}", flush=True)
+    return diagnostic
 
 
 def coverage_objects(nextest, cargo_artifacts, doctests, root):
@@ -86,9 +104,13 @@ def export(profiles, nextest, cargo_artifacts, doctests, output, root):
                   "-o", str(directory / "merged.profdata")])
         argv = [str(llvm / "llvm-cov"), "export", str(objects[0]), *[f"--object={path}" for path in objects[1:]],
                 f"--instr-profile={directory / 'merged.profdata'}"]
+        diagnostics = []
         for format, suffix in (("lcov", "lcov"), ("text", "json")):
             with (directory / suffix).open("w") as stream:
-                run_llvm([*argv, f"--format={format}", *(["--skip-functions"] if format == "lcov" else [])], stream)
+                diagnostics.append(run_llvm([*argv, f"--format={format}", *(["--skip-functions"] if format == "lcov" else [])], stream))
+        if any(" functions have mismatched data" in diagnostic for diagnostic in diagnostics):
+            provenance["mismatch_diagnostics"] = report_mismatches(argv)
+            write_json(output.with_suffix(".objects.json"), provenance)
         sources = parse_lcov((directory / "lcov").read_text(), root)
         data = json.loads((directory / "json").read_text())
         unmapped = apply_function_records(sources, data, root)

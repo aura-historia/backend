@@ -1,9 +1,13 @@
+import contextlib
 import importlib.util
+import io
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 CI = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CI))
@@ -141,6 +145,40 @@ class NormalizedCoverage(unittest.TestCase):
                         "SF:src/lib.rs\nDA:1,1\n", "SF:src/lib.rs\nDA:0,1\nend_of_record\n"):
             with self.subTest(content=content), self.assertRaises(ValueError):
                 parse_lcov(content, self.root)
+
+
+class LLVMDiagnostics(unittest.TestCase):
+    def test_stderr_is_relayed_without_changing_stdout_or_failure_status(self):
+        with tempfile.TemporaryFile(mode="w+") as output:
+            for status in (0, 37):
+                with self.subTest(status=status), contextlib.redirect_stderr(io.StringIO()) as errors:
+                    argv = [sys.executable, "-c", "import sys; print('coverage output'); "
+                            f"print('LLVM diagnostic', file=sys.stderr); sys.exit({status})"]
+                    if status:
+                        with self.assertRaises(subprocess.CalledProcessError) as failure:
+                            EXPORTER.run_llvm(argv, output)
+                        self.assertEqual(failure.exception.returncode, status)
+                        self.assertEqual(failure.exception.stderr, "LLVM diagnostic\n")
+                    else:
+                        self.assertEqual(EXPORTER.run_llvm(argv, output), "LLVM diagnostic\n")
+                    self.assertEqual(errors.getvalue(), "LLVM diagnostic\n")
+            output.seek(0)
+            self.assertEqual(output.read(), "coverage output\ncoverage output\n")
+
+    def test_failed_diagnostic_report_retains_its_status_without_replacing_export_outcome(self):
+        argv = ["llvm-cov", "export", "first-object", "--object=second-object", "--instr-profile=merged.profdata"]
+        error = subprocess.CalledProcessError(37, argv, stderr="LLVM report failed\n")
+        with patch.object(EXPORTER, "run_llvm", side_effect=error) as run:
+            diagnostic = EXPORTER.report_mismatches(argv)
+        run.assert_called_once_with(["llvm-cov", "report", "--dump", *argv[2:]], subprocess.DEVNULL)
+        self.assertEqual(diagnostic, {"exit_code": 37, "stderr": "LLVM report failed\n"})
+
+    def test_diagnostic_launch_failure_is_reported_without_replacing_export_outcome(self):
+        with patch.object(EXPORTER, "run_llvm", side_effect=OSError("diagnostic denied")), \
+                contextlib.redirect_stderr(io.StringIO()) as errors:
+            diagnostic = EXPORTER.report_mismatches(["llvm-cov", "export", "object"])
+        self.assertEqual(diagnostic, {"exit_code": None, "stderr": None, "error": "diagnostic denied"})
+        self.assertIn("coverage mismatch diagnostics: diagnostic denied", errors.getvalue())
 
 
 class CompiledCoverageObjects(unittest.TestCase):
