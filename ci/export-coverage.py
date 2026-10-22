@@ -85,7 +85,7 @@ def coverage_profiles(profiles):
     return raw, execution
 
 
-def export(profiles, nextest, cargo_artifacts, doctests, output, root):
+def export(profiles, nextest, cargo_artifacts, doctests, output, root, *, mismatch_diagnostics="off"):
     objects = coverage_objects(nextest, cargo_artifacts, doctests, root)
     raw, execution = coverage_profiles(profiles)
     sysroot = pathlib.Path(command(["rustc", "--print", "sysroot"]).strip())
@@ -104,11 +104,13 @@ def export(profiles, nextest, cargo_artifacts, doctests, output, root):
                   "-o", str(directory / "merged.profdata")])
         argv = [str(llvm / "llvm-cov"), "export", str(objects[0]), *[f"--object={path}" for path in objects[1:]],
                 f"--instr-profile={directory / 'merged.profdata'}"]
-        diagnostics = []
+        diagnostics = provenance["export_diagnostics"] = {}
         for format, suffix in (("lcov", "lcov"), ("text", "json")):
             with (directory / suffix).open("w") as stream:
-                diagnostics.append(run_llvm([*argv, f"--format={format}", *(["--skip-functions"] if format == "lcov" else [])], stream))
-        if any(" functions have mismatched data" in diagnostic for diagnostic in diagnostics):
+                diagnostics[format] = run_llvm([*argv, f"--format={format}", *(["--skip-functions"] if format == "lcov" else [])], stream)
+            write_json(output.with_suffix(".objects.json"), provenance)
+        if mismatch_diagnostics == "report" and any(
+                " functions have mismatched data" in diagnostic for diagnostic in diagnostics.values()):
             provenance["mismatch_diagnostics"] = report_mismatches(argv)
             write_json(output.with_suffix(".objects.json"), provenance)
         sources = parse_lcov((directory / "lcov").read_text(), root)
@@ -130,10 +132,13 @@ def main():
     parser.add_argument("--doctests", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path.cwd())
+    parser.add_argument("--mismatch-diagnostics", choices=["off", "report"], default="off",
+                        help="Opt in to a separate mismatch report after successful exports (default: off)")
     args = parser.parse_args()
     started = time.monotonic()
     try:
-        export(args.profiles, args.nextest, args.cargo_artifacts, args.doctests, args.output, args.root.resolve())
+        export(args.profiles, args.nextest, args.cargo_artifacts, args.doctests, args.output, args.root.resolve(),
+               mismatch_diagnostics=args.mismatch_diagnostics)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"coverage: {error}", file=sys.stderr)
         return 1

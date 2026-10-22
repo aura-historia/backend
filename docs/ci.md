@@ -105,13 +105,19 @@ from test processes within each phase; they do not bound total workspace bytes.
 Compilation and discovery profiles preserve macro-expansion coverage separately from test execution;
 they cannot replace required execution profiles. Cached builds contribute only the
 compiler work actually performed. Object paths, profiles and compiler versions
-are retained with test diagnostics. When an export reports mismatched mapping
-records, one diagnostic `llvm-cov report --dump --num-threads=1` uses the same
-objects and merged profile. Its stdout is discarded; raw stderr and exit status
-are retained in the object manifest's `mismatch_diagnostics` and the job log. Diagnostic failures do
-not replace export outcomes. Mismatch counts describe skipped mapping records;
-raw function names and expected hashes require corroboration before source
-attribution. Each Nextest invocation preserves its JUnit
+are retained with test diagnostics. Every required export relays raw stderr to the
+job log; each successful export also saves it in the object manifest's
+`export_diagnostics`, keyed by LLVM format (`lcov` or `text` for JSON).
+The separate mismatch report is off by default in required CI and all measurement
+controls. An explicit `--mismatch-diagnostics report` runs one diagnostic
+`llvm-cov report --dump --num-threads=1` after both strict exports succeed, if either
+warns about mismatched data. It uses the same objects and merged profile, discards stdout,
+and retains raw stderr and exit status in `mismatch_diagnostics` and the job log.
+Diagnostic failures do not replace export outcomes. Mismatch counts describe skipped
+mapping records; raw function names and expected hashes require corroboration before
+source attribution. Attribution applies only to the observed source/profile vector;
+different cold/warm compilation can produce different unused copies.
+Each Nextest invocation preserves its JUnit
 report before the next phase, including failures; slowest cases and stage timings
 remain alongside the phase logs. Cargo control outcomes remain in those logs.
 
@@ -194,6 +200,67 @@ from ordinary managed commands, then execute their owning phases. Job-wide exclu
 leases coordinate global mutation across every group and invocation; a one-thread
 group alone cannot provide that guarantee. Preserve ignored child probes and their
 parent-driven executions in case accounting.
+
+## Adding tests and local feedback
+
+Keep tests with their owning crate and follow the
+[test placement rules](arch.md#20-testing-strategy). Start with the smallest useful
+package/target selection; a fixture-free library example is:
+
+```sh
+cargo test --locked --package money --all-features --lib
+```
+
+For managed consumer tests, use the [supervisor commands](../src/test-api/README.md#job-supervisor)
+and [isolated context contract](../src/test-api/README.md#isolated-test-contexts),
+with Nextest threads no higher than supervisor slots. Keep pristine and unmanaged
+controls in their [exceptional phases](../src/test-api/README.md#exceptional-execution-phases).
+The lane driver reproduces complete lane execution; its `--list-only` mode checks
+compiled ownership and case parity before starting fixtures.
+
+For a new or changed target, review its source-classification evidence and the
+[package ownership rules](#inventory-and-parity-contract), then update the manifest
+through the reviewed inventory flow. New cases in existing targets remain visible
+through compiled discovery. Preserve ignored child controls and doctest eligibility;
+do not make an inventory failure pass by disabling a target. Register manual
+resources before creation and delayed workers with their real stop/join operation.
+
+## Diagnosing failures
+
+Start with the failed lane's attempt-scoped `tests-*-execution-attempt-*` artifact
+for `job.json`, `discovery/compile.log`, case lists, phase/JUnit logs and disk samples.
+The final `tests-*-attempt-*` artifact adds available LCOV and its object manifest.
+Check required export errors before optional diagnostics; the final gate still
+requires successful tests and every exact coverage artifact.
+
+To inspect a concrete mismatch on a local managed lane, retain its original raw
+profiles, objects and build metadata, then rerun the exporter from the same checkout
+with the pinned toolchain and its `llvm-tools-preview` component installed. Set
+`coverage_dir` and `lane_dir` to that invocation's absolute output directories:
+
+```sh
+RUSTUP_TOOLCHAIN=nightly-2026-10-20 python3 ci/export-coverage.py \
+  --profiles "$coverage_dir/profiles" \
+  --nextest "$lane_dir/discovery/nextest.json" \
+  --cargo-artifacts "$lane_dir/discovery/compile.jsonl" \
+  --cargo-artifacts "$lane_dir/supervisor.jsonl" \
+  --doctests "$coverage_dir/doctests" --output "$coverage_dir/diagnostic.lcov" \
+  --mismatch-diagnostics report
+```
+
+Include every original Cargo metadata stream; omit the supervisor stream when that
+invocation did not build it. Ordinary hosted artifacts contain provenance and
+normalized coverage, rather than replayable profiles or binaries. Reproduce the
+lane locally when those inputs are unavailable. A skipped or successful diagnostic
+report does not prove that a coverage delta is harmless: compare actual case,
+feature and owned source/line/branch coverage before attributing a change.
+
+For interrupted fixtures, use the supervisor's
+[owned-resource GC](../src/test-api/README.md#job-supervisor) with the original
+state directory. Retained state or a missing cleanup-complete event requires
+investigation; a timed-out job does not prove cleanup. Never prune shared Docker
+resources. The [existing smoke drivers](../src/test-api/README.md#smoke-verification)
+check recovery and exact owned-resource absence when that behavior needs diagnosis.
 
 ## Repeatable measurements
 
