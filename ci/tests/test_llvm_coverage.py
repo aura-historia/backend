@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -257,6 +258,40 @@ class ExportDiagnostics(unittest.TestCase):
 
 
 class CompiledCoverageObjects(unittest.TestCase):
+    def test_captured_executable_bytes_must_match_the_recorded_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            binary = root / 'captured'
+            binary.write_bytes(b'original ELF bytes')
+            nextest = root / 'nextest.json'
+            nextest.write_text('{"rust-suites":{}}')
+            metadata = root / 'compile.jsonl'
+            metadata.write_text(json.dumps({'reason': 'compiler-artifact', 'executable': str(binary),
+                'original_executable': '/original/path', 'coverage_sha256': hashlib.sha256(binary.read_bytes()).hexdigest()}) +
+                '\n{"reason":"build-finished","success":true}\n')
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [metadata], root / 'doctests', root), [binary])
+            binary.write_bytes(b'replacement ELF bytes')
+            with self.assertRaisesRegex(ValueError, 'Captured coverage object changed'):
+                EXPORTER.coverage_objects(nextest, [metadata], root / 'doctests', root)
+
+    def test_lane_manifest_requires_every_expected_compilation_stream(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            manifest = root / 'coverage-artifacts.json'
+            manifest.write_text(json.dumps(['compile.jsonl', 'pristine.jsonl', 'managed.jsonl', 'doctests.jsonl', 'unmanaged-0.jsonl']))
+            expected = [root / name for name in json.loads(manifest.read_text())]
+            self.assertEqual(EXPORTER.artifact_paths([], [manifest]), expected)
+            nextest = root / 'nextest.json'
+            nextest.write_text('{"rust-suites":{}}')
+            for artifact in expected[:-1]:
+                artifact.write_text('{"reason":"compiler-artifact"}\n{"reason":"build-finished","success":true}\n')
+            with self.assertRaises(FileNotFoundError):
+                EXPORTER.coverage_objects(nextest, expected, root / 'doctests', root)
+            for value in ([], {}, ['../compile.jsonl'], [None]):
+                manifest.write_text(json.dumps(value))
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    EXPORTER.artifact_paths([], [manifest])
+
     def test_objects_follow_actual_metadata_and_missing_executable_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

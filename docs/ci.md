@@ -78,6 +78,9 @@ references; unavailable identities are null and policy/read failures retain a
 diagnostic before the execution artifact uploads.
 Instrumented supervisor builds and tests both use debug level one, avoiding a
 second dependency build caused only by different dev/test debug settings.
+Native lanes, legacy controls and layout measurements set the lazy PostgreSQL
+fixture override to the managed supervisor's immutable image before execution
+and image prefetch, so these paths use the same PostgreSQL image policy.
 
 Test jobs reclaim only the unused Android SDK, .NET and CodeQL installations on
 explicitly GitHub-hosted Linux runners. Local and self-hosted execution performs
@@ -92,6 +95,16 @@ The same periodic record includes nullable host memory total/available KiB.
 [`export-coverage.py`](../ci/export-coverage.py) selects Nextest test executable
 paths, Cargo `compiler-artifact.executable` paths (including child binaries and
 the supervisor), and Cargo-recorded repository proc-macro shared libraries.
+Every Cargo-backed execution phase records its own successful build metadata,
+including narrower exceptional selections and doctest dependency builds. The
+driver's `coverage-artifacts.json` lists every required phase stream; missing or
+incomplete streams fail export. Cargo-recorded non-test executables are copied
+before another phase can replace their stable paths. Metadata and the object
+manifest retain the original and captured paths and content hash; required export
+uses the copies. Identical executable bytes share one retained copy under the
+invocation's coverage directory, outside Cargo caches and ordinary artifact uploads.
+These copies add local disk usage; benchmark diagnostics retain them with the raw
+profiles for replay.
 Nextest's `non-test-binaries` runtime/archive metadata can also list Rust metadata
 and archives as `dylib`; Cargo owns executable and proc-macro object selection.
 Rustdoc retains
@@ -242,14 +255,16 @@ with the pinned toolchain and its `llvm-tools-preview` component installed. Set
 RUSTUP_TOOLCHAIN=nightly-2026-10-20 python3 ci/export-coverage.py \
   --profiles "$coverage_dir/profiles" \
   --nextest "$lane_dir/discovery/nextest.json" \
-  --cargo-artifacts "$lane_dir/discovery/compile.jsonl" \
+  --cargo-artifact-manifest "$lane_dir/discovery/coverage-artifacts.json" \
   --cargo-artifacts "$lane_dir/supervisor.jsonl" \
   --doctests "$coverage_dir/doctests" --output "$coverage_dir/diagnostic.lcov" \
   --mismatch-diagnostics report
 ```
 
-Include every original Cargo metadata stream; omit the supervisor stream when that
-invocation did not build it. Ordinary hosted artifacts contain provenance and
+Include the original phase manifest and any separately recorded Cargo metadata
+streams; omit the supervisor stream when that invocation did not build it.
+Retain the captured non-test executables with the other local objects for replay.
+Ordinary hosted artifacts contain provenance and
 normalized coverage, rather than replayable profiles or binaries. Reproduce the
 lane locally when those inputs are unavailable. A skipped or successful diagnostic
 report does not prove that a coverage delta is harmless: compare actual case,

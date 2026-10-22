@@ -33,11 +33,12 @@ class LaneMeasurementCommands(unittest.TestCase):
         self.assertEqual(execute_command[2:6], ["--lane", "INFRASTRUCTURE", "--lane", "REMAINING"])
         self.assertEqual(commands[-1][1], [sys.executable, "/checkout/ci/export-coverage.py",
             "--profiles", "/evidence/profiles", "--nextest", "/evidence/discovery/nextest.json",
+            "--cargo-artifact-manifest", "/evidence/discovery/coverage-artifacts.json",
             "--doctests", "/evidence/doctests", "--cargo-artifacts", "/evidence/compile-discovery/compile.jsonl",
-            "--cargo-artifacts", "/evidence/discovery/compile.jsonl", "--cargo-artifacts", "/evidence/supervisor.jsonl",
+            "--cargo-artifacts", "/evidence/supervisor.jsonl",
             "--output", "/evidence/coverage.lcov"])
-        self.assertEqual(commands[1][1][-2:], ["_", "/evidence/supervisor.jsonl"])
-        self.assertIn("--message-format=json-render-diagnostics", commands[1][1][2])
+        self.assertEqual(commands[1][1][:5], [sys.executable, "/checkout/ci/capture-cargo.py", "--output", "/evidence/supervisor.jsonl", "--"])
+        self.assertIn("--message-format=json-render-diagnostics", commands[1][1])
 
     def test_measurements_pin_nightly_and_record_the_selected_compiler_environment(self):
         with patch.object(BENCHMARK.subprocess, "check_output", return_value="/nightly/rustdoc\n"):

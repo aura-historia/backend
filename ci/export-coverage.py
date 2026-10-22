@@ -2,6 +2,7 @@
 """Export lane coverage with the selected Rust toolchain's bundled LLVM tools."""
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -46,6 +47,7 @@ def coverage_objects(nextest, cargo_artifacts, doctests, root):
         raise ValueError("No Cargo coverage artifact metadata was recorded")
     data = json.loads(nextest.read_text())
     objects = {pathlib.Path(suite["binary-path"]).resolve() for suite in data["rust-suites"].values()}
+    captured = {}
     # Nextest's non-test-binaries also labels metadata and archives as "dylib".
     # Cargo's executable field records runtime binaries without that ambiguity.
     for artifact in cargo_artifacts:
@@ -58,7 +60,13 @@ def coverage_objects(nextest, cargo_artifacts, doctests, root):
             if item.get("reason") != "compiler-artifact":
                 continue
             if item.get("executable"):
-                objects.add(pathlib.Path(item["executable"]).resolve())
+                path = pathlib.Path(item["executable"]).resolve()
+                objects.add(path)
+                if item.get("original_executable"):
+                    digest = item["coverage_sha256"]
+                    if path in captured and captured[path] != digest:
+                        raise ValueError(f"Conflicting captured executable hashes: {path}")
+                    captured[path] = digest
             elif "proc-macro" in item.get("target", {}).get("kind", []) and source_path(item["target"]["src_path"], root):
                 libraries = [pathlib.Path(filename).resolve() for filename in item["filenames"] if filename.endswith(".so")]
                 if not libraries:
@@ -74,7 +82,24 @@ def coverage_objects(nextest, cargo_artifacts, doctests, root):
     for path in objects:
         if not path.is_file():
             raise ValueError(f"Compiled coverage object is missing: {path}")
+        if path in captured:
+            with path.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != captured[path]:
+                    raise ValueError(f"Captured coverage object changed: {path}")
     return sorted(objects)
+
+
+def artifact_paths(artifacts, manifests):
+    result = list(artifacts)
+    for manifest in manifests:
+        names = json.loads(manifest.read_text())
+        if (not isinstance(names, list) or not names or any(
+                not isinstance(name, str) or name in {"", ".", ".."} or pathlib.Path(name).name != name for name in names)):
+            raise ValueError(f"Invalid Cargo coverage artifact manifest: {manifest}")
+        result.extend(manifest.parent / name for name in names)
+    if len(result) != len(set(result)):
+        raise ValueError("Duplicate Cargo coverage artifact metadata")
+    return result
 
 
 def coverage_profiles(profiles):
@@ -94,6 +119,10 @@ def export(profiles, nextest, cargo_artifacts, doctests, output, root, *, mismat
     output.parent.mkdir(parents=True, exist_ok=True)
     provenance = {"objects": list(map(str, objects)), "profiles": list(map(str, raw)),
                   "execution_profiles": list(map(str, execution)), "cargo_artifacts": list(map(str, cargo_artifacts)),
+                  "captured_executables": [{"original": item["original_executable"], "retained": item["executable"],
+                                            "sha256": item["coverage_sha256"]}
+                      for artifact in cargo_artifacts for line in artifact.read_text().splitlines()
+                      if (item := json.loads(line)).get("original_executable")],
                   "rustc": command(["rustc", "-Vv"]).strip(), "llvm_cov": command([str(llvm / "llvm-cov"), "--version"]).strip()}
     write_json(output.with_suffix(".objects.json"), provenance)
     with tempfile.TemporaryDirectory(prefix="llvm-coverage-", dir=output.parent) as temporary:
@@ -128,7 +157,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", type=pathlib.Path, required=True)
     parser.add_argument("--nextest", type=pathlib.Path, required=True)
-    parser.add_argument("--cargo-artifacts", type=pathlib.Path, action="append", required=True)
+    parser.add_argument("--cargo-artifacts", type=pathlib.Path, action="append", default=[])
+    parser.add_argument("--cargo-artifact-manifest", type=pathlib.Path, action="append", default=[],
+                        help="Require every phase metadata stream listed by the lane driver")
     parser.add_argument("--doctests", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path.cwd())
@@ -137,7 +168,8 @@ def main():
     args = parser.parse_args()
     started = time.monotonic()
     try:
-        export(args.profiles, args.nextest, args.cargo_artifacts, args.doctests, args.output, args.root.resolve(),
+        artifacts = artifact_paths(args.cargo_artifacts, args.cargo_artifact_manifest)
+        export(args.profiles, args.nextest, artifacts, args.doctests, args.output, args.root.resolve(),
                mismatch_diagnostics=args.mismatch_diagnostics)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"coverage: {error}", file=sys.stderr)

@@ -180,6 +180,28 @@ class LaneDriverPhases(unittest.TestCase):
                           "doctest_targets": ['test-api::lib::test_api']}
         self.suites = {DRIVER.PRISTINE_TARGET: {}}
 
+    def test_expected_artifacts_include_every_compiling_phase_for_each_harness(self):
+        self.args.output.mkdir()
+        for harness in ('nextest', 'libtest'):
+            self.args.harness = harness
+            DRIVER.artifact_manifest(self.args, self.selection, self.suites)
+            expected = ['compile.jsonl', 'pristine.jsonl', *(['managed.jsonl'] if harness == 'nextest' else []),
+                        'doctests.jsonl', 'unmanaged-0.jsonl', 'unmanaged-1.jsonl']
+            self.assertEqual(json.loads((self.args.output / 'coverage-artifacts.json').read_text()), expected)
+
+    def test_capture_options_precede_libtest_separator_and_reach_supervised_nextest(self):
+        environment = {'AURA_CI_COVERAGE_DIR': str(self.root)}
+        for command, option in ((['cargo', 'test', '--doc', '--', '--nocapture'], '--message-format'),
+                (['supervisor', 'run', '--', 'cargo', 'nextest', 'run', '-E', 'test(case)'], '--cargo-message-format')):
+            with self.subTest(command=command), patch.object(DRIVER, 'execute_cargo') as capture:
+                DRIVER.execute_compiling_phase(self.args, command, self.root, environment, 'phase')
+            actual = capture.call_args.args[0]
+            self.assertIn(option, actual)
+            self.assertEqual(actual[actual.index(option) + 1], 'json-render-diagnostics')
+            if option == '--message-format':
+                self.assertLess(actual.index(option), actual.index('--'))
+                self.assertEqual(actual[-1], '--nocapture')
+
     def test_pristine_precedes_ordinary_and_unmanaged_controls_preserve_coverage(self):
         with patch.object(DRIVER, "arguments", return_value=self.args), patch.object(DRIVER, "command", return_value=str(self.root)), patch.object(
                 DRIVER, "discover_lane", return_value=(self.selection, self.suites)), patch.object(DRIVER, "execute") as execute, patch.dict(
@@ -245,7 +267,7 @@ class LaneDriverPhases(unittest.TestCase):
     def test_missing_doctest_completion_marker_fails_and_complete_markers_use_separate_profiles(self):
         self.selection["doctest_targets"] = ["example::lib::example"]
         coverage = self.root / "coverage"
-        with patch.object(DRIVER, "execute") as execute, patch.dict(os.environ, {"AURA_CI_COVERAGE_DIR": str(coverage)}):
+        with patch.object(DRIVER, "execute_cargo") as execute, patch.dict(os.environ, {"AURA_CI_COVERAGE_DIR": str(coverage)}):
             with self.assertRaisesRegex(ValueError, "Executed doctest targets differ"):
                 DRIVER.managed_phase(self.args, self.root, self.selection, {})
             managed, doctests = [call.args[2]["LLVM_PROFILE_FILE"] for call in execute.call_args_list]

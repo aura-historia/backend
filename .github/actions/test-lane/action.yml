@@ -118,7 +118,9 @@ runs:
         LANE_ID: ${{ inputs.id }}
       run: |
         python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
-          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- bash -c 'cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics > "$1"' _ "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl"
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          python3 ci/capture-cargo.py --output "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl" -- \
+          cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics
 
     - name: Run owned targets and doctests
       shell: bash
@@ -189,7 +191,7 @@ runs:
         PROFILE: ${{ inputs.profile }}
         LEGACY_PACKAGE: ${{ inputs.legacy_package }}
       run: |
-        arguments=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/discovery/compile.jsonl")
+        arguments=(--cargo-artifact-manifest "$RUNNER_TEMP/lane/$LANE_ID/discovery/coverage-artifacts.json")
         if [[ "$PROFILE" != none || "$LEGACY_PACKAGE" == test-api || "$LEGACY_PACKAGE" == database-migration-lambda ]]; then
           arguments+=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl")
         fi

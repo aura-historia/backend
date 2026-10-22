@@ -41,14 +41,15 @@ def commands(args, root, target, output):
     compile = list(driver)
     compile[compile.index("--output") + 1] = str(output / "compile-discovery")
     result = [("COMPILE_LINK", [*compile, "--list-only"])]
-    artifacts = [output / "compile-discovery/compile.jsonl", output / "discovery/compile.jsonl"]
+    artifacts = [output / "compile-discovery/compile.jsonl"]
     if args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"}:
         artifacts.append(output / "supervisor.jsonl")
-        result.append(("SUPERVISOR_COMPILE", ["bash", "-c",
-            'cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics > "$1"',
-            "_", str(artifacts[-1])]))
+        result.append(("SUPERVISOR_COMPILE", [sys.executable, str(root / "ci/capture-cargo.py"),
+            "--output", str(artifacts[-1]), "--", "cargo", "build", "--locked", "--package", "test-api",
+            "--all-features", "--bin", "aura-test-env", "--message-format=json-render-diagnostics"]))
     return [*result, ("TESTS_AND_FIXTURES", driver), ("COVERAGE", [sys.executable, str(root / "ci/export-coverage.py"),
             "--profiles", str(output / "profiles"), "--nextest", str(output / "discovery/nextest.json"),
+            "--cargo-artifact-manifest", str(output / "discovery/coverage-artifacts.json"),
             "--doctests", str(output / "doctests"), *[value for artifact in artifacts for value in ("--cargo-artifacts", str(artifact))],
             "--output", str(output / "coverage.lcov")])]
 
