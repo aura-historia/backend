@@ -479,11 +479,12 @@ function renderWorkbenchPanel(detail, matrix, schemas) {
     if (activeWorkbenchPanel === 'data') return renderDataPanel(matrix);
     if (activeWorkbenchPanel === 'diff') return renderDiffPanel(schemas);
     if (activeWorkbenchPanel === 'json') return renderJsonPanel(detail);
-    return renderSelectorPanel(schemas);
+    return renderSelectorPanel(schemas, matrix);
 }
 
-function renderSelectorPanel(schemas) {
+function renderSelectorPanel(schemas, matrix) {
     const rule = currentRule();
+    const matrixPage = currentMatrixPage(matrix);
     return `<div class="tab-panel">
       ${renderSchemaOrderControls(schemas)}
       <div class="field-grid">
@@ -494,7 +495,7 @@ function renderSelectorPanel(schemas) {
         </label>
         <label>Field
           <select onchange="selectedField=this.value; rerenderWorkbench()">
-            ${selectorFields.map(field => `<option value="${field}" ${field === selectedField ? 'selected' : ''}>${displayName(field)}</option>`).join('')}
+            ${selectorFields.map(field => `<option value="${field}" ${field === selectedField ? 'selected' : ''}>${displayName(field)}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -505,6 +506,7 @@ function renderSelectorPanel(schemas) {
           <button class="primary" onclick="saveCurrentField()">Save field</button>
           <button class="danger" ${optionalFields.has(selectedField) ? '' : 'disabled'} onclick="deleteCurrentRule()">Delete rule</button>
         </div>
+        ${renderSelectedFieldFindings(matrixPage)}
       </div>
       ${renderRuleOptions(rule)}
       ${renderAdditionalSelectors(rule)}
@@ -653,6 +655,76 @@ function renderCoverageSummary(matrix) {
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
+      ${renderPlausibilitySummary(matrix)}
+    </div>`;
+}
+
+// Check codes of `plausibility_findings` and `cross_page_findings` in the schema matrix.
+const plausibilityCheckDescriptions = {
+    BLANK: 'is blank',
+    TOO_LONG: 'is longer than a label',
+    ALL_ZERO_DIGITS: 'has only zero digits',
+    MARKUP_TOKENS: 'contains CSS or script tokens',
+    DUPLICATE_VALUES: 'repeats a value',
+    INVALID_IDENTIFIER: 'is not a valid source listing id',
+    REPEATED_ACROSS_PAGES: 'repeats a value of another product page'
+};
+
+// The per-page and cross-page plausibility checks a matrix page failed. Any of them
+// keeps a generated schema out of auto-approval.
+function pageFindings(page) {
+    return [...(page?.plausibility_findings || []), ...(page?.cross_page_findings || [])];
+}
+
+function fieldFindings(page, field) {
+    return pageFindings(page).filter(finding => finding.field === field);
+}
+
+function findingDescription(finding) {
+    return `${displayName(finding.field)} ${plausibilityCheckDescriptions[finding.check] || finding.check}`;
+}
+
+function renderFindingBadges(findings) {
+    return findings.map(finding =>
+        `<span class="badge badge-rejected finding-badge" title="${escapeHtmlAttr(findingDescription(finding))}">${escapeHtml(finding.check)}</span>`
+    ).join(' ');
+}
+
+// Cross-page findings name the values another product page repeats; for a list such as
+// the images they point out the default share image among the product photos.
+function renderSharedValues(findings) {
+    const values = findings.flatMap(finding => finding.values || []);
+    if (!values.length) return '';
+    return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+}
+
+function renderPlausibilitySummary(matrix) {
+    const failingSchemas = matrix.candidates.filter(candidate =>
+        (candidate.pages || []).some(page => pageFindings(page).length > 0)
+    );
+    if (!failingSchemas.length) {
+        return '<div class="muted">Every schema passed the plausibility checks on every live page.</div>';
+    }
+    const candidate = selectedCandidate(matrix);
+    const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
+    const perPage = failingPages.map(page =>
+        `${escapeHtml(displayName(page.role))} (${pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join(', ')})`
+    ).join('; ');
+    return `<div class="plausibility-summary">
+      <strong>Plausibility</strong>
+      <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
+      ${failingPages.length
+        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${failingPages.length === 1 ? '' : 's'}: ${perPage}</div>`
+        : '<div class="muted">Selected schema passed them on every live page.</div>'}
+    </div>`;
+}
+
+function renderSelectedFieldFindings(page) {
+    const findings = fieldFindings(page, selectedField);
+    if (!findings.length) return '';
+    return `<div class="hint-card finding-hint">
+      ${renderFindingBadges(findings)}
+      <span>${findings.map(finding => escapeHtml(findingDescription(finding))).join('; ')} on the selected page.</span>
     </div>`;
 }
 
@@ -719,13 +791,21 @@ function renderCurrentExtractedData(matrix) {
     const page = selectedMatrixPage(candidate);
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
+    const findings = pageFindings(page);
+    // A rejecting plausibility finding fails the page but keeps its extraction, so the
+    // reviewer sees the failing check next to the field it concerns.
     return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}</td>
-        <td>${page.apply_ok ? rawDataCell(page.extracted) + renderOptionalFieldMisses(misses) : expandableValue(page.error || 'Schema did not apply.')}</td>
+        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${findings.length === 1 ? '' : 's'}</span>` : ''}</td>
+        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}</td>
       </tr>
     </tbody></table></div>`;
+}
+
+function currentMatrixPage(matrix) {
+    const candidate = matrix && selectedCandidate(matrix);
+    return candidate ? selectedMatrixPage(candidate) : null;
 }
 
 function renderOptionalFieldMisses(misses) {
@@ -745,16 +825,22 @@ function selectedCandidate(matrix) {
     return matrix.candidates.find(c => c.schema_index === selectedSchemaIndex);
 }
 
-function rawDataCell(raw) {
+// A field with a failed plausibility check stays listed even when it is blank.
+function rawDataCell(raw, page) {
     if (!raw) return '<span class="muted">No extracted data.</span>';
-    const fields = Object.entries(raw).filter(([, value]) => hasRawValue(value));
+    const fields = Object.entries(raw).filter(([key, value]) =>
+        hasRawValue(value) || fieldFindings(page, key).length > 0
+    );
     if (!fields.length) return '<span class="muted">No extracted data.</span>';
     return `<dl class="raw-data">${
-        fields.map(([key, value]) => `
-      <div>
+        fields.map(([key, value]) => {
+            const findings = fieldFindings(page, key);
+            return `
+      <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${rawValue(value)}</dd>
-      </div>`).join('')
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : ''}</dd>
+      </div>`;
+        }).join('')
     }</dl>`;
 }
 

@@ -1,7 +1,8 @@
-//! Per-page plausibility checks on raw extracted values. They inspect the strings a
-//! schema extracted from one page and never convert them into typed values: price
-//! parsing, currency, availability and language belong to the ProductListing
-//! normalization worker, which reports what it cannot normalize.
+//! Plausibility checks on raw extracted values. They inspect the strings a schema
+//! extracted, from one page here and across the review pages in `cross_page`, and never
+//! convert them into typed values: price parsing, currency, availability and language
+//! belong to the ProductListing normalization worker, which reports what it cannot
+//! normalize.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
@@ -9,6 +10,10 @@ use product_listing_core::source_listing_id::SourceListingId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
+
+mod cross_page;
+
+pub use cross_page::{CrossPageCheck, CrossPageFinding, CrossPageFindings, PageExtraction};
 
 /// Longest plausible `state`, price or estimate, in characters after collapsing
 /// whitespace runs. These fields hold labels such as "In stock", "£1,250" or

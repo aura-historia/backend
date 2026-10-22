@@ -1,7 +1,7 @@
 use super::SelectorFieldEvaluation;
 use crate::CrawlerReviewPageId;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
-use crate::scraper::plausibility::PlausibilityFindings;
+use crate::scraper::plausibility::{CrossPageFindings, PlausibilityFindings};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,5 +22,16 @@ pub struct SchemaPageEvaluation {
     /// Every per-page plausibility check the extraction failed. A cached matrix
     /// without them predates the checks and is refreshed from the live pages.
     pub plausibility_findings: PlausibilityFindings,
+    /// The values the extraction shares with the candidate's extraction of another
+    /// review page. A cached matrix without them predates the cross-page checks and is
+    /// refreshed from the live pages.
+    pub cross_page_findings: CrossPageFindings,
     pub fields: Vec<SelectorFieldEvaluation>,
+}
+
+impl SchemaPageEvaluation {
+    /// Whether the extraction failed a per-page or a cross-page plausibility check.
+    pub fn fails_plausibility_checks(&self) -> bool {
+        !self.plausibility_findings.is_empty() || !self.cross_page_findings.is_empty()
+    }
 }

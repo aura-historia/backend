@@ -4,7 +4,7 @@ use crate::review::model::{
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::plausibility::PlausibilityFindings;
+use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
 use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
 
@@ -65,23 +65,92 @@ fn evaluate_candidates(
     schemas
         .iter()
         .enumerate()
-        .map(|(schema_index, schema)| SchemaCandidateEvaluation {
-            schema_index,
-            pages: pages
+        .map(|(schema_index, schema)| {
+            let mut page_evaluations: Vec<SchemaPageEvaluation> = pages
                 .iter()
                 .map(|page| evaluate_schema_page(schema, page))
-                .collect(),
+                .collect();
+            add_cross_page_findings(&mut page_evaluations);
+            SchemaCandidateEvaluation {
+                schema_index,
+                pages: page_evaluations,
+            }
         })
         .collect()
 }
 
-/// Deterministic approval requires every page to be covered by some candidate and no
-/// optional rule that matched nothing on every page its candidate applied to: the
-/// generator had those exact pages in hand, so a total miss is a defective selector,
-/// not page variance, and must stay in human review.
+/// Compares one candidate's extractions of the review pages, each of a different
+/// product. An extraction a rejecting finding withdrew takes part too: its selectors
+/// still produced it.
+fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
+    let (page_indices, extractions): (Vec<usize>, Vec<PageExtraction<'_>>) = pages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, page)| {
+            let raw = page.extracted.as_ref()?;
+            Some((
+                index,
+                PageExtraction {
+                    url: &page.url,
+                    raw,
+                },
+            ))
+        })
+        .unzip();
+    let findings = CrossPageFindings::of(&extractions);
+    for (index, findings) in page_indices.into_iter().zip(findings) {
+        pages[index].cross_page_findings = findings;
+    }
+}
+
+/// Deterministic approval requires every page to be covered by some candidate, no
+/// optional rule that matched nothing on every page its candidate applied to, and no
+/// failed plausibility check. The generator had those exact pages in hand, so a total
+/// miss is a defective selector, not page variance. A failed check, per page or across
+/// pages, shows a selector capturing something other than the product's value, even
+/// where runtime selection would route the page to another candidate, so the schemas
+/// stay in human review.
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
+        && !matrix
+            .candidates
+            .iter()
+            .flat_map(|candidate| &candidate.pages)
+            .any(SchemaPageEvaluation::fails_plausibility_checks)
+}
+
+/// A review page on which a candidate's extraction failed a per-page or cross-page
+/// plausibility check.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ImplausiblePage<'a> {
+    schema_index: usize,
+    page_reference: &'a SchemaPageReference,
+    url: &'a str,
+    role: &'a str,
+    plausibility_findings: &'a PlausibilityFindings,
+    cross_page_findings: &'a CrossPageFindings,
+}
+
+pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_>> {
+    matrix
+        .candidates
+        .iter()
+        .flat_map(|candidate| {
+            candidate
+                .pages
+                .iter()
+                .filter(|page| page.fails_plausibility_checks())
+                .map(|page| ImplausiblePage {
+                    schema_index: candidate.schema_index,
+                    page_reference: &page.page_reference,
+                    url: &page.url,
+                    role: &page.role,
+                    plausibility_findings: &page.plausibility_findings,
+                    cross_page_findings: &page.cross_page_findings,
+                })
+        })
+        .collect()
 }
 
 /// An optional rule of one candidate that matched nothing (primary and additional
@@ -210,6 +279,9 @@ fn evaluate_schema_page(
         extracted,
         error,
         plausibility_findings,
+        // Filled once every page is evaluated. Runtime selection never sees them, so
+        // they leave `apply_ok` alone.
+        cross_page_findings: CrossPageFindings::default(),
         fields,
     }
 }
@@ -669,6 +741,181 @@ mod tests {
 
         assert!(schema_matrix_has_required_coverage(&matrix));
         assert_eq!(unused_schema_indices(&matrix), vec![1]);
+    }
+
+    /// Any failed plausibility check, per page or across pages, keeps generated
+    /// schemas out of deterministic approval.
+    mod plausibility_gate {
+        use super::*;
+        use crate::scraper::plausibility::{CrossPageCheck, CrossPageFinding};
+
+        /// The page of a distinct product: its own identity, title and image, below a
+        /// document `<title>` that only names the shop's category.
+        fn product_page(path: &str, extra_html: &str) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: format!("https://shop.example/products/{path}"),
+                role: PAGE_ROLE_SEED.to_string(),
+                raw_html: format!(
+                    "<html><head><title>Antiques - Shop</title></head><body><span id=\"product-id\">{path}</span><h1>Product {path}</h1><span id=\"state\">Available</span><img src=\"/images/{path}.jpg\">{extra_html}</body></html>"
+                ),
+            }
+        }
+
+        fn cross_page_findings_of(
+            matrix: &SchemaMatrix,
+            candidate: usize,
+        ) -> Vec<Vec<CrossPageFinding>> {
+            matrix.candidates[candidate]
+                .pages
+                .iter()
+                .map(|page| page.cross_page_findings.as_slice().to_vec())
+                .collect()
+        }
+
+        fn repeated(field: PlausibilityField, value: &str) -> CrossPageFinding {
+            CrossPageFinding {
+                field,
+                check: CrossPageCheck::RepeatedAcrossPages,
+                values: vec![value.to_string()],
+            }
+        }
+
+        #[test]
+        fn should_approve_deterministically_when_distinct_products_pass_every_check() {
+            let pages = vec![product_page("chair", ""), product_page("table", "")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+
+            assert!(implausible_pages(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_report_a_document_title_shared_by_every_page_for_its_candidate_only() {
+            let schemas = vec![schema("h1"), schema("title")];
+            let pages = vec![product_page("chair", ""), product_page("table", "")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
+            let shared_title = vec![repeated(PlausibilityField::Title, "Antiques - Shop")];
+            assert_eq!(
+                cross_page_findings_of(&matrix, 1),
+                vec![shared_title.clone(), shared_title]
+            );
+            assert!(
+                matrix.candidates[1].pages.iter().all(|page| page.apply_ok),
+                "runtime selection cannot see a cross-page finding, so the page stays applied"
+            );
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_compare_only_pages_the_candidate_extracted() {
+            let schemas = vec![ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("meta[property='og:image']"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::ImageUrl,
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            }];
+            let share_image =
+                "<meta property=\"og:image\" content=\"https://shop.example/share.jpg\">";
+            let mut without_state = product_page("lamp", share_image);
+            without_state.raw_html = without_state
+                .raw_html
+                .replace("<span id=\"state\">Available</span>", "");
+            let pages = vec![
+                product_page("ewer", share_image),
+                product_page("saint", share_image),
+                without_state,
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            let shared_image = vec![repeated(
+                PlausibilityField::Images,
+                "https://shop.example/share.jpg",
+            )];
+            assert_eq!(
+                cross_page_findings_of(&matrix, 0),
+                vec![shared_image.clone(), shared_image, vec![]]
+            );
+            assert!(matrix.candidates[0].pages[2].extracted.is_none());
+        }
+
+        #[test]
+        fn should_block_deterministic_approval_on_a_rank_lowering_finding_of_a_covered_page() {
+            let schemas = vec![schema_with_price("h1")];
+            let pages = vec![
+                product_page("chair", "<span id=\"price\">£450</span>"),
+                product_page("sold-table", "<span id=\"price\">£0.00</span>"),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert_eq!(
+                matrix.candidates[0].pages[1]
+                    .plausibility_findings
+                    .as_slice(),
+                [finding(
+                    PlausibilityField::Price,
+                    PlausibilityCheck::AllZeroDigits
+                )]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// The capture falls back to the URL hash, which changes when the product moves.
+        #[test]
+        fn should_block_deterministic_approval_when_the_schema_has_no_identity_rule() {
+            let schemas = vec![ProductCssSelectorSchema {
+                source_listing_id: None,
+                ..schema("h1")
+            }];
+            let pages = vec![product_page("chair", ""), product_page("table", "")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert!(matrix.candidates[0].pages.iter().all(|page| {
+                page.plausibility_findings.as_slice()
+                    == [finding(
+                        PlausibilityField::SourceListingId,
+                        PlausibilityCheck::Blank,
+                    )]
+            }));
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_block_deterministic_approval_when_another_candidate_covers_a_rejected_page() {
+            let schemas = vec![
+                ProductCssSelectorSchema {
+                    state: text_rule("#details"),
+                    ..schema("h1")
+                },
+                schema("h1"),
+            ];
+            let details = format!(
+                "<div id=\"details\">{}</div>",
+                "Mahogany chest of drawers with original brass handles. ".repeat(3)
+            );
+            let pages = vec![
+                product_page("chest", &details),
+                product_page("table", &details),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(matrix.candidates[0].pages.iter().all(|page| !page.apply_ok));
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
     }
 
     #[test]

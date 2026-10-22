@@ -579,7 +579,7 @@ fn is_url_like(url: &str) -> bool {
     lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with('/')
 }
 
-fn has_known_image_extension(url: &str) -> bool {
+pub(crate) fn has_known_image_extension(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.contains(".jpg")
         || lower.contains(".jpeg")
