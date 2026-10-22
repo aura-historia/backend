@@ -129,6 +129,12 @@ pub struct ReqwestHtmlFetcher {
     allow_private_targets_for_test: bool,
 }
 
+/// What one HTTP request answered.
+enum Hop {
+    Page(FetchedHtml),
+    Redirect(Url),
+}
+
 struct FetchAttemptError {
     error: FetchError,
 }
@@ -171,6 +177,22 @@ impl AttemptLimit {
             Err(_) => Err(AttemptError::Final(FetchError::Network {
                 kind: NetworkErrorKind::Timeout,
                 details: "robots.txt fetch exceeded the attempt timeout".to_string(),
+            })),
+        }
+    }
+
+    /// Runs one HTTP request within the limit. Running out of the attempt's
+    /// time may be retried; running out of the whole fetch's may not.
+    async fn request(
+        self,
+        step: impl Future<Output = Result<Hop, AttemptError>>,
+    ) -> Result<Hop, AttemptError> {
+        match tokio::time::timeout_at(self.at, step).await {
+            Ok(result) => result,
+            Err(_) if self.total => Err(AttemptError::TotalTimeout),
+            Err(_) => Err(AttemptError::Failed(FetchError::Network {
+                kind: NetworkErrorKind::Timeout,
+                details: "HTML fetch attempt exceeded timeout".to_string(),
             })),
         }
     }
@@ -280,107 +302,90 @@ impl ReqwestHtmlFetcher {
         delay
     }
 
-    /// One admitted fetch attempt. Loading robots.txt counts against the
-    /// attempt and total budgets; the pacing wait extends both, so a long
-    /// `Crawl-delay` never turns into a fetch timeout.
+    /// One fetch attempt: the URL and each redirect hop are admitted by
+    /// robots.txt, paced and requested in turn. Loading robots.txt and the
+    /// requests count against the attempt and total budgets; every pacing
+    /// wait extends both, so neither a long `Crawl-delay` nor the latency
+    /// throttle on a slow shop turns into a fetch timeout.
     async fn attempt(
         &self,
         url: &Url,
         deadline: &mut tokio::time::Instant,
     ) -> Result<FetchedHtml, AttemptError> {
         let mut attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
-        let crawl_delay = AttemptLimit::new(attempt_deadline, *deadline)
-            .robots(self.check_robots(url))
-            .await?;
-        let waited = self.pace(url, crawl_delay).await;
-        *deadline += waited;
-        attempt_deadline += waited;
-        let limit = AttemptLimit::new(attempt_deadline, *deadline);
-        match tokio::time::timeout_at(limit.at, self.fetch_once(url, limit)).await {
-            Ok(result) => result,
-            Err(_) if limit.total => Err(AttemptError::TotalTimeout),
-            Err(_) => Err(AttemptError::Failed(FetchError::Network {
-                kind: NetworkErrorKind::Timeout,
-                details: "HTML fetch attempt exceeded timeout".to_string(),
-            })),
-        }
-    }
-
-    /// Checks a redirect hop against robots.txt. Hops run inside the timed
-    /// attempt, so the caller paces them with the latency throttle only,
-    /// without the `Crawl-delay` spacing. A target robots.txt disallows is
-    /// reported with its URL, so the pipeline can judge where the source URL
-    /// led.
-    async fn admit_redirect(&self, url: &Url) -> Result<(), FetchAttemptError> {
-        let robots = self.robots_policy(url).await?;
-        match robots.check(url) {
-            Ok(()) => {}
-            Err(RobotsRefusal::Disallowed) => {
-                return Err(FetchAttemptError {
-                    error: FetchError::RedirectDisallowed {
-                        final_url: url.clone(),
-                    },
-                });
-            }
-            Err(refusal) => return Err(robots_refusal_error(url, refusal)),
-        }
-        Ok(())
-    }
-
-    async fn fetch_once(
-        &self,
-        url: &Url,
-        limit: AttemptLimit,
-    ) -> Result<FetchedHtml, AttemptError> {
         let mut current_url = url.clone();
-        let original_url = url.clone();
-
         for redirect_count in 0..=HTML_MAX_REDIRECTS {
-            let domain = current_url.host_str().map(str::to_owned);
-            if redirect_count > 0 {
-                limit.robots(self.admit_redirect(&current_url)).await?;
-                self.pace(&current_url, None).await;
+            let limit = AttemptLimit::new(attempt_deadline, *deadline);
+            let crawl_delay = if redirect_count == 0 {
+                limit.robots(self.check_robots(&current_url)).await?
+            } else {
+                limit.robots(self.admit_redirect(&current_url)).await?
+            };
+            let waited = self.pace(&current_url, crawl_delay).await;
+            *deadline += waited;
+            attempt_deadline += waited;
+            let limit = AttemptLimit::new(attempt_deadline, *deadline);
+            let next_url = match limit.request(self.request_once(&current_url)).await? {
+                Hop::Page(page) => return Ok(page),
+                Hop::Redirect(next_url) => next_url,
+            };
+            if redirect_count == HTML_MAX_REDIRECTS {
+                break;
             }
-            let started = Instant::now();
-            let client = self.http_client_for(&current_url).await?;
-            let response = client
-                .get(current_url.clone())
-                .headers(self.default_headers.clone())
-                .send()
-                .await
-                .map_err(reqwest_fetch_error)?;
-            if response.status().is_redirection() {
-                self.record_domain_success_latency(domain.as_deref(), started.elapsed());
-                if redirect_count == HTML_MAX_REDIRECTS {
-                    return Err(AttemptError::Failed(unsafe_fetch_error(
-                        "redirect limit exceeded",
-                    )));
-                }
-                let next_url =
-                    redirect_target(&current_url, &response).map_err(public_target_fetch_error)?;
-                if !is_same_or_www_host(&original_url, &next_url) {
-                    return Err(AttemptError::Failed(unsafe_fetch_error(
-                        "redirect target host does not match configured host",
-                    )));
-                }
-                current_url = next_url;
-                continue;
+            if !is_same_or_www_host(url, &next_url) {
+                return Err(AttemptError::Failed(unsafe_fetch_error(
+                    "redirect target host does not match configured host",
+                )));
             }
-
-            let status = response.status();
-            if !status.is_success() {
-                self.record_domain_failure_latency(domain.as_deref(), started.elapsed());
-                return Err(http_status_fetch_error(response).into());
-            }
-            self.record_domain_success_latency(domain.as_deref(), started.elapsed());
-            let final_url = response.url().clone();
-            let html = read_bounded_html(response).await?;
-            return Ok(FetchedHtml::new(html, final_url, status));
+            current_url = next_url;
         }
 
         Err(AttemptError::Failed(unsafe_fetch_error(
             "redirect limit exceeded",
         )))
+    }
+
+    /// Checks a redirect hop against robots.txt and returns its origin's
+    /// `Crawl-delay`. A target robots.txt disallows is reported with its URL,
+    /// so the pipeline can judge where the source URL led.
+    async fn admit_redirect(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
+        let robots = self.robots_policy(url).await?;
+        match robots.check(url) {
+            Ok(()) => Ok(robots.crawl_delay()),
+            Err(RobotsRefusal::Disallowed) => Err(FetchAttemptError {
+                error: FetchError::RedirectDisallowed {
+                    final_url: url.clone(),
+                },
+            }),
+            Err(refusal) => Err(robots_refusal_error(url, refusal)),
+        }
+    }
+
+    /// Sends one request and reads the page, or the redirect target to follow.
+    async fn request_once(&self, url: &Url) -> Result<Hop, AttemptError> {
+        let domain = url.host_str();
+        let started = Instant::now();
+        let client = self.http_client_for(url).await?;
+        let response = client
+            .get(url.clone())
+            .headers(self.default_headers.clone())
+            .send()
+            .await
+            .map_err(reqwest_fetch_error)?;
+        let status = response.status();
+        if status.is_redirection() {
+            self.record_domain_success_latency(domain, started.elapsed());
+            let next_url = redirect_target(url, &response).map_err(public_target_fetch_error)?;
+            return Ok(Hop::Redirect(next_url));
+        }
+        if !status.is_success() {
+            self.record_domain_failure_latency(domain, started.elapsed());
+            return Err(http_status_fetch_error(response).into());
+        }
+        self.record_domain_success_latency(domain, started.elapsed());
+        let final_url = response.url().clone();
+        let html = read_bounded_html(response).await?;
+        Ok(Hop::Page(FetchedHtml::new(html, final_url, status)))
     }
 
     async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
@@ -624,13 +629,27 @@ mod tests {
     /// and every other request with the next of `pages`, after `page_delay`.
     struct TestShop {
         url: Url,
-        page_requests: Arc<Mutex<Vec<Instant>>>,
+        page_requests: Arc<Mutex<Vec<(Instant, String)>>>,
         robots_requests: Arc<AtomicUsize>,
     }
 
     impl TestShop {
         fn page_requests(&self) -> Vec<Instant> {
-            self.page_requests.lock().unwrap().clone()
+            self.page_requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(at, _)| *at)
+                .collect()
+        }
+
+        fn page_paths(&self) -> Vec<String> {
+            self.page_requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, path)| path.clone())
+                .collect()
         }
     }
 
@@ -662,7 +681,12 @@ mod tests {
                     let _ = socket.write_all(robots.as_bytes()).await;
                     continue;
                 }
-                page_requests.lock().unwrap().push(Instant::now());
+                let path = String::from_utf8_lossy(&buffer[..read])
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_owned();
+                page_requests.lock().unwrap().push((Instant::now(), path));
                 let Some(page) = pages.next() else {
                     return;
                 };
@@ -1112,28 +1136,58 @@ mod tests {
         assert_eq!(shop.page_requests().len(), 1);
     }
 
+    fn redirect_to(location: &str) -> &'static str {
+        Box::leak(
+            format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .into_boxed_str(),
+        )
+    }
+
     #[tokio::test]
-    async fn should_retry_an_attempt_whose_redirect_hop_pacing_outlasts_it() {
-        let redirect = "HTTP/1.1 301 Moved Permanently\r\nLocation: /moved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    async fn should_follow_a_redirect_whose_hop_pacing_outlasts_the_attempt_timeout() {
         let shop = spawn_shop(
             robots_status("404 Not Found"),
-            vec![redirect, redirect],
+            vec![redirect_to("/moved"), OK_PAGE],
             Duration::ZERO,
         )
         .await;
         // The latency throttle spaces requests further apart than an attempt
-        // may take, so the redirect hop's wait ends the attempt.
+        // may take: pacing must not count, for the redirect hop either.
         let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
-            zero_delay_retry_policy(2),
+            zero_delay_retry_policy(1),
             throttle_config(Duration::from_millis(200)),
             Duration::from_millis(100),
-            Duration::from_secs(5),
+            Duration::from_millis(300),
         );
 
-        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+        let fetched = fetcher.fetch(&shop.url).await.unwrap();
 
-        assert_eq!(error.kind(), NetworkErrorKind::Timeout);
-        assert_eq!(shop.page_requests().len(), 2);
+        assert_eq!(fetched.final_url.path(), "/moved");
+        assert_eq!(shop.page_paths(), ["/product", "/moved"]);
+    }
+
+    #[tokio::test]
+    async fn should_space_a_redirect_hop_by_the_crawl_delay_without_timing_out() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nCrawl-delay: 0.3\n"),
+            vec![redirect_to("/moved"), OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(200),
+        );
+
+        fetcher.fetch(&shop.url).await.unwrap();
+
+        let requests = shop.page_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1] - requests[0] >= Duration::from_millis(300));
     }
 
     #[tokio::test]
