@@ -4,7 +4,7 @@
 
 The scraper fetches active and sold product URLs, detects verified removed-page templates, and first evaluates cached schemas. It applies every cached schema to the same parsed page, checks each candidate's extraction independently, and ranks the plausible candidates. A bad candidate rejects that schema only; an external or system failure aborts the attempt and does not trigger generation.
 
-Raw extraction remains source evidence. The crawler keeps raw strings, ordered image candidate groups, duplicates, relative values, rejected candidates, and configured raw attributes. It stores a validated, canonical image projection separately for generic raw values. Extracted values must never invent auction identity, lot data, or attribution.
+Raw extraction remains source evidence. The crawler keeps raw strings, ordered image candidate groups, duplicates, relative values, rejected candidates, and configured raw attributes. It stores a validated, canonical image projection separately for generic raw values. Validation keeps the first candidate of each group that is a safe public target and not too small: a width and height in the URL query or path decide, otherwise a probe reads the size from the image. An image whose size stays unknown is kept, unless its URL names a thumbnail; that name alone never rejects an image, because shops also name full-size uploads that way. Extracted values must never invent auction identity, lot data, or attribution.
 
 A matching page hash and effective schema-set fingerprint can skip extraction. Otherwise the crawler hashes its generic raw-input envelope. Equal input refreshes crawler scrape metadata without creating a new operational capture.
 
