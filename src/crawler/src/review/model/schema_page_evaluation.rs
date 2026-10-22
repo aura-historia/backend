@@ -35,3 +35,33 @@ impl SchemaPageEvaluation {
         !self.plausibility_findings.is_empty() || !self.cross_page_findings.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A matrix cached before the cross-page checks has no `cross_page_findings`; it must
+    /// fail to load so the console refreshes it from the live pages instead of showing
+    /// it as passing them.
+    #[test]
+    fn should_not_load_a_cached_page_evaluation_without_cross_page_findings() {
+        let mut page = serde_json::json!({
+            "page_reference": {"kind": "input", "page_index": 0},
+            "url": "https://shop.example/chair",
+            "role": "SEED",
+            "apply_ok": true,
+            "extracted": null,
+            "error": null,
+            "plausibility_findings": [],
+            "cross_page_findings": [],
+            "fields": []
+        });
+        assert!(serde_json::from_value::<SchemaPageEvaluation>(page.clone()).is_ok());
+
+        if let Some(fields) = page.as_object_mut() {
+            fields.remove("cross_page_findings");
+        }
+
+        assert!(serde_json::from_value::<SchemaPageEvaluation>(page).is_err());
+    }
+}
