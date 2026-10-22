@@ -63,7 +63,9 @@ Keep `epic-<N>-ledger.md` in a git-ignored location or in the session scratchpad
 (`.claude/worktrees/` is excluded in some clones; check with `git check-ignore`). Use one row per child: number, branch, worktree, stage
 (`ready`, `implementing`, `reviewing`, `pr-open`, `merged`, `done`, `blocked-on-user`), PR,
 agent ids and one-line notes. Update it at every stage change. After a context compaction, read
-the ledger and `gh` state before acting, never memory alone.
+the ledger and `gh` state before acting, never memory alone. After the session moves to another
+machine (desktop to cloud), sub-agents do not survive: compare the ledger with the remote
+branches and PRs, and restart any child whose work was never pushed from a fresh worktree.
 
 ## 2. Run each child
 
@@ -90,6 +92,8 @@ Check these once and pass the results into every brief, so agents do not redisco
   credentials.
 - Host-specific test failures: record any test that fails only on this host and passes in CI, so
   agents do not chase it.
+- Disk: a full workspace test run with debug info can fill a capped disk. Tell agents to build
+  with `CARGO_PROFILE_DEV_DEBUG=0` and remove stale worktree `target/` directories.
 - If the epic branch is behind `origin/develop` and a child needs a fix that landed there (for
   example, so the dev binary can fetch pages), fast-forward the epic branch to `origin/develop`
   when it is an ancestor (`git push origin origin/develop:refs/heads/<epic-branch>`); otherwise

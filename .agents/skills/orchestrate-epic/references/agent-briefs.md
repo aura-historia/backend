@@ -11,7 +11,9 @@ Add an environment paragraph to every brief with what SKILL.md's environment che
 to read GitHub (REST if GraphQL is blocked), how to open the PR, whether Docker runs, how to run
 crawler dev verification (manual mode, swapped demo shops), host-specific test failures to
 ignore, and the commit trailers the session requires. Tell agents not to put model identifiers
-anywhere but the trailers.
+anywhere but the trailers. Tell them to stop every background process they start (dev
+binaries, watch loops) before reporting; a wait loop on `pgrep -f` matches its own command line
+and never ends.
 
 ## Implementer
 
