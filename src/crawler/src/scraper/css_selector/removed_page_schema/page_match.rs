@@ -12,6 +12,9 @@ pub(super) fn normalize_page_classification_text(value: &str) -> String {
         .to_lowercase()
 }
 
+/// Texts selected by `selector`, with lines separated as product extraction separates
+/// them: a matched notice is compared with the titles cached product schemas extract
+/// from the same page ([`super::RemovedPageMatch::is_notice`]).
 fn selected_texts(selector: &CssSelector, html: &Html) -> Option<Vec<String>> {
     let rule = ExtractionRule {
         selector: selector.clone(),
