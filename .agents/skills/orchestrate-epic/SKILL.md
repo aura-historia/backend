@@ -166,10 +166,17 @@ When every child is `merged` or `done`:
      `Closes #<child>` line for every child the epic implemented and `Closes #<N>`; the final
      review's fixes and validation; public-contract or operational notes (swagger, CHANGELOG,
      runbooks); and the findings left for follow-up tickets.
-4. Wait for CI on that PR. Have a fresh fixer handle failures caused by the epic. **Never merge
+4. Turn the follow-up findings into issues before you report. Deduplicate the lists from the
+   child PRs and the final review, check open issues first, and comment on an existing issue
+   that already covers a finding instead of opening a duplicate. Open one issue per coherent
+   problem (`Follow-up from epic #<N> (#<epic PR>)`, problem with `path:line`, acceptance
+   criteria, matching labels). Then replace the follow-up list in the epic PR body with links
+   to those issues.
+5. Wait for CI on that PR. Have a fresh fixer handle failures caused by the epic. **Never merge
    it**; merging into `develop` is the user's call.
-5. Remove any remaining child worktrees, then tell the user the epic work is finished. Include the PR link, CI
-   state, each child's PR, anything skipped or deferred, and open questions.
+6. Remove any remaining child worktrees, then tell the user the epic work is finished. Include the PR link, CI
+   state, each child's PR, the follow-up issues, anything skipped or deferred, and open
+   questions.
 
 ## When to stop and ask
 
