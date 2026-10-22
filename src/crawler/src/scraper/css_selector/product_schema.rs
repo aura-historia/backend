@@ -204,16 +204,22 @@ impl ProductCssSelectorSchema {
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
     /// (`description`, `images`) all results are kept as a `Vec<String>`.
+    ///
+    /// Text separates lines at `<br>` and block boundaries, except in
+    /// `source_listing_id`, which joins its text as written so a captured identity stays
+    /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
-            Some(rule) => {
-                apply_optional_rule("source_listing_id", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::SourceListingId)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default()
-            }
+            Some(rule) => tolerate_optional_miss(
+                "source_listing_id",
+                rule.apply_as_identity(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::SourceListingId)?
+            .into_iter()
+            .next()
+            .unwrap_or_default(),
         };
 
         let title = self
@@ -226,15 +232,17 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => apply_optional_rule("description", rule, html, OptionalMissLog::Warn)
-                .map_err(ApplySchemaError::Description)?,
+            Some(rule) => {
+                tolerate_optional_miss("description", rule.apply(html), OptionalMissLog::Warn)
+                    .map_err(ApplySchemaError::Description)?
+            }
         };
 
         // A miss yields `None`, exactly like a schema without the rule, so plausibility
         // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => apply_optional_rule("price", rule, html, OptionalMissLog::Warn)
+            Some(rule) => tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn)
                 .map_err(ApplySchemaError::Price)?
                 .into_iter()
                 .next(),
@@ -242,22 +250,26 @@ impl ProductCssSelectorSchema {
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => {
-                apply_optional_rule("price_estimate_min", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::PriceEstimateMin)?
-                    .into_iter()
-                    .next()
-            }
+            Some(rule) => tolerate_optional_miss(
+                "price_estimate_min",
+                rule.apply(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::PriceEstimateMin)?
+            .into_iter()
+            .next(),
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => {
-                apply_optional_rule("price_estimate_max", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::PriceEstimateMax)?
-                    .into_iter()
-                    .next()
-            }
+            Some(rule) => tolerate_optional_miss(
+                "price_estimate_max",
+                rule.apply(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::PriceEstimateMax)?
+            .into_iter()
+            .next(),
         };
 
         let state = self
@@ -286,7 +298,7 @@ impl ProductCssSelectorSchema {
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
             let values: Vec<String> =
-                apply_optional_rule(field, rule, html, OptionalMissLog::Trace)
+                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
@@ -326,17 +338,16 @@ enum OptionalMissLog {
     Trace,
 }
 
-/// Applies the rule of an optional field, turning a miss into an empty result.
+/// Turns a miss of an optional field's rule into an empty result.
 ///
 /// The miss is still recorded as a per-field diagnostic so the scrape log explains
 /// why the field is empty; the page itself keeps extracting.
-fn apply_optional_rule(
+fn tolerate_optional_miss(
     field: &str,
-    rule: &ExtractionRule,
-    html: &Html,
+    extraction: Result<Vec<String>, ExtractionError>,
     miss_log: OptionalMissLog,
 ) -> Result<Vec<String>, ExtractionError> {
-    match rule.apply(html) {
+    match extraction {
         Ok(values) => Ok(values),
         Err(ExtractionError::NoElementMatched { selector }) => {
             // The message must be a literal in each arm: a `const` in message position
@@ -997,6 +1008,29 @@ mod tests {
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.source_listing_id, "");
+    }
+
+    /// An identity element whose text a `<br>` and a block child split, as a label such
+    /// as "Ref:<br>11614" renders on a product page.
+    mod identity_text_across_line_breaks {
+        use super::*;
+
+        const PAGE: &str = r#"<html><body><div id="product-id">Ref:<br>11614<p>A</p></div><h1>Pair of Windsor Chairs<br>English, c.1830</h1><span id="state">Available</span><img src="/a.jpg"></body></html>"#;
+
+        #[test]
+        fn should_join_the_identity_as_written_while_other_text_fields_separate_lines() {
+            let (html, schema) = minimal_schema(PAGE);
+            let schema = ProductCssSelectorSchema {
+                description: Some(text_rule_all("#product-id")),
+                ..schema
+            };
+
+            let result = schema.apply(&html).unwrap();
+
+            assert_eq!(result.source_listing_id, "Ref:11614A");
+            assert_eq!(result.description, vec!["Ref:\n11614\nA"]);
+            assert_eq!(result.title, "Pair of Windsor Chairs\nEnglish, c.1830");
+        }
     }
 
     // -------------------------------------------------------------------------
