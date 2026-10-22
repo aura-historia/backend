@@ -4,7 +4,7 @@ use crate::review::model::SchemaMatrix;
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, optional_rules_missing_on_every_page,
+    evaluate_schema_matrix_for_inputs, implausible_pages, optional_rules_missing_on_every_page,
     schema_matrix_deterministic_approval_ok, selector_field_is_soft,
     selector_field_matched_nothing, unused_schema_indices,
 };
@@ -165,6 +165,9 @@ fn with_schema_matrix_summary(
         // aggregate: a rule that missed on every applied page is listed here and
         // blocks deterministic approval.
         "optional_rules_missing_on_every_page": optional_rules_missing_on_every_page(matrix),
+        // Every failed per-page or cross-page plausibility check blocks deterministic
+        // approval, also on a page another candidate covers.
+        "implausible_pages": implausible_pages(matrix),
     });
 
     if let Some(object) = validation_summary.as_object_mut() {
@@ -248,6 +251,8 @@ mod tests {
                     apply_ok: false,
                     extracted: None,
                     error: Some("failed to extract `title`".to_string()),
+                    plausibility_findings: Default::default(),
+                    cross_page_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -282,6 +287,7 @@ mod tests {
 
     fn optional_miss_schema() -> ProductCssSelectorSchema {
         serde_json::from_value(json!({
+            "source_listing_id": {"selector": "#sku", "type": "text"},
             "title": {"selector": "h1", "type": "text"},
             "description": {"selector": "div.titre + p", "type": "text", "cardinality": "all"},
             "price": {"selector": ".price", "type": "text"},
@@ -291,6 +297,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("schema fixture should deserialize: {error}"))
     }
 
+    /// The page of the product `path`, with its own identity, title and image.
     fn seed_page(role: &str, path: &str, description: Option<&str>) -> SchemaReviewPageInput {
         let description = description
             .map(|text| format!("<div class=\"titre\"></div><p>{text}</p>"))
@@ -299,9 +306,74 @@ mod tests {
             url: format!("https://example.com/{path}"),
             role: role.to_string(),
             raw_html: format!(
-                "<html><body><h1>Title</h1>{description}<span class=\"price\">10 EUR</span><span id=\"state\">Sold</span><img src=\"a.jpg\"></body></html>"
+                "<html><body><span id=\"sku\">{path}</span><h1>Product {path}</h1>{description}<span class=\"price\">10 EUR</span><span id=\"state\">Sold</span><img src=\"{path}.jpg\"></body></html>"
             ),
         }
+    }
+
+    #[test]
+    fn should_block_deterministic_approval_and_list_pages_that_fail_plausibility_checks() {
+        let schema = ProductCssSelectorSchema {
+            description: None,
+            ..optional_miss_schema()
+        };
+        let mut sold_page = seed_page(PAGE_ROLE_SEED, "sold-item", None);
+        sold_page.raw_html = sold_page
+            .raw_html
+            .replace("Product sold-item", "Sold items - Navarro")
+            .replace("10 EUR", "0.00 EUR");
+        let mut other_sold_page = seed_page(PAGE_ROLE_SEED, "other-sold-item", None);
+        other_sold_page.raw_html = other_sold_page
+            .raw_html
+            .replace("Product other-sold-item", "Sold items - Navarro");
+        let pages = vec![
+            seed_page(PAGE_ROLE_PRIMARY, "chair", None),
+            sold_page,
+            other_sold_page,
+        ];
+
+        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
+        let summary = with_schema_matrix_summary(
+            json!({ "schema_count": 1 }),
+            &matrix,
+            deterministic_approval_ok,
+        );
+
+        assert!(
+            matrix.candidates[0].pages.iter().all(|page| page.apply_ok),
+            "neither a zero price nor a repeated title fails the page at runtime"
+        );
+        assert!(!deterministic_approval_ok);
+        assert_eq!(
+            summary["schema_matrix_summary"]["implausible_pages"],
+            json!([
+                {
+                    "schema_index": 0,
+                    "page_reference": {"kind": "input", "page_index": 1},
+                    "url": "https://example.com/sold-item",
+                    "role": PAGE_ROLE_SEED,
+                    "plausibility_findings": [{"field": "price", "check": "ALL_ZERO_DIGITS"}],
+                    "cross_page_findings": [{
+                        "field": "title",
+                        "check": "REPEATED_ACROSS_PAGES",
+                        "values": ["Sold items - Navarro"]
+                    }]
+                },
+                {
+                    "schema_index": 0,
+                    "page_reference": {"kind": "input", "page_index": 2},
+                    "url": "https://example.com/other-sold-item",
+                    "role": PAGE_ROLE_SEED,
+                    "plausibility_findings": [],
+                    "cross_page_findings": [{
+                        "field": "title",
+                        "check": "REPEATED_ACROSS_PAGES",
+                        "values": ["Sold items - Navarro"]
+                    }]
+                }
+            ])
+        );
     }
 
     #[test]
@@ -395,6 +467,8 @@ mod tests {
                     apply_ok: true,
                     extracted: None,
                     error: None,
+                    plausibility_findings: Default::default(),
+                    cross_page_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -432,6 +506,8 @@ mod tests {
                     apply_ok: true,
                     extracted: None,
                     error: None,
+                    plausibility_findings: Default::default(),
+                    cross_page_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
@@ -482,8 +558,7 @@ mod tests {
     async fn should_reject_invalid_generated_schema_before_persisting_it() {
         use crate::scraper::candidate_service::MockScraperCandidateService;
         use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
-        use crate::scraper::normalization::product_normalization_service::MockProductListingNormalizationService;
-        use crate::scraper::scraper_service::service::MockHtmlFetcher;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use std::sync::Arc;
 
         let mut schema_service = MockProductListingSchemaService::new();
@@ -491,7 +566,6 @@ mod tests {
         let service = ScraperServiceImpl::new(
             Box::new(MockHtmlFetcher::new()),
             Box::new(schema_service),
-            Box::new(MockProductListingNormalizationService::new()),
             Arc::new(MockScraperCandidateService::new()),
         );
         let mut schema: ProductCssSelectorSchema = serde_json::from_value(json!({

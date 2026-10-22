@@ -19,7 +19,6 @@ use crate::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crate::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crate::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
 use crate::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob};
@@ -153,8 +152,6 @@ where
     } = profile;
     let review_repo = CrawlerReviewRepository::new(pool.clone());
 
-    let normalization_svc = ProductListingNormalizationServiceImpl::new();
-
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
         Box::new(pool.clone()),
     )));
@@ -175,14 +172,15 @@ where
         ),
     );
 
-    let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
+    // One fetcher for scraper and review server: both requests count against
+    // the same robots.txt cache and per-domain pacing.
+    let fetcher = Arc::new(ReqwestHtmlFetcher::with_auto_throttle_config(
         cron_config.scraper_auto_throttle_config(),
     ));
     let scraper_svc = Box::new(
         ScraperServiceImpl::new_with_schema_seed_pages(
-            fetcher,
+            Box::new(Arc::clone(&fetcher)),
             Box::new(schema_svc),
-            Box::new(normalization_svc),
             Arc::new(
                 ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                     pool.clone(),
@@ -276,6 +274,7 @@ where
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
         ))),
         review_config,
+        fetcher,
     );
 
     CrawlerRuntime {

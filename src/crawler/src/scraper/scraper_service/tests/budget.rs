@@ -19,7 +19,6 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
         .returning(|_| Box::pin(async { Ok(None) }));
     schema_svc.expect_create_product_schemas().never();
 
-    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_try_increment_listing_source_llm_calls_with_limit()
@@ -29,7 +28,6 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

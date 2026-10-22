@@ -44,6 +44,7 @@ const CONSOLE_CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 's
 /// can never use console credentials or same-origin API access.
 const PREVIEW_CONTENT_SECURITY_POLICY: &str = "sandbox allow-scripts; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
 
+#[derive(Clone)]
 pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
@@ -123,6 +124,7 @@ impl std::fmt::Display for HttpResponse {
         let reason = match self.status {
             200 => "OK",
             201 => "Created",
+            202 => "Accepted",
             400 => "Bad Request",
             401 => "Unauthorized",
             404 => "Not Found",

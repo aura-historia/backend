@@ -1,9 +1,8 @@
 use crate::network::policy::{
-    PublicTargetError, classify_reqwest_error, public_http_client, redirect_target,
-    resolve_public_http_target,
+    CrawlerClientError, PublicTargetError, classify_reqwest_error, error_with_sources,
+    public_http_client, redirect_target, resolve_public_http_target,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use crate::scraper::normalization::error::NormalizationError;
 use regex::regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -72,26 +71,21 @@ impl ImageValidator for ReqwestImageValidator {
     }
 }
 
+/// Resolves each ordered image candidate group against `base_url` and keeps the
+/// first candidate of each group that passes validation, without duplicates. An
+/// empty result means the page has no usable image; it is not a failure.
 pub(crate) async fn filter_valid_image_urls(
     raw_images: Vec<String>,
     base_url: &Url,
     validator: &dyn ImageValidator,
-) -> Result<Vec<String>, NormalizationError> {
+) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut valid = Vec::new();
-    let mut invalid_count = 0usize;
 
     for raw in raw_images {
-        let candidates = split_image_candidate_group(&raw);
-        if candidates.is_empty() {
-            invalid_count += 1;
-            continue;
-        }
-
-        for raw_candidate in candidates {
+        for raw_candidate in split_image_candidate_group(&raw) {
             let trimmed = raw_candidate.trim();
             if trimmed.is_empty() {
-                invalid_count += 1;
                 continue;
             }
 
@@ -99,7 +93,6 @@ pub(crate) async fn filter_valid_image_urls(
                 Ok(url) => url,
                 Err(_) => {
                     tracing::debug!("Discarding invalid image URL candidate");
-                    invalid_count += 1;
                     continue;
                 }
             };
@@ -114,7 +107,7 @@ pub(crate) async fn filter_valid_image_urls(
                 (validation, _) => validation,
             };
             match validation {
-                ImageValidation::Invalid => invalid_count += 1,
+                ImageValidation::Invalid => {}
                 ImageValidation::Valid | ImageValidation::Unknown => {
                     let normalized = resolved.to_string();
                     if seen.insert(normalized.clone()) {
@@ -126,13 +119,7 @@ pub(crate) async fn filter_valid_image_urls(
         }
     }
 
-    if valid.is_empty() {
-        return Err(NormalizationError::NoValidImages {
-            candidates: invalid_count,
-        });
-    }
-
-    Ok(valid)
+    valid
 }
 
 fn validate_image_url(url: &Url) -> Option<ImageValidation> {
@@ -185,11 +172,18 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {
-        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT, true).await {
+        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT).await {
             Ok(client) => client,
-            Err(error) => {
+            Err(CrawlerClientError::Target(error)) => {
                 tracing::debug!("Image dimension probe rejected target");
                 return image_validation_for_target_error(error);
+            }
+            Err(error) => {
+                tracing::debug!(
+                    error = %error_with_sources(&error),
+                    "Image dimension probe client unavailable"
+                );
+                return ImageValidation::Unknown;
             }
         };
         let response = match client
@@ -202,6 +196,7 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
             Err(err) => {
                 tracing::debug!(
                     kind = ?classify_reqwest_error(&err),
+                    error = %error_with_sources(&err),
                     "Image dimension probe failed"
                 );
                 return ImageValidation::Unknown;
@@ -320,10 +315,7 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(
-            result,
-            Err(NormalizationError::NoValidImages { .. })
-        ));
+        assert!(result.is_empty());
     }
 
     #[tokio::test]
@@ -336,10 +328,7 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(
-            result,
-            Err(NormalizationError::NoValidImages { .. })
-        ));
+        assert!(result.is_empty());
     }
 
     #[tokio::test]
@@ -355,8 +344,7 @@ mod tests {
                 validation: ImageValidation::Unknown,
             },
         )
-        .await
-        .unwrap();
+        .await;
 
         assert_eq!(result, vec!["https://example.com/image-800x600.jpg"]);
     }
@@ -374,8 +362,7 @@ mod tests {
                 validation: ImageValidation::Unknown,
             },
         )
-        .await
-        .unwrap();
+        .await;
 
         assert_eq!(
             result,
@@ -387,9 +374,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fails_when_all_images_are_invalid() {
+    async fn returns_no_image_when_all_images_are_invalid() {
         let base = Url::parse("https://example.com/products/1").unwrap();
-        let err = filter_valid_image_urls(
+        let result = filter_valid_image_urls(
             vec![format!(
                 "/image-100x100.jpg{IMAGE_CANDIDATE_SEPARATOR}/image-120x120.jpg"
             )],
@@ -398,26 +385,24 @@ mod tests {
                 validation: ImageValidation::Unknown,
             },
         )
-        .await
-        .unwrap_err();
+        .await;
 
-        assert!(matches!(err, NormalizationError::NoValidImages { .. }));
+        assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn treats_malformed_image_url_candidates_as_invalid() {
         let base = Url::parse("https://example.com/products/1").unwrap();
-        let err = filter_valid_image_urls(
+        let result = filter_valid_image_urls(
             vec!["//".to_string()],
             &base,
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
         )
-        .await
-        .unwrap_err();
+        .await;
 
-        assert!(matches!(err, NormalizationError::NoValidImages { .. }));
+        assert!(result.is_empty());
     }
 
     #[tokio::test]
@@ -430,8 +415,7 @@ mod tests {
                 validation: ImageValidation::Unknown,
             },
         )
-        .await
-        .unwrap();
+        .await;
 
         assert_eq!(result, vec!["https://example.com/image-800x600.jpg"]);
     }

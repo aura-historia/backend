@@ -31,23 +31,13 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
-use crate::scraper::normalization::error::NormalizationError;
-use crate::scraper::normalization::product_normalization_service::{
-    MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
-    PreparedProduct,
-};
 use crate::scraper::scraper_service::domain::product::with_scrape_observation;
+use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
 use crate::scraper::scraper_service::service::{
-    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ScraperServiceImpl,
 };
 use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperService};
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
-use localization::Language;
-use localization::Localized;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::title::Title;
-use product_listing_normalization::ListingAvailabilityQuickCheck;
 use std::future::Future;
 use std::sync::Arc;
 use time::OffsetDateTime;
@@ -222,44 +212,6 @@ pub(super) fn generated_single_product(
     GeneratedSingleSchema::ProductListing {
         schema: Box::new(schema),
         evaluation: schema_evaluation(confidence),
-    }
-}
-
-pub(super) fn prepared_product(url: Url) -> PreparedProduct {
-    let title: Title = "Biedermeier Chair".into();
-    PreparedProduct {
-        availability: ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available),
-        raw_state: "In Stock".to_string(),
-        source_listing_id: SourceListingId::try_from("SKU-42")
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-        title: Localized::new(Language::De, title),
-        description: None,
-        price: None,
-        price_estimate_min: None,
-        price_estimate_max: None,
-        url,
-        images: vec![],
-        raw_attributes: Default::default(),
-    }
-}
-
-pub(super) fn normalization_success(
-    prepared: PreparedProduct,
-    llm_calls_used: u32,
-) -> NormalizationSuccess {
-    NormalizationSuccess {
-        prepared,
-        llm_calls_used,
-    }
-}
-
-pub(super) fn normalization_failure(
-    error: NormalizationError,
-    llm_calls_used: u32,
-) -> NormalizationFailure {
-    NormalizationFailure {
-        error,
-        llm_calls_used,
     }
 }
 

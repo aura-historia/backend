@@ -1,9 +1,8 @@
 use application::error::BoxError;
 use bloomfilter::Bloom;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
 use spider::CaseInsensitiveString;
-use spider::packages::robotparser::parser::RobotFileParser;
 use spider::page::AntiBotTech;
 use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
@@ -11,8 +10,7 @@ use spider::utils::auto_throttle::AutoThrottleConfig;
 use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
 use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
@@ -25,6 +23,7 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::spider::discovery::robots::admit_crawl;
 use crate::spider::utils::url::CrawledUrl;
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
@@ -191,7 +190,7 @@ pub struct CrawlDiagnostics {
     pub completion: CrawlCompletion,
     pub failure_kind: Option<CrawlFailureKind>,
     /// Status the established crawl root answered in preflight, before Spider
-    /// ran. Spider never fetches the root when robots.txt refuses it.
+    /// ran.
     pub root_preflight_status: Option<u16>,
     /// Status of the root page after Spider's own retries.
     pub http_status: Option<u16>,
@@ -210,12 +209,13 @@ pub struct CrawlDiagnostics {
     /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
-    /// Links Spider refused because of robots.txt.
-    pub robots_blocked: usize,
-    pub first_robots_blocked_url: Option<String>,
-    /// The robots.txt request itself was refused (401/403), which Spider
-    /// treats as "disallow everything".
-    pub robots_denied: bool,
+    /// How robots.txt applied to the crawl: `rules` or
+    /// `unavailable_allow_all`.
+    pub robots_policy: Option<&'static str>,
+    pub robots_crawl_delay_ms: Option<u64>,
+    /// robots.txt Disallow rules whose written Allow exception Spider's deny
+    /// list cannot carve out, so Spider skips URLs robots.txt permits.
+    pub robots_rules_failing_closed: usize,
     /// Pages dropped because the local filter fell behind Spider's broadcast.
     pub lagged: u64,
 }
@@ -264,7 +264,7 @@ pub enum SpiderDiscoveryError {
 }
 
 impl SpiderDiscoveryError {
-    fn preflight(kind: CrawlFailureKind, reason: &'static str) -> Self {
+    pub(super) fn preflight(kind: CrawlFailureKind, reason: &'static str) -> Self {
         Self::Preflight {
             kind,
             reason,
@@ -698,13 +698,13 @@ struct LibraryOutcome {
     initial_html_length: usize,
     initial_should_retry: bool,
     initial_anti_bot: AntiBotTech,
-    robots_denied: bool,
 }
 
-#[derive(Default)]
-struct RobotsBlockedTracker {
-    count: AtomicUsize,
-    first_url: OnceLock<String>,
+/// robots.txt `Crawl-delay` only ever raises the configured spider delay.
+fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> u64 {
+    crawl_delay.map_or(configured_millis, |delay| {
+        configured_millis.max(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX))
+    })
 }
 
 /// Decodes HTML character references in the links Spider finds. Spider reads `href` values
@@ -717,8 +717,8 @@ struct RobotsBlockedTracker {
 /// Otherwise Spider fetches the raw link it admitted, and the filter task drops it.
 struct FoundLinkDecoder {
     host_whitelist: Regex,
-    /// Spider's own parser, absent when Spider does not enforce robots.txt for the crawl.
-    robots: Option<Box<RobotFileParser>>,
+    /// Spider's URL deny list: the URL blacklist and the robots.txt rules.
+    deny_list: RegexSet,
     refused: RefusedLinks,
 }
 
@@ -751,12 +751,7 @@ impl FoundLinkDecoder {
     }
 
     fn admits(&self, url: &str) -> bool {
-        self.host_whitelist.is_match(url)
-            && !CrawledUrl::is_blacklisted_url(url)
-            && self
-                .robots
-                .as_ref()
-                .is_none_or(|robots| robots.can_fetch(CRAWLER_USER_AGENT, url))
+        self.host_whitelist.is_match(url) && !self.deny_list.is_match(url)
     }
 }
 
@@ -794,14 +789,32 @@ impl SpiderImpl {
         let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
             SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
         })?;
+        let robots =
+            admit_crawl(self.transport.as_ref(), &root_url, &client, request_timeout).await?;
+        let delay_millis = crawl_delay_millis(self.config.delay_millis, robots.crawl_delay);
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
-        website.set_http_client(client.clone());
+        website.set_http_client(client);
 
-        let blacklist_regex = CrawledUrl::blacklist_patterns();
+        let mut blacklist_regex = CrawledUrl::blacklist_patterns();
+        blacklist_regex.extend(
+            robots
+                .deny_list
+                .patterns
+                .iter()
+                .map(|pattern| pattern.into()),
+        );
+        // Spider silently drops a deny list that fails to compile, which
+        // would drop robots.txt with it.
+        let deny_list = RegexSet::new(&blacklist_regex).map_err(|_| {
+            SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RobotsBlocked,
+                "robots.txt rules do not compile into Spider's deny list",
+            )
+        })?;
         let auto_throttle_config = AutoThrottleConfig {
-            min_delay_ms: self.config.delay_millis,
+            min_delay_ms: delay_millis,
             max_delay_ms: 60_000,
             ..AutoThrottleConfig::default()
         };
@@ -812,26 +825,19 @@ impl SpiderImpl {
             .configuration
             .with_concurrency_limit(Some(self.config.concurrency_limit.max(1)));
 
-        let robots_blocked = Arc::new(RobotsBlockedTracker::default());
-        let robots_callback = Arc::clone(&robots_blocked);
-
         website
             .with_blacklist_url(Some(blacklist_regex))
             .with_whitelist_url(Some(vec![host_whitelist.into()]))
-            .with_respect_robots_txt(true)
+            .with_respect_robots_txt(false)
             .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(CRAWLER_USER_AGENT))
             .with_request_timeout(Some(request_timeout))
             .with_crawl_timeout(Some(self.config.max_crawl_duration))
             .with_limit(self.config.max_pages_per_crawl)
-            .with_delay(self.config.delay_millis)
+            .with_delay(delay_millis)
             .with_caching(false)
             .with_retry_strategy(Arc::new(TruncationAwareRetry {
                 max_retries: u32::from(self.config.retry_count),
-            }))
-            .with_on_link_blocked_callback(Some(move |url: String| {
-                robots_callback.count.fetch_add(1, Ordering::Relaxed);
-                let _ = robots_callback.first_url.set(url);
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
@@ -842,15 +848,9 @@ impl SpiderImpl {
         let max_pages_per_crawl = self.config.max_pages_per_crawl;
         tokio::spawn(async move {
             let started = tokio::time::Instant::now();
-            // Load robots.txt when Spider's setup would (it skips single-page crawls), so the
-            // decoder checks decoded links against the rules Spider enforces; setup then skips
-            // its own fetch.
-            if max_pages_per_crawl != 1 {
-                website.configure_robots_parser(&client).await;
-            }
             let link_decoder = FoundLinkDecoder {
                 host_whitelist: host_whitelist_regex,
-                robots: website.get_robots_parser().clone(),
+                deny_list,
                 refused: decoder_refused_links,
             };
             website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
@@ -869,10 +869,6 @@ impl SpiderImpl {
                 initial_html_length: website.get_initial_html_length(),
                 initial_should_retry: website.get_initial_page_should_retry(),
                 initial_anti_bot: *website.get_initial_anti_bot_tech(),
-                robots_denied: website
-                    .get_robots_parser()
-                    .as_ref()
-                    .is_some_and(|robots| robots.disallow_all),
             };
             website.unsubscribe();
             let _ = outcome_tx.send(outcome);
@@ -885,6 +881,11 @@ impl SpiderImpl {
                 .expect("bloom filter init failed");
             let mut diagnostics = CrawlDiagnostics {
                 root_preflight_status: Some(root_preflight_status),
+                robots_policy: Some(robots.policy),
+                robots_crawl_delay_ms: robots
+                    .crawl_delay
+                    .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
+                robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
                 ..CrawlDiagnostics::default()
             };
             let mut first_page_seen = false;
@@ -979,8 +980,6 @@ impl SpiderImpl {
                 pending.push_back(CrawledPage { url: normalized });
             }
 
-            diagnostics.robots_blocked = robots_blocked.count.load(Ordering::Relaxed);
-            diagnostics.first_robots_blocked_url = robots_blocked.first_url.get().cloned();
             match outcome_rx.await {
                 Ok(outcome) => apply_library_outcome(&mut diagnostics, outcome),
                 // The crawl task died without reporting; never call that full.
@@ -1093,7 +1092,6 @@ fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSi
 
 fn apply_library_outcome(diagnostics: &mut CrawlDiagnostics, outcome: LibraryOutcome) {
     diagnostics.completion = outcome.completion;
-    diagnostics.robots_denied = outcome.robots_denied;
     diagnostics.initial_html_length = Some(outcome.initial_html_length);
     diagnostics.initial_should_retry = outcome.initial_should_retry;
     diagnostics.initial_anti_bot = (outcome.initial_anti_bot != AntiBotTech::None)
@@ -1121,10 +1119,9 @@ const fn is_access_denied_status(status_code: u16) -> bool {
     matches!(status_code, 401 | 403)
 }
 
-/// Distinguishes "the site refused the crawler", "the site refused the
-/// robots.txt request", "robots.txt blocked the crawl root" and "Spider
-/// delivered pages but local filtering accepted none" from a genuinely empty
-/// library response. Library signals keep precedence, so a 403 Spider
+/// Distinguishes "the site refused the crawler" and "Spider delivered pages
+/// but local filtering accepted none" from a genuinely empty library
+/// response; a robots.txt refusal of the root fails the preflight instead. Library signals keep precedence, so a 403 Spider
 /// recognised as a JavaScript challenge or a vendor block stays that.
 fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
     if diagnostics.failure_kind.is_some() {
@@ -1139,16 +1136,6 @@ fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::AccessDenied,
             CRAWL_ROOT_ACCESS_DENIED,
-        ));
-    } else if diagnostics.pages_received == 0 && diagnostics.robots_denied {
-        diagnostics.apply_signal(DiagnosticSignal::new(
-            CrawlFailureKind::AccessDenied,
-            "robots_txt_request_denied",
-        ));
-    } else if diagnostics.pages_received == 0 && diagnostics.robots_blocked > 0 {
-        diagnostics.apply_signal(DiagnosticSignal::new(
-            CrawlFailureKind::RobotsBlocked,
-            "robots_blocked_crawl_root",
         ));
     } else if diagnostics.pages_received > 0 && diagnostics.accepted == 0 {
         diagnostics.apply_signal(DiagnosticSignal::new(
@@ -1194,8 +1181,10 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::robots::RobotsRules;
     use std::collections::HashSet;
     use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn diagnostics_from_library_page(
@@ -1613,12 +1602,14 @@ mod tests {
 
     fn link_decoder_with_robots(robots_txt: &str) -> FoundLinkDecoder {
         let root = Url::parse("https://www.example.com/").unwrap();
-        let mut robots = RobotFileParser::new();
-        robots.parse(&robots_txt.lines().collect::<Vec<_>>());
-        robots.modified();
+        let mut deny_list: Vec<String> = CrawledUrl::blacklist_patterns()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        deny_list.extend(RobotsRules::parse(robots_txt).deny_list().patterns);
         FoundLinkDecoder {
             host_whitelist: Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
-            robots: Some(robots),
+            deny_list: RegexSet::new(deny_list).unwrap(),
             refused: RefusedLinks::default(),
         }
     }
@@ -1788,23 +1779,6 @@ mod tests {
         assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
         assert!(diagnostics.failure_kind.is_none(), "{diagnostics:?}");
         assert!(discovered.len() <= 2, "{discovered:?}");
-    }
-
-    #[tokio::test]
-    async fn should_not_fetch_robots_txt_when_crawl_is_limited_to_one_page() {
-        let site = TestSite::spawn(Arc::new(regression_site)).await;
-        let config = CrawlerConfig {
-            max_pages_per_crawl: 1,
-            ..test_config()
-        };
-        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
-
-        run_crawl(&spider, "http://example.com/").await.unwrap();
-
-        // Spider's setup skips robots.txt for a single-page crawl; the decoder must not
-        // load it either.
-        assert_eq!(site.requests_for("/robots.txt").await, 0);
-        site.finish().await;
     }
 
     #[tokio::test]
@@ -2035,15 +2009,22 @@ mod tests {
         assert!(site.finish().await.is_empty());
     }
 
-    #[tokio::test]
-    async fn should_count_robots_blocked_links_without_emitting_them() {
-        let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| {
+    fn site_with_robots(robots: SiteResponse) -> SiteHandler {
+        Arc::new(move |target: &str, previous: usize| {
             if target == "/robots.txt" {
-                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /product/\n".to_string())
+                robots.clone()
             } else {
                 regression_site(target, previous)
             }
-        }))
+        })
+    }
+
+    #[tokio::test]
+    async fn should_never_request_links_robots_txt_disallows() {
+        let site = TestSite::spawn(site_with_robots(SiteResponse::Html(
+            "200 OK",
+            "User-agent: *\nDisallow: /product/\n".to_string(),
+        )))
         .await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
@@ -2051,57 +2032,86 @@ mod tests {
 
         assert!(!discovered.contains("http://example.com/product/1"));
         assert!(discovered.contains("http://example.com/category/1"));
-        assert!(
-            diagnostics.robots_blocked >= 1,
-            "robots diagnostics missing: {diagnostics:?}"
-        );
-        assert!(
-            diagnostics
-                .first_robots_blocked_url
-                .as_deref()
-                .is_some_and(|url| url.contains("/product/1"))
-        );
+        assert_eq!(diagnostics.robots_policy, Some("rules"));
         assert_eq!(site.requests_for("/product/1").await, 0);
         site.finish().await;
     }
 
     #[tokio::test]
-    async fn should_report_robots_blocked_root_instead_of_empty_crawl() {
+    async fn should_apply_the_group_naming_the_crawler_over_the_wildcard_group() {
+        let site = TestSite::spawn(site_with_robots(SiteResponse::Html(
+            "200 OK",
+            "User-agent: *\nAllow: /\n\nUser-agent: AuraHistoriaBot\nDisallow: /product\n"
+                .to_string(),
+        )))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+
+        assert!(discovered.contains("http://example.com/category/1"));
+        assert_eq!(site.requests_for("/product/1").await, 0);
+        site.finish().await;
+    }
+
+    #[tokio::test]
+    async fn should_refuse_the_crawl_when_robots_txt_disallows_the_root_or_is_unreachable() {
         for (robots, expected_kind) in [
             (
                 SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /\n".to_string()),
                 CrawlFailureKind::RobotsBlocked,
             ),
             (
-                SiteResponse::Html("403 Forbidden", String::new()),
-                CrawlFailureKind::AccessDenied,
+                SiteResponse::Html("503 Service Unavailable", String::new()),
+                CrawlFailureKind::ServerError,
             ),
         ] {
-            let site = TestSite::spawn(Arc::new(move |target: &str, previous: usize| {
-                if target == "/robots.txt" {
-                    robots.clone()
-                } else {
-                    regression_site(target, previous)
-                }
-            }))
-            .await;
+            let site = TestSite::spawn(site_with_robots(robots)).await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+            assert!(
+                matches!(error, SpiderDiscoveryError::Preflight { kind, .. } if kind == expected_kind),
+                "{error:?}"
+            );
+            assert_eq!(site.requests_for("/category/1").await, 0);
+            site.finish().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn should_crawl_everything_when_robots_txt_answers_4xx() {
+        for status in ["404 Not Found", "403 Forbidden"] {
+            let site =
+                TestSite::spawn(site_with_robots(SiteResponse::Html(status, String::new()))).await;
             let spider =
                 SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
             let (discovered, diagnostics) =
                 run_crawl(&spider, "http://example.com/").await.unwrap();
 
-            assert!(discovered.is_empty(), "{diagnostics:?}");
-            assert_eq!(
-                diagnostics.failure_kind,
-                Some(expected_kind),
-                "{diagnostics:?}"
+            assert!(
+                discovered.contains("http://example.com/product/1"),
+                "{status}"
             );
-            assert_eq!(diagnostics.pages_received, 0);
-            assert!(diagnostics.robots_blocked >= 1);
-            assert_eq!(site.requests_for("/product/1").await, 0);
+            assert_eq!(diagnostics.robots_policy, Some("unavailable_allow_all"));
             site.finish().await;
         }
+    }
+
+    #[test]
+    fn should_only_raise_the_spider_delay_with_the_crawl_delay() {
+        assert_eq!(crawl_delay_millis(500, None), 500);
+        assert_eq!(
+            crawl_delay_millis(500, Some(Duration::from_secs(30))),
+            30_000
+        );
+        assert_eq!(
+            crawl_delay_millis(500, Some(Duration::from_millis(100))),
+            500
+        );
     }
 
     #[tokio::test]
@@ -2112,10 +2122,11 @@ mod tests {
         .await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
-        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
         let request_log = site.finish().await;
 
-        assert!(discovered.is_empty(), "{diagnostics:?}");
+        // A refused robots.txt allows the crawl (RFC 9309), so Spider fetches
+        // the root and its own reading of the 403 decides.
         assert_eq!(
             diagnostics.failure_kind,
             Some(CrawlFailureKind::AccessDenied),
@@ -2123,12 +2134,10 @@ mod tests {
         );
         assert_eq!(
             diagnostics.diagnostic_reason.as_deref(),
-            Some(CRAWL_ROOT_ACCESS_DENIED)
+            Some("library_blocked_status")
         );
-        assert!(diagnostics.robots_denied);
         assert_eq!(diagnostics.root_preflight_status, Some(403));
-        // Spider never fetched the root: robots.txt was refused first.
-        assert_eq!(diagnostics.http_status, None);
+        assert_eq!(diagnostics.http_status, Some(403));
         assert!(
             request_log
                 .iter()
@@ -2445,49 +2454,19 @@ mod tests {
             initial_html_length: 0,
             initial_should_retry: false,
             initial_anti_bot: AntiBotTech::None,
-            robots_denied: false,
         }
     }
 
     #[test]
-    fn should_report_refused_robots_request_as_access_denied() {
-        let mut diagnostics = CrawlDiagnostics {
-            robots_blocked: 1,
-            ..CrawlDiagnostics::default()
-        };
-        apply_library_outcome(
-            &mut diagnostics,
-            LibraryOutcome {
-                robots_denied: true,
-                ..library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None)
-            },
-        );
-        apply_local_filter_outcome(&mut diagnostics);
-
-        assert_eq!(
-            diagnostics.failure_kind,
-            Some(CrawlFailureKind::AccessDenied)
-        );
-        assert_eq!(
-            diagnostics.diagnostic_reason.as_deref(),
-            Some("robots_txt_request_denied")
-        );
-    }
-
-    #[test]
-    fn should_report_refused_robots_and_root_as_root_access_denied() {
+    fn should_report_a_refused_root_as_root_access_denied() {
         for root_status in [401, 403] {
             let mut diagnostics = CrawlDiagnostics {
                 root_preflight_status: Some(root_status),
-                robots_blocked: 1,
                 ..CrawlDiagnostics::default()
             };
             apply_library_outcome(
                 &mut diagnostics,
-                LibraryOutcome {
-                    robots_denied: true,
-                    ..library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None)
-                },
+                library_outcome(CrawlStatus::Idle, WebsiteMetaInfo::None),
             );
             apply_local_filter_outcome(&mut diagnostics);
 
@@ -2643,7 +2622,6 @@ mod tests {
                 initial_html_length: 1_234,
                 initial_should_retry: true,
                 initial_anti_bot: AntiBotTech::DataDome,
-                robots_denied: false,
             },
         );
 

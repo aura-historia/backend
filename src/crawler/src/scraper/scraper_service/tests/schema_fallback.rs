@@ -23,13 +23,6 @@ async fn scrape_with_schema_service(
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, budget_increments);
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -37,7 +30,6 @@ async fn scrape_with_schema_service(
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

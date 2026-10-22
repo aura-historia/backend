@@ -13,7 +13,6 @@
 //! 1. Initialises structured info logging.
 //! 2. Connects to local Postgres and applies pending migrations.
 //! 3. Wires up all real service implementations:
-//!    - [`ProductListingNormalizationServiceImpl`]
 //!    - [`ProductListingSchemaServiceImpl`]
 //!    - [`ScraperServiceImpl`] (backed by a real [`reqwest::Client`])
 //! 4. Iterates over the placeholder targets below and writes results to JSON.
@@ -51,7 +50,6 @@ use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ReqwestHtmlFetcher, ScrapeMode, ScrapeRequest,
     ScraperService, ScraperServiceImpl,
@@ -279,9 +277,6 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let single_schema_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_schema.clone())
         .expect("failed to initialize Vertex AI model for fresh schema generation");
-    // Pure deterministic normalization service.
-    let normalization_svc = ProductListingNormalizationServiceImpl::new();
-
     // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
@@ -300,7 +295,6 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         fetcher,
         Box::new(schema_svc),
-        Box::new(normalization_svc),
         candidate_service,
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
