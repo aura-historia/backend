@@ -1,6 +1,6 @@
 ---
-name: orchestrate-epic
-description: "Own a GitHub epic in aura-historia/backend end to end as an orchestrator: read its child issues and their 'blocked by' relationships, implement each child on its own branch with a fresh sub-agent, have a second fresh sub-agent review and fix it, open a PR into the epic branch and merge it once CI is green, run independent chains in parallel, then review the whole epic and open (never merge) the PR into develop. Invoke explicitly, e.g. '/orchestrate-epic 2227' while the epic branch is checked out."
+name: crawler-orchestrate-epic
+description: "Own a crawler epic (src/crawler: spider, scraper, schema review) in aura-historia/backend end to end as an orchestrator: read its child issues and their 'blocked by' relationships, implement each child on its own branch with a fresh sub-agent, have a second fresh sub-agent review and fix it, open a PR into the epic branch and merge it once CI is green, run independent chains in parallel, then review the whole epic and open (never merge) the PR into develop. Invoke explicitly, e.g. '/crawler-orchestrate-epic 2150' while the epic branch is checked out."
 disable-model-invocation: true
 argument-hint: "[epic issue number] [model overrides]"
 ---
