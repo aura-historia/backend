@@ -177,7 +177,7 @@ jobs:
       - name: Prepare the same hosted runner disk capacity
         run: |
           mkdir -p "$RUNNER_TEMP/measurement"
-          bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/measurement/disk-preparation.log"
+          bash ci/prepare-runner-disk.sh none 2>&1 | tee "$RUNNER_TEMP/measurement/disk-preparation.log"
       - name: Log in to GHCR
         if: matrix.job.profile != 'none'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4

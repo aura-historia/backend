@@ -104,6 +104,7 @@ class OptInLanePlan(unittest.TestCase):
             self.assertNotIn('merge-coverage.py', source)
             self.assertNotIn('SonarSource/', source)
             self.assertIn('  CARGO_PROFILE_TEST_DEBUG: 1\n  CARGO_PROFILE_DEV_DEBUG: 1\n', source)
+            self.assertIn('bash ci/prepare-runner-disk.sh none', source)
         self.assertIn('--coverage none --cache', WORKFLOW.read_text())
         self.assertIn('          coverage: none\n', WORKFLOW.with_name('compare-legacy-ci.yml').read_text())
 

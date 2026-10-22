@@ -107,9 +107,15 @@ Native lanes, legacy controls and layout measurements set the lazy PostgreSQL
 fixture override to the managed supervisor's immutable image before execution
 and image prefetch, so these paths use the same PostgreSQL image policy.
 
-Test jobs reclaim only the unused Android SDK, .NET and CodeQL installations on
-explicitly GitHub-hosted Linux runners. Local and self-hosted execution performs
-no SDK cleanup. Disk observations stream and retain free bytes, owned Cargo/profile
+No-coverage test/control jobs and the small legacy selector skip SDK deletion;
+preparation retains real initial/final disk capacity. Optional LLVM jobs retain
+the existing Android SDK, .NET and CodeQL reclamation only on explicitly
+GitHub-hosted Linux runners. Local and self-hosted execution performs no SDK cleanup.
+In the recorded no-coverage observation, Integration preparation took 198.340s
+and reclaimed 19.44GB; subtracting that gain from its sampled minimum leaves
+20.56GB. This arithmetic is not an observed run without cleanup: final hosted
+measurements must establish actual headroom, including the one-job layout.
+Disk observations stream and retain free bytes, owned Cargo/profile
 sizes and hosted Docker storage summaries. A best-effort three-GiB floor cancels
 through the same process owner, preserving time and space for cleanup/diagnostics;
 it cannot guarantee capacity against a sudden large allocation. Directory/Docker
@@ -384,9 +390,10 @@ are not reproduced; their costs are not measured by this control. Record actual
 cache restores, hardware and all these adjustments with each comparison. A partial
 affected run does not establish complete-corpus parity or equivalent full-workspace
 speed. Keep literal historical evidence separate from the same-tool control.
-All current controls/layouts use the same hosted SDK reclamation, disk guard and
-aligned dev/test debug settings; include their cost and observed cache state in
-the comparison.
+All matched controls/layouts use the same no-coverage preparation policy, disk
+guard and aligned dev/test debug settings. Include preparation cost and actual
+capacity/cache observations; a capacity failure rejects the observed layout
+without an automatic cleanup/retry fallback.
 
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository

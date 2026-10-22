@@ -73,6 +73,13 @@ class LaneCoverageMode(unittest.TestCase):
                 self.assertTrue(marker.is_file())
                 self.assertFalse((self.root / 'runner.env').exists())
 
+    def test_preparation_passes_the_selected_coverage_policy_without_changing_the_guard(self):
+        step = action_step('Prepare hosted runner disk capacity')
+        self.assertIn('COVERAGE_MODE: ${{ inputs.coverage }}', step)
+        self.assertIn('bash ci/prepare-runner-disk.sh "$COVERAGE_MODE"', step)
+        for name in ('Build job supervisor', 'Run owned targets and doctests'):
+            self.assertIn('python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR"', action_step(name))
+
     def test_both_modes_keep_the_same_guarded_build_and_lane_commands(self):
         tools = self.root / 'tools'
         tools.mkdir()

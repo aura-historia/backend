@@ -125,16 +125,48 @@ class BoundedDiskGuard(unittest.TestCase):
             self.assertTrue(marker.exists())
 
     def test_sdk_reclamation_never_runs_locally_or_on_self_hosted_linux(self):
-        for environment in ('', 'self-hosted'):
-            with self.subTest(environment=environment), tempfile.TemporaryDirectory() as temporary:
+        for environment, mode in (('', 'none'), ('', 'llvm'), ('self-hosted', 'none'), ('self-hosted', 'llvm'),
+                                  ('github-hosted', 'none')):
+            with self.subTest(environment=environment, mode=mode), tempfile.TemporaryDirectory() as temporary:
                 root = pathlib.Path(temporary)
                 sudo = root/'sudo'
                 sudo.write_text('#!/bin/sh\nexit 77\n')
                 sudo.chmod(0o755)
-                result = subprocess.run(['bash', str(CI/'prepare-runner-disk.sh')], env=dict(os.environ,
+                result = subprocess.run(['bash', str(CI/'prepare-runner-disk.sh'), mode], env=dict(os.environ,
                     RUNNER_ENVIRONMENT=environment, RUNNER_OS='Linux', PATH=str(root)+os.pathsep+os.environ['PATH']), capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(b'reclamation skipped', result.stdout)
+                self.assertIn(b'disk_preparation_before', result.stdout)
+                self.assertIn(b'disk_preparation_after', result.stdout)
+                self.assertIn(('disk_preparation_coverage_mode=' + mode).encode(), result.stdout)
+
+    def test_optional_llvm_reclaims_only_configured_sdk_directories_on_hosted_linux(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            sudo = root / 'sudo'
+            sudo.write_text('#!/bin/sh\nexec "$@"\n')
+            sudo.chmod(0o755)
+            script = (CI / 'prepare-runner-disk.sh').read_text()
+            sdks = [root / name for name in ('android', 'dotnet', 'codeql')]
+            for sdk, original in zip(sdks, ('/usr/local/lib/android/sdk', '/usr/share/dotnet', '/opt/hostedtoolcache/CodeQL')):
+                sdk.mkdir()
+                (sdk / 'data').touch()
+                script = script.replace(original, str(sdk))
+            unrelated = root / 'unrelated'
+            unrelated.mkdir()
+            result = subprocess.run(['bash', '-c', script, 'prepare-runner-disk.sh', 'llvm'], env=dict(os.environ,
+                RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux', PATH=str(root)+os.pathsep+os.environ['PATH']), capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(all(not sdk.exists() for sdk in sdks))
+            self.assertTrue(unrelated.is_dir())
+            self.assertEqual(result.stdout.count(b'unused_sdk_removed='), 3)
+
+    def test_invalid_preparation_policy_fails_before_any_reclamation_or_capacity_output(self):
+        result = subprocess.run(['bash', str(CI / 'prepare-runner-disk.sh'), 'disabled'], env=dict(os.environ,
+            RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux'), capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b'')
+        self.assertIn(b'Invalid disk preparation coverage mode', result.stderr)
 
 
 if __name__ == '__main__':

@@ -81,7 +81,8 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
-      run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
+        COVERAGE_MODE: ${{ inputs.coverage }}
+      run: bash ci/prepare-runner-disk.sh "$COVERAGE_MODE" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
 
     - name: Install pinned Rust toolchain
       shell: bash
