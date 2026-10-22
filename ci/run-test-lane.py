@@ -11,7 +11,8 @@ import sys
 
 from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
 from ci_inventory.coverage import execute_cargo, record_artifacts
-from ci_inventory.discovery import attach_suites, nextest_data
+from ci_inventory.discovery import (attach_suites, discovery_builds_supervisor, nextest_data,
+                                    validate_discovered_supervisor)
 from ci_inventory.io import command, write_json
 from ci_inventory.process import execute
 from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection, coverage_environment,
@@ -84,6 +85,9 @@ def discover_lane(args, root):
             raise ValueError(f"Duplicate or foreign lane suite: {identity}")
         suites[identity] = suite
     validate_special_cases(selection, suites)
+    coverage = "llvm" if os.environ.get("AURA_CI_COVERAGE_DIR") else "none"
+    if discovery_builds_supervisor(args.lane, args.legacy_package, coverage):
+        validate_discovered_supervisor(data, args.supervisor)
     print(f"test lane discovery: verified {len(suites)} targets, {data['test-count']} cases", flush=True)
     return selection, suites
 

@@ -67,14 +67,36 @@ class LaneMeasurementCommands(unittest.TestCase):
             record = execution.environment_metadata(self.root, environment)
         self.assertEqual({key: record['build_environment'][key] for key in environment}, environment)
 
-    def test_none_retains_driver_and_supervisor_build_without_capture_or_export(self):
+    def test_none_uses_discovered_supervisor_without_changing_driver_commands(self):
         instrumented = BENCHMARK.commands(self.args, self.root, self.target, self.output)
         self.args.coverage = 'none'
         commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
-        self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
+        self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'TESTS_AND_FIXTURES'])
         self.assertEqual(commands[0], instrumented[0])
-        self.assertEqual(commands[2], instrumented[2])
-        self.assertEqual(commands[1][1], instrumented[1][1][5:])
+        self.assertEqual(commands[1], instrumented[2])
+
+    def test_none_omits_separate_build_for_each_native_infrastructure_layout(self):
+        self.args.coverage = 'none'
+        for lanes in (['INFRASTRUCTURE'], ['INFRASTRUCTURE', 'REMAINING'],
+                      ['API', 'CRAWLER', 'INFRASTRUCTURE', 'REMAINING']):
+            with self.subTest(lanes=lanes):
+                self.args.lane = lanes
+                commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+                self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'TESTS_AND_FIXTURES'])
+
+    def test_none_retains_separate_build_for_api_crawler_and_legacy_controls(self):
+        self.args.coverage = 'none'
+        for lane in ('API', 'CRAWLER'):
+            with self.subTest(lane=lane):
+                self.args.lane = [lane]
+                commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+                self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
+        self.args.lane, self.args.profile, self.args.harness, self.args.features = None, 'none', 'libtest', []
+        for package in ('test-api', 'database-migration-lambda'):
+            with self.subTest(package=package):
+                self.args.legacy_package = package
+                commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+                self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
 
     def test_none_overrides_inherited_instrumentation_without_resolving_coverage_rustdoc(self):
         cleared = ('RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',

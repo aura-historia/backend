@@ -13,6 +13,7 @@ import time
 from ci_benchmark.execution import environment_metadata, images, measure
 from ci_benchmark.metrics import coverage_totals, observations
 from ci_inventory.catalog import LANES
+from ci_inventory.discovery import discovery_builds_supervisor
 
 
 def arguments():
@@ -43,7 +44,8 @@ def commands(args, root, target, output):
     compile[compile.index("--output") + 1] = str(output / "compile-discovery")
     result = [("COMPILE_LINK", [*compile, "--list-only"])]
     artifacts = [output / "compile-discovery/compile.jsonl"]
-    if args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"}:
+    if ((args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"})
+            and not discovery_builds_supervisor(args.lane, args.legacy_package, args.coverage)):
         artifacts.append(output / "supervisor.jsonl")
         build = ["cargo", "build", "--locked", "--package", "test-api",
                  "--all-features", "--bin", "aura-test-env", "--message-format=json-render-diagnostics"]

@@ -9,6 +9,25 @@ import subprocess
 from .io import command, write_json
 
 
+def discovery_builds_supervisor(lanes, legacy_package, coverage):
+    return coverage == "none" and not legacy_package and "INFRASTRUCTURE" in (lanes or ())
+
+
+def validate_discovered_supervisor(data, supervisor):
+    package_ids = {suite["package-id"] for suite in data["rust-suites"].values()
+                   if suite["package-name"] == "test-api"}
+    build = data["rust-build-meta"]
+    binaries = [binary for package in package_ids for binary in build["non-test-binaries"].get(package, [])
+                if binary["name"] == "aura-test-env"]
+    if len(package_ids) != 1 or len(binaries) != 1:
+        raise ValueError("Discovery must produce one runnable test-api supervisor")
+    binary = binaries[0]
+    path = (pathlib.Path(build["target-directory"]) / binary["path"]).resolve()
+    if (binary["kind"] != "bin-exe" or binary["build-platform"] != "target"
+            or path != supervisor.resolve() or not path.is_file() or not os.access(path, os.X_OK)):
+        raise ValueError(f"Discovered test-api supervisor is not the requested executable: {supervisor}")
+
+
 def nextest_data(raw):
     records = [json.loads(line) for line in raw.splitlines()]
     reports = [record for record in records if "rust-suites" in record]

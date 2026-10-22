@@ -85,6 +85,7 @@ class LaneCoverageMode(unittest.TestCase):
         tools.mkdir()
         recorder = tools / 'python3'
         recorder.write_text(f'#!{sys.executable}\nimport json,os,pathlib,sys\n'
+            "if sys.argv[1:] == ['-']: exec(compile(sys.stdin.read(), '<selection>', 'exec')); raise SystemExit\n"
             "pathlib.Path(os.environ['RECORDED_COMMAND']).write_text(json.dumps(sys.argv[1:]))\n"
             "raise SystemExit(int(os.environ.get('RECORDED_EXIT', '0')))\n")
         recorder.chmod(0o755)
@@ -98,10 +99,15 @@ class LaneCoverageMode(unittest.TestCase):
             environment = dict(self.environment, PATH=str(tools) + os.pathsep + os.environ['PATH'],
                 AURA_CI_COVERAGE_DIR='' if mode == 'none' else str(self.root / 'coverage'),
                 RECORDED_COMMAND=str(record), LANES='INFRASTRUCTURE', LEGACY_PACKAGE='', PARITY_PACKAGES='',
-                HARNESS='nextest', SLOTS='4', PROFILE='api')
+                HARNESS='nextest', SLOTS='4', PROFILE='api', COVERAGE_MODE=mode)
             for name in ('Build job supervisor', 'Run owned targets and doctests'):
+                record.unlink(missing_ok=True)
                 result = run_step(name, environment)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                if name == 'Build job supervisor' and mode == 'none':
+                    self.assertFalse(record.exists())
+                    self.assertIn('Lane discovery builds and validates', result.stdout)
+                    continue
                 command = json.loads(record.read_text())
                 self.assertEqual(command[0], 'ci/guard-disk.py')
                 self.assertEqual('--profiles' in command, mode == 'llvm')
@@ -116,9 +122,18 @@ class LaneCoverageMode(unittest.TestCase):
                     self.assertEqual(child[:4], ['python3', 'ci/run-test-lane.py', '--lane', 'INFRASTRUCTURE'])
                     self.assertEqual(child[child.index('--features') + 1],
                         'test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge')
-            failed = run_step('Build job supervisor', dict(environment, RECORDED_EXIT='37'))
+            failed = run_step('Build job supervisor', dict(environment, RECORDED_EXIT='37', LANES='API'))
             self.assertEqual(failed.returncode, 37, failed.stderr)
         self.assertEqual(lane_commands[0], lane_commands[1])
+
+    def test_none_omits_build_only_for_native_infrastructure_selections(self):
+        step = action_step('Build job supervisor')
+        self.assertIn('from ci_inventory.discovery import discovery_builds_supervisor', step)
+        for lanes in ('INFRASTRUCTURE', 'INFRASTRUCTURE REMAINING', 'API CRAWLER INFRASTRUCTURE REMAINING'):
+            with self.subTest(lanes=lanes):
+                result = run_step('Build job supervisor', dict(self.environment, LANES=lanes, LEGACY_PACKAGE=''))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Lane discovery builds and validates', result.stdout)
 
 
 class OrdinaryQualityGate(unittest.TestCase):

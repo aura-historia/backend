@@ -153,7 +153,21 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
+        LANES: ${{ inputs.lanes }}
+        LEGACY_PACKAGE: ${{ inputs.legacy_package }}
+        COVERAGE_MODE: ${{ inputs.coverage }}
       run: |
+        discovered="$(python3 - <<'PY'
+        import os, sys
+        sys.path.insert(0, 'ci')
+        from ci_inventory.discovery import discovery_builds_supervisor
+        print('yes' if discovery_builds_supervisor(os.environ['LANES'].split(), os.environ['LEGACY_PACKAGE'], os.environ['COVERAGE_MODE']) else 'no')
+        PY
+        )"
+        if [ "$discovered" = yes ]; then
+          printf 'Lane discovery builds and validates the job supervisor.\n'
+          exit 0
+        fi
         guard=(python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl")
         build=(cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics)
         if [ -n "$AURA_CI_COVERAGE_DIR" ]; then
