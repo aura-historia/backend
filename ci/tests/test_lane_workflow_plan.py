@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import pathlib
@@ -103,10 +104,22 @@ class OptInLanePlan(unittest.TestCase):
             self.assertNotIn('coverage-artifacts', source)
             self.assertNotIn('merge-coverage.py', source)
             self.assertNotIn('SonarSource/', source)
-            self.assertIn('  CARGO_PROFILE_TEST_DEBUG: 1\n  CARGO_PROFILE_DEV_DEBUG: 1\n', source)
+            global_environment = source.split('\njobs:', 1)[0]
+            self.assertIn('  CARGO_PROFILE_TEST_DEBUG: 0\n', global_environment)
+            self.assertNotIn('CARGO_PROFILE_DEV_DEBUG:', global_environment)
             self.assertIn('bash ci/prepare-runner-disk.sh none', source)
         self.assertIn('--coverage none --cache', WORKFLOW.read_text())
         self.assertIn('          coverage: none\n', WORKFLOW.with_name('compare-legacy-ci.yml').read_text())
+
+    def test_legacy_gate_downloads_execution_artifacts_without_final_diagnostic_duplicates(self):
+        source = WORKFLOW.with_name('compare-legacy-ci.yml').read_text()
+        pattern = next(line.strip().removeprefix('pattern: ') for line in source.splitlines()
+                       if line.strip().startswith('pattern: ')).replace('${{ github.run_attempt }}', '2')
+        artifacts = ['tests-legacy-money-execution-attempt-2', 'tests-legacy-money-attempt-2',
+                     'tests-legacy-test-api-execution-attempt-2', 'tests-legacy-test-api-attempt-2',
+                     'tests-legacy-money-execution-attempt-1', 'legacy-selection-attempt-2']
+        self.assertEqual(fnmatch.filter(artifacts, pattern),
+                         ['tests-legacy-money-execution-attempt-2', 'tests-legacy-test-api-execution-attempt-2'])
 
 
 if __name__ == "__main__":

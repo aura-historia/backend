@@ -26,8 +26,7 @@ permissions:
 env:
   CARGO_BUILD_JOBS: 4
   CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 1
-  CARGO_PROFILE_DEV_DEBUG: 1
+  CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_TERM_COLOR: never
 
 jobs:
@@ -163,7 +162,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: tests-legacy-*-attempt-${{ github.run_attempt }}
+          pattern: tests-legacy-*-execution-attempt-${{ github.run_attempt }}
           path: execution-artifacts
           merge-multiple: false
       - name: Require the exact selected package execution inventories

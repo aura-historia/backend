@@ -74,7 +74,7 @@ def validate_reports(directory, rows, manifest, revision, attempt, *, layout=Non
     if not ids or len(set(ids)) != len(ids) or any(not re.fullmatch(r'[a-z][a-z0-9_-]*', identity) for identity in ids):
         raise ValueError('Selected reports must have distinct, nonempty canonical IDs')
     names = {row['id']: (f'lane-measurement-{layout}-{row["id"]}-{repetition}-attempt-{attempt}' if layout else
-                         f'tests-{row["id"]}-attempt-{attempt}') for row in rows}
+                         f'tests-{row["id"]}-execution-attempt-{attempt}') for row in rows}
     if set(path.name for path in directory.iterdir()) != set(names.values()):
         raise ValueError('Execution artifacts differ from the exact selected job set')
     for row in rows:

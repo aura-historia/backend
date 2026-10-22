@@ -121,7 +121,7 @@ class SelectedExecutionReports(unittest.TestCase):
 
     def test_legacy_requires_exact_selected_package_inventory_and_source(self):
         row = dict(id='legacy-money', package='money')
-        directory = self.root / 'tests-legacy-money-attempt-1'
+        directory = self.root / 'tests-legacy-money-execution-attempt-1'
         selection = REPORTS.legacy_package_selection(self.manifest, self.manifest, 'money')
         self.discovery(directory / 'discovery', selection)
         write_json(directory / 'job.json', dict(checkout_sha=self.revision, coverage_mode='none'))
