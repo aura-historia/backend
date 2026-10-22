@@ -8,26 +8,33 @@ use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
 
+/// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
+struct MatrixPage<'a> {
+    page_reference: SchemaPageReference,
+    url: &'a str,
+    role: &'a str,
+    raw_html: &'a str,
+}
+
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
     schemas: &[ProductCssSelectorSchema],
     pages: &[(CrawlerReviewPage, String)],
 ) -> SchemaMatrix {
-    let mut candidates = Vec::with_capacity(schemas.len());
-    for (schema_index, schema) in schemas.iter().enumerate() {
-        let mut page_evaluations = Vec::with_capacity(pages.len());
-        for (page, raw_html) in pages {
-            page_evaluations.push(evaluate_schema_review_page(schema, page, raw_html));
-        }
-        candidates.push(SchemaCandidateEvaluation {
-            schema_index,
-            pages: page_evaluations,
-        });
-    }
-
+    let pages: Vec<MatrixPage<'_>> = pages
+        .iter()
+        .map(|(page, raw_html)| MatrixPage {
+            page_reference: SchemaPageReference::Persisted {
+                review_page_id: page.review_page_id,
+            },
+            url: &page.url,
+            role: &page.role,
+            raw_html,
+        })
+        .collect();
     SchemaMatrix {
         review_id: Some(review_id),
-        candidates,
+        candidates: evaluate_candidates(schemas, &pages),
     }
 }
 
@@ -35,22 +42,37 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
     schemas: &[ProductCssSelectorSchema],
     pages: &[SchemaReviewPageInput],
 ) -> SchemaMatrix {
-    let mut candidates = Vec::with_capacity(schemas.len());
-    for (schema_index, schema) in schemas.iter().enumerate() {
-        let mut page_evaluations = Vec::with_capacity(pages.len());
-        for (page_index, page) in pages.iter().enumerate() {
-            page_evaluations.push(evaluate_schema_input_page(schema, page_index, page));
-        }
-        candidates.push(SchemaCandidateEvaluation {
-            schema_index,
-            pages: page_evaluations,
-        });
-    }
-
+    let pages: Vec<MatrixPage<'_>> = pages
+        .iter()
+        .enumerate()
+        .map(|(page_index, page)| MatrixPage {
+            page_reference: SchemaPageReference::Input { page_index },
+            url: &page.url,
+            role: &page.role,
+            raw_html: &page.raw_html,
+        })
+        .collect();
     SchemaMatrix {
         review_id: None,
-        candidates,
+        candidates: evaluate_candidates(schemas, &pages),
     }
+}
+
+fn evaluate_candidates(
+    schemas: &[ProductCssSelectorSchema],
+    pages: &[MatrixPage<'_>],
+) -> Vec<SchemaCandidateEvaluation> {
+    schemas
+        .iter()
+        .enumerate()
+        .map(|(schema_index, schema)| SchemaCandidateEvaluation {
+            schema_index,
+            pages: pages
+                .iter()
+                .map(|page| evaluate_schema_page(schema, page))
+                .collect(),
+        })
+        .collect()
 }
 
 /// Deterministic approval requires every page to be covered by some candidate and no
@@ -155,46 +177,13 @@ pub(crate) fn unused_schema_indices(matrix: &SchemaMatrix) -> Vec<usize> {
         .collect()
 }
 
-fn evaluate_schema_review_page(
-    schema: &ProductCssSelectorSchema,
-    page: &CrawlerReviewPage,
-    raw_html: &str,
-) -> SchemaPageEvaluation {
-    evaluate_schema_page(
-        schema,
-        SchemaPageReference::Persisted {
-            review_page_id: page.review_page_id,
-        },
-        page.url.clone(),
-        page.role.clone(),
-        raw_html,
-    )
-}
-
-fn evaluate_schema_input_page(
-    schema: &ProductCssSelectorSchema,
-    page_index: usize,
-    page: &SchemaReviewPageInput,
-) -> SchemaPageEvaluation {
-    evaluate_schema_page(
-        schema,
-        SchemaPageReference::Input { page_index },
-        page.url.clone(),
-        page.role.clone(),
-        &page.raw_html,
-    )
-}
-
 fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
-    page_reference: SchemaPageReference,
-    url: String,
-    role: String,
-    raw_html: &str,
+    page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
-    let html = Html::parse_document(raw_html);
+    let html = Html::parse_document(page.raw_html);
     let apply_result = apply_schema_to_document(schema, &html);
-    let fields = evaluate_schema_fields(schema, raw_html);
+    let fields = evaluate_schema_fields(schema, page.raw_html);
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
@@ -214,9 +203,9 @@ fn evaluate_schema_page(
     };
 
     SchemaPageEvaluation {
-        page_reference,
-        url,
-        role,
+        page_reference: page.page_reference.clone(),
+        url: page.url.to_owned(),
+        role: page.role.to_owned(),
         apply_ok,
         extracted,
         error,
