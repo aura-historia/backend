@@ -341,6 +341,15 @@ fn missing_image_url_candidate(selector_str: &str) -> ExtractionError {
     }
 }
 
+/// Whether a text rule extracts a value from `element`. One without visible text yields
+/// a blank value, which `first` cardinality skips. Line separators only ever stand
+/// between visible text, so they never make a blank element count as text.
+pub(crate) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
+    !visible_text(element, TextBoundaries::Separate)
+        .trim()
+        .is_empty()
+}
+
 /// The element's image URL candidates joined into one group, or `None` when it has none.
 fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Option<String> {
     let candidates = image_url_candidates_for_element(element);
