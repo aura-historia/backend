@@ -112,11 +112,21 @@ pub enum ExtractionCardinality {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RuleExtraction {
     pub(crate) values: Vec<String>,
-    /// Matched elements without an image URL candidate. Only an image rule with
-    /// cardinality `all` skips elements, because galleries mix image links with
-    /// navigation or placeholder anchors such as `href="#"`; every other rule fails on an
-    /// element without a value.
+    /// Matched elements without a value: no image URL candidate, or no attribute of an
+    /// attribute rule. Only the `images` rule skips elements
+    /// ([`ExtractionRule::apply_image_url_candidate_groups`]), because galleries mix image
+    /// links with navigation or placeholder anchors such as `href="#"`; every other rule
+    /// fails on an element without a value.
     pub(crate) skipped_elements: usize,
+}
+
+/// What cardinality `all` does with a matched element that holds no value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ElementWithoutValue {
+    /// Fails the rule.
+    Fails,
+    /// Skips and counts the element (see [`RuleExtraction::skipped_elements`]).
+    Skipped,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -157,17 +167,15 @@ impl ExtractionRule {
     /// - **`First` cardinality**: takes the first matched element per selector.
     ///   For text extraction, empty/whitespace-only matches are skipped until a
     ///   non-empty value is found.
-    /// - **`All` cardinality**: takes all matched elements per selector. An image
-    ///   rule skips elements without an image URL candidate (see [`RuleExtraction`]).
+    /// - **`All` cardinality**: takes all matched elements per selector.
     ///
     /// Text extraction separates lines at `<br>` and block boundaries, and table cells
     /// with a space, wherever markup whitespace does not already separate them.
     ///
     /// Returns `Err(NoElementMatched)` only when *no* selector produced any
-    /// usable value, and `Err(MissingAttribute)` instead when an image rule skipped
-    /// every element it matched.
+    /// usable value.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Separate)
+        self.extract(html, TextBoundaries::Separate, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
@@ -176,30 +184,35 @@ impl ExtractionRule {
     /// identity must not change with how text is laid out: a changed identity captures the
     /// product again as a new listing.
     pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Ignore)
+        self.extract(html, TextBoundaries::Ignore, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
-    /// Applies this rule with cardinality `all`, whatever its configured cardinality,
-    /// so every gallery element yields its ordered image URL candidates as one group.
+    /// Applies this rule as the `images` rule: with cardinality `all`, whatever its
+    /// configured cardinality, so every gallery element yields its ordered image URL
+    /// candidates as one group. A matched element without a value (no image URL
+    /// candidate, or no attribute of an attribute rule) is skipped and counted; the rule
+    /// fails with the first skipped element's error only when it skips every element it
+    /// matched.
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut all_images_rule = self.clone();
         all_images_rule.cardinality = ExtractionCardinality::All;
-        all_images_rule.extract(html, TextBoundaries::Separate)
+        all_images_rule.extract(html, TextBoundaries::Separate, ElementWithoutValue::Skipped)
     }
 
     fn extract(
         &self,
         html: &Html,
         boundaries: TextBoundaries,
+        without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
 
         let mut extraction = RuleExtraction::default();
-        let mut first_skipping_selector = None;
+        let mut first_skipped_error = None;
 
         for css_selector in all_selectors {
             let parsed = parse_selector(css_selector)?;
@@ -214,27 +227,31 @@ impl ExtractionRule {
                     )?);
                 }
                 ExtractionCardinality::All => {
-                    let skipped = self.push_every_value(
-                        elements,
-                        css_selector,
-                        boundaries,
-                        &mut extraction.values,
-                    )?;
-                    if skipped > 0 {
-                        first_skipping_selector.get_or_insert(css_selector);
+                    for element in elements {
+                        match extract_from_element(
+                            &element,
+                            &self.extract,
+                            css_selector,
+                            boundaries,
+                        ) {
+                            Ok(value) => extraction.values.push(value),
+                            Err(error) if without_value == ElementWithoutValue::Skipped => {
+                                extraction.skipped_elements += 1;
+                                first_skipped_error.get_or_insert(error);
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
-                    extraction.skipped_elements += skipped;
                 }
             }
         }
 
         if extraction.values.is_empty() {
-            return Err(match first_skipping_selector {
-                Some(css_selector) => missing_image_url_candidate(css_selector),
-                None => ExtractionError::NoElementMatched {
+            return Err(
+                first_skipped_error.unwrap_or_else(|| ExtractionError::NoElementMatched {
                     selector: self.selector.to_string(),
-                },
-            });
+                }),
+            );
         }
 
         Ok(extraction)
@@ -257,35 +274,6 @@ impl ExtractionRule {
                 .map(|element| extract_from_element(&element, kind, css_selector, boundaries))
                 .transpose(),
         }
-    }
-
-    /// Pushes the value of every element `css_selector` matched and returns how many
-    /// elements an image rule skipped for having no image URL candidate.
-    fn push_every_value(
-        &self,
-        elements: scraper::html::Select<'_, '_>,
-        css_selector: &CssSelector,
-        boundaries: TextBoundaries,
-        values: &mut Vec<String>,
-    ) -> Result<usize, ExtractionError> {
-        let mut skipped = 0;
-        for element in elements {
-            match &self.extract {
-                ExtractionKind::ImageUrl => match image_url_candidate_group(&element) {
-                    Some(group) => values.push(group),
-                    None => skipped += 1,
-                },
-                kind @ (ExtractionKind::Text | ExtractionKind::Attribute { .. }) => {
-                    values.push(extract_from_element(
-                        &element,
-                        kind,
-                        css_selector,
-                        boundaries,
-                    )?);
-                }
-            }
-        }
-        Ok(skipped)
     }
 }
 
@@ -329,15 +317,12 @@ fn extract_from_element(
             })?;
             Ok(attr_value.to_owned())
         }
-        ExtractionKind::ImageUrl => image_url_candidate_group(element)
-            .ok_or_else(|| missing_image_url_candidate(selector_str)),
-    }
-}
-
-fn missing_image_url_candidate(selector_str: &str) -> ExtractionError {
-    ExtractionError::MissingAttribute {
-        selector: selector_str.to_owned(),
-        attribute: "image URL candidate".to_owned(),
+        ExtractionKind::ImageUrl => {
+            image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
+                selector: selector_str.to_owned(),
+                attribute: "image URL candidate".to_owned(),
+            })
+        }
     }
 }
 
@@ -1566,7 +1551,8 @@ mod tests {
         );
     }
 
-    /// A gallery whose matched elements include anchors without an image URL candidate.
+    /// A gallery whose matched elements include elements without a value, which the
+    /// `images` rule skips (#2099).
     mod image_elements_without_candidate {
         use super::*;
 
@@ -1594,19 +1580,6 @@ mod tests {
                 r#"<html><body><div class="product-image-grid">{}</div></body></html>"#,
                 image_links.chain(placeholders).collect::<String>()
             ))
-        }
-
-        #[test]
-        fn should_skip_anchors_without_image_url_candidate_for_all_cardinality() {
-            let r = rule(
-                GALLERY_SELECTOR,
-                image_url_kind(),
-                ExtractionCardinality::All,
-            );
-
-            let images = r.apply(&gallery_with_placeholder_anchors()).unwrap();
-
-            assert_eq!(images, (1..=8).map(image_url).collect::<Vec<_>>());
         }
 
         #[test]
@@ -1645,6 +1618,41 @@ mod tests {
         }
 
         #[test]
+        fn should_skip_gallery_images_without_the_attribute_of_an_attribute_rule() {
+            let doc = html(
+                r#"<div class="gallery"><img src="a.jpg"><img alt="no-src"><img src="c.jpg"></div>"#,
+            );
+            let r = rule(
+                "div.gallery img",
+                attr_kind("src"),
+                ExtractionCardinality::All,
+            );
+
+            let images = r.apply_image_url_candidate_groups(&doc).unwrap();
+
+            assert_eq!(images.values, vec!["a.jpg", "c.jpg"]);
+            assert_eq!(images.skipped_elements, 1);
+        }
+
+        /// Only the `images` rule skips: the same rule applied to another field still
+        /// fails on an element without a value.
+        #[test]
+        fn should_fail_other_fields_on_an_element_without_a_value() {
+            let r = rule(
+                GALLERY_SELECTOR,
+                image_url_kind(),
+                ExtractionCardinality::All,
+            );
+
+            let err = r.apply(&gallery_with_placeholder_anchors()).unwrap_err();
+
+            assert!(
+                matches!(&err, ExtractionError::MissingAttribute { attribute, .. } if attribute == "image URL candidate"),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
         fn should_fail_when_no_matched_element_has_an_image_url_candidate() {
             let doc = html(
                 r##"<div class="thumbs"><a href="#" rel="lightbox"></a><a href="#" rel="lightbox"></a></div>"##,
@@ -1656,13 +1664,34 @@ mod tests {
                 ExtractionCardinality::All,
             );
 
-            let err = r.apply(&doc).unwrap_err();
+            let err = r.apply_image_url_candidate_groups(&doc).unwrap_err();
 
             assert!(
                 matches!(
                     &err,
                     ExtractionError::MissingAttribute { selector, attribute }
                         if selector == ".thumbs a" && attribute == "image URL candidate"
+                ),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
+        fn should_fail_when_no_matched_gallery_image_has_the_attribute_of_an_attribute_rule() {
+            let doc = html(r#"<div class="gallery"><img alt="no-src"></div>"#);
+            let r = rule(
+                "div.gallery img",
+                attr_kind("src"),
+                ExtractionCardinality::All,
+            );
+
+            let err = r.apply_image_url_candidate_groups(&doc).unwrap_err();
+
+            assert!(
+                matches!(
+                    &err,
+                    ExtractionError::MissingAttribute { selector, attribute }
+                        if selector == "div.gallery img" && attribute == "src"
                 ),
                 "unexpected error: {err:?}"
             );

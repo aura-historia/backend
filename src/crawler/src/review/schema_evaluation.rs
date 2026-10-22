@@ -338,8 +338,8 @@ fn evaluate_schema_fields(
 }
 
 /// Evaluates the `images` rule as runtime extraction applies it, with the count of
-/// matched elements it skipped for having no image URL candidate. A failed images
-/// rule fails the page, whose error the page evaluation already carries.
+/// matched elements it skipped for having no value. A failed images rule fails the
+/// page, whose error the page evaluation already carries.
 fn evaluate_images_rule(schema: &ProductCssSelectorSchema, html: &Html) -> SelectorFieldEvaluation {
     SelectorFieldEvaluation {
         skipped_element_count: schema
@@ -1279,6 +1279,30 @@ mod tests {
             assert_eq!(images.selector_match_count, Some(5));
             assert_eq!(images.skipped_element_count, Some(3));
             assert_eq!(field(page, "title").skipped_element_count, None);
+        }
+
+        #[test]
+        fn should_count_gallery_images_without_the_attribute_of_an_attribute_rule() {
+            let schema = ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("#gallery img"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::Attribute { name: "src".into() },
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            };
+            let pages = vec![gallery_page(
+                "<img src=\"/images/1.jpg\"><img data-src=\"/images/2.jpg\"><img src=\"/images/3.jpg\">",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(page.apply_ok);
+            let images = field(page, "images");
+            assert_eq!(images.selector_match_count, Some(3));
+            assert_eq!(images.skipped_element_count, Some(1));
         }
 
         #[test]

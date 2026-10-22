@@ -762,8 +762,9 @@ function currentCandidatePagesWithOptionalMisses(matrix) {
     return (candidate.pages || []).filter(page => optionalFieldMisses(page).length > 0);
 }
 
-// Fields whose rule skipped matched elements without an image URL candidate on the page
-// (`skipped_element_count`, set for the `images` rule only). Many skips show a loose selector.
+// Fields whose rule skipped matched elements without an image URL (no image URL candidate, or
+// no attribute of an attribute rule) on the page (`skipped_element_count`, set for the `images`
+// rule only). Many skips show a loose selector.
 function fieldsWithSkippedElements(page) {
     return (page?.fields || []).filter(field => field.skipped_element_count > 0);
 }

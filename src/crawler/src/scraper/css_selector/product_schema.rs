@@ -196,10 +196,10 @@ impl ProductCssSelectorSchema {
     /// a description must not invalidate the schema. Only `title` and `state` fail
     /// closed on a miss; `images` fails closed unless the image container exists and
     /// holds no image (see [`Self::apply_image_url_candidate_groups`]). `images` skips
-    /// gallery elements without an image URL candidate and fails only when it skips
-    /// every element it matched. Any other rule failure (invalid selector, missing
-    /// attribute) still returns the corresponding [`ApplySchemaError`] variant
-    /// immediately.
+    /// gallery elements without a value (no image URL candidate, or no attribute of an
+    /// attribute rule) and fails only when it skips every element it matched. Any other
+    /// rule failure (invalid selector, missing attribute) still returns the
+    /// corresponding [`ApplySchemaError`] variant immediately.
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
@@ -1355,6 +1355,8 @@ mod tests {
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
     }
 
+    /// The only matched `<img>` has no `src`, so no element yields a value, and no empty
+    /// image container exists.
     #[test]
     fn should_return_err_images_when_img_element_missing_src_attribute() {
         let html = Html::parse_document(
@@ -1376,16 +1378,19 @@ mod tests {
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
-            matches!(err, ApplySchemaError::Images(_)),
+            matches!(
+                &err,
+                ApplySchemaError::Images(ExtractionError::MissingAttribute { attribute, .. })
+                    if attribute == "src"
+            ),
             "unexpected variant: {err}"
         );
     }
 
-    /// Only an `image_url` images rule skips gallery elements without a value (#2099). An
-    /// attribute images rule names the attribute it needs, so one element without it still
-    /// fails the page while the other elements carry it.
+    /// The `images` rule skips gallery elements without a value whatever its kind
+    /// (#2099): an attribute rule skips an `<img>` without its attribute.
     #[test]
-    fn should_return_err_images_when_one_gallery_img_lacks_attribute_of_attribute_rule() {
+    fn should_skip_gallery_img_without_the_attribute_of_an_attribute_images_rule() {
         let html = Html::parse_document(
             r#"<html><body>
                 <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
@@ -1406,16 +1411,9 @@ mod tests {
             raw_attributes: Default::default(),
         };
 
-        let err = schema.apply(&html).unwrap_err();
+        let result = schema.apply(&html).unwrap();
 
-        assert!(
-            matches!(
-                &err,
-                ApplySchemaError::Images(ExtractionError::MissingAttribute { attribute, .. })
-                    if attribute == "src"
-            ),
-            "unexpected error: {err}"
-        );
+        assert_eq!(result.images, vec!["a.jpg", "c.jpg"]);
     }
 
     #[test]
