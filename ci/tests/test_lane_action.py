@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -7,6 +9,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -29,7 +32,7 @@ class LaneCoverageMode(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = pathlib.Path(temporary.name)
-        self.environment = dict(os.environ, LANE_ID='integration', COVERAGE_MODE='none',
+        self.environment = dict(os.environ, LANE_ID='integration', COVERAGE_MODE='none', COMPILATION_CACHE='cold',
             GITHUB_ENV=str(self.root / 'runner.env'), GITHUB_WORKSPACE=str(self.root),
             RUNNER_TEMP=str(self.root / 'runner'), CARGO_TARGET_DIR=str(self.root / 'target/no-coverage'))
 
@@ -56,8 +59,8 @@ class LaneCoverageMode(unittest.TestCase):
         self.assertEqual(list(target.iterdir()), [])
         self.assertTrue(instrumented.is_file())
         self.assertFalse((self.root / 'runner/coverage').exists())
-        self.assertIn('cache restore/save disabled', result.stdout)
-        self.assertIn("      if: inputs.coverage == 'llvm'\n", action_step('Restore lane compilation cache'))
+        self.assertIn('compilation cache policy cold', result.stdout)
+        self.assertIn("      if: inputs.compilation_cache == 'dependencies'\n", action_step('Restore lane compilation cache'))
         for name in ('Export LLVM coverage', 'Upload coverage'):
             self.assertIn("      if: always() && inputs.coverage == 'llvm'\n", action_step(name))
 
@@ -72,6 +75,66 @@ class LaneCoverageMode(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertTrue(marker.is_file())
                 self.assertFalse((self.root / 'runner.env').exists())
+
+    def test_invalid_cache_policy_fails_before_resetting_outputs(self):
+        target = pathlib.Path(self.environment['CARGO_TARGET_DIR'])
+        target.mkdir(parents=True)
+        marker = target / 'retained'
+        marker.touch()
+        for policy in ('', 'DEPENDENCIES', 'all'):
+            with self.subTest(policy=policy):
+                result = run_step('Configure test lane', dict(self.environment, COMPILATION_CACHE=policy))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(marker.is_file())
+                self.assertFalse((self.root / 'runner.env').exists())
+
+    def test_dependency_policy_resets_the_target_before_restore(self):
+        target = pathlib.Path(self.environment['CARGO_TARGET_DIR'])
+        target.mkdir(parents=True)
+        (target / 'workspace-binary').touch()
+        result = run_step('Configure test lane', dict(self.environment, COMPILATION_CACHE='dependencies'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(target.iterdir()), [])
+        self.assertIn('compilation cache policy dependencies', result.stdout)
+        self.assertLess(ACTION.index('    - name: Configure test lane'), ACTION.index('    - name: Restore lane compilation cache'))
+
+    def test_cache_retains_only_dependencies_in_the_selected_coverage_target(self):
+        cache = action_step('Restore lane compilation cache')
+        self.assertIn('Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0', cache)
+        self.assertIn("workspaces: . -> target/${{ inputs.coverage == 'none' && 'no-coverage' || 'coverage' }}", cache)
+        for setting in ('cache-workspace-crates', 'cache-all-crates', 'cache-on-failure'):
+            self.assertIn(f'        {setting}: false\n', cache)
+        self.assertIn('        save-if: true\n', cache)
+        key = re.search(r'^        key: (.+)$', cache, re.MULTILINE)[1]
+        self.assertIn('test-${{ inputs.id }}-${{ inputs.coverage }}-deps-v1-', key)
+        for path in ('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py',
+                     'ci/ci_inventory/phases.py', 'ci/test-lanes.json'):
+            self.assertIn("'" + path + "'", key)
+            self.assertTrue((ROOT / path).is_file())
+        self.assertIn('        CACHE_KEY: ' + key + '\n', action_step('Record source, runner and cache provenance'))
+        self.assertNotIn('add-rust-environment-hash-key:', cache)
+
+    def test_cache_provenance_distinguishes_disabled_exact_and_nonexact_restores(self):
+        sys.path.insert(0, str(ROOT / 'ci'))
+        script = textwrap.dedent(action_step('Record source, runner and cache provenance').split('      run: |\n', 1)[1])
+        source = script.split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+        output = self.root / 'runner/lane/integration'
+        output.mkdir(parents=True)
+        for coverage, policy, hit, result in (
+                ('none', 'cold', 'true', 'DISABLED'), ('none', 'dependencies', 'true', 'EXACT_HIT'),
+                ('none', 'dependencies', 'false', 'NON_EXACT'), ('none', 'dependencies', '', 'UNKNOWN'),
+                ('llvm', 'dependencies', 'true', 'EXACT_HIT')):
+            with self.subTest(coverage=coverage, policy=policy, hit=hit), patch.dict(os.environ,
+                    dict(self.environment, COVERAGE_MODE=coverage, COMPILATION_CACHE=policy, CACHE_KEY='native-key', CACHE_HIT=hit)), \
+                    patch('ci_benchmark.execution.environment_metadata', return_value={}), \
+                    patch('subprocess.check_output', side_effect=['a' * 40, 'b' * 40]), contextlib.redirect_stdout(io.StringIO()):
+                exec(compile(source, str(ROOT / '.github/actions/test-lane/action.yml'), 'exec'), {})
+            cache = json.loads((output / 'job.json').read_text())['cache']
+            self.assertEqual(cache['policy'], policy)
+            self.assertEqual(cache['attempted'], policy == 'dependencies')
+            self.assertEqual(cache['target_reset'], coverage == 'none')
+            self.assertEqual(cache['exact_hit'], (hit or None) if policy == 'dependencies' else None)
+            self.assertEqual(cache['restore_result'], result)
 
     def test_preparation_passes_the_selected_coverage_policy_without_changing_the_guard(self):
         step = action_step('Prepare hosted runner disk capacity')
@@ -146,12 +209,20 @@ class OrdinaryQualityGate(unittest.TestCase):
             with self.subTest(lane=lane):
                 inputs = dict(re.findall(r'^          (\w+): (\S+)$', jobs[name], re.MULTILINE))
                 self.assertEqual(inputs, dict(id=name, lanes=lane, harness='nextest', slots='4',
-                                              profile=profile, coverage='none'))
+                                              profile=profile, coverage='none', compilation_cache='dependencies'))
                 self.assertIn('    runs-on: ubuntu-24.04\n', jobs[name])
         self.assertIn('uses: ./.github/actions/lint-workspace', jobs['lint'])
         self.assertNotIn('Sonar', WORKFLOW)
         self.assertIn("  coverage:\n    description:", ACTION)
         self.assertIn('    default: llvm\n', ACTION)
+
+    def test_legacy_controls_stay_cold_and_layout_diagnostics_keep_their_own_target(self):
+        legacy = (ROOT / '.github/workflows/compare-legacy-ci.yml').read_text()
+        caller = legacy.split('uses: ./.github/actions/test-lane\n', 1)[1].split('\n  quality:', 1)[0]
+        self.assertIn('          compilation_cache: cold\n', caller)
+        benchmark = (ROOT / '.github/workflows/benchmark-lanes.yml').read_text()
+        self.assertNotIn('uses: ./.github/actions/test-lane', benchmark)
+        self.assertIn('for cache in COLD_TARGET WARM_TARGET; do', benchmark)
 
     def test_final_gate_rejects_any_missing_failed_cancelled_or_skipped_job(self):
         block = WORKFLOW.split('\n  quality:\n', 1)[1]

@@ -137,6 +137,7 @@ jobs:
           slots: 4
           profile: none
           coverage: none
+          compilation_cache: cold
 
   quality:
     name: Require legacy selector, lint and selected tests

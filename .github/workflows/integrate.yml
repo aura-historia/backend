@@ -86,6 +86,7 @@ jobs:
           slots: 4
           profile: api
           coverage: none
+          compilation_cache: dependencies
 
   crawler:
     name: Test Crawler
@@ -104,6 +105,7 @@ jobs:
           slots: 4
           profile: postgres
           coverage: none
+          compilation_cache: dependencies
 
   integration:
     name: Test Integration
@@ -122,6 +124,7 @@ jobs:
           slots: 4
           profile: api
           coverage: none
+          compilation_cache: dependencies
 
   remaining:
     name: Test Remaining
@@ -137,6 +140,7 @@ jobs:
           slots: 4
           profile: none
           coverage: none
+          compilation_cache: dependencies
 
   quality:
     name: Require all lint and test lanes

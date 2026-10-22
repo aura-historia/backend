@@ -23,8 +23,11 @@ inputs:
     description: Supervisor service profile, or none for the remaining lane.
     required: true
   coverage:
-    description: Coverage mode, llvm or none. None always starts with an empty target and no cache.
+    description: Coverage mode, llvm or none. None resets its target before optional dependency restore.
     default: llvm
+  compilation_cache:
+    description: Compilation cache policy, dependencies or cold.
+    default: dependencies
 runs:
   using: composite
   steps:
@@ -34,11 +37,16 @@ runs:
       env:
         LANE_ID: ${{ inputs.id }}
         COVERAGE_MODE: ${{ inputs.coverage }}
+        COMPILATION_CACHE: ${{ inputs.compilation_cache }}
       run: |
         [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining|all|legacy-[a-z0-9][a-z0-9_-]*)$ ]]
         case "$COVERAGE_MODE" in
           llvm|none) ;;
           *) printf 'Invalid coverage mode: %s\n' "$COVERAGE_MODE" >&2; exit 1 ;;
+        esac
+        case "$COMPILATION_CACHE" in
+          dependencies|cold) ;;
+          *) printf 'Invalid compilation cache policy: %s\n' "$COMPILATION_CACHE" >&2; exit 1 ;;
         esac
         test -n "$RUNNER_TEMP"
         test -n "$GITHUB_WORKSPACE"
@@ -59,7 +67,7 @@ runs:
           target="$GITHUB_WORKSPACE/target/no-coverage"
           rm -rf "$target"
           mkdir -p "$target"
-          printf 'No-coverage policy: reset target %s; cache restore/save disabled.\n' "$target"
+          printf 'No-coverage policy: reset target %s; compilation cache policy %s.\n' "$target" "$COMPILATION_CACHE"
           {
             printf 'CARGO_TARGET_DIR=%s\n' "$target"
             printf 'RUSTFLAGS=\nRUSTDOCFLAGS=\nCARGO_ENCODED_RUSTFLAGS=\nCARGO_ENCODED_RUSTDOCFLAGS=\n'
@@ -96,11 +104,16 @@ runs:
         rustc -Vv
 
     - name: Restore lane compilation cache
-      if: inputs.coverage == 'llvm'
+      if: inputs.compilation_cache == 'dependencies'
       id: cache
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
-        key: test-${{ inputs.id }}-${{ inputs.coverage }}-coverage-v1
+        key: test-${{ inputs.id }}-${{ inputs.coverage }}-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}
+        workspaces: . -> target/${{ inputs.coverage == 'none' && 'no-coverage' || 'coverage' }}
+        cache-workspace-crates: false
+        cache-all-crates: false
+        cache-on-failure: false
+        save-if: true
         env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
 
     - name: Install verified test tools
@@ -114,7 +127,8 @@ runs:
       env:
         LANE_ID: ${{ inputs.id }}
         COVERAGE_MODE: ${{ inputs.coverage }}
-        CACHE_KEY: test-${{ inputs.id }}-${{ inputs.coverage }}-coverage-v1
+        COMPILATION_CACHE: ${{ inputs.compilation_cache }}
+        CACHE_KEY: test-${{ inputs.id }}-${{ inputs.coverage }}-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}
         CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
         python3 - <<'PY'
@@ -122,18 +136,22 @@ runs:
         sys.path.insert(0, 'ci')
         from ci_benchmark.execution import environment_metadata
         root = pathlib.Path.cwd()
+        policy = os.environ['COMPILATION_CACHE']
+        attempted = policy == 'dependencies'
+        hit = (os.environ.get('CACHE_HIT') or None) if attempted else None
         record = {
             'checkout_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
             'checkout_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
             'run': {key: os.environ.get(key) for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF', 'RUNNER_NAME')},
             'runner': environment_metadata(root, os.environ),
             'coverage_mode': os.environ['COVERAGE_MODE'],
-            'cache': {'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': os.environ.get('CACHE_HIT') or None,
-                      'attempted': os.environ['COVERAGE_MODE'] == 'llvm',
+            'cache': {'policy': policy, 'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': hit,
+                      'attempted': attempted,
+                      'restore_result': (('EXACT_HIT' if hit == 'true' else 'NON_EXACT' if hit == 'false' else 'UNKNOWN')
+                                         if attempted else 'DISABLED'),
                       'target_reset': os.environ['COVERAGE_MODE'] == 'none',
-                      'limitation': ('Resolved and fallback cache keys are retained in the cache action log.'
-                                     if os.environ['COVERAGE_MODE'] == 'llvm'
-                                     else 'Cache restore/save disabled; each job starts with a cold target.')},
+                      'limitation': ('A false hit output can mean miss, fallback or cache error; resolved keys and restore/save diagnostics are retained in the cache action log.'
+                                     if attempted else 'Cache restore/save disabled.')},
         }
         path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'job.json'
         path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
