@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": 1 },
-    "purpose": { "const": "INVENTORY_ONLY" },
+    "purpose": { "const": "PACKAGE_TEST_LANES" },
     "lanes": {
       "type": "object",
       "required": ["API", "CRAWLER", "INFRASTRUCTURE", "REMAINING"],

@@ -6,19 +6,11 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/actions/**"
+      - ".cargo/**"
+      - ".config/**"
       - "ci/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-  pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - "ci/**"
+      - "tooling/**"
+      - "tests/**"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -27,192 +19,157 @@ on:
       - "src/**"
       - "migrations/**"
       - "opensearch/**"
+      - "mjml/**"
+      - "docs/swagger.yaml"
+      - "docs/fixtures/**"
+      - "infra/sql/**"
+      - "infra/assets/rds-ca-layer/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".cargo/**"
+      - ".config/**"
+      - "ci/**"
+      - "tooling/**"
+      - "tests/**"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "depgraph-rules.toml"
+      - "sonar-project.properties"
+      - "src/**"
+      - "migrations/**"
+      - "opensearch/**"
+      - "mjml/**"
+      - "docs/swagger.yaml"
+      - "docs/fixtures/**"
+      - "infra/sql/**"
+      - "infra/assets/rds-ca-layer/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_BUILD_JOBS: 4
 
 jobs:
   lint:
     name: Lint Workspace
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/lint-workspace
 
-      - name: Install Toolchain
-        run: rustup show
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Check geographic reference reproducibility
-        run: python3 src/geo/scripts/generate_reference.py --check
-
-      - name: Install dependency graph checker
-        run: cargo install cargo-depgraph-check --version 0.1.0 --locked
-
-      - name: Check dependency graph rules
-        run: cargo depgraph-check check
-
-      - name: Clippy lint
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
-
-  determine-affected-crates:
-    name: Determine Affected Crates
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    outputs:
-      integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Install Toolchain
-        run: rustup show
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build ci-determinator
-        run: cargo build --locked --release --package ci-determinator
-
-      - name: Compute base ref
-        id: base-ref
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=HEAD~1" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Determine affected crates
-        id: determine
-        run: |
-          result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
-          integration_test_crates=$(jq -c '.integration_test' <<< "$result")
-
-          printf 'integration_test_crates=%s\n' "$integration_test_crates" >> "$GITHUB_OUTPUT"
-
-  test:
-    name: Test ${{ matrix.crate }}
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
+  api:
+    name: Test API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        crate: ${{ fromJson(needs.determine-affected-crates.outputs.integration_test_crates) }}
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/test-lane
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          id: api
+          lanes: API
+          harness: nextest
+          slots: 4
+          profile: api
 
-      - name: Install Toolchain
-        run: rustup show
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Create coverage output directory
-        run: |
-          mkdir -p "${{ github.workspace }}/coverage-profraw"
-          test -d "${{ github.workspace }}/coverage-profraw"
-          test -w "${{ github.workspace }}/coverage-profraw"
-
-      - name: Test ${{ matrix.crate }}
-        working-directory: ${{ matrix.crate }}
-        env:
-          CARGO_PROFILE_TEST_DEBUG: 1
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-profraw/${{ strategy.job-index }}-%p-%m.profraw"
-        run: cargo test --locked --all-features -- --nocapture
-
-      - name: Add Cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Install grcov
-        run: cargo install grcov
-
-      - name: Generate coverage for ${{ matrix.crate }}
-        run: |
-          set -euo pipefail
-          if profile_path="$(find coverage-profraw -type f -name "*.profraw" -print -quit)"; then
-            if [ -z "$profile_path" ]; then
-              echo "No LLVM coverage profiles were written." >&2
-              exit 1
-            fi
-          else
-            status=$?
-            echo "Failed to search for LLVM coverage profiles (find exited with $status)." >&2
-            exit "$status"
-          fi
-          mkdir -p coverage-lcov
-          grcov coverage-profraw --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
-          test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
-
-      - name: Upload coverage for ${{ matrix.crate }}
-        uses: actions/upload-artifact@v7
+  crawler:
+    name: Test Crawler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/test-lane
         with:
-          name: coverage-${{ strategy.job-index }}
-          path: coverage-lcov/${{ strategy.job-index }}.lcov
-          if-no-files-found: error
-          retention-days: 1
+          id: crawler
+          lanes: CRAWLER
+          harness: nextest
+          slots: 4
+          profile: postgres
 
-      - name: Prune Docker volumes
-        run: docker volume prune -f
+  integration:
+    name: Test Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/test-lane
+        with:
+          id: integration
+          lanes: INFRASTRUCTURE
+          harness: nextest
+          slots: 4
+          profile: api
+
+  remaining:
+    name: Test Remaining
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/test-lane
+        with:
+          id: remaining
+          lanes: REMAINING
+          harness: nextest
+          slots: 4
+          profile: none
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [test]
+    needs: [lint, api, crawler, integration, remaining]
+    if: always()
     permissions:
       contents: read
       pull-requests: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - name: Require every independent quality job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['RESULTS'])
+          expected = {'lint', 'api', 'crawler', 'integration', 'remaining'}
+          if set(jobs) != expected or any(job['result'] != 'success' for job in jobs.values()):
+              raise SystemExit('Every lint and test lane must succeed: ' + os.environ['RESULTS'])
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
       - name: Download coverage artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
           path: coverage-artifacts
-          merge-multiple: true
-
-      - name: Merge coverage reports
-        run: |
-          find coverage-artifacts -name "*.lcov" -type f | sort > coverage-files.txt
-          if ! [ -s coverage-files.txt ]; then
-            echo "No coverage reports were downloaded."
-            exit 1
-          fi
-          xargs cat < coverage-files.txt > coverage.lcov
-          test -s coverage.lcov
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@master
+          merge-multiple: false
+      - name: Require complete valid lane coverage
+        run: python3 ci/merge-coverage.py --input coverage-artifacts --output coverage.lcov api crawler integration remaining
+      - name: SonarCloud scan and quality gate
+        uses: SonarSource/sonarqube-scan-action@b632445a46f521460d97cad21057b904b24c326f
+        with:
+          args: -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      - name: Clean coverage artifacts
-        if: always()
-        run: |
-          rm -rf coverage-artifacts coverage-files.txt coverage.lcov

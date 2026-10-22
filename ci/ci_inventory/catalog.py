@@ -10,10 +10,10 @@ from .source import scan, source_paths
 
 
 LANES = {
-    "API": {"runner": "ubuntu-latest", "description": "API package targets"},
-    "CRAWLER": {"runner": "ubuntu-latest", "description": "Crawler package targets"},
-    "INFRASTRUCTURE": {"runner": "ubuntu-latest", "description": "Fixture, adapter, worker, Lambda and CDC targets"},
-    "REMAINING": {"runner": "ubuntu-latest", "description": "All other targets"},
+    "API": {"runner": "ubuntu-24.04", "description": "API package targets"},
+    "CRAWLER": {"runner": "ubuntu-24.04", "description": "Crawler package targets"},
+    "INFRASTRUCTURE": {"runner": "ubuntu-24.04", "description": "Fixture, adapter, worker, Lambda and CDC targets"},
+    "REMAINING": {"runner": "ubuntu-24.04", "description": "All other targets"},
 }
 
 
@@ -42,7 +42,7 @@ def target_record(package, target, root, member_roots):
             "required_features": target.get("required-features", []),
             "harness": settings.get("harness", True),
             "lane": lane_for(package["name"], signals["fixtures"]),
-            "runner": "ubuntu-latest", "source_signals": signals,
+            "runner": "ubuntu-24.04", "source_signals": signals,
             "discovery": {"status": "NOT_DISCOVERED", "test_count": None, "ignored_count": None},
             "doctest_discovery": {"status": "NOT_DISCOVERED" if target["doctest"] else "NOT_APPLICABLE", "test_count": None}}
 
@@ -60,7 +60,7 @@ def build_catalog(metadata, root):
                         "current_ci_eligible": path not in {".", "src/test-api/src/test-api-macros"}})
         assignments[package["name"]] = {"path": path, "targets": [
             {key: target[key] for key in ("id", "lane", "test", "doctest", "required_features", "harness")} for target in targets]}
-    manifest = {"schema_version": 1, "purpose": "INVENTORY_ONLY", "lanes": LANES, "packages": assignments}
+    manifest = {"schema_version": 1, "purpose": "PACKAGE_TEST_LANES", "lanes": LANES, "packages": assignments}
     summary = {"packages": len(records), "targets": sum(len(p["targets"]) for p in records),
                "doctest_targets": sum(t["doctest"] for p in records for t in p["targets"]),
                "test_count": None, "ignored_count": None, "doctest_count": None}
@@ -77,6 +77,69 @@ def check_manifest(manifest, expected):
                 differences.append(name)
         raise ValueError("Package/target/lane contract changed: " + ", ".join(differences or ["schema/lanes"]) +
                          ". Review the delta, then explicitly run --write-manifest.")
+
+
+def package_owners(manifest, expected):
+    """Keep reviewed target classifications while assigning whole packages."""
+    check_manifest(manifest, expected)
+    owners, seen = {}, set()
+    for name, package in sorted(manifest["packages"].items()):
+        if not package["targets"]:
+            raise ValueError(f"Package has no target ownership: {name}")
+        classifications = set()
+        for target in package["targets"]:
+            identity = target["id"]
+            parts = identity.split("::")
+            if len(parts) != 3 or not all(parts) or parts[0] != name:
+                raise ValueError(f"Target does not belong to package {name}: {identity}")
+            if identity in seen:
+                raise ValueError(f"Duplicate target ownership: {identity}")
+            seen.add(identity)
+            classifications.add(target["lane"])
+        exclusive = {"aura-historia-api": "API", "crawler": "CRAWLER"}.get(name)
+        if exclusive:
+            if classifications != {exclusive}:
+                raise ValueError(f"Invalid exclusive package classification: {name}")
+            owners[name] = exclusive
+        elif classifications <= {"INFRASTRUCTURE", "REMAINING"}:
+            owners[name] = "INFRASTRUCTURE" if "INFRASTRUCTURE" in classifications else "REMAINING"
+        else:
+            raise ValueError(f"Invalid package classification: {name}")
+    return owners
+
+
+def select_packages(manifest, packages):
+    """Project already validated package owners into Cargo arguments and targets."""
+    targets = [target for name in packages for target in manifest["packages"][name]["targets"]]
+    return {"packages": packages,
+            "package_args": [argument for name in packages for argument in ("--package", name)],
+            "targets": sorted(target["id"] for target in targets),
+            "doctest_targets": sorted(target["id"] for target in targets if target["doctest"])}
+
+
+def lane_selection(manifest, expected, lane):
+    """Emit package arguments and complete target ownership for one lane."""
+    if lane not in LANES:
+        raise ValueError(f"Unknown test lane: {lane}")
+    owners = package_owners(manifest, expected)
+    packages = sorted(name for name, owner in owners.items() if owner == lane)
+    if not packages:
+        raise ValueError(f"Test lane has no packages: {lane}")
+    return {"lane": lane, **select_packages(manifest, packages)}
+
+
+def legacy_package_selection(manifest, expected, name, parity_packages=()):
+    """Select one reviewed package for the opt-in old scheduling comparison."""
+    owners = package_owners(manifest, expected)
+    if name not in owners:
+        raise ValueError(f"Unknown legacy comparison package: {name}")
+    packages = [name, *parity_packages]
+    allowed_parity = {package for package, record in manifest['packages'].items()
+                      if record['path'] in {'.', 'src/test-api/src/test-api-macros'}}
+    if len(packages) != len(set(packages)) or not set(parity_packages) <= allowed_parity or (parity_packages and name != 'test-api'):
+        raise ValueError('Only the test-api full control may include explicit root/proc-macro parity additions')
+    return {"lanes": sorted({owners[package] for package in packages}), "legacy_package": name,
+            "parity_packages": list(parity_packages), **select_packages(manifest, sorted(packages))}
 
 
 def tree_features(argv, cwd, output):

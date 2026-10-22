@@ -1,7 +1,6 @@
 [rules]
 aura-historia-auth = ["application", "user-core", "user-service"]
 aura-historia-mcp = ["application", "auction-core", "auction-service", "aura-historia-auth", "aura-historia-contracts", "aura-historia-runtime", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo-service", "listing-source-core", "listing-source-service", "localization", "money", "notification-core", "notification-service", "oauth-core", "party-service", "platform-lambda-bootstrap", "platform-observability", "product-listing-core", "product-listing-service", "search-filter-core", "search-filter-service", "shipping-core", "shipping-service", "test-api", "user-core", "user-service", "watchlist-core", "watchlist-service"]
-ci-determinator = []
 application = ["credential-core", "domain-primitives", "user-core"]
 domain-primitives = ["slug"]
 localization = []

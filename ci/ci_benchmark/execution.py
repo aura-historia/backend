@@ -9,11 +9,12 @@ import subprocess
 import time
 
 
-def optional_command(argv, root):
+def optional_command(argv, root, env=None, timeout=None):
     try:
-        process = subprocess.run(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.run(argv, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 timeout=timeout)
         return process.stdout.strip() if process.returncode == 0 else None
-    except FileNotFoundError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
 
@@ -25,9 +26,9 @@ def environment_metadata(root, env):
             "memory_total_kib": int(memory.read_text().split("MemTotal:", 1)[1].split()[0]) if memory.exists() else None,
             "github_runner_os": os.environ.get("RUNNER_OS"), "github_runner_arch": os.environ.get("RUNNER_ARCH"),
             "github_runner_image": os.environ.get("ImageOS"), "github_runner_image_version": os.environ.get("ImageVersion"),
-            "rustc": optional_command(["rustc", "-vV"], root), "cargo": optional_command(["cargo", "--version"], root),
+            "rustc": optional_command(["rustc", "-vV"], root, env), "cargo": optional_command(["cargo", "--version"], root, env),
             "grcov": optional_command(["grcov", "--version"], root), "docker": optional_command(["docker", "--version"], root),
-            "build_environment": {key: env.get(key) for key in ("CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG", "RUSTFLAGS", "LLVM_PROFILE_FILE")}}
+            "build_environment": {key: env.get(key) for key in ("CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG", "CARGO_PROFILE_DEV_DEBUG", "RUSTUP_TOOLCHAIN", "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTDOC", "LLVM_PROFILE_FILE")}}
 
 
 def fixture_references(root):
@@ -60,7 +61,7 @@ def images(root):
     # Inspect fixture references only; never enumerate or mutate other containers.
     references = fixture_references(root)
     return [{"reference": reference, "identity": optional_command(
-        ["docker", "image", "inspect", "--format", "{{json .RepoDigests}} {{.Id}}", reference], root)} for reference in references]
+        ["docker", "image", "inspect", "--format", "{{json .RepoDigests}} {{.Id}}", reference], root, timeout=5)} for reference in references]
 
 
 def directory_bytes(path):

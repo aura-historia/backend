@@ -1,0 +1,239 @@
+name: Run a complete test lane
+description: Validate reviewed ownership, run supervised phases and retain coverage.
+inputs:
+  id:
+    description: Unique artifact and cache name.
+    required: true
+  lanes:
+    description: Space-separated inventory lane names.
+    default: ''
+  legacy_package:
+    description: Opt-in comparison only; one package with original lazy fixtures.
+    default: ''
+  parity_packages:
+    description: Explicit full-control root/proc-macro additions to the legacy test-api job.
+    default: ''
+  harness:
+    description: Explicit measured harness, nextest or libtest.
+    required: true
+  slots:
+    description: Maximum simultaneous ordinary tests and context slots.
+    required: true
+  profile:
+    description: Supervisor service profile, or none for the remaining lane.
+    required: true
+runs:
+  using: composite
+  steps:
+
+    - name: Configure instrumented lane
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining|all|legacy-[a-z0-9][a-z0-9_-]*)$ ]]
+        test -n "$RUNNER_TEMP"
+        coverage="$RUNNER_TEMP/coverage/$LANE_ID"
+        rm -rf "$coverage"
+        mkdir -p "$coverage/profiles/discovery" "$RUNNER_TEMP/lane/$LANE_ID"
+        {
+          printf 'CARGO_TARGET_DIR=%s/target/coverage\n' "$GITHUB_WORKSPACE"
+          printf 'CARGO_PROFILE_TEST_DEBUG=1\n'
+          printf 'CARGO_PROFILE_DEV_DEBUG=1\n'
+          printf 'RUSTUP_TOOLCHAIN=nightly-2026-10-20\n'
+          printf 'RUSTFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
+          printf 'RUSTDOCFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
+          printf 'AURA_CI_COVERAGE_DIR=%s\n' "$coverage"
+          printf 'LLVM_PROFILE_FILE=%s/profiles/discovery/%%b-%%4m.profraw\n' "$coverage"
+          printf 'NEXTEST_PROFILE=ci\n'
+          printf 'RUSTDOC=%s/ci/coverage-rustdoc.py\n' "$GITHUB_WORKSPACE"
+          printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
+          printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
+        } >> "$GITHUB_ENV"
+
+    - name: Prepare hosted runner disk capacity
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
+
+    - name: Install pinned Rust toolchain
+      shell: bash
+      run: |
+        rustup toolchain install nightly-2026-10-20 --profile minimal --component llvm-tools-preview
+        printf 'AURA_CI_RUSTDOC=%s\n' "$(rustup which --toolchain nightly-2026-10-20 rustdoc)" >> "$GITHUB_ENV"
+        rustc -Vv
+
+    - name: Restore lane compilation cache
+      id: cache
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: test-${{ inputs.id }}-llvm-coverage-v1
+        env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
+
+    - name: Install verified test tools
+      shell: bash
+      run: |
+        bash ci/install-test-tools.sh "$RUNNER_TEMP/test-tools" nextest
+        printf '%s\n' "$RUNNER_TEMP/test-tools" >> "$GITHUB_PATH"
+
+    - name: Record source, runner and cache provenance
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        CACHE_KEY: test-${{ inputs.id }}-llvm-coverage-v1
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        python3 - <<'PY'
+        import json, os, pathlib, subprocess, sys
+        sys.path.insert(0, 'ci')
+        from ci_benchmark.execution import environment_metadata
+        root = pathlib.Path.cwd()
+        record = {
+            'checkout_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'checkout_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+            'run': {key: os.environ.get(key) for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF', 'RUNNER_NAME')},
+            'runner': environment_metadata(root, os.environ),
+            'cache': {'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': os.environ.get('CACHE_HIT') or None,
+                      'limitation': 'Resolved and fallback cache keys are retained in the cache action log.'},
+        }
+        path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'job.json'
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
+        print(json.dumps(record, sort_keys=True))
+        PY
+
+    - name: Log in to GHCR
+      if: inputs.profile != 'none' || inputs.legacy_package != ''
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Build job supervisor
+      if: inputs.profile != 'none' || inputs.legacy_package == 'test-api' || inputs.legacy_package == 'database-migration-lambda'
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- bash -c 'cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics > "$1"' _ "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl"
+
+    - name: Run owned targets and doctests
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        LANES: ${{ inputs.lanes }}
+        LEGACY_PACKAGE: ${{ inputs.legacy_package }}
+        PARITY_PACKAGES: ${{ inputs.parity_packages }}
+        HARNESS: ${{ inputs.harness }}
+        SLOTS: ${{ inputs.slots }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        read -ra selected <<< "$LANES"
+        arguments=()
+        if [ -n "$LEGACY_PACKAGE" ]; then
+          test -z "$LANES"
+          arguments+=(--legacy-package "$LEGACY_PACKAGE")
+          read -ra parity <<< "$PARITY_PACKAGES"
+          for package in "${parity[@]}"; do arguments+=(--parity-package "$package"); done
+        else
+          for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
+        fi
+        if [ "$PROFILE" != none ]; then
+          arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
+        fi
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          python3 ci/run-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
+          --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
+          --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
+
+    - name: Record fixture image identities after execution
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        python3 - <<'PY'
+        import json, os, pathlib, sys
+        sys.path.insert(0, 'ci')
+        from ci_benchmark.execution import images
+        record = {'images': None, 'diagnostic': None}
+        try:
+            record['images'] = images(pathlib.Path.cwd())
+        except (OSError, ValueError) as error:
+            record['diagnostic'] = f'{type(error).__name__}: {error}'
+        path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'fixture-images.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
+        print(json.dumps(record, sort_keys=True))
+        PY
+
+    - name: Preserve execution diagnostics before coverage export
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: tests-${{ inputs.id }}-execution-attempt-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/lane/${{ inputs.id }}/
+        if-no-files-found: warn
+        retention-days: 7
+
+    - name: Export LLVM coverage
+      if: always()
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        PROFILE: ${{ inputs.profile }}
+        LEGACY_PACKAGE: ${{ inputs.legacy_package }}
+      run: |
+        arguments=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/discovery/compile.jsonl")
+        if [[ "$PROFILE" != none || "$LEGACY_PACKAGE" == test-api || "$LEGACY_PACKAGE" == database-migration-lambda ]]; then
+          arguments+=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl")
+        fi
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
+          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          python3 ci/export-coverage.py --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
+          --nextest "$RUNNER_TEMP/lane/$LANE_ID/discovery/nextest.json" \
+          --doctests "$AURA_CI_COVERAGE_DIR/doctests" "${arguments[@]}" \
+          --output "$AURA_CI_COVERAGE_DIR/$LANE_ID.lcov"
+
+    - name: Report slowest test cases
+      if: always()
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        python3 - <<'PY'
+        import os, pathlib, xml.etree.ElementTree as ET
+        output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID']
+        reports = list((output / 'discovery').glob('*-junit.xml'))
+        if reports:
+            cases = sorted(((float(case.get('time', 0)), report.stem, case.get('classname', ''), case.get('name', ''))
+                            for report in reports for case in ET.parse(report).iter('testcase')), reverse=True)
+            (output / 'slowest-tests.txt').write_text('\n'.join(f'{seconds:.3f}s {phase} {suite}::{name}'
+                                                            for seconds, phase, suite, name in cases[:20]) + '\n')
+        PY
+
+    - name: Upload coverage
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: coverage-${{ inputs.id }}
+        path: ${{ runner.temp }}/coverage/${{ inputs.id }}/${{ inputs.id }}.lcov
+        if-no-files-found: error
+        overwrite: true
+        retention-days: 3
+
+    - name: Preserve test diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: tests-${{ inputs.id }}-attempt-${{ github.run_attempt }}
+        path: |
+          ${{ runner.temp }}/lane/${{ inputs.id }}/
+          ${{ runner.temp }}/coverage/${{ inputs.id }}/${{ inputs.id }}.lcov
+          ${{ runner.temp }}/coverage/${{ inputs.id }}/${{ inputs.id }}.objects.json
+        if-no-files-found: warn
+        retention-days: 7

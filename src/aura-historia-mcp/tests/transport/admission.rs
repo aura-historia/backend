@@ -229,9 +229,10 @@ async fn should_challenge_before_sdk_dispatch_and_preserve_exact_delegated_capab
     assert_eq!(1, calls.load(Ordering::SeqCst));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn should_cancel_operation_at_deadline_and_when_request_is_dropped() {
-    for disconnect in [false, true] {
+    let request_timeout = Duration::from_millis(40);
+    for (disconnect, expected_elapsed) in [(false, request_timeout), (true, Duration::ZERO)] {
         let started = Arc::new(tokio::sync::Notify::new());
         let token = Arc::new(tokio::sync::Mutex::new(None));
         let observed_token = token.clone();
@@ -252,7 +253,7 @@ async fn should_cancel_operation_at_deadline_and_when_request_is_dropped() {
         )
         .unwrap();
         let mut config = config();
-        config.request_timeout = Duration::from_millis(40);
+        config.request_timeout = request_timeout;
         let app = router(
             config,
             Registry::new([op]).unwrap(),
@@ -263,20 +264,37 @@ async fn should_cancel_operation_at_deadline_and_when_request_is_dropped() {
             "tools/call",
             json!({"name":"testOperation","arguments":{"value":"pending"}}),
         ))));
-        started.notified().await;
+        tokio::time::timeout(Duration::from_secs(1), started.notified())
+            .await
+            .expect("operation did not start before its deadline");
+        let cancellation: CancellationToken = token.lock().await.clone().unwrap();
+        assert!(!cancellation.is_cancelled());
+        let started_at = tokio::time::Instant::now();
         if disconnect {
             task.abort();
-            let _ = task.await;
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), task)
+                    .await
+                    .expect("aborted request did not stop")
+                    .unwrap_err()
+                    .is_cancelled()
+            );
         } else {
+            tokio::time::advance(request_timeout).await;
             assert_eq!(
                 StatusCode::REQUEST_TIMEOUT,
-                task.await.unwrap().unwrap().status()
+                tokio::time::timeout(Duration::from_secs(1), task)
+                    .await
+                    .expect("request did not finish at its deadline")
+                    .unwrap()
+                    .unwrap()
+                    .status()
             );
         }
-        let cancellation: CancellationToken = token.lock().await.clone().unwrap();
         tokio::time::timeout(Duration::from_secs(1), cancellation.cancelled())
             .await
-            .unwrap();
+            .expect("request did not cancel the operation");
+        assert_eq!(expected_elapsed, started_at.elapsed());
     }
 }
 

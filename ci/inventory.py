@@ -6,7 +6,7 @@ import json
 import pathlib
 import sys
 
-from ci_inventory.catalog import build_catalog, check_manifest, feature_inventory
+from ci_inventory.catalog import LANES, build_catalog, check_manifest, feature_inventory, lane_selection
 from ci_inventory.discovery import discover
 from ci_inventory.io import command, write_json
 
@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--manifest", type=pathlib.Path, default=pathlib.Path("ci/test-lanes.json"))
     parser.add_argument("--write-manifest", action="store_true", help="Explicitly accept the live package/target set")
+    parser.add_argument("--lane", choices=LANES, help="Write validated package selectors to lane-selection.json")
     parser.add_argument("--features", action="store_true", help="Compare workspace and every package's Cargo feature graph")
     parser.add_argument("--discover", action="store_true", help="Compile/list nextest, libtest and doctest cases; run no test bodies")
     args = parser.parse_args()
@@ -26,7 +27,10 @@ def main():
     catalog, expected = build_catalog(metadata, root)
     if args.write_manifest:
         write_json(root / args.manifest, expected)
-    check_manifest(json.loads((root / args.manifest).read_text()), expected)
+    manifest = json.loads((root / args.manifest).read_text())
+    check_manifest(manifest, expected)
+    if args.lane:
+        write_json(args.output / "lane-selection.json", lane_selection(manifest, expected, args.lane))
     catalog["revision"] = command(["git", "rev-parse", "HEAD"], root).strip()
     catalog["dirty"] = bool(command(["git", "status", "--porcelain"], root).strip())
     catalog["toolchain"] = command(["rustc", "-vV"], root).strip()

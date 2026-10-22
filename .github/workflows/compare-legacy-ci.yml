@@ -1,0 +1,184 @@
+name: Same-tool Legacy CI Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full immutable source SHA containing this comparison adaptor
+        required: true
+        type: string
+      base:
+        description: Actual change base SHA (or baseline revision for a full control)
+        required: true
+        type: string
+      scope:
+        description: Full equivalent corpus or original affected selection
+        required: true
+        type: choice
+        options: [full, affected]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  CARGO_BUILD_JOBS: 4
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_TERM_COLOR: never
+
+jobs:
+  lint:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["ci/legacy-full","ci/legacy-affected"]'), github.event.label.name))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.revision }}
+          persist-credentials: false
+      - uses: ./.github/actions/lint-workspace
+
+  determine:
+    name: Build original selector and determine package fanout
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["ci/legacy-full","ci/legacy-affected"]'), github.event.label.name))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+      matrix: ${{ steps.select.outputs.matrix }}
+      reports: ${{ steps.select.outputs.reports }}
+    steps:
+      - name: Validate immutable source and real change base
+        id: source
+        env:
+          REVISION: ${{ github.event.pull_request.head.sha || inputs.revision }}
+          BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
+          SCOPE: ${{ github.event_name == 'pull_request' && (github.event.label.name == 'ci/legacy-full' && 'full' || 'affected') || inputs.scope }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SCOPE" = full || "$SCOPE" = affected ]]
+          if [ "$SCOPE" = full ]; then BASE=5c9bccac4e5c3d1e34ee021b7bbadcf78db592d4; fi
+          printf 'revision=%s\nbase=%s\nscope=%s\n' "$REVISION" "$BASE" "$SCOPE" >> "$GITHUB_OUTPUT"
+          printf 'workflow_sha=%s workflow_ref=%s\n' "$GITHUB_WORKFLOW_SHA" "$GITHUB_WORKFLOW_REF"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install toolchain
+        run: rustup show
+      - name: Prepare the same hosted runner disk capacity
+        run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/legacy-disk-preparation.log"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: legacy-selector
+      - name: Build immutable original selector and retain its real selection
+        id: select
+        env:
+          BASE: ${{ steps.source.outputs.base }}
+          SCOPE: ${{ steps.source.outputs.scope }}
+        run: |
+          arguments=()
+          if [ "$SCOPE" = full ]; then arguments+=(--full); fi
+          python3 ci/guard-disk.py --target target --profiles "$RUNNER_TEMP/legacy-profraw" --log "$RUNNER_TEMP/legacy-disk.jsonl" -- \
+            python3 ci/replay-legacy-selector.py --base "$BASE" --target-dir "$GITHUB_WORKSPACE/target" \
+            --output "$RUNNER_TEMP/legacy-selector" "${arguments[@]}" 2>&1 | tee "$RUNNER_TEMP/legacy-selector.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          report = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'legacy-selector/selection.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps(report['matrix']) + '\n')
+              output.write('reports=' + ' '.join(row['id'] for row in report['matrix']) + '\n')
+          PY
+      - name: Retain original selector scheduling evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: legacy-selection-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/legacy-selector/selection.json
+            ${{ runner.temp }}/legacy-selector/workspace/Cargo.lock
+            ${{ runner.temp }}/legacy-selector.log
+            ${{ runner.temp }}/legacy-disk.jsonl
+            ${{ runner.temp }}/legacy-disk-preparation.log
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    name: Legacy ${{ matrix.package }}
+    needs: [determine]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include: ${{ fromJSON(needs.determine.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.determine.outputs.revision }}
+          persist-credentials: false
+      - uses: ./.github/actions/test-lane
+        with:
+          id: ${{ matrix.id }}
+          legacy_package: ${{ matrix.package }}
+          parity_packages: ${{ matrix.parity_packages }}
+          harness: libtest
+          slots: 4
+          profile: none
+
+  sonar:
+    name: Legacy Sonar analysis and quality gate
+    needs: [lint, determine, test]
+    if: always() && needs.determine.result != 'skipped'
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require lint, actual selector and every selected package
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert set(results) == {'lint', 'determine', 'test'}
+          assert all(job['result'] == 'success' for job in results.values()), results
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.determine.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: false
+      - name: Require the exact selected package coverage set
+        env:
+          REPORTS: ${{ needs.determine.outputs.reports }}
+        run: |
+          read -ra reports <<< "$REPORTS"
+          python3 ci/merge-coverage.py --input coverage-artifacts --output coverage.lcov "${reports[@]}"
+      - name: Sonar scan and waited quality gate
+        uses: SonarSource/sonarqube-scan-action@b632445a46f521460d97cad21057b904b24c326f
+        with:
+          args: -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

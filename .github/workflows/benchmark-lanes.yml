@@ -1,0 +1,279 @@
+name: Fixed CI Lane Measurements
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full immutable source SHA containing the lane driver and collector
+        required: true
+        type: string
+      layout:
+        description: Complete workspace execution layout
+        required: true
+        type: choice
+        options: [four, three, one]
+      scenario:
+        description: Actual source change; small scenarios require a real priming base
+        required: true
+        type: choice
+        options: [FULL, API, LEAF, FIXTURE]
+      prime_revision:
+        description: Full immutable base SHA for small-change Cargo cache priming
+        required: false
+        type: string
+      repetition:
+        description: Independent run repetition number
+        required: true
+        type: string
+      harness:
+        description: Explicit compatible harness to compare
+        required: true
+        type: choice
+        options: [nextest, libtest]
+      slots:
+        description: Ordinary test/context concurrency per job
+        required: true
+        type: choice
+        options: ['1', '2', '4']
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  CARGO_BUILD_JOBS: 4
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_TERM_COLOR: never
+
+jobs:
+  plan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["ci/lanes-four","ci/lanes-three","ci/lanes-one","ci/lanes-four-leaf","ci/lanes-three-leaf","ci/lanes-one-leaf","ci/lanes-four-api","ci/lanes-three-api","ci/lanes-one-api","ci/lanes-four-fixture","ci/lanes-three-fixture","ci/lanes-one-fixture","ci/lanes-four-libtest","ci/lanes-three-libtest","ci/lanes-one-libtest"]'), github.event.label.name))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      revision: ${{ steps.plan.outputs.revision }}
+      prime_revision: ${{ steps.plan.outputs.prime_revision }}
+      layout: ${{ steps.plan.outputs.layout }}
+      scenario: ${{ steps.plan.outputs.scenario }}
+      repetition: ${{ steps.plan.outputs.repetition }}
+      harness: ${{ steps.plan.outputs.harness }}
+      slots: ${{ steps.plan.outputs.slots }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        name: Validate opt-in source and configuration
+        env:
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVISION: ${{ inputs.revision }}
+          PRIME_REVISION: ${{ inputs.prime_revision }}
+          LAYOUT: ${{ inputs.layout }}
+          SCENARIO: ${{ inputs.scenario }}
+          REPETITION: ${{ inputs.repetition }}
+          HARNESS: ${{ inputs.harness }}
+          SLOTS: ${{ inputs.slots }}
+        run: |
+          python3 - <<'PYPLAN'
+          import json, os, re
+          env = os.environ
+          if env['EVENT'] == 'pull_request':
+              label = re.fullmatch(r'ci/lanes-(four|three|one)(?:-(leaf|api|fixture|libtest))?', env['LABEL'])
+              assert label
+              small = label[2] in ('leaf', 'api', 'fixture')
+              values = dict(revision=env['HEAD_SHA'], layout=label[1], prime_revision=env['BASE_SHA'] if small else '',
+                            scenario=label[2].upper() if small else 'FULL', repetition=env['GITHUB_RUN_NUMBER'],
+                            harness='libtest' if label[2] == 'libtest' else 'nextest', slots='4')
+          else:
+              values = {name: env[name.upper()] for name in ('revision', 'prime_revision', 'layout', 'scenario', 'repetition', 'harness', 'slots')}
+          assert re.fullmatch('[0-9a-f]{40}', values['revision'])
+          assert re.fullmatch('[0-9a-f]{40}', env['GITHUB_WORKFLOW_SHA'])
+          assert values['layout'] in ('four', 'three', 'one')
+          assert values['scenario'] in ('FULL', 'API', 'LEAF', 'FIXTURE')
+          if values['scenario'] == 'FULL':
+              assert not values['prime_revision']
+          else:
+              assert re.fullmatch('[0-9a-f]{40}', values['prime_revision'])
+              assert values['prime_revision'] != values['revision']
+          assert re.fullmatch('[1-9][0-9]*', values['repetition'])
+          assert values['harness'] in ('nextest', 'libtest')
+          assert values['slots'] in ('1', '2', '4')
+          api = dict(id='api', lanes='API', profile='api')
+          crawler = dict(id='crawler', lanes='CRAWLER', profile='postgres')
+          integration = dict(id='integration', lanes='INFRASTRUCTURE', profile='api')
+          remaining = dict(id='remaining', lanes='REMAINING', profile='none')
+          layouts = {'four': [api, crawler, integration, remaining],
+                     'three': [api, crawler, dict(integration, lanes='INFRASTRUCTURE REMAINING')],
+                     'one': [dict(id='all', lanes='API CRAWLER INFRASTRUCTURE REMAINING', profile='api')]}
+          with open(env['GITHUB_OUTPUT'], 'a') as output:
+              for name, value in values.items(): output.write(f'{name}={value}\n')
+              output.write('matrix=' + json.dumps(layouts[values['layout']]) + '\n')
+          print(json.dumps(dict(values, workflow_sha=env['GITHUB_WORKFLOW_SHA']), sort_keys=True))
+          PYPLAN
+
+  lint:
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          persist-credentials: false
+      - name: Verify immutable lint source
+        env:
+          REVISION: ${{ needs.plan.outputs.revision }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$REVISION"
+      - uses: ./.github/actions/lint-workspace
+
+  test:
+    needs: [plan]
+    name: Measure ${{ needs.plan.outputs.layout }} ${{ matrix.job.id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        job: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Validate measurement inputs
+        env:
+          REVISION: ${{ needs.plan.outputs.revision }}
+          REPETITION: ${{ needs.plan.outputs.repetition }}
+          LAYOUT: ${{ needs.plan.outputs.layout }}
+          SCENARIO: ${{ needs.plan.outputs.scenario }}
+          SLOTS: ${{ needs.plan.outputs.slots }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REPETITION" =~ ^[1-9][0-9]*$ ]]
+          [[ "$LAYOUT" =~ ^(four|three|one)$ ]]
+          [[ "$SCENARIO" =~ ^(FULL|API|LEAF|FIXTURE)$ ]]
+          [[ "$SLOTS" =~ ^(1|2|4)$ ]]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source and tools
+        env:
+          REVISION: ${{ needs.plan.outputs.revision }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          rustup toolchain install nightly-2026-10-20 --profile minimal --component llvm-tools-preview
+          bash ci/install-test-tools.sh "$RUNNER_TEMP/tools" nextest
+          printf '%s\n' "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+      - name: Prepare the same hosted runner disk capacity
+        run: |
+          mkdir -p "$RUNNER_TEMP/measurement"
+          bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/measurement/disk-preparation.log"
+      - name: Log in to GHCR
+        if: matrix.job.profile != 'none'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prefetch the same fixture image policy
+        if: matrix.job.profile != 'none'
+        run: |
+          python3 -c 'import pathlib,sys; sys.path.insert(0,"ci"); from ci_benchmark.execution import fixture_references; print("\n".join(fixture_references(pathlib.Path.cwd())))' > "$RUNNER_TEMP/images.txt"
+          while IFS= read -r image; do docker pull "$image"; done < "$RUNNER_TEMP/images.txt"
+      - name: Measure empty then reused Cargo target
+        env:
+          LANES: ${{ matrix.job.lanes }}
+          PROFILE: ${{ matrix.job.profile }}
+          HARNESS: ${{ needs.plan.outputs.harness }}
+          SLOTS: ${{ needs.plan.outputs.slots }}
+          SCENARIO: ${{ needs.plan.outputs.scenario }}
+          LAYOUT: ${{ needs.plan.outputs.layout }}
+          REPETITION: ${{ needs.plan.outputs.repetition }}
+          REVISION: ${{ needs.plan.outputs.revision }}
+          PRIME_REVISION: ${{ needs.plan.outputs.prime_revision }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/measurement"
+          printf 'layout=%s\nscenario=%s\nrepetition=%s\n' "$LAYOUT" "$SCENARIO" "$REPETITION" > "$RUNNER_TEMP/measurement/inputs.txt"
+          printf 'head=%s\npriming_base=%s\n' "$REVISION" "$PRIME_REVISION" >> "$RUNNER_TEMP/measurement/inputs.txt"
+          if [ -n "$PRIME_REVISION" ]; then
+            git merge-base --is-ancestor "$PRIME_REVISION" "$REVISION"
+            git diff --stat "$PRIME_REVISION" "$REVISION" > "$RUNNER_TEMP/measurement/change-stat.txt"
+            git diff "$PRIME_REVISION" "$REVISION" > "$RUNNER_TEMP/measurement/change.patch"
+          fi
+          read -ra selected <<< "$LANES"
+          arguments=()
+          for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
+          if [ "$PROFILE" != none ]; then
+            arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
+          fi
+          for cache in COLD_TARGET WARM_TARGET; do
+            source="$REVISION"
+            if [ "$cache" = COLD_TARGET ] && [ -n "$PRIME_REVISION" ]; then source="$PRIME_REVISION"; fi
+            git checkout --detach "$source"
+            test "$(git rev-parse HEAD)" = "$source"
+            python3 ci/bench-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
+              --cache "$cache" --target-dir "$RUNNER_TEMP/measurement/target" --output "$RUNNER_TEMP/measurement/$cache"
+            test -s "$RUNNER_TEMP/measurement/$cache/coverage.objects.json"
+          done
+      - name: Upload successful warm coverage for aggregation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.job.id }}
+          path: ${{ runner.temp }}/measurement/WARM_TARGET/coverage.lcov
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Preserve measurement evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lane-measurement-${{ needs.plan.outputs.layout }}-${{ matrix.job.id }}-${{ needs.plan.outputs.repetition }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/measurement/inputs.txt
+            ${{ runner.temp }}/measurement/disk-preparation.log
+            ${{ runner.temp }}/measurement/change-stat.txt
+            ${{ runner.temp }}/measurement/change.patch
+            ${{ runner.temp }}/measurement/COLD_TARGET/
+            ${{ runner.temp }}/measurement/WARM_TARGET/
+          if-no-files-found: error
+          retention-days: 14
+
+  quality:
+    needs: [plan, lint, test]
+    if: always() && needs.plan.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require all measured jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          if any(job['result'] != 'success' for job in json.loads(os.environ['RESULTS']).values()):
+              raise SystemExit('All measured test and lint jobs must succeed')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: false
+      - name: Validate every measured report
+        env:
+          EXPECTED: ${{ needs.plan.outputs.layout == 'four' && 'api crawler integration remaining' || needs.plan.outputs.layout == 'three' && 'api crawler integration' || 'all' }}
+        run: |
+          for lane in $EXPECTED; do mv "coverage-artifacts/coverage-$lane/coverage.lcov" "coverage-artifacts/coverage-$lane/$lane.lcov"; done
+          read -ra lanes <<< "$EXPECTED"
+          python3 ci/merge-coverage.py --input coverage-artifacts --output coverage.lcov "${lanes[@]}"
