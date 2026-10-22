@@ -1,3 +1,4 @@
+// CI source invalidation proxy: leaf.
 use aws_lambda_events::cognito::{
     CognitoEventUserPoolsPreSignup, CognitoEventUserPoolsPreSignupTriggerSource,
 };
