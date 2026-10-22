@@ -47,7 +47,7 @@ observations
 ([20m26s](https://github.com/aura-historia/backend/actions/runs/39832788590),
 [18m54s](https://github.com/aura-historia/backend/actions/runs/39835851229)) had a
 19m40s median. The observed 1m51s (9.4%) reduction passes the recorded median gate;
-the aspiration to finish under 15 minutes remains unmet. Both comparison cohorts
+the aspiration for a cold median under 15 minutes remains unmet. Both comparison cohorts
 contain two observations; the bounded legacy cohort was fixed before reading its second
 outcome.
 
