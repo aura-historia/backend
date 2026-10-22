@@ -1,17 +1,14 @@
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use money::Currency;
-use money::{MonetaryAmount, Price};
-use product_listing_core::listing_availability::ListingAvailability;
+use crawler::scraper::plausibility::PlausibilityFinding;
 use serde::Deserialize;
 
-use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
+use crate::expectation_types::RawExpectation;
 
 pub struct ScraperParsingPipelineFixture {
     pub schemas: Vec<ProductCssSelectorSchema>,
     pub schema_index: usize,
-    pub fallback_currency: Option<Currency>,
     pub raw: RawExpectation,
-    pub normalized: NormalizedExpectation,
+    pub plausibility_findings: Vec<PlausibilityFinding>,
     pub html_path: String,
 }
 
@@ -30,9 +27,10 @@ struct FixtureJson {
     schemas_file: Option<String>,
     #[serde(default)]
     schema_index: usize,
-    fallback_currency: Option<String>,
     raw: RawExpectation,
-    normalized: NormalizedExpectationJson,
+    /// Per-page plausibility findings of the selected schema; none when omitted.
+    #[serde(default)]
+    plausibility_findings: Vec<PlausibilityFinding>,
 }
 
 /// Load all fixture cases from `tests/fixtures/fixtures.json`.
@@ -41,7 +39,8 @@ struct FixtureJson {
 ///   1. Drop the HTML file in `tests/fixtures/html/<listing_source>[_variant].html`.
 ///   2. Add the ListingSource cached schemas to `tests/fixtures/schemas/<listing_source>.json`.
 ///   3. Append an element to `tests/fixtures/fixtures.json` with
-///      `schemas_file`, `schema_index`, `html`, `raw`, and `normalized` fields.
+///      `schemas_file`, `schema_index`, `html`, `raw` and, when the page fails a
+///      check, `plausibility_findings` fields.
 ///
 /// No Rust code changes are needed.
 pub fn load_all_fixtures() -> Vec<ScraperParsingPipelineFixture> {
@@ -83,110 +82,8 @@ fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
     ScraperParsingPipelineFixture {
         schemas,
         schema_index: f.schema_index,
-        fallback_currency: f.fallback_currency.as_deref().map(parse_currency),
         raw: f.raw,
-        normalized: normalized_from_json(f.normalized),
+        plausibility_findings: f.plausibility_findings,
         html_path: f.html,
     }
-}
-
-fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
-    NormalizedExpectation {
-        source_listing_id: data.source_listing_id,
-        title: data.title,
-        description: data.description.map(|description| {
-            product_listing_core::description::Description::from(description.as_str()).to_string()
-        }),
-        price: product_listing_price_from_parts(
-            data.price,
-            data.price_currency.as_deref(),
-            data.price_on_request,
-        ),
-        price_estimate_min: price_from_parts(
-            data.price_estimate_min,
-            data.price_estimate_min_currency.as_deref(),
-        ),
-        price_estimate_max: price_from_parts(
-            data.price_estimate_max,
-            data.price_estimate_max_currency.as_deref(),
-        ),
-
-        availability: parse_availability(data.availability.as_deref()),
-        url: data.url,
-        images: data.images,
-    }
-}
-
-fn product_listing_price_from_parts(
-    minor: Option<u64>,
-    currency: Option<&str>,
-    on_request: bool,
-) -> Option<product_listing_core::product_listing_price::ProductListingPrice> {
-    use product_listing_core::product_listing_price::ProductListingPrice;
-
-    if on_request {
-        assert!(
-            minor.is_none() && currency.is_none(),
-            "invalid price in fixtures.json: price_on_request excludes price and price_currency"
-        );
-        return Some(ProductListingPrice::OnRequest);
-    }
-    price_from_parts(minor, currency).map(Into::into)
-}
-
-fn price_from_parts(minor: Option<u64>, currency: Option<&str>) -> Option<Price> {
-    match (minor, currency) {
-        (None, None) => None,
-        (Some(amount), Some(curr)) => Some(Price::new(
-            MonetaryAmount::from(amount),
-            parse_currency(curr),
-        )),
-        _ => panic!(
-            "invalid price in fixtures.json: price_minor and price_currency must both be set or both be null"
-        ),
-    }
-}
-
-fn parse_currency(code: &str) -> Currency {
-    match code {
-        "EUR" => Currency::Eur,
-        "USD" => Currency::Usd,
-        "GBP" => Currency::Gbp,
-        "AUD" => Currency::Aud,
-        "CAD" => Currency::Cad,
-        "NZD" => Currency::Nzd,
-        "CNY" => Currency::Cny,
-        "BRL" => Currency::Brl,
-        "PLN" => Currency::Pln,
-        "TRY" => Currency::Try,
-        "JPY" => Currency::Jpy,
-        "CZK" => Currency::Czk,
-        "RUB" => Currency::Rub,
-        "AED" => Currency::Aed,
-        "SAR" => Currency::Sar,
-        "HKD" => Currency::Hkd,
-        "SGD" => Currency::Sgd,
-        "CHF" => Currency::Chf,
-        "ZAR" => Currency::Zar,
-        "SEK" => Currency::Sek,
-        "DKK" => Currency::Dkk,
-        "NOK" => Currency::Nok,
-        "KRW" => Currency::Krw,
-        "INR" => Currency::Inr,
-        "TWD" => Currency::Twd,
-        "HUF" => Currency::Huf,
-        "RON" => Currency::Ron,
-        "MXN" => Currency::Mxn,
-        "THB" => Currency::Thb,
-        "ARS" => Currency::Ars,
-        other => panic!("unsupported currency '{other}' in fixtures.json"),
-    }
-}
-
-fn parse_availability(value: Option<&str>) -> Option<ListingAvailability> {
-    value.map(|code| {
-        ListingAvailability::from_code(code).unwrap_or_else(|| {
-            panic!("unsupported normalized availability '{code}' in fixtures.json")
-        })
-    })
 }

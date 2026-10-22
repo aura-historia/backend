@@ -2,9 +2,9 @@ use crate::CrawlerReviewId;
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
-use crate::scraper::normalization::error::NormalizationError;
+use crate::scraper::plausibility::PlausibilityFindings;
 use listing_source_core::ListingSourceId;
-use product_listing_normalization::NormalizationInputError;
+use product_listing_normalization::{NormalizationError, NormalizationInputError};
 use std::fmt;
 use url::Url;
 
@@ -69,16 +69,15 @@ pub enum ScraperError {
         last_error: Box<ApplySchemaError>,
     },
 
-    /// Fresh schema generation succeeded, but normalization still failed.
-    #[error(
-        "Fresh schema normalization failed after {attempts} attempts for '{url}': {last_norm_error}"
-    )]
-    FreshSchemaNormalizationFailed {
+    /// Fresh schema generation succeeded, but its extraction of the page failed a
+    /// rejecting plausibility check.
+    #[error("Freshly generated schema extracted implausible values from '{url}': {findings}")]
+    FreshSchemaImplausible {
         url: Url,
-        attempts: u32,
-        last_norm_error: Box<NormalizationError>,
+        findings: PlausibilityFindings,
     },
 
+    /// The shared kernel could not derive the captured source listing id.
     #[error("Normalization error: {0}")]
     NormalizationError(#[from] NormalizationError),
 

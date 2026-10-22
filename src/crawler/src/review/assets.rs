@@ -65,3 +65,48 @@ fn escape_html_attr(value: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::APP_JS;
+    use crate::scraper::plausibility::{CrossPageCheck, PlausibilityCheck};
+
+    fn code(check: impl serde::Serialize) -> String {
+        match serde_json::to_value(check) {
+            Ok(serde_json::Value::String(code)) => code,
+            other => panic!("a check must serialize as its code: {other:?}"),
+        }
+    }
+
+    /// The console explains the per-page and cross-page check codes of the schema matrix
+    /// itself, so each code must keep the crawler's description and none may go stale.
+    #[test]
+    fn should_describe_every_plausibility_check_code_as_the_crawler_does() {
+        let checks: Vec<(String, &str)> = PlausibilityCheck::ALL
+            .into_iter()
+            .map(|check| (code(check), check.description()))
+            .chain(
+                CrossPageCheck::ALL
+                    .into_iter()
+                    .map(|check| (code(check), check.description())),
+            )
+            .collect();
+        let console_descriptions = APP_JS
+            .split_once("const plausibilityCheckDescriptions = {")
+            .and_then(|(_, rest)| rest.split_once("};"))
+            .map(|(entries, _)| entries)
+            .unwrap_or_else(|| panic!("app.js must define plausibilityCheckDescriptions"));
+
+        for (code, description) in &checks {
+            assert!(
+                console_descriptions.contains(&format!("{code}: '{description}'")),
+                "app.js must describe {code} as '{description}'"
+            );
+        }
+        assert_eq!(
+            console_descriptions.matches(": '").count(),
+            checks.len(),
+            "app.js describes a check code the crawler does not report"
+        );
+    }
+}

@@ -3,9 +3,7 @@ use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use listing_source_core::ListingSourceId;
 use money::Currency;
-use product_listing_normalization::{
-    ListingAvailabilityQuickCheck, ProductListingNormalizationInput,
-};
+use product_listing_normalization::ProductListingNormalizationInput;
 use std::cell::RefCell;
 use std::future::Future;
 use url::Url;
@@ -20,8 +18,6 @@ pub struct ScrapedProduct {
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
     pub source_listing_id: String,
-    /// Pure crawler quick-check used only for local disposition.
-    pub availability: ListingAvailabilityQuickCheck,
     /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
     /// detect whether the page had changed.
     pub hash: String,
@@ -282,7 +278,7 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::SchemaServiceError(_)
         | ScraperError::RemovedPageSchemaDatabaseError(_)
         | ScraperError::SchemaRegenerationExhausted { .. }
-        | ScraperError::FreshSchemaNormalizationFailed { .. }
+        | ScraperError::FreshSchemaImplausible { .. }
         | ScraperError::NormalizationError(_)
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)

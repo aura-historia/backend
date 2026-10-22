@@ -2,23 +2,37 @@
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use money::Currency;
+use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
-    NormalizationContext, NormalizationInputError, ProductListingNormalizationInput,
-    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat, RawProductListingOperation,
-    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
-    SourcePayload,
+    NormalizationContext, NormalizationError, NormalizationInputError,
+    ProductListingNormalizationInput, ProductListingRawValuesPatch,
+    ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
+    RawProductListingProvenance, RawProductListingValues, SourcePayload,
+    normalize_source_listing_id_with_url_sha_fallback,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
 use url::Url;
 
+/// The source listing id a raw extraction is captured under: the extracted identity,
+/// or the hash of the stable raw-stream key when the page yields none. A source
+/// record key that is not a URL is invalid crawler state and fails closed.
+pub(crate) fn capture_source_listing_id(
+    raw_source_listing_id: &str,
+    source_record_key: &str,
+) -> Result<SourceListingId, NormalizationError> {
+    let source_record_url = Url::parse(source_record_key)
+        .map_err(|_| NormalizationError::SourceListingIdInvalid(InvalidSourceListingId::Blank))?;
+    normalize_source_listing_id_with_url_sha_fallback(raw_source_listing_id, &source_record_url)
+}
+
 /// Builds the complete current raw input retained by the operational raw-revision stream.
 ///
 /// Source payload keeps the untouched extraction. Generic raw values use the
-/// crawler-validated image projection and keep every supplied price value: a price
-/// whose currency preparation could not resolve is unresolved, not absent, so the
-/// worker (the sole canonical normalization authority) leaves the canonical field
-/// unchanged and reports why. Only a missing extraction clears a price.
+/// crawler-validated image projection and keep every supplied price, state and text
+/// value as extracted: the worker (the sole canonical normalization authority) parses
+/// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
+/// missing extraction clears a price.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
@@ -181,26 +195,51 @@ mod tests {
     }
 
     #[test]
-    fn should_emit_raw_stream_sha_fallback_as_source_listing_id()
+    fn should_capture_the_extracted_identity_when_present() {
+        let identity = capture_source_listing_id(" SKU-1 ", "https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("extracted identity must be captured: {error}"));
+
+        assert_eq!(identity.as_ref(), "SKU-1");
+    }
+
+    #[test]
+    fn should_hash_the_stable_raw_stream_key_when_the_extracted_identity_is_blank()
     -> Result<(), NormalizationInputError> {
-        let url = Url::parse("https://example.com/products/1")
+        let effective_url = Url::parse("https://example.com/products/moved")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let raw_source_record_key = "https://example.com/products/original";
+        let expected = normalize_source_listing_id_with_url_sha_fallback(
+            "",
+            &Url::parse(raw_source_record_key).unwrap(),
+        )
+        .unwrap();
+
+        let identity = capture_source_listing_id("  ", raw_source_record_key)
+            .unwrap_or_else(|error| panic!("URL hash identity must derive: {error}"));
         let mut extracted = raw();
         extracted.source_listing_id.clear();
-        let raw_source_record_key = "https://example.com/products/original";
-        let expected =
-            product_listing_normalization::normalize_source_listing_id_with_url_sha_fallback(
-                "",
-                &Url::parse(raw_source_record_key).unwrap(),
-            )
-            .unwrap();
-        let input =
-            crawler_raw_input(&extracted, &extracted.images, &url, expected.as_ref(), None)?;
+        let input = crawler_raw_input(
+            &extracted,
+            &extracted.images,
+            &effective_url,
+            identity.as_ref(),
+            None,
+        )?;
+
+        assert_eq!(identity, expected);
         assert_eq!(
             input.raw_values().value().get("sourceListingId"),
             Some(&serde_json::json!(expected.to_string()))
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_fail_closed_when_the_raw_stream_key_is_not_a_url() {
+        assert!(matches!(
+            capture_source_listing_id("", "not a url"),
+            Err(NormalizationError::SourceListingIdInvalid(_))
+        ));
     }
 
     #[test]

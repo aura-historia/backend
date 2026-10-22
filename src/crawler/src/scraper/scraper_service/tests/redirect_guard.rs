@@ -95,7 +95,6 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     });
 
     let schema_svc = MockProductListingSchemaService::new();
-    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_set_presence = url.clone();
@@ -114,7 +113,6 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -146,7 +144,6 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
     });
 
     let schema_svc = MockProductListingSchemaService::new();
-    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_set_presence = url.clone();
@@ -165,7 +162,6 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -194,7 +190,6 @@ fn scraper_with_redirect_disallowed(final_url: Url) -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(MockProductListingSchemaService::new()),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(MockScraperCandidateService::new()),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

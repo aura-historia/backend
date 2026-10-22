@@ -7,7 +7,7 @@ pub(crate) mod pipeline;
 pub(crate) mod recovery;
 pub mod service;
 
-pub use extraction::schema_candidates::rank_applicable_schema_indices;
+pub use extraction::schema_candidates::{RankedSchemaCandidate, rank_applicable_schemas};
 pub(crate) mod util;
 
 #[cfg(test)]

@@ -6,10 +6,9 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
+    fetcher.expect_fetch().once().returning(|_| {
+        Box::pin(async { Ok(fetch_result(sample_html().replace("In Stock", "Sold"))) })
+    });
 
     let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -34,14 +33,6 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
             Box::pin(async move { Ok(s) })
         });
 
-    let mut expected = prepared_product(url.clone());
-    expected.availability = ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut);
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     let url_for_set_presence = url.clone();
@@ -60,7 +51,6 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -73,7 +63,8 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         .unwrap();
 
     assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut)
+        result.raw_input.raw_values().value()["availability"]["value"],
+        "Sold",
+        "the sold state reaches the worker as extracted"
     );
 }

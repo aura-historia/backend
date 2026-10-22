@@ -36,6 +36,11 @@ use tracing::{Instrument, debug, error, info, warn};
 /// LLM budget on the same ListingSource.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 
+/// Every scrape completion records its URL `ACTIVE`, sold pages included.
+/// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
+/// it; rows that hold it stay valid.
+const SCRAPED_URL_DISPOSITION: CrawlerDisposition = CrawlerDisposition::Active;
+
 /// Context for scraping a domain's candidates.
 struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
@@ -57,7 +62,6 @@ struct CandidateMeta {
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
-    disposition: CrawlerDisposition,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
@@ -212,7 +216,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
-                            disposition: meta.disposition,
+                            disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
                                 .clone(),
@@ -228,7 +232,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
-                            disposition: meta.disposition,
+                            disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
                                 .clone(),
@@ -238,15 +242,6 @@ async fn flush_batch(
                 match write_result {
                     Ok(CrawlerUrlWriteOutcome::Applied) => {
                         mark_as_scraped_count += 1;
-                        if meta.disposition != CrawlerDisposition::Active {
-                            info!(
-                                metric = "crawler_disposition_transition",
-                                crawler_disposition_transitions = 1_u64,
-                                listing_source_id = %meta.listing_source_id,
-                                crawler_disposition = meta.disposition.as_str(),
-                                "crawler URL entered dormant disposition after durable raw capture"
-                            );
-                        }
                     }
                     Ok(CrawlerUrlWriteOutcome::NoopStale) => {
                         stale_completion_count += 1;
@@ -632,16 +627,6 @@ async fn handle_successful_scrape(
             }
         }
     }
-    let disposition = match &scraped.availability {
-        product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
-            product_listing_core::listing_availability::ListingAvailability::SoldOut,
-        ) => CrawlerDisposition::DormantSold,
-        product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(_)
-        | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
-        | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported(_) => {
-            CrawlerDisposition::Active
-        }
-    };
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
         Some(scraped.schema_fingerprint.as_str()),
@@ -663,14 +648,12 @@ async fn handle_successful_scrape(
         schema_fingerprint: scraped.schema_fingerprint,
         raw_input_sha256: scraped.raw_input_sha256,
         source_listing_id: scraped.source_listing_id,
-        disposition,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
 
     if !url_moved
         && candidate.last_captured_raw_input_sha256.as_deref()
             == Some(meta.raw_input_sha256.as_slice())
-        && disposition == CrawlerDisposition::Active
     {
         return match ctx
             .scraper_candidates
@@ -681,7 +664,7 @@ async fn handle_successful_scrape(
                 schema_fingerprint: meta.schema_fingerprint.clone(),
                 raw_input_sha256: meta.raw_input_sha256.clone(),
                 source_listing_id: meta.source_listing_id.clone(),
-                disposition: meta.disposition,
+                disposition: SCRAPED_URL_DISPOSITION,
                 expected_last_captured_raw_input_sha256: meta
                     .expected_last_captured_raw_input_sha256
                     .clone(),
@@ -973,7 +956,7 @@ async fn persist_non_http_failure(
     let has_retry_cooldown = matches!(
         error,
         ScraperError::SchemaRegenerationExhausted { .. }
-            | ScraperError::FreshSchemaNormalizationFailed { .. }
+            | ScraperError::FreshSchemaImplausible { .. }
             | ScraperError::SchemaClassificationRejected { .. }
             | ScraperError::LlmBudgetExceeded { .. }
             | ScraperError::PendingSchemaReview { .. }
@@ -1079,7 +1062,8 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
-        ScraperError::FreshSchemaNormalizationFailed { .. } => "FreshSchemaNormalizationFailed",
+        // The label predates plausibility checks and stays stable for persisted rows.
+        ScraperError::FreshSchemaImplausible { .. } => "FreshSchemaNormalizationFailed",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
@@ -1676,7 +1660,6 @@ mod tests {
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
-            disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
         }
     }
@@ -1714,6 +1697,7 @@ mod tests {
                 completion.listing_source_id == first_listing_source_id
                     && completion.url == first_url
                     && completion.hash == "first"
+                    && completion.disposition == CrawlerDisposition::Active
                     && completion
                         .expected_last_captured_raw_input_sha256
                         .as_deref()
@@ -2160,16 +2144,14 @@ mod tests {
             .return_once(move |_| {
                 Box::pin(async move {
                     scrape_outcome(Ok(Some(ScrapedProduct {
-                    acquired_at: time::OffsetDateTime::now_utc(),
-                    raw_input,
-                    availability:
-                        product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion,
-                    hash: "hash".to_owned(),
-                    schema_fingerprint: "schema".to_owned(),
-                    raw_input_sha256: vec![7; 32],
-                    effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    source_listing_id: "ListingSource".to_owned(),
-                })))
+                        acquired_at: time::OffsetDateTime::now_utc(),
+                        raw_input,
+                        hash: "hash".to_owned(),
+                        schema_fingerprint: "schema".to_owned(),
+                        raw_input_sha256: vec![7; 32],
+                        effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
+                        source_listing_id: "ListingSource".to_owned(),
+                    })))
                 })
             });
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(1);
@@ -2402,8 +2384,10 @@ mod tests {
         .await;
     }
 
+    /// A sold page used to be captured again to enter `DORMANT_SOLD`; every capture is
+    /// now recorded `ACTIVE`, so an unchanged sold observation only refreshes metadata.
     #[tokio::test]
-    async fn should_queue_sold_observation_when_previous_raw_input_hash_matches() {
+    async fn should_record_an_unchanged_sold_observation_active_without_raw_capture() {
         let url = url::Url::parse("https://example.com/product/sold").unwrap();
         let mut candidate = scraper_candidate("ListingSource", url.clone());
         candidate.last_captured_raw_input_sha256 = Some(vec![3; 32]);
@@ -2411,38 +2395,44 @@ mod tests {
         let raw_input = crawler_verified_removal_input(&url)
             .unwrap_or_else(|error| panic!("test raw input: {error}"));
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().once().return_once(move |request| {
-            assert_eq!(request.expected_last_captured_raw_input_sha256.as_deref(), Some(&[3; 32][..]));
-            Box::pin(async move {
-                scrape_outcome(Ok(Some(ScrapedProduct {
-                    acquired_at: time::OffsetDateTime::now_utc(),
-                    raw_input,
-                    availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
-                        product_listing_core::listing_availability::ListingAvailability::SoldOut,
-                    ),
-                    hash: "sold-hash".to_owned(),
-                    schema_fingerprint: "sold-schema".to_owned(),
-                    raw_input_sha256: vec![3; 32],
-                    effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
-                    source_listing_id: "ListingSource".to_owned(),
-                })))
-            })
-        });
+        scraper_service
+            .expect_scrape()
+            .once()
+            .return_once(move |request| {
+                assert_eq!(
+                    request.expected_last_captured_raw_input_sha256.as_deref(),
+                    Some(&[3; 32][..])
+                );
+                Box::pin(async move {
+                    scrape_outcome(Ok(Some(ScrapedProduct {
+                        acquired_at: time::OffsetDateTime::now_utc(),
+                        raw_input,
+                        hash: "sold-hash".to_owned(),
+                        schema_fingerprint: "sold-schema".to_owned(),
+                        raw_input_sha256: vec![3; 32],
+                        effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
+                        source_listing_id: "ListingSource".to_owned(),
+                    })))
+                })
+            });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_mark_as_scraped().never();
+        scraper_candidates
+            .expect_mark_as_scraped()
+            .once()
+            .withf(|completion| {
+                completion.disposition == CrawlerDisposition::Active
+                    && completion
+                        .expected_last_captured_raw_input_sha256
+                        .as_deref()
+                        == Some(&[3_u8; 32][..])
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 
         let outcome = scrape_candidate(candidate, &ctx).await;
 
-        let request = outcome.capture.expect("sold scrape must queue raw capture");
-        let RawCaptureSuccessAction::MarkScraped(meta) = request.on_success else {
-            panic!("sold scrape must queue a scrape completion");
-        };
-        assert_eq!(
-            meta.expected_last_captured_raw_input_sha256.as_deref(),
-            Some(&[3_u8; 32][..])
-        );
+        assert!(outcome.capture.is_none());
         assert!(!outcome.errored);
         assert!(!outcome.skipped);
     }
@@ -2476,8 +2466,6 @@ mod tests {
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
-                availability:
-                    product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion,
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![9; 32],
@@ -2749,9 +2737,6 @@ mod tests {
                         scrape_outcome(Ok(Some(ScrapedProduct {
                             acquired_at: time::OffsetDateTime::now_utc(),
                             raw_input,
-                            availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
-                                product_listing_core::listing_availability::ListingAvailability::SoldOut,
-                            ),
                             hash: "success-hash".to_owned(),
                             schema_fingerprint: "success-schema".to_owned(),
                             raw_input_sha256: vec![2; 32],
@@ -3320,11 +3305,11 @@ mod tests {
         job.run_scraper_once().await;
     }
 
-    /// `FreshSchemaNormalizationFailed` must be handled identically to
+    /// `FreshSchemaImplausible` must be handled identically to
     /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
     /// so the URL is held back until the backoff window expires.
     #[tokio::test]
-    async fn should_mark_fetch_failure_for_fresh_schema_normalization_failure() {
+    async fn should_mark_fetch_failure_for_implausible_fresh_schema_extraction() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -3342,20 +3327,15 @@ mod tests {
             });
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .returning(|request| {
-                let url = request.url;
-                Box::pin(async move {
-                    scrape_outcome(Err(ScraperError::FreshSchemaNormalizationFailed {
-                        url,
-                        attempts: 3,
-                        last_norm_error: Box::new(
-                            crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
-                        ),
-                    }))
-                })
-            });
+        scraper_service.expect_scrape().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::FreshSchemaImplausible {
+                    url,
+                    findings: Default::default(),
+                }))
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),

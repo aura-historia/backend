@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn should_return_raw_capture_and_availability_when_schema_exists_and_applies_cleanly() {
+async fn should_return_raw_capture_with_extracted_state_when_schema_exists_and_applies_cleanly() {
     let id = listing_source_id();
     let url = product_url();
 
@@ -34,13 +34,6 @@ async fn should_return_raw_capture_and_availability_when_schema_exists_and_appli
             Box::pin(async move { Ok(s) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -48,7 +41,6 @@ async fn should_return_raw_capture_and_availability_when_schema_exists_and_appli
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -61,8 +53,11 @@ async fn should_return_raw_capture_and_availability_when_schema_exists_and_appli
         .unwrap();
 
     assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
+        result.raw_input.raw_values().value().get("availability"),
+        Some(&serde_json::json!({
+            "action": "SET",
+            "value": "In Stock",
+        }))
     );
     assert_eq!(
         result
@@ -114,14 +109,6 @@ async fn should_retain_selected_raw_fields_without_canonical_product_preview() {
             Box::pin(async move { Ok(s) })
         });
 
-    let norm = prepared_product(url.clone());
-    let norm_clone = norm.clone();
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().returning(move |_, _| {
-        let n = norm_clone.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -129,7 +116,6 @@ async fn should_retain_selected_raw_fields_without_canonical_product_preview() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -155,8 +141,7 @@ async fn should_retain_selected_raw_fields_without_canonical_product_preview() {
 }
 
 #[tokio::test]
-async fn should_preserve_raw_image_evidence_while_filtering_invalid_thumbnail_before_normalization()
-{
+async fn should_preserve_raw_image_evidence_while_filtering_invalid_thumbnail_before_capture() {
     let id = listing_source_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
@@ -189,24 +174,12 @@ async fn should_preserve_raw_image_evidence_while_filtering_invalid_thumbnail_be
             Box::pin(async move { Ok(Some(schema)) })
         });
 
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |raw, _| {
-        assert_eq!(
-            raw.images,
-            vec!["https://example.com/image-800x600.jpg".to_string()]
-        );
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

@@ -789,6 +789,36 @@ tr.failed {
     gap: 5px;
 }
 
+.implausible-field dt {
+    color: var(--danger);
+}
+
+.finding-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.finding-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    border-color: var(--danger-border);
+    background: var(--danger-soft);
+}
+
+.plausibility-summary {
+    margin-top: 6px;
+}
+
+.page-error {
+    margin-bottom: 6px;
+    color: var(--error-ink);
+}
+
 .schema-diff {
     display: grid;
     gap: 8px;

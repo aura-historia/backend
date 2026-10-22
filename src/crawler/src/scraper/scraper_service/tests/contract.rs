@@ -21,7 +21,6 @@ fn service_without_fetch_expectation() -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(MockHtmlFetcher::new()),
         Box::new(MockProductListingSchemaService::new()),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(MockScraperCandidateService::new()),
         3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

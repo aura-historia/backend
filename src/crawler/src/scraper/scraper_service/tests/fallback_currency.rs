@@ -1,5 +1,4 @@
 use super::*;
-use crate::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use money::Currency;
 
 fn numeric_price_schema(listing_source_id: ListingSourceId) -> ListingSourceProductSchema {
@@ -52,7 +51,6 @@ async fn scrape_numeric_price(
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_service),
-        Box::new(ProductListingNormalizationServiceImpl::new()),
         Arc::new(candidate_service),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -99,7 +97,8 @@ async fn should_capture_unresolved_numeric_price_for_worker_preservation_when_fa
         Some(&serde_json::json!("5500")),
         product.raw_input.source_payload().value().get("price")
     );
-    // Unresolved is not absent: the worker keeps the canonical price unchanged and reports it.
+    // The crawler never resolves the currency: the worker keeps the canonical price
+    // unchanged when it cannot, and reports it.
     assert_eq!(
         Some(&serde_json::json!({"action": "SET", "value": "5500"})),
         product.raw_input.raw_values().value().get("price")
