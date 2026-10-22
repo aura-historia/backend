@@ -32,16 +32,6 @@ fn fetcher_with_sample_html() -> MockHtmlFetcher {
     fetcher
 }
 
-fn normalizer_with_success(url: Url) -> MockProductListingNormalizationService {
-    let expected = prepared_product(url);
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let n = expected.clone();
-        Box::pin(async move { Ok(normalization_success(n, 0)) })
-    });
-    norm_svc
-}
-
 #[tokio::test]
 async fn should_use_yaml_only_when_single_schema_applies() {
     let id = listing_source_id();
@@ -87,7 +77,6 @@ async fn should_use_yaml_only_when_single_schema_applies() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
         Box::new(schema_svc),
-        Box::new(normalizer_with_success(url.clone())),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -133,7 +122,6 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -184,14 +172,12 @@ async fn should_fail_when_fresh_schema_application_fails() {
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -242,7 +228,6 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_try_increment_listing_source_llm_calls_with_limit()
@@ -252,7 +237,6 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -345,7 +329,6 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -418,7 +401,6 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -496,7 +478,6 @@ async fn should_reject_low_confidence_fresh_classification(
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -582,7 +563,6 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

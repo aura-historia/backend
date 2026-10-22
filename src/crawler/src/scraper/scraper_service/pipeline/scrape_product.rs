@@ -2,7 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 
 use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
-use crate::scraper::raw_input::crawler_raw_input;
+use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, FetchFailureSource, ScrapeMode, ScrapeOutcome, ScrapeRequest,
@@ -10,11 +10,12 @@ use crate::scraper::scraper_service::domain::product::{
     current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
     record_transport_success, with_scrape_observation,
 };
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
     ExistingSchemaSelection, apply_cached_schemas,
 };
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
-use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
+use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
@@ -22,7 +23,6 @@ use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use listing_source_core::ListingSourceId;
-use product_listing_normalization::normalize_source_listing_id_with_url_sha_fallback;
 use regex::Regex;
 use tracing::{debug, warn};
 use url::Url;
@@ -136,9 +136,8 @@ enum RemovedPageVerdict {
 /// Product evidence is a cached schema that applies with a title other than the
 /// matched notice and, when the crawler already knows the listing's identity, the
 /// same source listing id. A related-item card on a soft-404 page therefore does not
-/// count as evidence. Deterministic preparation is deliberately not required: a
-/// candidate-local preparation failure must reach fresh schema generation, not
-/// withdrawal.
+/// count as evidence. Plausibility is deliberately not required: a candidate that
+/// fails a plausibility check must reach fresh schema generation, not withdrawal.
 fn removed_page_verdict(
     removed_page_schemas: Vec<RemovedPageSchema>,
     cached: Option<&ListingSourceProductSchema>,
@@ -179,15 +178,13 @@ fn removed_page_verdict(
     }
 }
 
-/// The identity a raw extraction would be captured under, derived the same way
-/// deterministic preparation derives it, so it compares with the crawler URL's
-/// last captured source listing id.
+/// The identity a raw extraction would be captured under, so it compares with the
+/// crawler URL's last captured source listing id.
 fn candidate_source_listing_id(
     raw_source_listing_id: &str,
     source_record_key: &str,
 ) -> Option<String> {
-    let source_record_url = Url::parse(source_record_key).ok()?;
-    normalize_source_listing_id_with_url_sha_fallback(raw_source_listing_id, &source_record_url)
+    capture_source_listing_id(raw_source_listing_id, source_record_key)
         .ok()
         .map(|id| id.to_string())
 }
@@ -270,6 +267,35 @@ impl ScraperServiceImpl {
             Ok(fetched) => {
                 record_transport_success();
                 fetched
+            }
+            // The shop answered with a redirect, so it is responsive; where
+            // the redirect leads decides the outcome, as for a fetched target.
+            Err(FetchError::RedirectDisallowed { final_url }) => {
+                if is_redirect_to_non_product_page(url, &final_url, product_url_pattern) {
+                    record_transport_success();
+                    return Err(ScraperError::ProductListingRemoved {
+                        url: url.clone(),
+                        details: format!(
+                            "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
+                        ),
+                    });
+                }
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    NetworkErrorKind::RobotsDisallowed,
+                    None,
+                    None,
+                );
+                record_transport_success();
+                return Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind: NetworkErrorKind::RobotsDisallowed,
+                    details: format!(
+                        "product URL redirected to a URL robots.txt disallows: final={final_url}"
+                    ),
+                });
             }
             Err(FetchError::Network {
                 kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
@@ -461,19 +487,17 @@ impl ScraperServiceImpl {
             return Ok(None);
         }
 
-        // Select the richest cached schema that normalizes successfully.
+        // Select the best-ranked plausible cached schema.
         let selection = match self
-            .select_existing_schema_with_normalization(
+            .select_cached_schema(
                 listing_source_id,
                 &effective_url,
-                source_record_key,
                 &html,
                 &listing_source_product_schemas.product_schemas,
-                fallback_currency,
             )
-            .await?
+            .await
         {
-            ExistingSchemaSelection::Prepared(selection) => *selection,
+            ExistingSchemaSelection::Selected(selection) => *selection,
             ExistingSchemaSelection::GenerateNewSchema { reason } => {
                 debug!(
                     domain,
@@ -486,9 +510,7 @@ impl ScraperServiceImpl {
                     domain,
                     url: &effective_url,
                     html: &html,
-                    source_record_key,
                     existing_schemas: &listing_source_product_schemas.product_schemas,
-                    fallback_currency,
                     expected_last_captured_raw_input_sha256,
                 })
                 .await?
@@ -501,12 +523,14 @@ impl ScraperServiceImpl {
         }
         let schema_fingerprint = fingerprint_scraper_context(&effective_schemas, fallback_currency)
             .map_err(ScraperError::SchemaFingerprint)?;
+        let source_listing_id =
+            capture_source_listing_id(&selection.raw.source_listing_id, source_record_key)?;
         let raw_input = crawler_raw_input(
             &selection.raw,
             &selection.validated_image_urls,
             &effective_url,
-            selection.prepared.source_listing_id.as_ref(),
-            selection.fallback_currency,
+            source_listing_id.as_ref(),
+            fallback_currency,
         )
         .map_err(ScraperError::RawNormalizationInput)?;
         let raw_input_sha256 = raw_input
@@ -514,7 +538,6 @@ impl ScraperServiceImpl {
             .map_err(ScraperError::RawNormalizationInput)?
             .as_bytes()
             .to_vec();
-        let availability = selection.prepared.availability;
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");
@@ -522,8 +545,7 @@ impl ScraperServiceImpl {
             acquired_at,
             raw_input,
             effective_url,
-            source_listing_id: selection.prepared.source_listing_id.to_string(),
-            availability,
+            source_listing_id: source_listing_id.to_string(),
             hash: current_hash,
             schema_fingerprint,
             raw_input_sha256,

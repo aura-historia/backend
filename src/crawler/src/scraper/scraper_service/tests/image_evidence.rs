@@ -85,21 +85,6 @@ fn expected_prepared_images() -> Vec<String> {
     ]
 }
 
-fn normalizer_with_expected_images(url: Url) -> MockProductListingNormalizationService {
-    let expected = prepared_product(url);
-    let expected_images = expected_prepared_images();
-    let mut normalizer = MockProductListingNormalizationService::new();
-    normalizer
-        .expect_normalize()
-        .once()
-        .returning(move |raw, _| {
-            assert_eq!(raw.images, expected_images);
-            let expected = expected.clone();
-            Box::pin(async move { Ok(normalization_success(expected, 0)) })
-        });
-    normalizer
-}
-
 fn raw_value_image_urls(
     input: &product_listing_normalization::ProductListingNormalizationInput,
 ) -> Vec<&str> {
@@ -207,7 +192,6 @@ async fn scrape_cached_schema_image_evidence(
     let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_service),
-        Box::new(normalizer_with_expected_images(url.clone())),
         Arc::new(candidate_service),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -411,7 +395,6 @@ async fn should_preserve_source_image_evidence_and_capture_validated_images_afte
     let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_service),
-        Box::new(normalizer_with_expected_images(url.clone())),
         Arc::new(candidate_service),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -444,8 +427,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
             primary_validation: ImageValidation::Valid,
         },
     )
-    .await
-    .unwrap_or_else(|error| panic!("valid image probe must select images: {error}"));
+    .await;
     let rejected_primary = filter_valid_image_urls(
         raw.images.clone(),
         &url,
@@ -453,8 +435,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
             primary_validation: ImageValidation::Invalid,
         },
     )
-    .await
-    .unwrap_or_else(|error| panic!("invalid image probe must select fallback images: {error}"));
+    .await;
 
     assert_eq!(
         accepted_primary,

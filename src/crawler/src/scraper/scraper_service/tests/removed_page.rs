@@ -5,7 +5,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 };
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::service::FetchError;
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use listing_source_core::ListingSourceId;
 
 const SOFT_404_HTML: &str = r#"<html><head><title>Antiques Boutique</title></head><body>
@@ -75,26 +75,14 @@ fn schema_service_with_cached_schema(id: ListingSourceId) -> MockProductListingS
     schema_svc
 }
 
-fn normalizing_once(url: &Url) -> MockProductListingNormalizationService {
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |_, _| {
-        let product = expected.clone();
-        Box::pin(async move { Ok(normalization_success(product, 0)) })
-    });
-    norm_svc
-}
-
 fn service(
     fetcher: MockHtmlFetcher,
     schema_svc: MockProductListingSchemaService,
-    norm_svc: MockProductListingNormalizationService,
     removed_repo: MockRemovedPageSchemaRepository,
 ) -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(norm_svc),
         Arc::new(MockScraperCandidateService::new()),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
@@ -110,7 +98,6 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
     let service = service(
         fetcher_returning(SOFT_404_HTML.to_string()),
         schema_service_with_cached_schema(id),
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed_schema_set(id)),
     );
 
@@ -138,7 +125,6 @@ async fn should_mark_product_removed_when_removed_page_schema_matches_without_ca
     let service = service(
         fetcher_returning(SOFT_404_HTML.to_string()),
         schema_svc,
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed_schema_set(id)),
     );
 
@@ -165,7 +151,6 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_
     let service = service(
         fetcher_returning(html.to_string()),
         schema_service_with_cached_schema(id),
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed_schema_set(id)),
     );
 
@@ -196,7 +181,6 @@ async fn should_mark_product_removed_when_container_level_removed_page_selector_
     let service = service(
         fetcher_returning(html.to_string()),
         schema_service_with_cached_schema(id),
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed_schema_set_for(
             id,
             "#mainCatCol",
@@ -235,7 +219,6 @@ async fn should_mark_product_removed_when_container_level_removed_page_regex_mat
     let service = service(
         fetcher_returning(html.to_string()),
         schema_service_with_cached_schema(id),
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed),
     );
 
@@ -264,7 +247,6 @@ async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
     let service = service(
         fetcher_returning(SOFT_404_HTML.to_string()),
         schema_service_with_cached_schema(id),
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed),
     );
 
@@ -283,8 +265,8 @@ async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
 async fn should_scrape_product_when_product_image_needs_crawler_image_filtering() {
     let id = listing_source_id();
     let url = product_url();
-    // The image attribute carries a control character. The scraper's candidate
-    // preparation tolerates it (the URL join strips it or the candidate is dropped);
+    // The image attribute carries a control character. The scraper's image
+    // validation tolerates it (the URL join strips it or the candidate is dropped);
     // the guard must judge the page the same way instead of treating the candidate
     // as non-product.
     let html = sample_html()
@@ -300,7 +282,6 @@ async fn should_scrape_product_when_product_image_needs_crawler_image_filtering(
     let service = service(
         fetcher_returning(html),
         schema_service_with_cached_schema(id),
-        normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
             ".error-template",
@@ -331,7 +312,6 @@ async fn should_scrape_product_when_removed_page_schema_matches_extractable_prod
     let service = service(
         fetcher_returning(html),
         schema_service_with_cached_schema(id),
-        normalizing_once(&url),
         removed_repo_returning(removed_schema_set_for(
             id,
             ".error-template",
@@ -363,7 +343,6 @@ async fn should_scrape_product_when_stored_removed_page_regex_matches_any_text()
     let service = service(
         fetcher_returning(sample_html()),
         schema_service_with_cached_schema(id),
-        normalizing_once(&url),
         removed_repo_returning(removed),
     );
 
@@ -383,7 +362,6 @@ async fn should_scrape_normal_product_page_when_removed_page_schema_does_not_mat
     let service = service(
         fetcher_returning(sample_html()),
         schema_service_with_cached_schema(id),
-        normalizing_once(&url),
         removed_repo_returning(removed_schema_set(id)),
     );
 
@@ -415,7 +393,6 @@ async fn should_not_mark_product_removed_on_transient_fetch_failure() {
     let service = service(
         fetcher,
         MockProductListingSchemaService::new(),
-        MockProductListingNormalizationService::new(),
         removed_repo,
     );
 
@@ -446,7 +423,6 @@ async fn should_not_mark_product_removed_when_removed_page_schema_lookup_fails()
     let service = service(
         fetcher_returning(SOFT_404_HTML.to_string()),
         schema_svc,
-        MockProductListingNormalizationService::new(),
         removed_repo,
     );
 
@@ -489,7 +465,6 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_a_related_
     let service = service(
         fetcher_returning(html.to_string()),
         schema_svc,
-        MockProductListingNormalizationService::new(),
         removed_repo_returning(removed_schema_set(id)),
     );
 
@@ -508,12 +483,12 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_a_related_
 }
 
 #[tokio::test]
-async fn should_not_mark_product_removed_when_cached_candidate_fails_preparation_under_over_broad_template()
+async fn should_not_mark_product_removed_when_cached_candidate_is_implausible_under_over_broad_template()
  {
     let id = listing_source_id();
     let url = product_url();
     // A live product page matches a hidden site-wide not-found template while its
-    // availability text has grown past what deterministic preparation accepts. The
+    // availability text has grown longer than a label, which rejects the candidate. The
     // cached schema still applies with the product's title and identity, so the
     // page is product evidence: it must reach fresh schema generation, never
     // withdrawal.
@@ -541,7 +516,6 @@ async fn should_not_mark_product_removed_when_cached_candidate_fails_preparation
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_returning(html)),
         Box::new(schema_svc),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

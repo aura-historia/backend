@@ -1,24 +1,128 @@
 use super::*;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
-use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
+use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
+use crate::scraper::raw_input::capture_source_listing_id;
+use crate::scraper::scraper_service::ScrapedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageValidator};
 
-#[test]
-fn should_reject_no_valid_images_as_candidate_data() {
-    assert_eq!(
-        NormalizationError::NoValidImages { candidates: 2 }.failure_scope(),
-        NormalizationFailureScope::CandidateData
-    );
+/// A product page with elements a cached schema can mistakenly target.
+fn page_with_implausible_elements() -> String {
+    format!(
+        r#"<!DOCTYPE html>
+    <html>
+    <body>
+      <main>
+        <span id="product-id">SKU-42</span>
+        <h1>Biedermeier Chair</h1>
+        <p id="description">Walnut veneer, circa 1830.</p>
+        <span id="state">In Stock</span>
+        <span id="tracking-title">Biedermeier Chair function(){{ track() }}</span>
+        <div id="inline-css">Sold .badge {{ color: red; }}</div>
+        <div id="long-state">{}</div>
+        <span id="zero-price">£0.00</span>
+        <img src="/images/chair-640x640.jpg">
+      </main>
+    </body>
+    </html>"#,
+        "Viewing by appointment ".repeat(10)
+    )
 }
 
-#[test]
-fn should_classify_title_errors_as_cached_schema_fallback_failures() {
-    assert_eq!(
-        NormalizationError::TitleEmpty.failure_scope(),
-        NormalizationFailureScope::CandidateData
-    );
+fn text_rule(selector: &str) -> ExtractionRule {
+    ExtractionRule {
+        selector: CssSelector::from(selector),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    }
+}
+
+fn schema_with(edit: impl FnOnce(&mut ProductCssSelectorSchema)) -> ProductCssSelectorSchema {
+    let mut schema = minimal_schema();
+    edit(&mut schema);
+    schema
+}
+
+fn fetcher_returning(html: String) -> MockHtmlFetcher {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(fetch_result(html)) })
+    });
+    fetcher
+}
+
+fn schema_service_with_cached(
+    listing_source_id: ListingSourceId,
+    schemas: Vec<ProductCssSelectorSchema>,
+) -> MockProductListingSchemaService {
+    let cached = ListingSourceProductSchema {
+        listing_source_id,
+        product_schemas: schemas,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let mut schema_svc = MockProductListingSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let cached = cached.clone();
+            Box::pin(async move { Ok(Some(cached)) })
+        });
+    schema_svc
+}
+
+fn expect_saved_fresh_schema(
+    schema_svc: &mut MockProductListingSchemaService,
+    listing_source_id: ListingSourceId,
+    generated: ProductCssSelectorSchema,
+) {
+    schema_svc
+        .expect_generate_single_schema_for_page()
+        .once()
+        .returning(move |_| {
+            let generated = generated.clone();
+            Box::pin(async move {
+                Ok(generated_single_product(
+                    generated,
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
+        });
+    schema_svc
+        .expect_save_product_schemas()
+        .once()
+        .returning(move |_, schemas| {
+            Box::pin(async move {
+                Ok(ListingSourceProductSchema {
+                    listing_source_id,
+                    product_schemas: schemas,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                })
+            })
+        });
+}
+
+fn service(
+    fetcher: MockHtmlFetcher,
+    schema_svc: MockProductListingSchemaService,
+    cand_svc: MockScraperCandidateService,
+) -> ScraperServiceImpl {
+    ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+}
+
+fn captured_raw_value<'a>(scraped: &'a ScrapedProduct, field: &str) -> &'a serde_json::Value {
+    &scraped.raw_input.raw_values().value()[field]
 }
 
 struct CountingImageValidator(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -35,366 +139,187 @@ impl ImageValidator for CountingImageValidator {
 async fn should_validate_images_before_ranking_all_cached_candidates() {
     let id = listing_source_id();
     let url = product_url();
-    let mut rich_schema = minimal_schema();
-    rich_schema.description = Some(ExtractionRule {
-        selector: CssSelector::from("main"),
-        additional_selectors: vec![],
-        extract: ExtractionKind::Text,
-        cardinality: ExtractionCardinality::First,
-    });
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![minimal_schema(), rich_schema],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| {
-            Box::pin(async {
-                Ok(fetch_result(
-                    "<html><body><main><span id=\"product-id\">SKU-42</span><h1>Biedermeier Chair</h1><span id=\"state\">In Stock</span><img src=\"https://images.example/chair.jpg\"></main></body></html>".to_string(),
-                ))
-            })
-        });
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let schema = schema.clone();
-            Box::pin(async move { Ok(Some(schema)) })
-        });
+    let rich_schema = schema_with(|schema| schema.description = Some(text_rule("main")));
+    let mut schema_svc = schema_service_with_cached(id, vec![minimal_schema(), rich_schema]);
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
-
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |raw, _| {
-        assert!(raw.description.iter().any(|value| !value.is_empty()));
-        let product = expected.clone();
-        Box::pin(async move { Ok(normalization_success(product, 0)) })
-    });
-
-    let mut candidate_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(
-        &mut candidate_svc,
-        id,
-        url.clone(),
-        CrawlerDisposition::Active,
+    let fetcher = fetcher_returning(
+        "<html><body><main><span id=\"product-id\">SKU-42</span><h1>Biedermeier Chair</h1><span id=\"state\">In Stock</span><img src=\"https://images.example/chair.jpg\"></main></body></html>".to_string(),
     );
     let image_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        std::sync::Arc::new(candidate_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
-    );
+    let mut service = service(fetcher, schema_svc, MockScraperCandidateService::new());
     service.image_validator = Box::new(CountingImageValidator(image_calls.clone()));
 
-    assert!(
-        service
-            .scrape(primary_only_request(&id, &url))
-            .await
-            .unwrap()
-            .is_some()
-    );
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("a plausible cached candidate must be captured"));
+
     assert_eq!(image_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_ne!(
+        captured_raw_value(&scraped, "description")["value"],
+        serde_json::json!([]),
+        "the richer candidate must be selected"
+    );
 }
 
-async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
+/// The first cached schema extracts an implausible value from the page; the second,
+/// plausible one is captured without fresh generation.
+async fn assert_captures_second_cached_schema_after_rejecting(first: ProductCssSelectorSchema) {
     let id = listing_source_id();
     let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    let first_schema = minimal_schema();
-    let second_schema = minimal_schema();
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![first_schema, second_schema],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = schema.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
+    let mut schema_svc = schema_service_with_cached(id, vec![first, minimal_schema()]);
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
-
-    let expected = prepared_product(url.clone());
-    let first_error = Arc::new(std::sync::Mutex::new(Some(error)));
-    let expected_scope = first_error
-        .lock()
-        .expect("first error lock should not be poisoned")
-        .as_ref()
-        .expect("first error should be present")
-        .failure_scope();
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .times(1..=2)
-        .returning(move |_, _| {
-            let n = expected.clone();
-            let first_error = first_error.clone();
-            Box::pin(async move {
-                let error = first_error
-                    .lock()
-                    .expect("first error lock should not be poisoned")
-                    .take();
-                match error {
-                    Some(error) => Err(normalization_failure(error, 0)),
-                    None => Ok(normalization_success(n, 0)),
-                }
-            })
-        });
-
-    let mut cand_svc = MockScraperCandidateService::new();
-    if expected_scope == NormalizationFailureScope::CandidateData {
-        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
-    }
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let service = service(
+        fetcher_returning(page_with_implausible_elements()),
+        schema_svc,
+        MockScraperCandidateService::new(),
     );
 
-    let result = service.scrape(primary_only_request(&id, &url)).await.result;
-    let scraped = result.unwrap().unwrap();
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("the plausible cached candidate must be captured"));
+
     assert_eq!(
-        scraped.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
+        captured_raw_value(&scraped, "title")["value"],
+        "Biedermeier Chair"
+    );
+    assert_eq!(
+        captured_raw_value(&scraped, "availability")["value"],
+        "In Stock"
+    );
+    assert_eq!(
+        captured_raw_value(&scraped, "description")["value"],
+        serde_json::json!([])
     );
 }
 
 #[tokio::test]
-async fn should_try_next_cached_schema_after_title_failure() {
-    assert_tries_next_cached_schema_after(NormalizationError::TitleEmpty).await;
-}
-
-#[tokio::test]
-async fn should_try_next_cached_schema_after_description_language_failure() {
-    assert_tries_next_cached_schema_after(NormalizationError::DescriptionUnknownLanguage {
-        text: "garbage".to_string(),
-    })
+async fn should_try_next_cached_schema_when_title_contains_script_source() {
+    assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
+        schema.title = text_rule("#tracking-title");
+    }))
     .await;
 }
 
 #[tokio::test]
-async fn should_try_next_cached_schema_after_price_failure() {
-    assert_tries_next_cached_schema_after(NormalizationError::PriceParseError {
-        field: product_listing_normalization::PriceField::Price,
-    })
+async fn should_try_next_cached_schema_when_state_contains_inline_css() {
+    assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
+        schema.state = text_rule("#inline-css");
+    }))
     .await;
 }
 
 #[tokio::test]
-async fn should_try_all_cached_schemas_before_fresh_generation() {
+async fn should_try_next_cached_schema_when_state_is_longer_than_a_label() {
+    assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
+        schema.state = text_rule("#long-state");
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn should_try_next_cached_schema_when_description_contains_inline_css() {
+    assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
+        schema.description = Some(text_rule("#inline-css"));
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn should_rank_cached_schema_with_zero_price_below_a_poorer_one_without_price() {
     let id = listing_source_id();
     let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    let first_schema = minimal_schema();
-    let mut second_schema = minimal_schema();
-    second_schema.description = Some(ExtractionRule {
-        selector: CssSelector::from("main"),
-        additional_selectors: vec![],
-        extract: ExtractionKind::Text,
-        cardinality: ExtractionCardinality::First,
+    let zero_price = schema_with(|schema| {
+        schema.price = Some(text_rule("#zero-price"));
+        schema.description = Some(text_rule("#description"));
     });
-
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![first_schema, second_schema.clone()],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = schema.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
-    schema_svc
-        .expect_generate_single_schema_for_page()
-        .once()
-        .returning(move |_| {
-            Box::pin(async {
-                Ok(generated_single_product(
-                    minimal_schema(),
-                    SchemaLlmEvaluationConfidence::High,
-                ))
-            })
-        });
-    schema_svc
-        .expect_save_product_schemas()
-        .once()
-        .returning(move |_, schemas| {
-            let saved = ListingSourceProductSchema {
-                listing_source_id: id,
-                product_schemas: schemas,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-            Box::pin(async move { Ok(saved) })
-        });
-
-    let expected = prepared_product(url.clone());
-    let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().times(3).returning(move |_, _| {
-        let n = expected.clone();
-        let norm_calls = norm_calls.clone();
-        Box::pin(async move {
-            if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
-                Err(normalization_failure(NormalizationError::TitleEmpty, 0))
-            } else {
-                Ok(normalization_success(n, 0))
-            }
-        })
-    });
-
-    let mut cand_svc = MockScraperCandidateService::new();
-    expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let mut schema_svc = schema_service_with_cached(id, vec![zero_price, minimal_schema()]);
+    schema_svc.expect_generate_single_schema_for_page().never();
+    let service = service(
+        fetcher_returning(page_with_implausible_elements()),
+        schema_svc,
+        MockScraperCandidateService::new(),
     );
 
-    let result = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
-        .unwrap();
+        .unwrap_or_else(|| panic!("a cached candidate must be captured"));
+
     assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
+        captured_raw_value(&scraped, "price"),
+        &serde_json::json!({ "action": "CLEAR" })
     );
 }
 
 #[tokio::test]
-async fn should_generate_fresh_schema_when_cached_data_fails() {
+async fn should_capture_url_hash_identity_when_the_extracted_identity_is_blank() {
     let id = listing_source_id();
     let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    let existing_schema = minimal_schema();
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![existing_schema.clone()],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = schema.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
-    schema_svc
-        .expect_generate_single_schema_for_page()
-        .once()
-        .returning(move |_| {
-            let s = minimal_schema();
-            Box::pin(async move {
-                Ok(generated_single_product(
-                    s,
-                    SchemaLlmEvaluationConfidence::High,
-                ))
-            })
-        });
-    schema_svc
-        .expect_save_product_schemas()
-        .once()
-        .returning(move |_, schemas| {
-            let saved = ListingSourceProductSchema {
-                listing_source_id: id,
-                product_schemas: schemas,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-            Box::pin(async move { Ok(saved) })
-        });
-
-    let expected = prepared_product(url.clone());
-    let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().times(2).returning(move |_, _| {
-        let n = expected.clone();
-        let norm_calls = norm_calls.clone();
-        Box::pin(async move {
-            if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                Err(normalization_failure(NormalizationError::TitleEmpty, 0))
-            } else {
-                Ok(normalization_success(n, 0))
-            }
-        })
-    });
-
-    let mut cand_svc = MockScraperCandidateService::new();
-    expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let mut schema_svc = schema_service_with_cached(
+        id,
+        vec![schema_with(|schema| {
+            schema.source_listing_id = Some(text_rule("#missing-product-id"));
+        })],
+    );
+    schema_svc.expect_generate_single_schema_for_page().never();
+    let service = service(
+        fetcher_returning(sample_html()),
+        schema_svc,
+        MockScraperCandidateService::new(),
     );
 
-    let result = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
-        .unwrap();
+        .unwrap_or_else(|| panic!("a blank identity must not reject the candidate"));
+
+    let url_hash_identity = capture_source_listing_id("", url.as_str())
+        .unwrap_or_else(|error| panic!("URL hash identity must derive: {error}"));
+    assert_eq!(scraped.source_listing_id, url_hash_identity.to_string());
+}
+
+#[tokio::test]
+async fn should_generate_fresh_schema_when_every_cached_extraction_is_implausible() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut schema_svc = schema_service_with_cached(
+        id,
+        vec![
+            schema_with(|schema| schema.state = text_rule("#inline-css")),
+            schema_with(|schema| schema.title = text_rule("#tracking-title")),
+        ],
+    );
+    expect_saved_fresh_schema(&mut schema_svc, id, minimal_schema());
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+    let service = service(
+        fetcher_returning(page_with_implausible_elements()),
+        schema_svc,
+        cand_svc,
+    );
+
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("the fresh schema must be captured"));
+
     assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
+        captured_raw_value(&scraped, "availability")["value"],
+        "In Stock"
     );
 }
 
 #[tokio::test]
-async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candidates() {
+async fn should_capture_without_images_when_image_policy_rejects_all_candidates() {
     let id = listing_source_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
@@ -410,52 +335,25 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
     </body>
     </html>"#
         .to_string();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
-        Box::pin(async move { Ok(fetch_result(html)) })
-    });
-
-    let schema = listing_source_product_schemas(id);
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let schema = schema.clone();
-            Box::pin(async move { Ok(Some(schema)) })
-        });
+    let mut schema_svc = schema_service_with_cached(id, vec![minimal_schema()]);
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
-
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |raw, _| {
-        let n = expected.clone();
-        Box::pin(async move {
-            assert!(raw.images.is_empty());
-            Ok(normalization_success(n, 0))
-        })
-    });
-
-    let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let service = service(
+        fetcher_returning(html),
+        schema_svc,
+        MockScraperCandidateService::new(),
     );
 
-    let result = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap();
-    assert!(result.is_some());
+        .unwrap()
+        .unwrap_or_else(|| panic!("a page without valid images must be captured"));
+
+    assert_eq!(
+        captured_raw_value(&scraped, "images")["value"],
+        serde_json::json!([])
+    );
 }
 
 #[tokio::test]
@@ -474,119 +372,49 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
     </body>
     </html>"#
         .to_string();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
-        Box::pin(async move { Ok(fetch_result(html)) })
+    let product_schema = schema_with(|schema| {
+        schema.images = ExtractionRule {
+            selector: CssSelector::from("img"),
+            additional_selectors: vec![],
+            extract: ExtractionKind::ImageUrl,
+            cardinality: ExtractionCardinality::All,
+        };
     });
-
-    let mut product_schema = minimal_schema();
-    product_schema.images = ExtractionRule {
-        selector: CssSelector::from("img"),
-        additional_selectors: vec![],
-        extract: ExtractionKind::ImageUrl,
-        cardinality: ExtractionCardinality::All,
-    };
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![product_schema],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let schema = schema.clone();
-            Box::pin(async move { Ok(Some(schema)) })
-        });
+    let mut schema_svc = schema_service_with_cached(id, vec![product_schema]);
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
-
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(move |raw, _| {
-        let n = expected.clone();
-        Box::pin(async move {
-            assert_eq!(raw.images, vec!["https://example.com/image-800x600.jpg"]);
-            Ok(normalization_success(n, 0))
-        })
-    });
-
-    let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let service = service(
+        fetcher_returning(html),
+        schema_svc,
+        MockScraperCandidateService::new(),
     );
 
-    let result = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap();
-    assert!(result.is_some());
+        .unwrap()
+        .unwrap_or_else(|| panic!("the page must be captured"));
+
+    assert_eq!(
+        captured_raw_value(&scraped, "images")["value"],
+        serde_json::json!(["https://example.com/image-800x600.jpg"])
+    );
 }
 
 #[tokio::test]
 async fn should_generate_single_schema_without_failed_schema_context() {
     let id = listing_source_id();
     let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    let text_rule = |selector: &str| ExtractionRule {
-        selector: CssSelector::from(selector),
-        additional_selectors: vec![],
-        extract: ExtractionKind::Text,
-        cardinality: ExtractionCardinality::First,
+    let make_bad_schema = |title_selector: &str| {
+        schema_with(|schema| {
+            schema.source_listing_id = Some(text_rule("non-existent-id"));
+            schema.title = text_rule(title_selector);
+            schema.state = text_rule("non-existent-state");
+        })
     };
-    let attr_rule_all = |selector: &str, attr: &str| ExtractionRule {
-        selector: CssSelector::from(selector),
-        additional_selectors: vec![],
-        extract: ExtractionKind::Attribute { name: attr.into() },
-        cardinality: ExtractionCardinality::All,
-    };
-    let make_bad_schema = |title_selector: &str| ProductCssSelectorSchema {
-        source_listing_id: Some(text_rule("non-existent-id")),
-        title: text_rule(title_selector),
-        description: None,
-        price: None,
-        price_estimate_min: None,
-        price_estimate_max: None,
-        state: text_rule("non-existent-state"),
-        images: attr_rule_all("img", "src"),
-        raw_attributes: Default::default(),
-    };
-
-    let bad_existing = make_bad_schema("non-existent-title-1");
     let bad_generated = make_bad_schema("non-existent-title-2");
-
-    let mut schema_svc = MockProductListingSchemaService::new();
-    let existing = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![bad_existing.clone()],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = existing.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
-
+    let mut schema_svc =
+        schema_service_with_cached(id, vec![make_bad_schema("non-existent-title-1")]);
     schema_svc
         .expect_generate_single_schema_for_page()
         .once()
@@ -600,19 +428,9 @@ async fn should_generate_single_schema_without_failed_schema_context() {
             })
         });
     schema_svc.expect_save_product_schemas().never();
-
-    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
-    );
+    let service = service(fetcher_returning(sample_html()), schema_svc, cand_svc);
 
     let err = service
         .scrape(primary_only_request(&id, &url))
@@ -632,84 +450,48 @@ async fn should_generate_single_schema_without_failed_schema_context() {
     ));
 }
 
-/// When the generated schema successfully applies on every attempt but
-/// normalization still fails with candidate-data errors each time, fresh
-/// generation must return `FreshSchemaNormalizationFailed`.
+/// A freshly generated schema that applies but extracts implausible values is
+/// never persisted and reports the failing check per field.
 #[tokio::test]
-async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
+async fn should_fail_without_persisting_when_fresh_schema_extraction_is_implausible() {
     let id = listing_source_id();
     let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    // Schema is found in DB — no schema-gen LLM call on the obtain path.
-    let existing_schema = minimal_schema();
-    let schema = ListingSourceProductSchema {
-        listing_source_id: id,
-        product_schemas: vec![existing_schema.clone()],
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = schema.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
+    let css_state = schema_with(|schema| schema.state = text_rule("#inline-css"));
+    let mut schema_svc = schema_service_with_cached(id, vec![css_state.clone()]);
     schema_svc
         .expect_generate_single_schema_for_page()
         .once()
-        .returning(|_| {
-            Box::pin(async {
+        .returning(move |_| {
+            let generated = css_state.clone();
+            Box::pin(async move {
                 Ok(generated_single_product(
-                    minimal_schema(),
+                    generated,
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
         });
-    // Schema is never persisted because normalization never succeeds.
     schema_svc.expect_save_product_schemas().never();
-
-    // Both normalize calls return candidate-data failures.
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .times(2) // 1 initial + 1 retry attempt
-        .returning(|_, _| {
-            Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
-        });
-
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    let service = service(
+        fetcher_returning(page_with_implausible_elements()),
+        schema_svc,
+        cand_svc,
     );
 
     let err = service
         .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ScraperError::FreshSchemaNormalizationFailed {
-                attempts: 1,
-                ref last_norm_error,
-                ..
-            } if matches!(last_norm_error.as_ref(), NormalizationError::TitleEmpty)
-        ),
-        "expected FreshSchemaNormalizationFailed, got {err:?}"
+
+    let ScraperError::FreshSchemaImplausible { findings, .. } = &err else {
+        panic!("expected FreshSchemaImplausible, got {err:?}");
+    };
+    assert_eq!(
+        findings.as_slice(),
+        [PlausibilityFinding {
+            field: PlausibilityField::State,
+            check: PlausibilityCheck::MarkupTokens,
+        }]
     );
 }
