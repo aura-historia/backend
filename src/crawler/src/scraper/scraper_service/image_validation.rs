@@ -162,14 +162,6 @@ impl ImageUrlHint {
     }
 }
 
-/// Whether a URL names a thumbnail and its own text, without a probe, cannot
-/// show that it is full size. Validation rejects such an image when its probe
-/// cannot read the size.
-pub(crate) fn is_unconfirmed_thumbnail(url: &Url) -> bool {
-    names_thumbnail(url)
-        && ImageUrlHint::of(url).settle(ImageValidation::Unknown) == ImageValidation::Invalid
-}
-
 fn names_thumbnail(url: &Url) -> bool {
     url.as_str().to_ascii_lowercase().contains("thumb")
 }
