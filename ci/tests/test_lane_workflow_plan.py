@@ -121,6 +121,20 @@ class OptInLanePlan(unittest.TestCase):
         self.assertEqual(fnmatch.filter(artifacts, pattern),
                          ['tests-legacy-money-execution-attempt-2', 'tests-legacy-test-api-execution-attempt-2'])
 
+    def test_artifact_metadata_guard_precedes_the_download_and_keeps_permissions_scoped(self):
+        for workflow in (WORKFLOW, WORKFLOW.with_name('compare-legacy-ci.yml')):
+            source = workflow.read_text()
+            before_quality, quality = source.split('\n  quality:\n', 1)
+            self.assertNotIn('actions: read', before_quality)
+            self.assertIn('    permissions:\n      actions: read\n      contents: read\n', quality)
+            guard, download = quality.split('      - uses: actions/download-artifact@', 1)
+            self.assertIn('gh api --paginate', guard)
+            self.assertIn('artifacts?per_page=100', guard)
+            self.assertIn("--jq '.artifacts[] | {name, expired} | @json'", guard)
+            self.assertIn('python3 ci/execution-artifact-path.py', guard)
+            self.assertIn('          path: ${{ steps.artifacts.outputs.path }}\n', download)
+            self.assertIn('          merge-multiple: false\n', download)
+
 
 if __name__ == "__main__":
     unittest.main()
