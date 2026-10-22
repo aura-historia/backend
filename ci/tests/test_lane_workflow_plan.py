@@ -76,7 +76,7 @@ class OptInLanePlan(unittest.TestCase):
 
     def test_unselected_workflow_skips_quality_but_selected_failures_enter_its_gate(self):
         for workflow, job, prerequisite in ((WORKFLOW, 'quality', 'plan'),
-                (WORKFLOW.with_name('compare-legacy-ci.yml'), 'sonar', 'determine')):
+                (WORKFLOW.with_name('compare-legacy-ci.yml'), 'quality', 'determine')):
             block = workflow.read_text().split('\n  ' + job + ':\n', 1)[1]
             guard = next(line.strip().removeprefix('if: ') for line in block.splitlines() if line.strip().startswith('if: '))
             for result in ('skipped', 'success', 'failure', 'cancelled'):
@@ -86,12 +86,26 @@ class OptInLanePlan(unittest.TestCase):
                     self.assertEqual(eval(expression, {'__builtins__': {}}), result != 'skipped')
             marker = "python3 - <<'PY'\n"
             script = textwrap.dedent(block.split(marker, 1)[1].split('\n          PY', 1)[0])
-            for failure in ('failure', 'cancelled', 'skipped'):
-                results = {'plan': {'result': 'success'}, 'lint': {'result': 'success'}, 'test': {'result': failure}}
-                if prerequisite == 'determine': results['determine'] = results.pop('plan')
+            successful = {name: {'result': 'success'} for name in (prerequisite, 'lint', 'test')}
+            cases = [successful, {}, dict(successful, unexpected={'result': 'success'})]
+            for name in successful:
+                cases.append({key: value for key, value in successful.items() if key != name})
+                cases.extend(dict(successful, **{name: {'result': result}}) for result in ('failure', 'cancelled', 'skipped'))
+            for results in cases:
                 process = subprocess.run([sys.executable, '-c', script], env=dict(os.environ, RESULTS=json.dumps(results)),
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self.assertNotEqual(process.returncode, 0)
+                self.assertEqual(process.returncode == 0, results == successful)
+
+    def test_controls_choose_none_and_require_execution_artifacts_instead_of_coverage(self):
+        for path in (WORKFLOW, WORKFLOW.with_name('compare-legacy-ci.yml')):
+            source = path.read_text()
+            self.assertIn('--input execution-artifacts --matrix "$MATRIX"', source)
+            self.assertNotIn('coverage-artifacts', source)
+            self.assertNotIn('merge-coverage.py', source)
+            self.assertNotIn('SonarSource/', source)
+            self.assertIn('  CARGO_PROFILE_TEST_DEBUG: 1\n  CARGO_PROFILE_DEV_DEBUG: 1\n', source)
+        self.assertIn('--coverage none --cache', WORKFLOW.read_text())
+        self.assertIn('          coverage: none\n', WORKFLOW.with_name('compare-legacy-ci.yml').read_text())
 
 
 if __name__ == "__main__":

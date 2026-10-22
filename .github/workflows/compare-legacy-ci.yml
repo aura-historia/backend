@@ -26,7 +26,8 @@ permissions:
 env:
   CARGO_BUILD_JOBS: 4
   CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 1
+  CARGO_PROFILE_DEV_DEBUG: 1
   CARGO_TERM_COLOR: never
 
 jobs:
@@ -55,7 +56,6 @@ jobs:
     outputs:
       revision: ${{ steps.source.outputs.revision }}
       matrix: ${{ steps.select.outputs.matrix }}
-      reports: ${{ steps.select.outputs.reports }}
     steps:
       - name: Validate immutable source and real change base
         id: source
@@ -99,7 +99,6 @@ jobs:
           report = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'legacy-selector/selection.json').read_text())
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('matrix=' + json.dumps(report['matrix']) + '\n')
-              output.write('reports=' + ' '.join(row['id'] for row in report['matrix']) + '\n')
           PY
       - name: Retain original selector scheduling evidence
         if: always()
@@ -138,14 +137,12 @@ jobs:
           harness: libtest
           slots: 4
           profile: none
+          coverage: none
 
-  sonar:
-    name: Legacy Sonar analysis and quality gate
+  quality:
+    name: Require legacy selector, lint and selected tests
     needs: [lint, determine, test]
     if: always() && needs.determine.result != 'skipped'
-    permissions:
-      contents: read
-      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -166,19 +163,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: coverage-*
-          path: coverage-artifacts
+          pattern: tests-legacy-*-attempt-${{ github.run_attempt }}
+          path: execution-artifacts
           merge-multiple: false
-      - name: Require the exact selected package coverage set
+      - name: Require the exact selected package execution inventories
         env:
-          REPORTS: ${{ needs.determine.outputs.reports }}
+          MATRIX: ${{ needs.determine.outputs.matrix }}
+          REVISION: ${{ needs.determine.outputs.revision }}
         run: |
-          read -ra reports <<< "$REPORTS"
-          python3 ci/merge-coverage.py --input coverage-artifacts --output coverage.lcov "${reports[@]}"
-      - name: Sonar scan and waited quality gate
-        uses: SonarSource/sonarqube-scan-action@b632445a46f521460d97cad21057b904b24c326f
-        with:
-          args: -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          python3 ci/validate-test-reports.py --input execution-artifacts --matrix "$MATRIX" \
+            --revision "$REVISION" --attempt "$GITHUB_RUN_ATTEMPT"

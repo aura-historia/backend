@@ -23,7 +23,7 @@ inputs:
     description: Supervisor service profile, or none for the remaining lane.
     required: true
   coverage:
-    description: Coverage mode, llvm or none. The none experiment always starts with an empty target and no cache.
+    description: Coverage mode, llvm or none. None always starts with an empty target and no cache.
     default: llvm
 runs:
   using: composite
@@ -59,7 +59,7 @@ runs:
           target="$GITHUB_WORKSPACE/target/no-coverage"
           rm -rf "$target"
           mkdir -p "$target"
-          printf 'No-coverage experiment: reset target %s; cache restore/save disabled.\n' "$target"
+          printf 'No-coverage policy: reset target %s; cache restore/save disabled.\n' "$target"
           {
             printf 'CARGO_TARGET_DIR=%s\n' "$target"
             printf 'RUSTFLAGS=\nRUSTDOCFLAGS=\nCARGO_ENCODED_RUSTFLAGS=\nCARGO_ENCODED_RUSTDOCFLAGS=\n'
@@ -132,7 +132,7 @@ runs:
                       'target_reset': os.environ['COVERAGE_MODE'] == 'none',
                       'limitation': ('Resolved and fallback cache keys are retained in the cache action log.'
                                      if os.environ['COVERAGE_MODE'] == 'llvm'
-                                     else 'Cache restore/save disabled for the controlled cold-target experiment.')},
+                                     else 'Cache restore/save disabled; each job starts with a cold target.')},
         }
         path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'job.json'
         path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')

@@ -25,6 +25,7 @@ def arguments():
     parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--cache", choices=["COLD_TARGET", "WARM_TARGET"], required=True)
+    parser.add_argument("--coverage", choices=["none", "llvm"], default="none")
     parser.add_argument("--target-dir", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     return parser.parse_args()
@@ -44,24 +45,38 @@ def commands(args, root, target, output):
     artifacts = [output / "compile-discovery/compile.jsonl"]
     if args.profile != "none" or args.legacy_package in {"database-migration-lambda", "test-api"}:
         artifacts.append(output / "supervisor.jsonl")
-        result.append(("SUPERVISOR_COMPILE", [sys.executable, str(root / "ci/capture-cargo.py"),
-            "--output", str(artifacts[-1]), "--", "cargo", "build", "--locked", "--package", "test-api",
-            "--all-features", "--bin", "aura-test-env", "--message-format=json-render-diagnostics"]))
-    return [*result, ("TESTS_AND_FIXTURES", driver), ("COVERAGE", [sys.executable, str(root / "ci/export-coverage.py"),
+        build = ["cargo", "build", "--locked", "--package", "test-api",
+                 "--all-features", "--bin", "aura-test-env", "--message-format=json-render-diagnostics"]
+        if args.coverage == "llvm":
+            build = [sys.executable, str(root / "ci/capture-cargo.py"), "--output", str(artifacts[-1]), "--", *build]
+        result.append(("SUPERVISOR_COMPILE", build))
+    result.append(("TESTS_AND_FIXTURES", driver))
+    if args.coverage == "llvm":
+        result.append(("COVERAGE", [sys.executable, str(root / "ci/export-coverage.py"),
             "--profiles", str(output / "profiles"), "--nextest", str(output / "discovery/nextest.json"),
             "--cargo-artifact-manifest", str(output / "discovery/coverage-artifacts.json"),
             "--doctests", str(output / "doctests"), *[value for artifact in artifacts for value in ("--cargo-artifacts", str(artifact))],
-            "--output", str(output / "coverage.lcov")])]
+            "--output", str(output / "coverage.lcov")]))
+    return result
 
 
-def measurement_environment(root, target, output):
-    return dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_INCREMENTAL="0", CARGO_PROFILE_TEST_DEBUG="1", CARGO_PROFILE_DEV_DEBUG="1", CARGO_TERM_COLOR="never",
-        RUSTUP_TOOLCHAIN="nightly-2026-10-20", RUSTFLAGS="-C instrument-coverage -Zcoverage-options=branch",
-        RUSTDOCFLAGS="-C instrument-coverage -Zcoverage-options=branch", RUSTDOC=str(root / "ci/coverage-rustdoc.py"),
-        AURA_CI_RUSTDOC=subprocess.check_output(["rustup", "which", "--toolchain", "nightly-2026-10-20", "rustdoc"], text=True).strip(),
-        AURA_CI_COVERAGE_DIR=str(output), LLVM_PROFILE_FILE=str(output / "profiles/discovery/%b-%4m.profraw"), NEXTEST_PROFILE="ci",
+def measurement_environment(root, target, output, coverage):
+    if coverage not in {"none", "llvm"}:
+        raise ValueError("Coverage mode must be none or llvm")
+    environment = dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_BUILD_JOBS="4", CARGO_INCREMENTAL="0", CARGO_PROFILE_TEST_DEBUG="1", CARGO_PROFILE_DEV_DEBUG="1", CARGO_TERM_COLOR="never",
+        RUSTUP_TOOLCHAIN="nightly-2026-10-20", RUSTFLAGS="", RUSTDOCFLAGS="", RUSTDOC="rustdoc",
+        CARGO_ENCODED_RUSTFLAGS="", CARGO_ENCODED_RUSTDOCFLAGS="", AURA_CI_RUSTDOC="",
+        AURA_CI_COVERAGE_DIR="", LLVM_PROFILE_FILE="", NEXTEST_PROFILE="ci",
         AURA_CI_BENCHMARK_TIMING="1", NEXTEST_SUCCESS_OUTPUT="final", AWS_ACCESS_KEY_ID="test", AWS_SECRET_ACCESS_KEY="test", AWS_SESSION_TOKEN="test",
         AWS_EC2_METADATA_DISABLED="true", AWS_DEFAULT_REGION="eu-central-1", AWS_REGION="eu-central-1")
+    if coverage == "llvm":
+        environment.pop("CARGO_ENCODED_RUSTFLAGS")
+        environment.pop("CARGO_ENCODED_RUSTDOCFLAGS")
+        environment.update(RUSTFLAGS="-C instrument-coverage -Zcoverage-options=branch",
+            RUSTDOCFLAGS="-C instrument-coverage -Zcoverage-options=branch", RUSTDOC=str(root / "ci/coverage-rustdoc.py"),
+            AURA_CI_RUSTDOC=subprocess.check_output(["rustup", "which", "--toolchain", "nightly-2026-10-20", "rustdoc"], text=True).strip(),
+            AURA_CI_COVERAGE_DIR=str(output), LLVM_PROFILE_FILE=str(output / "profiles/discovery/%b-%4m.profraw"))
+    return environment
 
 
 def main():
@@ -72,25 +87,31 @@ def main():
     if any(target.iterdir()) != (args.cache == "WARM_TARGET"):
         raise ValueError("COLD_TARGET needs an empty target; WARM_TARGET needs a previously built target")
     output.mkdir(parents=True, exist_ok=False)
-    (output / "profiles/discovery").mkdir(parents=True)
-    environment = measurement_environment(root, target, output)
+    if args.coverage == "llvm":
+        (output / "profiles/discovery").mkdir(parents=True)
+    environment = measurement_environment(root, target, output, args.coverage)
     started = time.monotonic()
     report = {"kind": "FIXED_LANE_COMPARISON", "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
         "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "lanes": args.lane, "legacy_package": args.legacy_package, "harness": args.harness, "slots": args.slots, "profile": args.profile, "features": args.features,
         "cache": args.cache, "runner": environment_metadata(root, environment), "images_before": images(root),
         "run": {key: os.environ.get(key) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_WORKFLOW_REF", "GITHUB_WORKFLOW_SHA")},
-        "stages": [], "status": "FAILED", "error": None}
+        "coverage_mode": args.coverage, "coverage": None, "stages": [], "status": "FAILED", "error": None}
     try:
         for name, argv in commands(args, root, target, output):
             guarded = [sys.executable, str(root / 'ci/guard-disk.py'), '--target', str(target),
-                       '--profiles', str(output / 'profiles'), '--log', str(output / 'disk.jsonl'), '--', *argv]
+                       '--log', str(output / 'disk.jsonl')]
+            if args.coverage == "llvm":
+                guarded.extend(['--profiles', str(output / 'profiles')])
+            guarded.extend(['--', *argv])
             report["stages"].append(measure(name, guarded, root, environment, output, target))
             if report["stages"][-1]["exit_code"]:
                 break
         if all(stage["exit_code"] == 0 for stage in report["stages"]):
-            report["coverage"] = coverage_totals(output / "coverage.lcov")
+            if args.coverage == "llvm":
+                report["coverage"] = coverage_totals(output / "coverage.lcov")
             report["observations"] = observations(output / "tests_and_fixtures.log")
             report["status"] = "PASSED"
     except (OSError, ValueError, RuntimeError) as error:

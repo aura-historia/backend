@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import pathlib
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import call, patch
@@ -16,7 +18,7 @@ SPEC.loader.exec_module(BENCHMARK)
 class LaneMeasurementCommands(unittest.TestCase):
     def setUp(self):
         self.args = types.SimpleNamespace(lane=["INFRASTRUCTURE", "REMAINING"], harness="libtest", slots=2,
-            profile="api", features=["test-api/s3,test-api/ses"], legacy_package=None)
+            profile="api", features=["test-api/s3,test-api/ses"], legacy_package=None, coverage="llvm")
         self.root, self.target, self.output = map(pathlib.Path, ["/checkout", "/target", "/evidence"])
 
     def test_compile_execution_and_coverage_share_one_target_and_feature_configuration(self):
@@ -42,10 +44,12 @@ class LaneMeasurementCommands(unittest.TestCase):
 
     def test_measurements_pin_nightly_and_record_the_selected_compiler_environment(self):
         with patch.object(BENCHMARK.subprocess, "check_output", return_value="/nightly/rustdoc\n"):
-            environment = BENCHMARK.measurement_environment(self.root, self.target, self.output)
+            environment = BENCHMARK.measurement_environment(self.root, self.target, self.output, 'llvm')
         self.assertEqual(environment["RUSTUP_TOOLCHAIN"], "nightly-2026-10-20")
         self.assertEqual(environment["RUSTFLAGS"], "-C instrument-coverage -Zcoverage-options=branch")
         self.assertEqual(environment["RUSTDOCFLAGS"], environment["RUSTFLAGS"])
+        self.assertNotIn('CARGO_ENCODED_RUSTFLAGS', environment)
+        self.assertNotIn('CARGO_ENCODED_RUSTDOCFLAGS', environment)
         self.assertEqual(environment["AURA_CI_RUSTDOC"], "/nightly/rustdoc")
         self.assertEqual(environment["LLVM_PROFILE_FILE"], "/evidence/profiles/discovery/%b-%4m.profraw")
         self.assertEqual(environment["CARGO_PROFILE_TEST_DEBUG"], environment["CARGO_PROFILE_DEV_DEBUG"])
@@ -62,6 +66,49 @@ class LaneMeasurementCommands(unittest.TestCase):
         with patch.object(execution, 'optional_command', return_value='selected-toolchain'):
             record = execution.environment_metadata(self.root, environment)
         self.assertEqual({key: record['build_environment'][key] for key in environment}, environment)
+
+    def test_none_retains_driver_and_supervisor_build_without_capture_or_export(self):
+        instrumented = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+        self.args.coverage = 'none'
+        commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
+        self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
+        self.assertEqual(commands[0], instrumented[0])
+        self.assertEqual(commands[2], instrumented[2])
+        self.assertEqual(commands[1][1], instrumented[1][1][5:])
+
+    def test_none_overrides_inherited_instrumentation_without_resolving_coverage_rustdoc(self):
+        cleared = ('RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
+                   'AURA_CI_RUSTDOC', 'LLVM_PROFILE_FILE', 'AURA_CI_COVERAGE_DIR')
+        with patch.dict(BENCHMARK.os.environ, dict.fromkeys(cleared, 'inherited')), patch.object(
+                BENCHMARK.subprocess, 'check_output') as command:
+            environment = BENCHMARK.measurement_environment(self.root, self.target, self.output, 'none')
+        command.assert_not_called()
+        self.assertEqual({key: environment[key] for key in cleared}, dict.fromkeys(cleared, ''))
+        self.assertEqual(environment['RUSTDOC'], 'rustdoc')
+        self.assertEqual(environment['CARGO_BUILD_JOBS'], '4')
+        self.assertEqual((environment['CARGO_PROFILE_DEV_DEBUG'], environment['CARGO_PROFILE_TEST_DEBUG']), ('1', '1'))
+
+    def test_none_keeps_cold_then_warm_target_and_records_absent_coverage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            self.args.target_dir, self.args.coverage = root / 'target', 'none'
+            for cache in ('COLD_TARGET', 'WARM_TARGET'):
+                self.args.cache, self.args.output = cache, root / cache
+                with self.subTest(cache=cache), patch.object(BENCHMARK, 'arguments', return_value=self.args), patch.object(
+                        BENCHMARK.subprocess, 'check_output', side_effect=[str(root), 'a'*40, 'b'*40, '']), patch.object(
+                        BENCHMARK, 'images', return_value=[]), patch.object(BENCHMARK, 'environment_metadata', return_value={}), patch.object(
+                        BENCHMARK, 'measure', side_effect=lambda name, *_: dict(name=name, exit_code=0)) as measure, patch.object(
+                        BENCHMARK, 'coverage_totals') as coverage, patch.object(BENCHMARK, 'observations', return_value={}):
+                    self.assertEqual(BENCHMARK.main(), 0)
+                    coverage.assert_not_called()
+                    self.assertTrue(all('--profiles' not in call.args[1] for call in measure.call_args_list))
+                report = json.loads((self.args.output / 'benchmark.json').read_text())
+                self.assertEqual(report['status'], 'PASSED')
+                self.assertEqual(report['coverage_mode'], 'none')
+                self.assertIsNone(report['coverage'])
+                self.assertFalse((self.args.output / 'profiles').exists())
+                self.assertFalse((self.args.output / 'coverage.lcov').exists())
+                (self.args.target_dir / 'compiled').touch()
 
     def test_no_service_lane_omits_supervisor_compilation(self):
         self.args.lane, self.args.profile = ["REMAINING"], "none"

@@ -5,14 +5,24 @@ integration and remaining test jobs, plus workspace lint. Every relevant pull
 request and `develop` push runs all lanes. The final quality job requires every
 test job and lint to succeed. No affected-package selector precedes tests.
 
-The current comparison candidate sets `coverage: none` on all four jobs. It keeps
+Required CI and the matched lane/legacy controls use `coverage: none`, preserving
 the full test and lint scope while omitting LLVM instrumentation, capture, export
-and Sonar analysis. This is an experiment pending a significant measured gain,
-not an established performance result or adoption decision. Each job resets its
-separate `target/no-coverage` directory and skips cache restore and save, so the
-first sample has a cold Cargo target. Whole-job comparisons therefore include the
-saved cache-write time as well as coverage and Sonar costs. The action defaults to
-`coverage: llvm`; instrumented legacy/layout controls retain their existing gates.
+and Sonar analysis. The approved policy follows one complete
+[no-coverage observation](https://github.com/aura-historia/backend/actions/runs/39786527586):
+21m58s from creation to the last applicable check, versus 43m24s for the
+[corrected instrumented observation](https://github.com/aura-historia/backend/actions/runs/39777803005),
+a 49.4% observed reduction. Both executed the same 112 packages, 288 targets,
+5,724 active cases, 18 ignored cases and 12 doctests. One sample with differing
+runner CPUs/images is not a median or an isolated compiler-cost estimate. The
+whole-workflow change includes omitted coverage/Sonar work and an 89.179s baseline
+Integration cache post-save. Final architecture comparisons still require matched
+source, policies and repeated complete workflow observations.
+
+Each ordinary test job resets its separate `target/no-coverage` directory and
+skips cache restore and save. Lane measurements instead intentionally reuse their
+own target for the in-job warm invocation. The shared action retains explicit
+optional `coverage: llvm` compatibility and its existing LLVM artifact gates;
+its default remains `llvm` so callers must select the adopted policy explicitly.
 
 ## Inventory and parity contract
 
@@ -84,7 +94,7 @@ gate still requires each lane's current result to succeed.
 Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
 CPU, memory, runner image/version and configured cache suffix/exact-hit result.
 It also records the coverage mode, target path, encoded flags, whether cache
-restoration was attempted and whether the target was reset for the experiment.
+restoration was attempted and whether the target was reset.
 Resolved/fallback cache keys remain in the cache action log. Missing metadata is
 reported as null; a runner label alone does not prove identical hardware.
 After execution, `fixture-images.json` records available fixture image IDs and
@@ -171,10 +181,10 @@ end or region kind fails. Zero branch outcomes remain zero, and summaries are re
 entries. Ambiguous branch locations and invalid source lines fail export.
 [`merge-coverage.py`](../ci/merge-coverage.py) requires the exact nonempty, valid
 lane reports before emitting one deterministic source record per file. Missing
-lanes, failed tests or invalid coverage fail LLVM-enabled controls before their
-Sonar gate. Historical reports had no branch records, so they provide no numeric
-branch baseline. LLVM-enabled lanes, the legacy scheduling control and layout
-diagnostics use the same pinned nightly coverage configuration. Historical stable/
+lanes, failed tests or invalid coverage fail optional LLVM-enabled controls.
+Historical reports had no branch records, so they provide no numeric
+branch baseline. Optional LLVM action/helper invocations use the same pinned
+nightly coverage configuration. Historical stable/
 grcov measurements retain their original source/configuration and cannot establish
 equivalence with this instrumentation. The original package baseline collector
 remains available for historical diagnostics.
@@ -200,9 +210,10 @@ evidence and excludes subtrees owned by nested workspace members. Scans record
 file/line evidence for the integration macro, direct serialization, testcontainers,
 Postgres, persistent globals, external effects and cluster-wide DDL/replication.
 These signals cannot prove absence of indirect or dynamically generated effects. In particular,
-`aura_integration_test` expands to a serial test, and process globals/serial locks
-do not coordinate separate nextest processes. Follow-on scheduling must review
-the fixture boundary before enabling concurrency.
+`aura_integration_test` in legacy mode expands to a serial test; isolated and
+exclusive modes do not add that serial wrapper. Process globals/serial locks do
+not coordinate separate Nextest processes. Scheduling changes must review the
+fixture boundary before enabling concurrency.
 
 `--features` records `cargo tree --locked --all-features --edges normal,build,dev`
 from the workspace and each package directory. The output lists features added by
@@ -264,8 +275,8 @@ Start with the failed lane's attempt-scoped `tests-*-execution-attempt-*` artifa
 for `job.json`, `discovery/compile.log`, case lists, phase/JUnit logs and disk samples.
 The final `tests-*-attempt-*` artifact adds available LCOV and its object manifest.
 For LLVM-enabled controls, check required export errors before optional diagnostics;
-their gates also require every exact coverage artifact. The ordinary no-coverage
-experiment retains test diagnostics and requires successful lint and all test lanes.
+their gates also require every exact coverage artifact. Required CI retains test
+diagnostics and requires successful lint and all test lanes.
 
 To inspect a concrete mismatch on a local managed lane, retain its original raw
 profiles, objects and build metadata, then rerun the exporter from the same checkout
@@ -309,20 +320,21 @@ workspace, including exceptional phases and doctests. Each test job starts with
 an empty Cargo target, then immediately repeats with that target; registry, Docker
 images and OS caches are not claimed cold. Lint runs independently.
 [`bench-test-lane.py`](../ci/bench-test-lane.py) reuses the baseline stage/RSS/disk
-collector and current coverage export, retaining case lists, raw profiles, logs,
+collector with explicit `--coverage none`, retaining case lists, JUnit, logs,
 runner hardware/image, flags and image identities. It reports supervisor compilation
 separately and includes startup/cleanup within test time. Successful Nextest output
 is retained for fixture timing observations.
-Compile and execution discovery metadata remain separate. Each invocation starts
-with fresh profiles; in-job warm target reuse can skip macro expansion and therefore
-cannot reproduce cold compilation counters. No profiles are replayed from the cold
-run. Ordinary hosted dependency caches exclude workspace outputs by default.
+Compile and execution discovery metadata remain separate. Coverage is explicitly
+null and no profiles, captures or exports are produced in this mode. Optional
+local `--coverage llvm` invocations start with fresh profiles; warm target reuse
+can skip macro expansion and cannot reproduce cold compilation counters. No
+profiles are replayed from the cold run.
 
 Before this workflow is registered on the default branch, add `ci/lanes-four`,
 `ci/lanes-three` or `ci/lanes-one` to a same-repository pull request. The guarded
 label event checks out its actual head SHA and screens only that layout with
 Nextest/four slots/FULL; its run number identifies the repetition. A `-libtest`
-suffix selects the stock harness for an instrumented compatibility comparison.
+suffix selects the stock harness for a compatibility comparison under the same policy.
 Dispatch inputs
 remain explicit for other configurations. Source SHA and workflow SHA are validated
 and recorded separately. Labels do not start measurements for fork pull requests.
@@ -338,8 +350,8 @@ without changing product cases. Same-revision FULL pairs retain unchanged-source
 warm behavior. Base priming and head execution are different observations, not two
 repetitions at the head. Collect the completed workflow envelope with
 `collect-ci-run.py`; do not sum concurrent jobs. This opt-in workflow measures
-through lint, artifact upload and coverage validation. Sonar scan/gate duration and
-the previous per-package fanout need their own same-source workflow evidence before
+through lint, artifact upload and execution-inventory validation. The previous
+per-package fanout needs its own same-source workflow evidence before
 claiming a complete CI speedup or selecting the final lane count.
 
 The unused `ci-determinator` package and its three selector self-tests are retired.
@@ -353,18 +365,20 @@ inputs are also available. The isolated selector workspace retains its original
 source/manifests and locked versions; only unreachable lock nodes are pruned.
 Its real release build/cache/selection precede test scheduling. Each selected
 package uses libtest, package-local all-features, original `--nocapture` output,
-lazy process fixtures and a separate Cargo target/cache. Complete controls add
+lazy process fixtures and a separate cold Cargo target with cache disabled. Complete controls add
 the original root/proc-macro omissions to the existing `test-api` job explicitly,
 whose all-features graph already includes their fixture/macro dependencies. These
-targets share its nonempty coverage artifact; no empty root artifact or invented
-counter is required. Affected controls retain the
+targets share its execution inventory. Affected controls retain the
 actual original selection. Both preserve the required pristine/unmanaged phases
-and validate compiled case/ignored lists and exact coverage artifacts.
+and validate compiled case/ignored lists. The final gate requires actual selector,
+lint and every selected matrix job success. Both controls also require the exact
+selected, attempt-scoped execution artifact set, matching package/target/doctest
+ownership and complete compiled case lists; missing or foreign owners fail.
 
 This control deliberately uses the same verified prebuilt tools, pinned runner
-family, four test threads, independent lint and waited Sonar gate as new CI.
+family, four test threads, independent lint and no-coverage policy as new CI.
 It bounds fanout to twenty concurrent jobs. Case listing, explicit exceptional
-phases and complete-coverage validation are parity adjustments. Historical
+phases and full-control root/proc-macro additions are parity adjustments. Historical
 `cargo install grcov`, unpinned actions, runner allocation and global volume prune
 are not reproduced; their costs are not measured by this control. Record actual
 cache restores, hardware and all these adjustments with each comparison. A partial
@@ -479,7 +493,8 @@ IDs for controlled repetitions.
 
 For a same-revision old/new comparison, pin both implementations to the same source
 SHA/test corpus, toolchain, flags, runner/image policy and instrumentation; collect
-the same case sets and coverage identity totals, then compare repeated cold and
+the same case sets and, when explicitly measuring coverage, coverage identity totals,
+then compare repeated cold and
 warm stage distributions separately. Do not compare a cached compile against an
 uncached one or sum concurrent matrix job durations as workflow wall time.
 These three package scenarios do not represent the full affected-workspace fanout
