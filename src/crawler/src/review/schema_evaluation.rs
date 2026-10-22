@@ -4,6 +4,7 @@ use crate::review::model::{
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
 use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
@@ -250,9 +251,9 @@ fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
     page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
-    let html = Html::parse_document(page.raw_html);
-    let apply_result = apply_schema_to_document(schema, &html);
-    let fields = evaluate_schema_fields(schema, page.raw_html);
+    let document = Html::parse_document(page.raw_html);
+    let apply_result = apply_schema_to_document(schema, &document);
+    let fields = evaluate_schema_fields(schema, &document);
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
@@ -292,45 +293,44 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 
 fn evaluate_schema_fields(
     schema: &ProductCssSelectorSchema,
-    html: &str,
+    document: &Html,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
     // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
     // fail the page on a miss.
     if let Some(rule) = &schema.source_listing_id {
-        fields.push(evaluate_rule("source_listing_id", rule, html, false));
+        fields.push(evaluate_rule("source_listing_id", rule, document, false));
     }
-    fields.push(evaluate_rule("title", &schema.title, html, true));
+    fields.push(evaluate_rule("title", &schema.title, document, true));
     if let Some(rule) = &schema.description {
-        fields.push(evaluate_rule("description", rule, html, false));
+        fields.push(evaluate_rule("description", rule, document, false));
     }
     if let Some(rule) = &schema.price {
-        fields.push(evaluate_rule("price", rule, html, false));
+        fields.push(evaluate_rule("price", rule, document, false));
     }
     if let Some(rule) = &schema.price_estimate_min {
-        fields.push(evaluate_rule("price_estimate_min", rule, html, false));
+        fields.push(evaluate_rule("price_estimate_min", rule, document, false));
     }
     if let Some(rule) = &schema.price_estimate_max {
-        fields.push(evaluate_rule("price_estimate_max", rule, html, false));
+        fields.push(evaluate_rule("price_estimate_max", rule, document, false));
     }
-    fields.push(evaluate_rule("state", &schema.state, html, true));
-    fields.push(evaluate_rule("images", &schema.images, html, false));
+    fields.push(evaluate_rule("state", &schema.state, document, true));
+    fields.push(evaluate_rule("images", &schema.images, document, false));
     for (field, rule) in &schema.raw_attributes {
-        fields.push(evaluate_rule(field, rule, html, false));
+        fields.push(evaluate_rule(field, rule, document, false));
     }
     fields
 }
 
 fn evaluate_rule(
     field: &str,
-    rule: &crate::scraper::css_selector::rule::ExtractionRule,
-    html: &str,
+    rule: &ExtractionRule,
+    document: &Html,
     required: bool,
 ) -> SelectorFieldEvaluation {
-    let document = Html::parse_document(html);
     let selector = rule.selector.to_string();
-    let selector_match_count = match Selector::parse(&selector) {
-        Ok(parsed) => Some(document.select(&parsed).count()),
+    let parsed = match Selector::parse(&selector) {
+        Ok(parsed) => parsed,
         Err(err) => {
             let error = format!("{err:?}");
             return SelectorFieldEvaluation {
@@ -343,14 +343,15 @@ fn evaluate_rule(
             };
         }
     };
-
-    let mut additional_selector_match_counts = Vec::new();
-    for additional in &rule.additional_selectors {
-        match Selector::parse(additional.as_ref()) {
-            Ok(parsed) => additional_selector_match_counts.push(document.select(&parsed).count()),
-            Err(_) => additional_selector_match_counts.push(0),
-        }
-    }
+    let selector_match_count = Some(count_matches(document, &parsed));
+    let additional_selector_match_counts = rule
+        .additional_selectors
+        .iter()
+        .map(|additional| {
+            Selector::parse(additional.as_ref())
+                .map_or(0, |parsed| count_matches(document, &parsed))
+        })
+        .collect();
 
     SelectorFieldEvaluation {
         field: field.to_string(),
@@ -362,13 +363,15 @@ fn evaluate_rule(
     }
 }
 
+fn count_matches(document: &Html, selector: &Selector) -> usize {
+    document.select(selector).count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
-    use crate::scraper::css_selector::rule::{
-        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
-    };
+    use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
     use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
 
     fn text_rule(selector: &str) -> ExtractionRule {
