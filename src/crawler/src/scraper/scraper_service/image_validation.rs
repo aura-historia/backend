@@ -58,12 +58,9 @@ impl ImageValidator for ReqwestImageValidator {
             return cached;
         }
 
-        let hint = ImageUrlHint::of(url);
-        let validation = match hint {
+        let validation = match ImageUrlHint::of(url) {
             ImageUrlHint::Dimensions(validation) => validation,
-            ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => {
-                hint.settle(probe_image_dimensions(url).await)
-            }
+            ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => probe_image_dimensions(url).await,
         };
 
         self.cache
@@ -148,7 +145,7 @@ impl ImageUrlHint {
         Self::NoHint
     }
 
-    /// Combines the hint with a validator or probe result. The hint can only
+    /// Combines the hint with the validator's result. The hint can only
     /// reject an image, never accept one the validator rejected.
     fn settle(self, validation: ImageValidation) -> ImageValidation {
         match (self, validation) {
