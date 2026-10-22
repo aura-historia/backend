@@ -1,28 +1,128 @@
 # CI inventory and measurements
 
-[`integrate.yml`](../.github/workflows/integrate.yml) runs independent API, crawler,
-integration and remaining test jobs, plus workspace lint. Every relevant pull
-request and `develop` push runs all lanes. The final quality job requires every
-test job and lint to succeed. No affected-package selector precedes tests.
+[`integrate.yml`](../.github/workflows/integrate.yml) runs four independent API,
+crawler, integration and remaining test jobs with Nextest and four slots, plus
+workspace lint. Every relevant pull request and `develop` push runs all lanes.
+The final quality job requires every test job and lint to succeed, including API
+acceptance tests. No affected-package selector precedes tests.
 
 Required CI and the matched lane/legacy controls use `coverage: none`, preserving
 the full test and lint scope while omitting LLVM instrumentation, capture, export
-and Sonar analysis. The approved policy follows one complete
-[no-coverage observation](https://github.com/aura-historia/backend/actions/runs/39786527586):
-21m58s from creation to the last applicable check, versus 43m24s for the
-[corrected instrumented observation](https://github.com/aura-historia/backend/actions/runs/39777803005),
-a 49.4% observed reduction. Both executed the same 112 packages, 288 targets,
-5,724 active cases, 18 ignored cases and 12 doctests. One sample with differing
-runner CPUs/images is not a median or an isolated compiler-cost estimate. The
-whole-workflow change includes omitted coverage/Sonar work and an 89.179s baseline
-Integration cache post-save. Final architecture comparisons still require matched
-source, policies and repeated complete workflow observations.
+and Sonar analysis. Test jobs skip SDK reclamation; workspace lint retains its
+existing checks, toolchain, cache and preparation policy.
 
 Each ordinary test job resets its separate `target/no-coverage` directory and
-skips cache restore and save. Lane measurements instead intentionally reuse their
-own target for the in-job warm invocation. The shared action retains explicit
-optional `coverage: llvm` compatibility and its existing LLVM artifact gates;
-its default remains `llvm` so callers must select the adopted policy explicitly.
+then restores dependencies through the existing pinned cache action. Its validated
+`compilation_cache: dependencies|cold` input defaults to `dependencies`; ordinary
+native callers select it explicitly and legacy test controls select `cold`, which
+disables restore and save. Saved targets exclude workspace libraries and test
+executables. Registry/Git dependency data and compiled external dependencies can
+be reused; every workspace suite still compiles, discovers and executes normally.
+Lane measurements own their separate empty/reused target policy.
+
+Cache keys retain lane, coverage, compiler/environment and Cargo input separation,
+plus a bounded hash of execution policy files. Preserve the automatic environment
+hash, including installed compiler inventory. A reset before restoration does
+not establish a cold build: count it cold only when logs show no restored target,
+including fallback restores. A false exact-hit result alone can mean a miss,
+fallback or cache error. Retain resolved keys, compressed size and restore/save
+duration; upload/post-save time belongs in workflow completion. Cache capacity,
+eviction and the resulting time savings require observations.
+
+The shared action retains explicit optional `coverage: llvm` compatibility and
+its existing LLVM artifact gates; its coverage default remains `llvm` so callers
+must select the adopted policy explicitly.
+
+## Performance evidence
+
+The benchmark corpus at `b9637f605`, preserved at optimized source
+[`080e04c18`](https://github.com/aura-historia/backend/commit/080e04c18e6418cf880da49dcc3e4b6c5025cc67),
+contains 112 packages, 288 targets, 5,742 declared cases (5,724 active and 18
+ignored) and 12 actual doctests. Two optimized cold observations
+([18m03s](https://github.com/aura-historia/backend/actions/runs/39840169811),
+[17m35s](https://github.com/aura-historia/backend/actions/runs/39840203207)) passed
+the full corpus, lint and their actual quality gates. Their median time from
+workflow creation to successful quality was 17m49s. Two equivalent full legacy
+observations
+([20m26s](https://github.com/aura-historia/backend/actions/runs/39832788590),
+[18m54s](https://github.com/aura-historia/backend/actions/runs/39835851229)) had a
+19m40s median. The observed 1m51s (9.4%) reduction passes the recorded median gate;
+the aspiration to finish under 15 minutes remains unmet. Both comparison cohorts
+contain two observations; the bounded legacy cohort was fixed before reading its second
+outcome.
+
+Product source, product tests, Cargo/fixture inputs, active compiler and profiles
+match the frozen benchmark source; reviewed CI orchestration differs. Actual
+checkout trees, case/ignored/doctest identities and outcomes, feature selections,
+fixture identities and cleanup were audited. These timings belong to that corpus.
+Upstream develop adds 169 and removes 35 crawler cases (net +134); combined source
+requires its own applicable CI proof.
+
+All four native caches were real misses without fallback in each cold observation.
+Successful saves totalled approximately 3.93 GB compressed per observation;
+Integration post-save took 19.772s and 19.489s, included in quality latency.
+The [separate cache observation on identical source](https://github.com/aura-historia/backend/actions/runs/39843281077)
+is excluded from the cold median. Assess reuse and its cost from that run's actual
+restore/save records before attributing a benefit. Same-job reuse of a complete
+target directory does not predict dependency-cache savings.
+
+The earlier native cohort
+([1](https://github.com/aura-historia/backend/actions/runs/39810496299),
+[2](https://github.com/aura-historia/backend/actions/runs/39815814790),
+[3](https://github.com/aura-historia/backend/actions/runs/39815802654)) had a 22m02s
+median and failed the same gate before optimization. The
+[release-contended full control](https://github.com/aura-historia/backend/actions/runs/39823462369)
+passed in 36m06s but was excluded before its outcome because an unrelated release
+occupied 17 of 20 assigned runner slots. Its queue delay cannot establish an
+architecture speedup.
+
+The historical small-source observations also use the previous cold native policy:
+
+| Small source change | Ordinary four-lane latency | Affected legacy latency | Legacy scope: packages / active cases / doctests | Occupied runner seconds: ordinary / legacy |
+| --- | --- | --- | --- | --- |
+| Leaf | [20m58s](https://github.com/aura-historia/backend/actions/runs/39817420015) | [8m02s](https://github.com/aura-historia/backend/actions/runs/39827788662) | 1 / 7 / 0 | 3,641 / 709 |
+| API | [20m28s](https://github.com/aura-historia/backend/actions/runs/39817437881) | [17m23s](https://github.com/aura-historia/backend/actions/runs/39828063290) | 1 / 941 / 0 | 3,713 / 1,385 |
+| Shared fixture | [22m33s](https://github.com/aura-historia/backend/actions/runs/39817920654) | [18m50s](https://github.com/aura-historia/backend/actions/runs/39829846446) | 37 / 3,065 / 1 | 3,747 / 10,543 |
+
+The full-workspace figures above measure Integrate workflow creation through its
+successful quality gate. The small scenario latencies span the earliest applicable
+workflow creation through the last applicable successful check, including lint,
+artifact upload and the gate. Their ordinary envelopes include applicable
+Container checks and runner time; affected legacy includes its selector, lint,
+selected packages and gate. Occupied runner time sums setup and poststeps while
+excluding queues. Keep it separate from latency and billing cost; incomplete job
+clocks cannot establish an aggregate or an aggregate percentage reduction.
+
+Comparisons must verify actual checkout trees and source deltas, product source,
+product tests, Cargo inputs, compiler flags and preparation policy, and record
+workflow/adapter revisions separately.
+The small ordinary heads use base `b9637f605`; affected control heads use base
+`5fb1053d5`, containing the
+[singleton-artifact adapter fix](https://github.com/aura-historia/backend/commit/5fb1053d5757c982015893ab93cbcf138f2c7450).
+The exact comment patch, product source, product tests, fixtures, Cargo inputs
+and build configuration match per scenario; five reviewed measurement adapter
+files differ. All three corrected affected controls passed their actual selector,
+lint, package and strict execution-artifact gates.
+Each row records one cold observation per side of a reviewed comment-only source
+change. It measures compiler invalidation; feature costs and warm behavior remain
+unmeasured. Ordinary CI executes the full workspace; affected legacy executes its
+selected subset above. CPU, image and queue conditions can differ. The original
+[leaf](https://github.com/aura-historia/backend/actions/runs/39818361734) and
+[API](https://github.com/aura-historia/backend/actions/runs/39818693260) controls
+failed their artifact gate after their selected tests passed. Those failures are
+retained and contribute no successful latency.
+
+Four lanes remain selected: the
+[three-lane](https://github.com/aura-historia/backend/actions/runs/39810662128) and
+[four-lane](https://github.com/aura-historia/backend/actions/runs/39810670043)
+cold critical-path ranking reversed on repeat, and three lanes had less disk
+margin without a repeatable critical-path win. Stock libtest showed no demonstrated
+material advantage. Hosted CPU/image variation limits causal attribution; an
+in-job warm pass is reuse evidence, not an independent repetition. Diagnostic
+per-pass maxima and two-pass workflow envelopes are separate from ordinary CI
+creation-to-last-applicable-check latency. Concurrent job times must not be summed
+as latency. Native samples also retain their observed lint cache state and
+concurrent workflow activity.
 
 ## Inventory and parity contract
 
@@ -82,21 +182,26 @@ build/test concurrency. The `none` mode clears coverage flags, encoded flag
 overrides and profile/capture variables, and selects normal rustdoc. The driver
 keeps its ownership checks, compiled case lists, actual doctests, exceptional
 phases and JUnit without collecting coverage metadata. Lint and release builds
-keep the stable repository toolchain. The following export contracts apply to
-LLVM-enabled jobs.
+keep the stable repository toolchain.
+Native no-coverage selections owning `INFRASTRUCTURE` use the supervisor compiled
+by lane discovery, which requires one runnable executable at the requested path
+before starting fixtures. Other selections, legacy controls and LLVM execution
+retain an explicit supervisor build when required.
 The job supervisor owns service cleanup, including cancellation; no job prunes
 shared Docker resources. Failure retains test/compile diagnostics and any coverage
 produced without allowing a failed lane to pass the final gate.
-Execution diagnostics upload before coverage export, and final diagnostics retain
-their workflow attempt, including that attempt's LCOV when available. A rerun
-replaces the stable required coverage artifact only; the final
-gate still requires each lane's current result to succeed.
+Execution diagnostics upload before optional coverage export, and final diagnostics
+retain their workflow attempt, including that attempt's LCOV when enabled. An
+LLVM rerun replaces the stable coverage artifact; the final gate still requires
+each lane's current result to succeed.
 Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
-CPU, memory, runner image/version and configured cache suffix/exact-hit result.
+CPU, memory, runner image/version, selected compilation-cache policy and configured
+cache suffix/exact-hit result.
 It also records the coverage mode, target path, encoded flags, whether cache
-restoration was attempted and whether the target was reset.
-Resolved/fallback cache keys remain in the cache action log. Missing metadata is
-reported as null; a runner label alone does not prove identical hardware.
+restoration was attempted, its result and whether the target was reset before
+restoration. Resolved/fallback cache keys and restore/save diagnostics remain in
+the cache action log. Missing metadata is reported as null; a runner label alone
+does not prove identical hardware.
 After execution, `fixture-images.json` records available fixture image IDs and
 repository digests through bounded, best-effort inspection of the reviewed
 references; unavailable identities are null and policy/read failures retain a
@@ -111,10 +216,14 @@ No-coverage test/control jobs and the small legacy selector skip SDK deletion;
 preparation retains real initial/final disk capacity. Optional LLVM jobs retain
 the existing Android SDK, .NET and CodeQL reclamation only on explicitly
 GitHub-hosted Linux runners. Local and self-hosted execution performs no SDK cleanup.
-In the recorded no-coverage observation, Integration preparation took 198.340s
-and reclaimed 19.44GB; subtracting that gain from its sampled minimum leaves
-20.56GB. This arithmetic is not an observed run without cleanup: final hosted
-measurements must establish actual headroom, including the one-job layout.
+The two optimized cold Integration observations sampled minimum free disk of
+21.93–23.12 GB without SDK reclamation or a guard breach; the three-/four-lane
+diagnostics sampled 17.03/20.48 GB respectively.
+The [one-job layout](https://github.com/aura-historia/backend/actions/runs/39804553558)
+crossed the three-GiB floor during a narrowed dependency build and was cancelled
+before completing the corpus. Owned fixture cleanup completed. The layout is
+rejected under this policy, without falling back to SDK deletion or retry. Samples
+are observations, not guaranteed instantaneous minima or future capacity guarantees.
 Disk observations stream and retain free bytes, owned Cargo/profile
 sizes and hosted Docker storage summaries. A best-effort three-GiB floor cancels
 through the same process owner, preserving time and space for cleanup/diagnostics;
@@ -123,6 +232,7 @@ size sampling is less frequent and bounded, and stops below the floor; missing
 observations remain null.
 The same periodic record includes nullable host memory total/available KiB.
 
+The following coverage contracts apply only to optional LLVM execution.
 [`export-coverage.py`](../ci/export-coverage.py) selects Nextest test executable
 paths, Cargo `compiler-artifact.executable` paths (including child binaries and
 the supervisor), and Cargo-recorded repository proc-macro shared libraries.
@@ -146,7 +256,7 @@ and archives as `dylib`; Cargo owns executable and proc-macro object selection.
 Rustdoc retains
 objects separately per crate so merged doctests cannot overwrite another crate's
 executable. The driver requires every lane-owned doctest target to complete.
-Required lanes, legacy controls and lane diagnostics use fresh phase profile
+LLVM-enabled lanes and diagnostics use fresh phase profile
 directories with binary/module identity and LLVM's `%b-%4m`
 [online merge pool](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program).
 Up to four locked files per build ID/module signature limit profile multiplication
@@ -157,8 +267,8 @@ compiler work actually performed. Object paths, profiles and compiler versions
 are retained with test diagnostics. Every required export relays raw stderr to the
 job log; each successful export also saves it in the object manifest's
 `export_diagnostics`, keyed by LLVM format (`lcov` or `text` for JSON).
-The separate mismatch report is off by default in required CI and all measurement
-controls. An explicit `--mismatch-diagnostics report` runs one diagnostic
+The optional mismatch report is off by default. An explicit
+`--mismatch-diagnostics report` runs one diagnostic
 `llvm-cov report --dump --num-threads=1` after both strict exports succeed, if either
 warns about mismatched data. It uses the same objects and merged profile, discards stdout,
 and retains raw stderr and exit status in `mismatch_diagnostics` and the job log.
@@ -327,9 +437,11 @@ an empty Cargo target, then immediately repeats with that target; registry, Dock
 images and OS caches are not claimed cold. Lint runs independently.
 [`bench-test-lane.py`](../ci/bench-test-lane.py) reuses the baseline stage/RSS/disk
 collector with explicit `--coverage none`, retaining case lists, JUnit, logs,
-runner hardware/image, flags and image identities. It reports supervisor compilation
-separately and includes startup/cleanup within test time. Successful Nextest output
-is retained for fixture timing observations.
+runner hardware/image, flags and image identities. Supervisor compilation is a
+separate measured stage only when it requires an explicit build. Native
+no-coverage selections owning `INFRASTRUCTURE` compile and validate that executable
+in the discovery stage. Startup/cleanup remain within test time. Successful
+Nextest output is retained for fixture timing observations.
 Compile and execution discovery metadata remain separate. Coverage is explicitly
 null and no profiles, captures or exports are produced in this mode. Optional
 local `--coverage llvm` invocations start with fresh profiles; warm target reuse
@@ -356,9 +468,9 @@ without changing product cases. Same-revision FULL pairs retain unchanged-source
 warm behavior. Base priming and head execution are different observations, not two
 repetitions at the head. Collect the completed workflow envelope with
 `collect-ci-run.py`; do not sum concurrent jobs. This opt-in workflow measures
-through lint, artifact upload and execution-inventory validation. The previous
-per-package fanout needs its own same-source workflow evidence before
-claiming a complete CI speedup or selecting the final lane count.
+through lint, artifact upload and execution-inventory validation. Compare equivalent
+complete workflow observations with the previous per-package fanout before
+claiming a complete CI speedup.
 
 The unused `ci-determinator` package and its three selector self-tests are retired.
 Legacy replay must build the original tool and retain its selection/build scheduling
@@ -393,7 +505,7 @@ speed. Keep literal historical evidence separate from the same-tool control.
 All matched controls/layouts use the same no-coverage preparation policy, disk
 guard and aligned dev/test debug settings. Include preparation cost and actual
 capacity/cache observations; a capacity failure rejects the observed layout
-without an automatic cleanup/retry fallback.
+without falling back to SDK deletion or retry. Owned fixture cleanup still applies.
 
 [`benchmark-ci.yml`](../.github/workflows/benchmark-ci.yml) is deliberately opt-in.
 Dispatch it with a full immutable SHA, or apply `ci/benchmark` to a same-repository
@@ -504,9 +616,9 @@ the same case sets and, when explicitly measuring coverage, coverage identity to
 then compare repeated cold and
 warm stage distributions separately. Do not compare a cached compile against an
 uncached one or sum concurrent matrix job durations as workflow wall time.
-These three package scenarios do not represent the full affected-workspace fanout
-of a fixture change. An equivalent complete old/new workflow comparison remains
-required before claiming end-to-end CI improvements.
+These optional package scenarios do not represent the full affected-workspace
+fanout of a fixture change. End-to-end claims require equivalent complete
+workflow comparisons, as recorded in [performance evidence](#performance-evidence).
 
 ## Existing omissions and baseline evidence
 
@@ -540,6 +652,6 @@ The [fixture developer guide](../src/test-api/README.md#job-supervisor) owns the
 versioned managed environment contract, profiles, credential policy, ownership,
 signal/GC recovery and real-service smoke command. This infrastructure can be used
 with any child runner. Its slot count describes capacity; it does not make legacy
-global-reset fixtures safe to run concurrently. CI runner selection and state
-isolation are separate follow-on changes. Supervisor diagnostics use their own
+global-reset fixtures safe to run concurrently. Callers select the harness and
+concurrency within the fixture isolation contract. Supervisor diagnostics use their own
 `AURA_TEST_ENV` record prefix and do not alter the benchmark timing schema.
