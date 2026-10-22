@@ -667,6 +667,7 @@ const plausibilityCheckDescriptions = {
     MARKUP_TOKENS: 'contains CSS or script tokens',
     DUPLICATE_VALUES: 'repeats a value',
     INVALID_IDENTIFIER: 'is not a valid source listing id',
+    WORD_LIST: 'is a list of words, not an identifier',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page'
 };
 

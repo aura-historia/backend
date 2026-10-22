@@ -892,6 +892,49 @@ mod tests {
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
         }
 
+        /// Vauclair's `<body class>` carries the post id and the product's tags, so it
+        /// differs per page and only its shape shows that it is not an identifier.
+        #[test]
+        fn should_block_deterministic_approval_on_a_body_class_identity() {
+            let schemas = vec![ProductCssSelectorSchema {
+                source_listing_id: Some(ExtractionRule {
+                    selector: CssSelector::from("body"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::Attribute {
+                        name: "class".into(),
+                    },
+                    cardinality: ExtractionCardinality::First,
+                }),
+                ..schema("h1")
+            }];
+            let pages: Vec<SchemaReviewPageInput> = [("chair", 13803), ("table", 13892)]
+                .into_iter()
+                .map(|(path, post_id)| {
+                    let mut page = product_page(path, "");
+                    page.raw_html = page.raw_html.replace(
+                        "<body>",
+                        &format!(
+                            "<body class=\"portfolio-template-default single single-portfolio postid-{post_id} post_tag-{path}\">"
+                        ),
+                    );
+                    page
+                })
+                .collect();
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
+            assert!(matrix.candidates[0].pages.iter().all(|page| {
+                page.apply_ok
+                    && page.plausibility_findings.as_slice()
+                        == [finding(
+                            PlausibilityField::SourceListingId,
+                            PlausibilityCheck::WordList,
+                        )]
+            }));
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
         #[test]
         fn should_block_deterministic_approval_when_another_candidate_covers_a_rejected_page() {
             let schemas = vec![

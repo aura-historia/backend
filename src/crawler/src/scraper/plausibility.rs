@@ -20,6 +20,10 @@ pub use cross_page::{CrossPageCheck, CrossPageFinding, CrossPageFindings, PageEx
 /// "POA – please contact us"; a longer value is a selector that captured a container.
 const MAX_LABEL_CHARS: usize = 100;
 
+/// Fewest words of a `source_listing_id` that lists names rather than identifying the
+/// product; a label and its code, such as "Ref A12", stay below it.
+const MIN_WORD_LIST_WORDS: usize = 3;
+
 /// A raw extracted field, named as in the product schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -66,6 +70,8 @@ pub enum PlausibilityCheck {
     DuplicateValues,
     /// Cannot be captured as a source listing id.
     InvalidIdentifier,
+    /// A list of names, such as a class attribute or a phrase, rather than one identifier.
+    WordList,
 }
 
 impl PlausibilityCheck {
@@ -77,6 +83,7 @@ impl PlausibilityCheck {
             Self::MarkupTokens => "contains CSS or script tokens",
             Self::DuplicateValues => "repeats a value",
             Self::InvalidIdentifier => "is not a valid source listing id",
+            Self::WordList => "is a list of words, not an identifier",
         }
     }
 }
@@ -229,9 +236,35 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
         vec![PlausibilityCheck::Blank]
     } else if SourceListingId::try_from(source_listing_id).is_err() {
         vec![PlausibilityCheck::InvalidIdentifier]
+    } else if is_word_list(source_listing_id) {
+        vec![PlausibilityCheck::WordList]
     } else {
         Vec::new()
     }
+}
+
+/// Whether `value` is a list of names rather than one identifier: at least
+/// [`MIN_WORD_LIST_WORDS`] whitespace-separated words, each shaped like a CSS class name.
+/// A whole class attribute reads like this, as Vauclair's `<body class>`
+/// ("portfolio-template-default single single-portfolio postid-13892 …") does: it holds
+/// the post id but changes with the page template and the product's tags. So does a
+/// phrase such as "Price on application". An identifier is one code, number or URL, and
+/// a label in front of it brings punctuation or a number ("Stock Number: 38088",
+/// "Ref. 12432", "SKU #42/Blue"), so it never reads as such a list.
+fn is_word_list(value: &str) -> bool {
+    let words: Vec<&str> = value.split_whitespace().collect();
+    words.len() >= MIN_WORD_LIST_WORDS && words.iter().all(|word| is_class_name_like(word))
+}
+
+/// An ASCII name as themes and plugins write CSS classes: a letter or `_`, optionally
+/// after one `-`, then letters, digits, `-`, `_` and inner dots (`astra-4.13.3`).
+fn is_class_name_like(word: &str) -> bool {
+    let name = word.strip_prefix('-').unwrap_or(word);
+    name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && !name.ends_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 fn title_checks(title: &str) -> Vec<PlausibilityCheck> {
@@ -384,7 +417,7 @@ fn skip_identifier(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::PlausibilityCheck::{
-        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, TooLong,
+        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, TooLong, WordList,
     };
     use super::PlausibilityField::{
         Description, Images, Price, PriceEstimateMax, SourceListingId, State, Title,
@@ -467,6 +500,33 @@ mod tests {
                     .to_owned(),
                 "Fits a window.Dimensions: 30 x 20 cm".to_owned(),
             ];
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+
+        /// Identities captured from real shops and fixtures: codes, numbers, URLs and
+        /// labelled references, none a list of class-like words.
+        #[rstest::rstest]
+        #[case::post_id("13892")]
+        #[case::leading_zero("04590")]
+        #[case::prefixed_post_id("post-51040")]
+        #[case::ecwid_id("p807376735")]
+        #[case::dated_code("2025-0219-03")]
+        #[case::range("22234-22238")]
+        #[case::marhamchurch_reference("#Marh3682")]
+        #[case::canonical_url("https://galerie-vauclair.fr/portfolio-item/atelier-grenet/")]
+        #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
+        #[case::labelled_with_nbsp("Artikel-Nr:\u{a0}02092")]
+        #[case::labelled_stock_number("Stock Number: 38088")]
+        #[case::labelled_reference("Ref. 12432")]
+        #[case::label_and_code("Ref A12")]
+        #[case::dash_separated_label("Stock - A123")]
+        #[case::lot_number("Lot 12 A")]
+        #[case::spaced_sku("SKU  #42/Blue")]
+        #[case::composite_label("Style Japonism, Chinoiserie / Ref.12432")]
+        fn should_accept_identifiers_and_labelled_references(#[case] identity: &str) {
+            let mut raw = plausible();
+            raw.source_listing_id = identity.to_owned();
 
             assert!(PlausibilityFindings::of(&raw).is_empty());
         }
@@ -653,6 +713,31 @@ mod tests {
             assert_eq!(findings.rank_penalty(), 0);
             assert_eq!(findings.rejection_reason(), None);
         }
+
+        /// A whole class attribute differs per product through its post id and tags, so
+        /// the cross-page checks pass it; its shape gives it away.
+        #[rstest::rstest]
+        #[case::vauclair_body_class(
+            "portfolio-template-default single single-portfolio postid-13803 stretched rtl_columns av-curtain-numeric helvetica neue-websave helvetica_neue  cookies-not-set post-type-portfolio post_tag-angleterre post_tag-dragon post_tag-tabouret portfolio_entries-ceramiques portfolio_entries-mobilier portfolio_entries-nouveautes avia-responsive-images-support av-recaptcha-enabled av-google-badge-hide"
+        )]
+        #[case::short_body_class(
+            "wp-singular products-template-default single single-products postid-51040 wp-theme-collinge-antiques"
+        )]
+        #[case::versioned_plugin_class(
+            "wp-singular product-template-default single single-product postid-8721 wp-theme-salient woocommerce js-comp-ver-8.7.3 vc_responsive"
+        )]
+        #[case::three_classes("single single-product postid-8721")]
+        #[case::phrase("Price on application")]
+        fn should_report_an_identity_that_lists_words(#[case] identity: &str) {
+            let mut raw = plausible();
+            raw.source_listing_id = identity.to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(SourceListingId, WordList)]);
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 0);
+        }
     }
 
     mod serialization {
@@ -661,12 +746,16 @@ mod tests {
         #[test]
         fn should_serialize_findings_with_schema_field_names_and_stable_check_codes() {
             let mut raw = plausible();
+            raw.source_listing_id = "single single-product postid-8721".to_owned();
             raw.price_estimate_min = Some("0".to_owned());
 
             assert_eq!(
                 serde_json::to_value(PlausibilityFindings::of(&raw))
                     .unwrap_or_else(|error| panic!("findings must serialize: {error}")),
-                serde_json::json!([{ "field": "price_estimate_min", "check": "ALL_ZERO_DIGITS" }])
+                serde_json::json!([
+                    { "field": "source_listing_id", "check": "WORD_LIST" },
+                    { "field": "price_estimate_min", "check": "ALL_ZERO_DIGITS" }
+                ])
             );
         }
     }

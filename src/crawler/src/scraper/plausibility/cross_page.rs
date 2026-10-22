@@ -308,7 +308,7 @@ mod tests {
         use PlausibilityField::{Images, SourceListingId, Title};
 
         /// Navarro's untitled sold items share the document `<title>`, and Vauclair's
-        /// `<body>` attributes are the same on every product page.
+        /// `<body id>` is the same on every product page.
         #[test]
         fn should_report_an_identity_and_a_title_that_another_page_repeats() {
             let findings = findings_of(&[
