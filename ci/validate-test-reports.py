@@ -7,7 +7,7 @@ import pathlib
 import re
 
 from ci_inventory.catalog import legacy_package_selection
-from ci_inventory.discovery import listed_cases
+from ci_inventory.discovery import discovery_builds_supervisor, listed_cases
 from ci_inventory.phases import combined_selection, suite_identity, validate_special_cases
 
 
@@ -41,11 +41,13 @@ def validate_discovery(directory, selection, manifest):
 
 
 def validate_benchmark(directory, row, manifest, revision, prime):
-    selection = combined_selection(manifest, manifest, row['lanes'].split())
+    lanes = row['lanes'].split()
+    selection = combined_selection(manifest, manifest, lanes)
+    separate_supervisor = row['profile'] != 'none' and not discovery_builds_supervisor(lanes, None, 'none')
+    expected_stages = ['COMPILE_LINK', *(['SUPERVISOR_COMPILE'] if separate_supervisor else []), 'TESTS_AND_FIXTURES']
     for cache, source in [('COLD_TARGET', prime or revision), ('WARM_TARGET', revision)]:
         output = directory / cache
         report = read_json(output / 'benchmark.json')
-        expected_stages = ['COMPILE_LINK', *(['SUPERVISOR_COMPILE'] if row['profile'] != 'none' else []), 'TESTS_AND_FIXTURES']
         if (report['status'] != 'PASSED' or report['revision'] != source or report['dirty'] or
                 report['cache'] != cache or report['coverage_mode'] != 'none' or report['coverage'] is not None or
                 report['lanes'] != row['lanes'].split() or report['profile'] != row['profile'] or

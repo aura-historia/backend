@@ -38,7 +38,7 @@ class SelectedExecutionReports(unittest.TestCase):
         (directory / 'money.list.txt').write_text('active: test\nprobe: test\n')
         (directory / 'compile.log').touch()
 
-    def benchmark(self, prime=None):
+    def benchmark(self, prime=None, stages=('COMPILE_LINK', 'TESTS_AND_FIXTURES')):
         directory = self.root / 'lane-measurement-one-remaining-1-attempt-1'
         directory.mkdir()
         (directory / 'disk-preparation.log').write_text('observed')
@@ -47,8 +47,9 @@ class SelectedExecutionReports(unittest.TestCase):
             self.discovery(output / 'compile-discovery', self.selection)
             self.discovery(output / 'discovery', self.selection)
             write_json(output / 'benchmark.json', dict(status='PASSED', revision=revision, dirty=False,
-                cache=cache, coverage_mode='none', coverage=None, lanes=['REMAINING'], profile='none',
-                stages=[dict(name=name, status='PASSED', exit_code=0) for name in ['COMPILE_LINK', 'TESTS_AND_FIXTURES']]))
+                cache=cache, coverage_mode='none', coverage=None,
+                lanes=self.rows[0]['lanes'].split(), profile=self.rows[0]['profile'],
+                stages=[dict(name=name, status='PASSED', exit_code=0) for name in stages]))
             (output / 'tests_and_fixtures.log').write_text('actual tests and doctests')
             (output / 'disk.jsonl').write_text('observed')
         return directory
@@ -61,6 +62,31 @@ class SelectedExecutionReports(unittest.TestCase):
         self.benchmark()
         self.validate_benchmark()
         self.assertEqual(list(self.root.rglob('*.lcov')), [])
+
+    def test_native_infrastructure_measurement_requires_discovery_without_a_separate_supervisor_stage(self):
+        self.manifest['packages']['money']['targets'][0]['lane'] = 'INFRASTRUCTURE'
+        self.selection = REPORTS.combined_selection(self.manifest, self.manifest, ['INFRASTRUCTURE'])
+        self.rows[0].update(lanes='INFRASTRUCTURE', profile='api')
+        output = self.benchmark() / 'WARM_TARGET'
+        self.validate_benchmark()
+        path = output / 'benchmark.json'
+        original = REPORTS.read_json(path)
+        obsolete = dict(name='SUPERVISOR_COMPILE', status='PASSED', exit_code=0)
+        for stages in (original['stages'][1:], [original['stages'][0], obsolete, original['stages'][1]]):
+            with self.subTest(stages=stages), self.assertRaisesRegex(ValueError, 'measurement'):
+                write_json(path, dict(original, stages=stages))
+                self.validate_benchmark()
+
+    def test_other_managed_measurements_still_require_the_separate_supervisor_stage(self):
+        self.rows[0]['profile'] = 'postgres'
+        output = self.benchmark(stages=('COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES')) / 'WARM_TARGET'
+        self.validate_benchmark()
+        path = output / 'benchmark.json'
+        report = REPORTS.read_json(path)
+        report['stages'].pop(1)
+        write_json(path, report)
+        with self.assertRaisesRegex(ValueError, 'measurement'):
+            self.validate_benchmark()
 
     def test_small_change_requires_real_base_then_head_sources(self):
         self.benchmark(prime='b' * 40)
