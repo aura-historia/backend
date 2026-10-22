@@ -170,8 +170,10 @@ When every child is `merged` or `done`:
    child PRs and the final review, check open issues first, and comment on an existing issue
    that already covers a finding instead of opening a duplicate. Open one issue per coherent
    problem (`Follow-up from epic #<N> (#<epic PR>)`, problem with `path:line`, acceptance
-   criteria, matching labels). Then replace the follow-up list in the epic PR body with links
-   to those issues.
+   criteria, matching labels). Attach each new issue as a sub-issue of the open epic it belongs
+   to (`gh api -X POST repos/<owner>/<repo>/issues/<epic>/sub_issues -F sub_issue_id=<issue id>`,
+   using the issue's numeric `id`, not its number); leave it unattached if no epic fits. Then
+   replace the follow-up list in the epic PR body with links to those issues.
 5. Wait for CI on that PR. Have a fresh fixer handle failures caused by the epic. **Never merge
    it**; merging into `develop` is the user's call.
 6. Remove any remaining child worktrees, then tell the user the epic work is finished. Include the PR link, CI
