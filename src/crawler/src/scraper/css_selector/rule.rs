@@ -276,6 +276,12 @@ fn visible_text(element: &scraper::ElementRef<'_>) -> String {
     text.into_value()
 }
 
+/// Whether a text rule extracts a value from `element`. One without visible text yields
+/// a blank value, which `first` cardinality skips.
+pub(crate) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
+    !visible_text(element).trim().is_empty()
+}
+
 fn push_visible_text(
     element: &scraper::ElementRef<'_>,
     inside_struck_through: bool,
