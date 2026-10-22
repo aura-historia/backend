@@ -20,11 +20,13 @@ OpenSearch mapping and native RRF hybrid pipeline before launching the command.
 Fixture migration directories and setup scripts retain their existing semantics;
 server readiness does not pre-apply the business schema to every profile.
 
-The supervisor targets Linux, including `/proc` for stale process recovery.
+The supervisor targets Linux with PID descriptor support, including `/proc` for stale
+process recovery.
 Docker must be available at the local `/var/run/docker.sock`. Each invocation owns
 UUID-named, labelled containers, volumes and a bridge network, with Docker-assigned
 ports published only on `127.0.0.1`. The supervisor inherits command stdout/stderr,
-forwards SIGINT/SIGTERM to its child process group, terminates remaining descendants,
+forwards SIGINT/SIGTERM to its child process group, terminates remaining descendants
+carrying its exact managed invocation identity even when a runner starts new sessions,
 and cleans its resources after success, failure or cancellation. Its exit code is
 the child's exit code, or `128 + signal`; infrastructure/cleanup failure after a
 successful command returns 1. A service exit, unhealthy state or changed start
@@ -42,8 +44,9 @@ stale invocations; operators can retry explicitly after a hard kill or Docker ou
 ```
 
 GC validates owner manifests and removes only exact run/UID-labelled resources. It
-verifies the managed invocation environment of remaining process-group members
-before signalling a stale group. SIGKILL prevents synchronous supervisor cleanup;
+verifies the managed invocation environment of remaining processes and uses PID
+descriptors to fence PID reuse while signalling. A foreign member of the saved child
+group fails recovery. SIGKILL prevents synchronous supervisor cleanup;
 GC completes that recovery. Docker failures retain the run directory for retry.
 No global prune is used. These controls govern fixture ownership; they are not a
 network or process sandbox for an arbitrary supplied command.

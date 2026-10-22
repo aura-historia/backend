@@ -7,6 +7,8 @@ use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
+mod ownership;
+
 pub(super) struct Signals {
     interrupt: Signal,
     terminate: Signal,
@@ -124,23 +126,37 @@ fn send(group: u32, signal: i32) -> Result<()> {
     Ok(())
 }
 
-pub(super) async fn terminate(child: &mut Child, group: u32, signal: i32) -> Result<()> {
+pub(super) async fn terminate(
+    child: &mut Child,
+    group: u32,
+    dir: &Path,
+    signal: i32,
+) -> Result<()> {
     send(group, signal)?;
-    match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(error)) => {
-            send(group, libc::SIGKILL)?;
-            return Err(context("cannot wait for supervised command", error));
-        }
+    let waited = match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+        Ok(result) => result
+            .map(|_| ())
+            .map_err(|error| context("cannot wait for supervised command", error)),
         Err(_) => {
             send(group, libc::SIGKILL)?;
-            tokio::time::timeout(Duration::from_secs(3), child.wait())
-                .await
-                .map_err(|e| context("supervised command did not exit after SIGKILL", e))??;
+            match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                Ok(result) => result
+                    .map(|_| ())
+                    .map_err(|error| context("cannot wait for supervised command", error)),
+                Err(error) => Err(context(
+                    "supervised command did not exit after SIGKILL",
+                    error,
+                )),
+            }
         }
-    }
+    };
     // The leader can exit before its descendants. Remove the rest of this owned group too.
     send(group, libc::SIGKILL)?;
+    let directory = dir.to_path_buf();
+    tokio::task::spawn_blocking(move || ownership::terminate_invocation(&directory, Some(group)))
+        .await
+        .map_err(|error| context("cannot join invocation process cleanup", error))??;
+    waited?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         let mut status = 0;
@@ -165,59 +181,15 @@ pub(super) async fn terminate(child: &mut Child, group: u32, signal: i32) -> Res
     }
 }
 
-/// GC only signals groups whose remaining members carry this exact managed invocation.
+/// A runner can create more process groups, including after its direct parent exits.
 pub(super) fn reap_stale_group(dir: &Path) -> Result<()> {
     let path = dir.join("child-group");
-    if !path.exists() {
-        return Ok(());
-    }
-    let group: u32 = std::fs::read_to_string(path)?.trim().parse()?;
-    let marker = format!("{CONFIG}={}", dir.join("environment.json").display());
-    let mut members = false;
-    for entry in std::fs::read_dir("/proc")? {
-        let entry = entry?;
-        if entry
-            .file_name()
-            .to_str()
-            .is_none_or(|s| s.parse::<u32>().is_err())
-        {
-            continue;
-        }
-        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
-            continue;
-        };
-        let Some((_, fields)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        if fields
-            .split_whitespace()
-            .nth(2)
-            .and_then(|s| s.parse::<u32>().ok())
-            != Some(group)
-        {
-            continue;
-        }
-        let environment = match std::fs::read(entry.path().join("environ")) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(context("cannot verify stale child group ownership", error)),
-        };
-        // Zombies have no environment and cannot execute; leave their reaping to init.
-        if fields.split_whitespace().next() == Some("Z") {
-            continue;
-        }
-        if !environment
-            .split(|b| *b == 0)
-            .any(|v| v == marker.as_bytes())
-        {
-            return Err(invalid("stale child group ownership could not be verified"));
-        }
-        members = true;
-    }
-    if members {
-        send(group, libc::SIGKILL)?;
-    }
-    Ok(())
+    let group = match std::fs::read_to_string(path) {
+        Ok(group) => Some(group.trim().parse()?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    ownership::terminate_invocation(dir, group)
 }
 
 #[cfg(test)]

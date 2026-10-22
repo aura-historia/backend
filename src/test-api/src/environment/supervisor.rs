@@ -298,7 +298,7 @@ async fn run_child(
         .id()
         .ok_or_else(|| invalid("supervised command has no process group"))?;
     if let Err(error) = tokio::fs::write(dir.join("child-group"), group.to_string()).await {
-        process::terminate(&mut child, group, libc::SIGTERM).await?;
+        process::terminate(&mut child, group, dir, libc::SIGTERM).await?;
         return Err(context("cannot persist supervised child ownership", error));
     }
     eprintln!(
@@ -309,16 +309,16 @@ async fn run_child(
     let code = tokio::select! {
         status=child.wait()=>process::exit_code(status?),
         signal=signals.receive()=>{
-            process::terminate(&mut child,group,signal).await?;
+            process::terminate(&mut child,group,dir,signal).await?;
             return Ok(128+signal);
         }
         result=docker::monitor(config.run_id(),generations)=>{
-            process::terminate(&mut child,group,libc::SIGTERM).await?;
+            process::terminate(&mut child,group,dir,libc::SIGTERM).await?;
             return Err(context("supervised service health/restart boundary failed",
                 result.err().unwrap_or_else(||invalid("service monitor stopped"))));
         }
     };
-    process::terminate(&mut child, group, libc::SIGTERM).await?;
+    process::terminate(&mut child, group, dir, libc::SIGTERM).await?;
     Ok(code)
 }
 
