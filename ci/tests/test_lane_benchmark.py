@@ -86,17 +86,21 @@ class LaneMeasurementCommands(unittest.TestCase):
 
     def test_none_retains_separate_build_for_api_crawler_and_legacy_controls(self):
         self.args.coverage = 'none'
+        build = ['cargo', 'build', '--locked', '--package', 'test-api', '--all-features',
+                 '--bin', 'aura-test-env', '--message-format=json-render-diagnostics']
         for lane in ('API', 'CRAWLER'):
             with self.subTest(lane=lane):
                 self.args.lane = [lane]
                 commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
                 self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
+                self.assertEqual(commands[1][1], build)
         self.args.lane, self.args.profile, self.args.harness, self.args.features = None, 'none', 'libtest', []
         for package in ('test-api', 'database-migration-lambda'):
             with self.subTest(package=package):
                 self.args.legacy_package = package
                 commands = BENCHMARK.commands(self.args, self.root, self.target, self.output)
                 self.assertEqual([name for name, _ in commands], ['COMPILE_LINK', 'SUPERVISOR_COMPILE', 'TESTS_AND_FIXTURES'])
+                self.assertEqual(commands[1][1], build)
 
     def test_none_overrides_inherited_instrumentation_without_resolving_coverage_rustdoc(self):
         cleared = ('RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
