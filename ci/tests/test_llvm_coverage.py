@@ -170,7 +170,7 @@ class LLVMDiagnostics(unittest.TestCase):
         error = subprocess.CalledProcessError(37, argv, stderr="LLVM report failed\n")
         with patch.object(EXPORTER, "run_llvm", side_effect=error) as run:
             diagnostic = EXPORTER.report_mismatches(argv)
-        run.assert_called_once_with(["llvm-cov", "report", "--dump", *argv[2:]], subprocess.DEVNULL)
+        run.assert_called_once_with(["llvm-cov", "report", "--dump", "--num-threads=1", *argv[2:]], subprocess.DEVNULL)
         self.assertEqual(diagnostic, {"exit_code": 37, "stderr": "LLVM report failed\n"})
 
     def test_diagnostic_launch_failure_is_reported_without_replacing_export_outcome(self):

@@ -27,10 +27,10 @@ def run_llvm(argv, output=None):
 
 
 def report_mismatches(argv):
-    print("coverage mismatch diagnostics: llvm-cov report --dump", flush=True)
+    print("coverage mismatch diagnostics: llvm-cov report --dump --num-threads=1", flush=True)
     diagnostic = {"exit_code": None, "stderr": None}
     try:
-        diagnostic["stderr"] = run_llvm([argv[0], "report", "--dump", *argv[2:]], subprocess.DEVNULL)
+        diagnostic["stderr"] = run_llvm([argv[0], "report", "--dump", "--num-threads=1", *argv[2:]], subprocess.DEVNULL)
         diagnostic["exit_code"] = 0
     except subprocess.CalledProcessError as error:
         diagnostic.update(exit_code=error.returncode, stderr=error.stderr)

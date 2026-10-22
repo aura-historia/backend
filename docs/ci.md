@@ -106,9 +106,9 @@ Compilation and discovery profiles preserve macro-expansion coverage separately 
 they cannot replace required execution profiles. Cached builds contribute only the
 compiler work actually performed. Object paths, profiles and compiler versions
 are retained with test diagnostics. When an export reports mismatched mapping
-records, one diagnostic `llvm-cov report --dump` uses the same objects and merged
-profile. Its stdout is discarded; raw stderr and exit status are retained in the
-object manifest's `mismatch_diagnostics` and the job log. Diagnostic failures do
+records, one diagnostic `llvm-cov report --dump --num-threads=1` uses the same
+objects and merged profile. Its stdout is discarded; raw stderr and exit status
+are retained in the object manifest's `mismatch_diagnostics` and the job log. Diagnostic failures do
 not replace export outcomes. Mismatch counts describe skipped mapping records;
 raw function names and expected hashes require corroboration before source
 attribution. Each Nextest invocation preserves its JUnit
