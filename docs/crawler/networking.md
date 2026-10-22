@@ -47,6 +47,9 @@ The spider reads robots.txt once per crawl, after the root preflight. A root rob
 Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes. [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.
 
 Scraper HTML and image requests also use bounded redirects, timeouts, and response bodies. Image-cache results never exempt the current target from destination checks.
+
+Stored URLs drop the trailing slash, so on a shop that redirects every path to its trailing-slash form (WordPress and WooCommerce by default) each fetch would cost a redirect. Once the scraper's fetcher sees a host redirect a path to exactly its slashed form, later fetches to that host request the slashed form of extension-less paths directly; a slashed form answering 404 or 410, or refused by robots.txt, is followed by a fetch of the stored form within the same budget. A host that redirects a slashed path back loses the preference. The preference lives in process memory only and never changes a stored URL.
+
 These rails are safety and availability limits, not a claim that every public address is reachable from every deployment.
 
 ## Related contracts

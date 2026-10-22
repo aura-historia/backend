@@ -15,9 +15,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::debug;
+use trailing_slash::TrailingSlashHosts;
 use url::Url;
 
 mod robots;
+mod trailing_slash;
 
 /// Maximum time for one fetch attempt, including redirects and body read.
 const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -125,6 +127,7 @@ pub struct ReqwestHtmlFetcher {
     total_timeout: Duration,
     auto_throttle: ScraperAutoThrottle,
     robots: RobotsCache,
+    trailing_slash: TrailingSlashHosts,
     #[cfg(test)]
     allow_private_targets_for_test: bool,
 }
@@ -263,6 +266,7 @@ impl ReqwestHtmlFetcher {
             total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
             auto_throttle: ScraperAutoThrottle::new(auto_throttle_config),
             robots: RobotsCache::default(),
+            trailing_slash: TrailingSlashHosts::default(),
             #[cfg(test)]
             allow_private_targets_for_test: false,
         }
@@ -337,6 +341,8 @@ impl ReqwestHtmlFetcher {
                     "redirect target host does not match configured host",
                 )));
             }
+            self.trailing_slash
+                .observe_redirect(&current_url, &next_url);
             current_url = next_url;
         }
 
@@ -560,14 +566,16 @@ async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, Fe
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-#[async_trait::async_trait]
-impl HtmlFetcher for ReqwestHtmlFetcher {
-    /// Pacing waits extend the timeout budgets: they bound network work, so a
-    /// long robots `Crawl-delay` never turns into a fetch timeout.
-    async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-        let mut deadline = tokio::time::Instant::now() + self.total_timeout;
+impl ReqwestHtmlFetcher {
+    /// Fetches `url` with inline retries until `deadline`, which pacing waits
+    /// extend.
+    async fn fetch_within(
+        &self,
+        url: &Url,
+        deadline: &mut tokio::time::Instant,
+    ) -> Result<FetchedHtml, FetchError> {
         for attempt in 1..=self.retry_policy.max_attempts {
-            let error = match self.attempt(url, &mut deadline).await {
+            let error = match self.attempt(url, deadline).await {
                 Ok(html) => return Ok(html),
                 Err(AttemptError::Failed(error)) => error,
                 Err(AttemptError::Final(error)) => return Err(error),
@@ -584,7 +592,7 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
                 return Err(error);
             }
             let backoff = retry_after.map_or(backoff, |delay| delay.max(backoff));
-            if tokio::time::Instant::now() + backoff >= deadline {
+            if tokio::time::Instant::now() + backoff >= *deadline {
                 return Err(total_timeout_error());
             }
             if !backoff.is_zero() {
@@ -596,6 +604,44 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
             kind: NetworkErrorKind::Unknown,
             details: "retry loop terminated unexpectedly".to_string(),
         })
+    }
+}
+
+/// Whether a failure of the trailing-slash form says nothing about the stored
+/// form: the slashed page does not exist, or robots.txt refuses that form. The
+/// stored form is then fetched and judged as it would be without the guess.
+fn needs_stored_form(error: &FetchError) -> bool {
+    matches!(error.status(), Some(404 | 410))
+        || matches!(
+            error,
+            FetchError::Network {
+                kind: NetworkErrorKind::RobotsDisallowed,
+                ..
+            }
+        )
+}
+
+#[async_trait::async_trait]
+impl HtmlFetcher for ReqwestHtmlFetcher {
+    /// Pacing waits extend the timeout budgets: they bound network work, so a
+    /// long robots `Crawl-delay` never turns into a fetch timeout. On a host
+    /// that redirects to trailing-slash paths the slashed form is requested
+    /// first, within the same budget.
+    async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+        let mut deadline = tokio::time::Instant::now() + self.total_timeout;
+        if let Some(slashed) = self.trailing_slash.preferred_form(url) {
+            match self.fetch_within(&slashed, &mut deadline).await {
+                Err(error) if needs_stored_form(&error) => {
+                    debug!(
+                        url = %slashed,
+                        error = %error,
+                        "Trailing-slash form failed; fetching the stored form"
+                    );
+                }
+                result => return result,
+            }
+        }
+        self.fetch_within(url, &mut deadline).await
     }
 }
 
@@ -650,6 +696,10 @@ mod tests {
                 .iter()
                 .map(|(_, path)| path.clone())
                 .collect()
+        }
+
+        fn url_with_path(&self, path: &str) -> Url {
+            self.url.join(path).unwrap()
         }
     }
 
@@ -1145,6 +1195,9 @@ mod tests {
         )
     }
 
+    const NOT_FOUND_PAGE: &str =
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
     #[tokio::test]
     async fn should_follow_a_redirect_whose_hop_pacing_outlasts_the_attempt_timeout() {
         let shop = spawn_shop(
@@ -1188,6 +1241,69 @@ mod tests {
         let requests = shop.page_requests();
         assert_eq!(requests.len(), 2);
         assert!(requests[1] - requests[0] >= Duration::from_millis(300));
+    }
+
+    #[tokio::test]
+    async fn should_request_the_trailing_slash_form_on_a_host_that_redirects_to_it() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![redirect_to("/product/"), OK_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        fetcher.fetch(&shop.url).await.unwrap();
+        let fetched = fetcher.fetch(&shop.url_with_path("/other")).await.unwrap();
+
+        assert_eq!(fetched.final_url.path(), "/other/");
+        assert_eq!(shop.page_paths(), ["/product", "/product/", "/other/"]);
+    }
+
+    #[tokio::test]
+    async fn should_fetch_the_stored_form_when_the_trailing_slash_form_is_missing() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![redirect_to("/product/"), OK_PAGE, NOT_FOUND_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        fetcher.fetch(&shop.url).await.unwrap();
+        let fetched = fetcher.fetch(&shop.url_with_path("/other")).await.unwrap();
+
+        assert_eq!(fetched.final_url.path(), "/other");
+        assert_eq!(
+            shop.page_paths(),
+            ["/product", "/product/", "/other/", "/other"]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_request_stored_forms_again_once_the_host_redirects_a_slashed_path_away() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![
+                redirect_to("/product/"),
+                OK_PAGE,
+                redirect_to("/other"),
+                OK_PAGE,
+                OK_PAGE,
+            ],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        fetcher.fetch(&shop.url).await.unwrap();
+        fetcher.fetch(&shop.url_with_path("/other")).await.unwrap();
+        fetcher.fetch(&shop.url_with_path("/third")).await.unwrap();
+
+        assert_eq!(
+            shop.page_paths(),
+            ["/product", "/product/", "/other/", "/other", "/third"]
+        );
     }
 
     #[tokio::test]
