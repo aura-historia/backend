@@ -252,7 +252,7 @@ fn evaluate_schema_page(
 ) -> SchemaPageEvaluation {
     let html = Html::parse_document(page.raw_html);
     let apply_result = apply_schema_to_document(schema, &html);
-    let fields = evaluate_schema_fields(schema, page.raw_html);
+    let fields = evaluate_schema_fields(schema, &html);
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
@@ -292,7 +292,7 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 
 fn evaluate_schema_fields(
     schema: &ProductCssSelectorSchema,
-    html: &str,
+    html: &Html,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
     // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
@@ -324,13 +324,12 @@ fn evaluate_schema_fields(
 fn evaluate_rule(
     field: &str,
     rule: &crate::scraper::css_selector::rule::ExtractionRule,
-    html: &str,
+    html: &Html,
     required: bool,
 ) -> SelectorFieldEvaluation {
-    let document = Html::parse_document(html);
     let selector = rule.selector.to_string();
     let selector_match_count = match Selector::parse(&selector) {
-        Ok(parsed) => Some(document.select(&parsed).count()),
+        Ok(parsed) => Some(html.select(&parsed).count()),
         Err(err) => {
             let error = format!("{err:?}");
             return SelectorFieldEvaluation {
@@ -347,7 +346,7 @@ fn evaluate_rule(
     let mut additional_selector_match_counts = Vec::new();
     for additional in &rule.additional_selectors {
         match Selector::parse(additional.as_ref()) {
-            Ok(parsed) => additional_selector_match_counts.push(document.select(&parsed).count()),
+            Ok(parsed) => additional_selector_match_counts.push(html.select(&parsed).count()),
             Err(_) => additional_selector_match_counts.push(0),
         }
     }

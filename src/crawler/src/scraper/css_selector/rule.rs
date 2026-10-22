@@ -157,33 +157,11 @@ impl ExtractionRule {
             let elements = html.select(&parsed);
 
             match self.cardinality {
-                ExtractionCardinality::First => match &self.extract {
-                    ExtractionKind::Text => {
-                        if let Some(value) =
-                            extract_first_non_empty_text(elements, css_selector.as_ref())?
-                        {
-                            results.push(value);
-                        }
-                    }
-                    ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => {
-                        let mut elements = elements.peekable();
-                        if let Some(element) = elements.next() {
-                            results.push(extract_from_element(
-                                &element,
-                                &self.extract,
-                                css_selector.as_ref(),
-                            )?);
-                        }
-                    }
-                },
+                ExtractionCardinality::First => {
+                    results.extend(self.first_value(elements, css_selector)?);
+                }
                 ExtractionCardinality::All => {
-                    for el in elements {
-                        results.push(extract_from_element(
-                            &el,
-                            &self.extract,
-                            css_selector.as_ref(),
-                        )?);
-                    }
+                    self.push_every_value(elements, css_selector, &mut results)?;
                 }
             }
         }
@@ -204,6 +182,34 @@ impl ExtractionRule {
         let mut all_images_rule = self.clone();
         all_images_rule.cardinality = ExtractionCardinality::All;
         all_images_rule.apply(html)
+    }
+
+    /// The value of the first element `css_selector` matched; a text rule takes the first
+    /// non-empty text instead.
+    fn first_value(
+        &self,
+        mut elements: scraper::html::Select<'_, '_>,
+        css_selector: &CssSelector,
+    ) -> Result<Option<String>, ExtractionError> {
+        match &self.extract {
+            ExtractionKind::Text => extract_first_non_empty_text(elements, css_selector),
+            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => elements
+                .next()
+                .map(|element| extract_from_element(&element, kind, css_selector))
+                .transpose(),
+        }
+    }
+
+    fn push_every_value(
+        &self,
+        elements: scraper::html::Select<'_, '_>,
+        css_selector: &CssSelector,
+        values: &mut Vec<String>,
+    ) -> Result<(), ExtractionError> {
+        for element in elements {
+            values.push(extract_from_element(&element, &self.extract, css_selector)?);
+        }
+        Ok(())
     }
 }
 
@@ -244,7 +250,12 @@ fn extract_from_element(
             })?;
             Ok(attr_value.to_owned())
         }
-        ExtractionKind::ImageUrl => extract_image_url_from_element(element, selector_str),
+        ExtractionKind::ImageUrl => {
+            image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
+                selector: selector_str.to_owned(),
+                attribute: "image URL candidate".to_owned(),
+            })
+        }
     }
 }
 
@@ -338,19 +349,14 @@ impl VisibleText {
     }
 }
 
-fn extract_image_url_from_element(
-    element: &scraper::ElementRef<'_>,
-    selector_str: &str,
-) -> Result<String, ExtractionError> {
+/// The element's image URL candidates joined into one group, or `None` when it has none.
+fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Option<String> {
     let candidates = image_url_candidates_for_element(element);
     if candidates.is_empty() {
-        return Err(ExtractionError::MissingAttribute {
-            selector: selector_str.to_owned(),
-            attribute: "image URL candidate".to_owned(),
-        });
+        return None;
     }
 
-    Ok(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
+    Some(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
 }
 
 fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<String> {
