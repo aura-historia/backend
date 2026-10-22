@@ -670,6 +670,26 @@ mod tests {
         }
 
         #[test]
+        fn should_count_a_price_rule_as_matched_when_its_additional_selector_has_text() {
+            let price = ExtractionRule {
+                additional_selectors: vec![CssSelector::from(".sale-price")],
+                ..text_rule(".price")
+            };
+
+            let matrix = matrix_for_price(
+                price,
+                "<span class=\"price\"> </span><span class=\"sale-price\">£450</span>",
+            );
+
+            let field = price_field(&matrix);
+            assert_eq!(field.selector_match_count, Some(0));
+            assert_eq!(field.additional_selector_match_counts, [1]);
+            assert!(optional_rules_missing_on_every_page(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(extracted_price(&matrix), Some("£450"));
+        }
+
+        #[test]
         fn should_count_estimate_rules_as_missing_when_their_only_matches_are_blank() {
             let schema = ProductCssSelectorSchema {
                 price_estimate_min: Some(text_rule("#estimate-min")),
