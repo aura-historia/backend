@@ -44,6 +44,7 @@ runs:
           printf 'RUSTFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
           printf 'RUSTDOCFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
           printf 'AURA_CI_COVERAGE_DIR=%s\n' "$coverage"
+          printf 'AURA_TEST_POSTGRES_IMAGE=postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67\n'
           printf 'LLVM_PROFILE_FILE=%s/profiles/discovery/%%b-%%4m.profraw\n' "$coverage"
           printf 'NEXTEST_PROFILE=ci\n'
           printf 'RUSTDOC=%s/ci/coverage-rustdoc.py\n' "$GITHUB_WORKSPACE"

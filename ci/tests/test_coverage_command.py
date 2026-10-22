@@ -3,6 +3,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,11 @@ if not os.environ.get('FIXTURE_EMPTY'):
                 emitted = dict(line.split('=', 1) for line in destination.read_text().splitlines())
                 expected = str(namespace / 'profiles/discovery/%b-%4m.profraw')
                 self.assertEqual(emitted['LLVM_PROFILE_FILE'], expected)
+                services = (SCRIPT.parents[1] / 'src/test-api/src/environment/services.rs').read_text()
+                image = re.search(r'const POSTGRES_IMAGE: &str =\s*"([^"]+)";', services)[1]
+                self.assertEqual(emitted['AURA_TEST_POSTGRES_IMAGE'], image)
+                workflow = (SCRIPT.parents[1] / '.github/workflows/benchmark-lanes.yml').read_text()
+                self.assertIn('  AURA_TEST_POSTGRES_IMAGE: ' + image + '\n', workflow.split('\njobs:', 1)[0])
                 self.assertFalse(stale.exists())
                 self.assertFalse(previous_report.exists())
                 profiles.append(expected)
