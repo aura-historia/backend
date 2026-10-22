@@ -156,10 +156,12 @@ class CompiledCoverageObjects(unittest.TestCase):
             doctest.chmod(0o755)
             nextest = root / "nextest.json"
             nextest.write_text(json.dumps({"rust-suites": {"unit": {"binary-path": str(unit)}}, "rust-build-meta": {
-                "target-directory": str(root), "non-test-binaries": {"pkg": [{"path": child.name}]}}}))
+                "target-directory": str(root), "non-test-binaries": {"pkg": [{"kind": "bin-exe", "path": child.name}]}}}))
             cargo = root / "cargo.jsonl"
-            cargo.write_text(json.dumps({"reason": "compiler-artifact", "executable": str(supervisor)}) +
-                             '\n{"reason":"build-finished","success":true}\n')
+            cargo.write_text("\n".join(map(json.dumps, [
+                {"reason": "compiler-artifact", "executable": str(child)},
+                {"reason": "compiler-artifact", "executable": str(supervisor)},
+                {"reason": "build-finished", "success": True}])) + "\n")
             self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root),
                              sorted([unit, child, supervisor, doctest]))
             profiles = root / "profiles"
@@ -178,6 +180,46 @@ class CompiledCoverageObjects(unittest.TestCase):
                 EXPORTER.export(profiles, nextest, [cargo], root / "doctests", root / "out.lcov", root)
             self.assertFalse((root / "out.lcov").exists())
             child.unlink()
+            with self.assertRaisesRegex(ValueError, "object is missing"):
+                EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
+
+    def test_nextest_dylib_metadata_does_not_select_dependency_build_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            unit = root / "test-executable"
+            unit.write_bytes(b"\x7fELFfixture")
+            outputs = [root / f"debug/build/crc-fast/97dcba175dab6f85/out/libcrc_fast{suffix}"
+                       for suffix in (".a", ".rlib", ".rmeta", ".so")]
+            outputs[0].parent.mkdir(parents=True)
+            for path in outputs:
+                path.write_bytes(b"\x7fELFfixture")
+            package = "registry+https://github.com/rust-lang/crates.io-index#crc-fast@1.10.0"
+            nextest = root / "nextest.json"
+            nextest.write_text(json.dumps({"rust-suites": {"unit": {"binary-path": str(unit)}}, "rust-build-meta": {
+                "target-directory": str(root), "non-test-binaries": {package: [
+                    {"name": "crc_fast", "kind": "dylib", "build-platform": "target",
+                     "path": str(path.relative_to(root))} for path in outputs]}}}))
+            cargo = root / "compile.jsonl"
+            cargo.write_text("\n".join(map(json.dumps, [
+                {"reason": "compiler-artifact", "executable": str(unit)},
+                {"reason": "compiler-artifact", "package_id": package, "executable": None,
+                 "target": {"kind": ["lib", "cdylib", "staticlib"],
+                            "src_path": "/registry/crc-fast/src/lib.rs"}, "filenames": list(map(str, outputs))},
+                {"reason": "build-finished", "success": True}])) + "\n")
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root), [unit])
+
+    def test_required_cargo_executable_is_retained_regardless_of_suffix_or_contents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            binary = root / "runtime.rmeta"
+            binary.write_bytes(b"invalid object must reach LLVM")
+            nextest = root / "nextest.json"
+            nextest.write_text(json.dumps({"rust-suites": {}, "rust-build-meta": {"non-test-binaries": {}}}))
+            cargo = root / "compile.jsonl"
+            cargo.write_text(json.dumps({"reason": "compiler-artifact", "executable": str(binary)}) +
+                             '\n{"reason":"build-finished","success":true}\n')
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root), [binary])
+            binary.unlink()
             with self.assertRaisesRegex(ValueError, "object is missing"):
                 EXPORTER.coverage_objects(nextest, [cargo], root / "doctests", root)
 

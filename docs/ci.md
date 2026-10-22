@@ -85,9 +85,12 @@ size sampling is less frequent and bounded, and stops below the floor; missing
 observations remain null.
 The same periodic record includes nullable host memory total/available KiB.
 
-[`export-coverage.py`](../ci/export-coverage.py) uses compiled Nextest/Cargo
-object metadata, including child binaries, the supervisor and repository
-proc-macro shared libraries. Rustdoc retains
+[`export-coverage.py`](../ci/export-coverage.py) selects Nextest test executable
+paths, Cargo `compiler-artifact.executable` paths (including child binaries and
+the supervisor), and Cargo-recorded repository proc-macro shared libraries.
+Nextest's `non-test-binaries` runtime/archive metadata can also list Rust metadata
+and archives as `dylib`; Cargo owns executable and proc-macro object selection.
+Rustdoc retains
 objects separately per crate so merged doctests cannot overwrite another crate's
 executable. The driver requires every lane-owned doctest target to complete.
 Required lanes, legacy controls and lane diagnostics use fresh phase profile

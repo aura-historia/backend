@@ -27,11 +27,9 @@ def coverage_objects(nextest, cargo_artifacts, doctests, root):
     if not cargo_artifacts:
         raise ValueError("No Cargo coverage artifact metadata was recorded")
     data = json.loads(nextest.read_text())
-    meta = data["rust-build-meta"]
     objects = {pathlib.Path(suite["binary-path"]).resolve() for suite in data["rust-suites"].values()}
-    for binaries in meta["non-test-binaries"].values():
-        for binary in binaries:
-            objects.add((pathlib.Path(meta["target-directory"]) / binary["path"]).resolve())
+    # Nextest's non-test-binaries also labels metadata and archives as "dylib".
+    # Cargo's executable field records runtime binaries without that ambiguity.
     for artifact in cargo_artifacts:
         messages = [json.loads(line) for line in artifact.read_text().splitlines()]
         finished = [item for item in messages if item.get("reason") == "build-finished"]
