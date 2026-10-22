@@ -1,13 +1,18 @@
+import contextlib
+import io
 import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "collect-coverage.sh"
+sys.path.insert(0, str(SCRIPT.parent))
 
 
 class ExistingCoverageCommand(unittest.TestCase):
@@ -99,6 +104,27 @@ if not os.environ.get('FIXTURE_EMPTY'):
                 profiles.append(expected)
         self.assertEqual(profiles[0], profiles[1])
         self.assertNotEqual(profiles[0], profiles[2])
+
+    def test_fixture_snapshot_precedes_execution_upload_and_preserves_failure_diagnostics(self):
+        action = (SCRIPT.parents[1] / '.github/actions/test-lane/action.yml').read_text()
+        name = 'Record fixture image identities after execution'
+        self.assertLess(action.index('Run owned targets and doctests'), action.index(name))
+        self.assertLess(action.index(name), action.index('Preserve execution diagnostics before coverage export'))
+        step = action.split('    - name: ' + name + '\n', 1)[1].split('\n    - name:', 1)[0]
+        self.assertIn('      if: always()\n', step)
+        self.assertIn('      continue-on-error: true\n', step)
+        script = textwrap.dedent(step.split('      run: |\n', 1)[1])
+        source = script.split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+        identities = [{'reference': 'postgres:16-bookworm', 'identity': '[] sha256:local-image'},
+                      {'reference': 'floci/floci:2.3.0', 'identity': None}]
+        for lane, error in [('api', None), ('legacy-test-api', ValueError('Fixture image policy changed')),
+                            ('crawler', FileNotFoundError('fixture source missing'))]:
+            with self.subTest(lane=lane), patch.dict(os.environ, RUNNER_TEMP=str(self.root), LANE_ID=lane), patch(
+                    'ci_benchmark.execution.images', return_value=identities, side_effect=error), contextlib.redirect_stdout(io.StringIO()):
+                exec(compile(source, str(SCRIPT), 'exec'), {})
+                record = json.loads((self.root / 'lane' / lane / 'fixture-images.json').read_text())
+                self.assertEqual(record, {'images': identities if error is None else None,
+                                          'diagnostic': None if error is None else f'{type(error).__name__}: {error}'})
 
 
 if __name__ == "__main__":

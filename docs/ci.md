@@ -72,6 +72,10 @@ Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
 CPU, memory, runner image/version and configured cache suffix/exact-hit result.
 Resolved/fallback cache keys remain in the cache action log. Missing metadata is
 reported as null; a runner label alone does not prove identical hardware.
+After execution, `fixture-images.json` records available fixture image IDs and
+repository digests through bounded, best-effort inspection of the reviewed
+references; unavailable identities are null and policy/read failures retain a
+diagnostic before the execution artifact uploads.
 Instrumented supervisor builds and tests both use debug level one, avoiding a
 second dependency build caused only by different dev/test debug settings.
 

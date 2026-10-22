@@ -149,6 +149,28 @@ runs:
           --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
           --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
 
+    - name: Record fixture image identities after execution
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+      run: |
+        python3 - <<'PY'
+        import json, os, pathlib, sys
+        sys.path.insert(0, 'ci')
+        from ci_benchmark.execution import images
+        record = {'images': None, 'diagnostic': None}
+        try:
+            record['images'] = images(pathlib.Path.cwd())
+        except (OSError, ValueError) as error:
+            record['diagnostic'] = f'{type(error).__name__}: {error}'
+        path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'fixture-images.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
+        print(json.dumps(record, sort_keys=True))
+        PY
+
     - name: Preserve execution diagnostics before coverage export
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

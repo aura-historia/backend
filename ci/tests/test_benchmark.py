@@ -1,12 +1,14 @@
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import call, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from ci_benchmark.metrics import coverage_totals, observations
-from ci_benchmark.execution import fixture_references
+from ci_benchmark.execution import fixture_references, images, optional_command
 
 
 class BenchmarkMetrics(unittest.TestCase):
@@ -143,6 +145,30 @@ test result: FAILED. 1 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; 
         (source / "opensearch.rs").write_text('.engine_version("OpenSearch_2.19")')
         with self.assertRaisesRegex(ValueError, "Unreviewed"):
             fixture_references(root)
+
+    def test_fixture_inspection_is_bounded_and_unavailable_identity_remains_null(self):
+        root = pathlib.Path(self.temporary.name)
+        references = ['postgres:16-bookworm', 'floci/floci:2.3.0']
+        identity = '["postgres@sha256:example"] sha256:local-image'
+        with patch('ci_benchmark.execution.fixture_references', return_value=references), patch(
+                'ci_benchmark.execution.subprocess.run', side_effect=[
+                    subprocess.CompletedProcess([], 0, identity + '\n', ''),
+                    subprocess.TimeoutExpired(['docker'], 5)]) as inspect:
+            self.assertEqual(images(root), [{'reference': references[0], 'identity': identity},
+                                           {'reference': references[1], 'identity': None}])
+        self.assertEqual(inspect.call_args_list, [call(
+            ['docker', 'image', 'inspect', '--format', '{{json .RepoDigests}} {{.Id}}', reference],
+            cwd=root, env=None, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            for reference in references])
+
+    def test_optional_image_inspection_preserves_missing_identity_on_command_failure(self):
+        for outcome in (FileNotFoundError(), PermissionError(), subprocess.CompletedProcess([], 1, '', 'unavailable')):
+            with self.subTest(outcome=outcome), patch('ci_benchmark.execution.subprocess.run') as inspect:
+                if isinstance(outcome, OSError):
+                    inspect.side_effect = outcome
+                else:
+                    inspect.return_value = outcome
+                self.assertIsNone(optional_command(['docker', 'image', 'inspect', 'fixture'], self.path.parent, timeout=5))
 
 
 if __name__ == "__main__":

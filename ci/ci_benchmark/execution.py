@@ -9,11 +9,12 @@ import subprocess
 import time
 
 
-def optional_command(argv, root, env=None):
+def optional_command(argv, root, env=None, timeout=None):
     try:
-        process = subprocess.run(argv, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.run(argv, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 timeout=timeout)
         return process.stdout.strip() if process.returncode == 0 else None
-    except FileNotFoundError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
 
@@ -60,7 +61,7 @@ def images(root):
     # Inspect fixture references only; never enumerate or mutate other containers.
     references = fixture_references(root)
     return [{"reference": reference, "identity": optional_command(
-        ["docker", "image", "inspect", "--format", "{{json .RepoDigests}} {{.Id}}", reference], root)} for reference in references]
+        ["docker", "image", "inspect", "--format", "{{json .RepoDigests}} {{.Id}}", reference], root, timeout=5)} for reference in references]
 
 
 def directory_bytes(path):
