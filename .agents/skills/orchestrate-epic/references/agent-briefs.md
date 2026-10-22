@@ -7,6 +7,12 @@ numbers, branch, worktree path and the epic's purpose in one or two sentences of
 Every brief ends with the same rule: when the agent hits something from the "When to stop and
 ask" list in SKILL.md, it stops and reports the question instead of guessing.
 
+Add an environment paragraph to every brief with what SKILL.md's environment checks found: how
+to read GitHub (REST if GraphQL is blocked), how to open the PR, whether Docker runs, how to run
+crawler dev verification (manual mode, swapped demo shops), host-specific test failures to
+ignore, and the commit trailers the session requires. Tell agents not to put model identifiers
+anywhere but the trailers.
+
 ## Implementer
 
 ```text
@@ -60,13 +66,14 @@ Implementer's report:
 4. Push the branch (`git push -u origin "<branch>"`) and open a PR into the epic branch:
    gh pr create --base "<epic-branch>" --head "<branch>" --title "<type>(#<child>): <summary>"
    Body: "Part of #<epic>; implements #<child> against the epic integration branch." Then a
-   summary, an "Independent review and validation" section naming your model, what review
+   summary, an "Independent review and validation" section saying an independent review agent reviewed it, what review
    changed and the validation results, and follow-up findings. Do not write "Closes #<child>":
    GitHub only closes issues from the default branch.
-5. Wait for CI with one blocking `gh pr checks <pr> --watch` run in the background. Fix failures
-   your change caused, push and wait again. For a failure unrelated to the change, rerun the
-   failed jobs once (`gh run rerun <run-id> --failed`). If it fails again, stop and report it.
-   Do not merge. The orchestrator merges.
+5. If the orchestrator watches CI (PR subscriptions, or `gh pr checks` unavailable), report as
+   soon as the PR is open. Otherwise wait for CI with one blocking `gh pr checks <pr> --watch`
+   run in the background, fix failures your change caused, push and wait again; for a failure
+   unrelated to the change, rerun the failed jobs once (`gh run rerun <run-id> --failed`), and
+   if it fails again, stop and report it. Do not merge. The orchestrator merges.
 
 Never skip tests, disable checks, use --no-verify or force-push. Stop and report instead of
 guessing on design disagreements the docs do not settle.
@@ -84,7 +91,8 @@ Report in at most 25 lines:
 
 ```text
 PR #<pr> (branch <branch>, issue #<child>, epic #<epic>) cannot merge into <epic-branch>:
-<"it is behind/conflicting after #<sibling PRs> merged" | "CI fails: <summary and links>">.
+<"it is behind/conflicting after #<sibling PRs> merged" | "CI fails: <summary and links>" |
+"a review bot reports findings this PR introduced: <rule, path:line, message>">.
 Work in <worktree path>.
 
 1. `git fetch origin` and merge origin/<epic-branch> into the branch (no rebase, no force-push).
