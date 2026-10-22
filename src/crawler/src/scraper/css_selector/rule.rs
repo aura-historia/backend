@@ -257,6 +257,19 @@ impl ExtractionRule {
         Ok(extraction)
     }
 
+    /// How many of the elements `selector` (this rule's primary or an additional
+    /// selector) matches the rule can take a value from, as the schema review matrix
+    /// counts matches. A text rule counts only elements with visible text: `first`
+    /// cardinality skips a blank element, so a rule that matches only blank elements
+    /// misses. Attribute and image URL rules count every element.
+    pub(crate) fn match_count(&self, html: &Html, selector: &Selector) -> usize {
+        let elements = html.select(selector);
+        match self.extract {
+            ExtractionKind::Text => elements.filter(has_visible_text).count(),
+            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => elements.count(),
+        }
+    }
+
     /// The value of the first element `css_selector` matched; a text rule takes the first
     /// non-empty text instead.
     fn first_value(
@@ -329,7 +342,7 @@ fn extract_from_element(
 /// Whether a text rule extracts a value from `element`. One without visible text yields
 /// a blank value, which `first` cardinality skips. Line separators only ever stand
 /// between visible text, so they never make a blank element count as text.
-pub(crate) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
+fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
     !visible_text(element, TextBoundaries::Separate)
         .trim()
         .is_empty()
