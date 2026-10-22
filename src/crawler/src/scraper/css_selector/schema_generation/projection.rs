@@ -1,3 +1,4 @@
+use crate::scraper::css_selector::rule::has_known_image_extension;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
 use serde::Serialize;
@@ -197,16 +198,6 @@ fn should_project_attr(
         "rel" => tag == "a",
         _ => true,
     }
-}
-
-fn has_known_image_extension(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.contains(".jpg")
-        || lower.contains(".jpeg")
-        || lower.contains(".png")
-        || lower.contains(".webp")
-        || lower.contains(".gif")
-        || lower.contains(".avif")
 }
 
 fn is_image_like_anchor_context(

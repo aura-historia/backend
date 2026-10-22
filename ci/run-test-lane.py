@@ -10,7 +10,9 @@ import subprocess
 import sys
 
 from ci_inventory.catalog import LANES, build_catalog, legacy_package_selection
-from ci_inventory.discovery import attach_suites, nextest_data
+from ci_inventory.coverage import execute_cargo, record_artifacts
+from ci_inventory.discovery import (attach_suites, discovery_builds_supervisor, nextest_data,
+                                    validate_discovered_supervisor)
 from ci_inventory.io import command, write_json
 from ci_inventory.process import execute
 from ci_inventory.phases import (PRISTINE_CASE, PRISTINE_TARGET, cargo_args, combined_selection, coverage_environment,
@@ -63,13 +65,16 @@ def discover_lane(args, root):
             "--all-targets", "--message-format", "json"]
     if os.environ.get("AURA_CI_COVERAGE_DIR"):
         argv.extend(["--cargo-message-format", "json-render-diagnostics"])
+        (args.output / "compile.jsonl").unlink(missing_ok=True)
     print(f"test lane discovery: {shlex.join(argv)}", flush=True)
     with (args.output / "compile.log").open("w") as log:
         process = subprocess.run(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=log)
     if os.environ.get("AURA_CI_COVERAGE_DIR"):
-        (args.output / "compile.jsonl").write_text(process.stdout)
+        (args.output / "compile.stdout.log").write_text(process.stdout)
     if process.returncode:
         raise RuntimeError(f"Nextest discovery failed ({process.returncode}); see {args.output / 'compile.log'}")
+    if os.environ.get("AURA_CI_COVERAGE_DIR"):
+        record_artifacts(process.stdout, args.output / "compile.jsonl", pathlib.Path(os.environ["AURA_CI_COVERAGE_DIR"]) / "objects")
     data = nextest_data(process.stdout)
     write_json(args.output / "nextest.json", data)
     attach_suites(catalog, data["rust-suites"], root, args.output)
@@ -80,6 +85,9 @@ def discover_lane(args, root):
             raise ValueError(f"Duplicate or foreign lane suite: {identity}")
         suites[identity] = suite
     validate_special_cases(selection, suites)
+    coverage = "llvm" if os.environ.get("AURA_CI_COVERAGE_DIR") else "none"
+    if discovery_builds_supervisor(args.lane, args.legacy_package, coverage):
+        validate_discovered_supervisor(data, args.supervisor)
     print(f"test lane discovery: verified {len(suites)} targets, {data['test-count']} cases", flush=True)
     return selection, suites
 
@@ -89,11 +97,34 @@ def supervised(args, profile, slots, phase, argv):
             "--state-dir", str(args.state_dir / phase), "--", *argv]
 
 
+def execute_compiling_phase(args, argv, root, environment, phase, *, junit=None):
+    if environment.get("AURA_CI_COVERAGE_DIR"):
+        option = "--cargo-message-format" if "nextest" in argv else "--message-format"
+        # Cargo options precede the libtest argument separator.
+        index = argv.index("--") if "--" in argv and "nextest" not in argv else len(argv)
+        argv = [*argv[:index], option, "json-render-diagnostics", *argv[index:]]
+        execute_cargo(argv, root, environment, args.output / f"{phase}.jsonl", junit=junit)
+    else:
+        execute(argv, root, environment, junit=junit)
+
+
+def artifact_manifest(args, selection, suites):
+    phases = ["compile"]
+    if PRISTINE_TARGET in suites:
+        phases.append("pristine")
+    if args.harness == "nextest":
+        phases.append("managed")
+    if selection["doctest_targets"]:
+        phases.append("doctests")
+    phases.extend(f"unmanaged-{index}" for index, _ in enumerate(unmanaged_commands(selection, args.features)))
+    write_json(args.output / "coverage-artifacts.json", [f"{phase}.jsonl" for phase in phases])
+
+
 def managed_phase(args, root, selection, suites):
     environment = coverage_environment(os.environ, "managed")
     if args.harness == "nextest":
-        execute(nextest_command(selection, args.slots, args.features), root, environment,
-                junit=args.output / "managed-junit.xml")
+        execute_compiling_phase(args, nextest_command(selection, args.slots, args.features), root, environment,
+                                "managed", junit=args.output / "managed-junit.xml")
     else:
         rust_libdir = command(["rustc", "--print", "target-libdir"], root).strip()
         for identity, suite in sorted(suites.items()):
@@ -102,9 +133,9 @@ def managed_phase(args, root, selection, suites):
             for argv in libtest_commands(identity, suite, args.slots):
                 execute([*argv, *(["--nocapture"] if args.legacy_package else [])], suite["cwd"], local)
     if selection["doctest_targets"]:
-        execute(["cargo", "test", *cargo_args(selection, args.features), "--doc",
+        execute_compiling_phase(args, ["cargo", "test", *cargo_args(selection, args.features), "--doc",
                  *(["--", "--nocapture"] if args.legacy_package else [])], root,
-                coverage_environment(environment, "doctests"))
+                coverage_environment(environment, "doctests"), "doctests")
     if directory := environment.get("AURA_CI_COVERAGE_DIR"):
         expected = {identity.split("::")[-1] for identity in selection["doctest_targets"]}
         if len(expected) != len(selection["doctest_targets"]):
@@ -126,21 +157,23 @@ def main():
     selection, suites = discover_lane(args, root)
     if args.list_only:
         return
+    if os.environ.get("AURA_CI_COVERAGE_DIR"):
+        artifact_manifest(args, selection, suites)
     args.state_dir.mkdir(parents=True, exist_ok=True)
     environment = unmanaged_environment(os.environ)
     if PRISTINE_TARGET in suites:
         pristine = dict(selection, package_args=["--package", "database-migration-lambda"])
         argv = ["cargo", "nextest", "run", *cargo_args(pristine, args.features), "--test-threads", "1",
                 "--retries", "0", "--no-tests", "fail", "-E", f"binary(=database-migration-lambda) and test(={PRISTINE_CASE})"]
-        execute(supervised(args, "postgres", 1, "pristine", argv), root, coverage_environment(environment, "pristine"),
-                junit=args.output / "pristine-junit.xml")
+        execute_compiling_phase(args, supervised(args, "postgres", 1, "pristine", argv), root,
+                                coverage_environment(environment, "pristine"), "pristine", junit=args.output / "pristine-junit.xml")
     child = [sys.executable, str(pathlib.Path(__file__).resolve()), *sys.argv[1:], "--phase", "managed"]
     if args.profile == "none":
         execute(child, root, coverage_environment(environment, "managed"))
     else:
         execute(supervised(args, args.profile, args.slots, "managed", child), root, coverage_environment(environment, "managed"))
     for index, argv in enumerate(unmanaged_commands(selection, args.features)):
-        execute(argv, root, coverage_environment(environment, f"unmanaged-{index}"))
+        execute_compiling_phase(args, argv, root, coverage_environment(environment, f"unmanaged-{index}"), f"unmanaged-{index}")
 
 
 if __name__ == "__main__":

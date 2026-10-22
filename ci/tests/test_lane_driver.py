@@ -167,6 +167,94 @@ driver.execute([sys.executable,'-c',sys.argv[2],sys.argv[3],sys.argv[4]],sys.arg
                             pass
 
 
+class LaneDiscoverySupervisor(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        self.supervisor = self.root / 'target/debug/aura-test-env'
+        self.supervisor.parent.mkdir(parents=True)
+        self.supervisor.write_text('supervisor')
+        self.supervisor.chmod(0o755)
+        self.package = 'path+file://' + str(self.root / 'src/test-api') + '#0.1.0'
+        self.binary = dict(name='aura-test-env', kind='bin-exe', path='debug/aura-test-env', **{'build-platform': 'target'})
+        self.data = {'rust-suites': {'test-api': {'package-name': 'test-api', 'package-id': self.package}},
+                     'rust-build-meta': {'target-directory': str(self.root / 'target'),
+                                         'non-test-binaries': {self.package: [self.binary]}}}
+
+    def test_native_none_predicate_uses_exact_lane_membership(self):
+        for coverage, legacy, lanes, expected in (
+                ('none', None, ['INFRASTRUCTURE'], True),
+                ('none', '', ['INFRASTRUCTURE', 'REMAINING'], True),
+                ('none', None, ['API', 'CRAWLER', 'INFRASTRUCTURE', 'REMAINING'], True),
+                ('llvm', None, ['INFRASTRUCTURE'], False),
+                ('none', 'test-api', ['INFRASTRUCTURE'], False),
+                ('none', 'database-migration-lambda', None, False),
+                ('none', None, ['API'], False), ('none', None, ['CRAWLER'], False),
+                ('none', None, ['REMAINING'], False), ('none', None, ['NOT_INFRASTRUCTURE'], False)):
+            with self.subTest(coverage=coverage, legacy=legacy, lanes=lanes):
+                self.assertEqual(DRIVER.discovery_builds_supervisor(lanes, legacy, coverage), expected)
+
+    def test_discovery_accepts_the_owned_runnable_supervisor(self):
+        DRIVER.validate_discovered_supervisor(self.data, self.supervisor)
+
+    def test_discovery_rejects_missing_or_nonexecutable_supervisor(self):
+        for mode in ('missing', 'directory', 'not-executable'):
+            with self.subTest(mode=mode):
+                self.supervisor.unlink(missing_ok=True)
+                if mode == 'directory':
+                    self.supervisor.mkdir()
+                elif mode == 'not-executable':
+                    self.supervisor.write_text('supervisor')
+                    self.supervisor.chmod(0o644)
+                with self.assertRaisesRegex(ValueError, 'not the requested executable'):
+                    DRIVER.validate_discovered_supervisor(self.data, self.supervisor)
+                if self.supervisor.is_dir():
+                    self.supervisor.rmdir()
+
+    def test_discovery_rejects_wrong_path_kind_platform_owner_and_duplicate_bins(self):
+        for field, value in (('path', 'debug/another'), ('kind', 'dylib'), ('build-platform', 'host')):
+            with self.subTest(field=field):
+                original = self.binary[field]
+                self.binary[field] = value
+                with self.assertRaisesRegex(ValueError, 'not the requested executable'):
+                    DRIVER.validate_discovered_supervisor(self.data, self.supervisor)
+                self.binary[field] = original
+        binaries = self.data['rust-build-meta']['non-test-binaries']
+        for entries in ({}, {'foreign-package': [self.binary]}, {self.package: [self.binary, self.binary]}):
+            with self.subTest(entries=entries):
+                self.data['rust-build-meta']['non-test-binaries'] = entries
+                with self.assertRaisesRegex(ValueError, 'one runnable test-api supervisor'):
+                    DRIVER.validate_discovered_supervisor(self.data, self.supervisor)
+        self.data['rust-build-meta']['non-test-binaries'] = binaries
+        with self.assertRaisesRegex(ValueError, 'not the requested executable'):
+            DRIVER.validate_discovered_supervisor(self.data, self.root / 'another-supervisor')
+
+    def test_discovery_validates_the_supervisor_before_any_execution(self):
+        args = types.SimpleNamespace(phase='all', legacy_package=None, parity_package=[], output=self.root / 'output',
+            state_dir=self.root / 'state', supervisor=self.supervisor, manifest=pathlib.Path('test-lanes.json'),
+            features=[], lane=['INFRASTRUCTURE'], list_only=False)
+        (self.root / args.manifest).write_text('{}')
+        suite = self.data['rust-suites']['test-api']
+        suite.update(kind='bin', **{'binary-name': 'aura-test-env'})
+        selection = dict(packages=['test-api'], targets=['test-api::bin::aura-test-env'], package_args=[])
+        result = types.SimpleNamespace(returncode=0, stdout=json.dumps(self.data))
+        self.supervisor.unlink()
+        for list_only in (False, True):
+            args.list_only = list_only
+            with self.subTest(list_only=list_only), patch.object(DRIVER, 'arguments', return_value=args), \
+                    patch.object(DRIVER, 'command', side_effect=lambda argv, *_: str(self.root) if argv[0] == 'git' else '{}'), \
+                    patch.object(DRIVER, 'build_catalog', return_value=({'packages': []}, {})), \
+                    patch.object(DRIVER, 'combined_selection', return_value=selection), \
+                    patch.object(DRIVER.subprocess, 'run', return_value=result), \
+                    patch.object(DRIVER, 'attach_suites'), patch.object(DRIVER, 'validate_special_cases'), \
+                    patch.dict(os.environ, AURA_CI_COVERAGE_DIR=''), patch.object(DRIVER, 'execute') as execute:
+                with self.assertRaisesRegex(ValueError, 'not the requested executable'):
+                    DRIVER.main()
+                execute.assert_not_called()
+                self.assertFalse(args.state_dir.exists())
+
+
 class LaneDriverPhases(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -179,6 +267,45 @@ class LaneDriverPhases(unittest.TestCase):
                           "package_args": ["--package", "database-migration-lambda", "--package", "test-api"],
                           "doctest_targets": ['test-api::lib::test_api']}
         self.suites = {DRIVER.PRISTINE_TARGET: {}}
+
+    def test_failed_discovery_rerun_cannot_reuse_previous_cargo_metadata(self):
+        self.args.output.mkdir()
+        metadata = self.args.output / 'compile.jsonl'
+        metadata.write_text('stale successful capture')
+        self.args.manifest = pathlib.Path('test-lanes.json')
+        (self.root / self.args.manifest).write_text('{}')
+        result = types.SimpleNamespace(returncode=37, stdout='partial Cargo output')
+        with patch.object(DRIVER, 'command', return_value='{}'), \
+                patch.object(DRIVER, 'build_catalog', return_value=({'packages': []}, {})), \
+                patch.object(DRIVER, 'combined_selection', return_value=self.selection), \
+                patch.object(DRIVER.subprocess, 'run', return_value=result), \
+                patch.dict(os.environ, AURA_CI_COVERAGE_DIR=str(self.root / 'coverage')), \
+                self.assertRaisesRegex(RuntimeError, 'Nextest discovery failed \\(37\\)'):
+            DRIVER.discover_lane(self.args, self.root)
+        self.assertFalse(metadata.exists())
+        self.assertEqual((self.args.output / 'compile.stdout.log').read_text(), result.stdout)
+
+    def test_expected_artifacts_include_every_compiling_phase_for_each_harness(self):
+        self.args.output.mkdir()
+        for harness in ('nextest', 'libtest'):
+            self.args.harness = harness
+            DRIVER.artifact_manifest(self.args, self.selection, self.suites)
+            expected = ['compile.jsonl', 'pristine.jsonl', *(['managed.jsonl'] if harness == 'nextest' else []),
+                        'doctests.jsonl', 'unmanaged-0.jsonl', 'unmanaged-1.jsonl']
+            self.assertEqual(json.loads((self.args.output / 'coverage-artifacts.json').read_text()), expected)
+
+    def test_capture_options_precede_libtest_separator_and_reach_supervised_nextest(self):
+        environment = {'AURA_CI_COVERAGE_DIR': str(self.root)}
+        for command, option in ((['cargo', 'test', '--doc', '--', '--nocapture'], '--message-format'),
+                (['supervisor', 'run', '--', 'cargo', 'nextest', 'run', '-E', 'test(case)'], '--cargo-message-format')):
+            with self.subTest(command=command), patch.object(DRIVER, 'execute_cargo') as capture:
+                DRIVER.execute_compiling_phase(self.args, command, self.root, environment, 'phase')
+            actual = capture.call_args.args[0]
+            self.assertIn(option, actual)
+            self.assertEqual(actual[actual.index(option) + 1], 'json-render-diagnostics')
+            if option == '--message-format':
+                self.assertLess(actual.index(option), actual.index('--'))
+                self.assertEqual(actual[-1], '--nocapture')
 
     def test_pristine_precedes_ordinary_and_unmanaged_controls_preserve_coverage(self):
         with patch.object(DRIVER, "arguments", return_value=self.args), patch.object(DRIVER, "command", return_value=str(self.root)), patch.object(
@@ -245,7 +372,7 @@ class LaneDriverPhases(unittest.TestCase):
     def test_missing_doctest_completion_marker_fails_and_complete_markers_use_separate_profiles(self):
         self.selection["doctest_targets"] = ["example::lib::example"]
         coverage = self.root / "coverage"
-        with patch.object(DRIVER, "execute") as execute, patch.dict(os.environ, {"AURA_CI_COVERAGE_DIR": str(coverage)}):
+        with patch.object(DRIVER, "execute_cargo") as execute, patch.dict(os.environ, {"AURA_CI_COVERAGE_DIR": str(coverage)}):
             with self.assertRaisesRegex(ValueError, "Executed doctest targets differ"):
                 DRIVER.managed_phase(self.args, self.root, self.selection, {})
             managed, doctests = [call.args[2]["LLVM_PROFILE_FILE"] for call in execute.call_args_list]

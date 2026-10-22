@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import pathlib
@@ -76,7 +77,7 @@ class OptInLanePlan(unittest.TestCase):
 
     def test_unselected_workflow_skips_quality_but_selected_failures_enter_its_gate(self):
         for workflow, job, prerequisite in ((WORKFLOW, 'quality', 'plan'),
-                (WORKFLOW.with_name('compare-legacy-ci.yml'), 'sonar', 'determine')):
+                (WORKFLOW.with_name('compare-legacy-ci.yml'), 'quality', 'determine')):
             block = workflow.read_text().split('\n  ' + job + ':\n', 1)[1]
             guard = next(line.strip().removeprefix('if: ') for line in block.splitlines() if line.strip().startswith('if: '))
             for result in ('skipped', 'success', 'failure', 'cancelled'):
@@ -86,12 +87,53 @@ class OptInLanePlan(unittest.TestCase):
                     self.assertEqual(eval(expression, {'__builtins__': {}}), result != 'skipped')
             marker = "python3 - <<'PY'\n"
             script = textwrap.dedent(block.split(marker, 1)[1].split('\n          PY', 1)[0])
-            for failure in ('failure', 'cancelled', 'skipped'):
-                results = {'plan': {'result': 'success'}, 'lint': {'result': 'success'}, 'test': {'result': failure}}
-                if prerequisite == 'determine': results['determine'] = results.pop('plan')
+            successful = {name: {'result': 'success'} for name in (prerequisite, 'lint', 'test')}
+            cases = [successful, {}, dict(successful, unexpected={'result': 'success'})]
+            for name in successful:
+                cases.append({key: value for key, value in successful.items() if key != name})
+                cases.extend(dict(successful, **{name: {'result': result}}) for result in ('failure', 'cancelled', 'skipped'))
+            for results in cases:
                 process = subprocess.run([sys.executable, '-c', script], env=dict(os.environ, RESULTS=json.dumps(results)),
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self.assertNotEqual(process.returncode, 0)
+                self.assertEqual(process.returncode == 0, results == successful)
+
+    def test_controls_choose_none_and_require_execution_artifacts_instead_of_coverage(self):
+        for path in (WORKFLOW, WORKFLOW.with_name('compare-legacy-ci.yml')):
+            source = path.read_text()
+            self.assertIn('--input execution-artifacts --matrix "$MATRIX"', source)
+            self.assertNotIn('coverage-artifacts', source)
+            self.assertNotIn('merge-coverage.py', source)
+            self.assertNotIn('SonarSource/', source)
+            global_environment = source.split('\njobs:', 1)[0]
+            self.assertIn('  CARGO_PROFILE_TEST_DEBUG: 0\n', global_environment)
+            self.assertNotIn('CARGO_PROFILE_DEV_DEBUG:', global_environment)
+            self.assertIn('bash ci/prepare-runner-disk.sh none', source)
+        self.assertIn('--coverage none --cache', WORKFLOW.read_text())
+        self.assertIn('          coverage: none\n', WORKFLOW.with_name('compare-legacy-ci.yml').read_text())
+
+    def test_legacy_gate_downloads_execution_artifacts_without_final_diagnostic_duplicates(self):
+        source = WORKFLOW.with_name('compare-legacy-ci.yml').read_text()
+        pattern = next(line.strip().removeprefix('pattern: ') for line in source.splitlines()
+                       if line.strip().startswith('pattern: ')).replace('${{ github.run_attempt }}', '2')
+        artifacts = ['tests-legacy-money-execution-attempt-2', 'tests-legacy-money-attempt-2',
+                     'tests-legacy-test-api-execution-attempt-2', 'tests-legacy-test-api-attempt-2',
+                     'tests-legacy-money-execution-attempt-1', 'legacy-selection-attempt-2']
+        self.assertEqual(fnmatch.filter(artifacts, pattern),
+                         ['tests-legacy-money-execution-attempt-2', 'tests-legacy-test-api-execution-attempt-2'])
+
+    def test_artifact_metadata_guard_precedes_the_download_and_keeps_permissions_scoped(self):
+        for workflow in (WORKFLOW, WORKFLOW.with_name('compare-legacy-ci.yml')):
+            source = workflow.read_text()
+            before_quality, quality = source.split('\n  quality:\n', 1)
+            self.assertNotIn('actions: read', before_quality)
+            self.assertIn('    permissions:\n      actions: read\n      contents: read\n', quality)
+            guard, download = quality.split('      - uses: actions/download-artifact@', 1)
+            self.assertIn('gh api --paginate', guard)
+            self.assertIn('artifacts?per_page=100', guard)
+            self.assertIn("--jq '.artifacts[] | {name, expired} | @json'", guard)
+            self.assertIn('python3 ci/execution-artifact-path.py', guard)
+            self.assertIn('          path: ${{ steps.artifacts.outputs.path }}\n', download)
+            self.assertIn('          merge-multiple: false\n', download)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,14 @@
+use crate::network::policy::NetworkErrorKind;
+use crate::network::robots::MAX_CRAWL_DELAY;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
+use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
@@ -83,6 +86,17 @@ const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 64 * 1024;
 const REQUEST_IO_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
+/// Live inspection shares the scraper's per-domain pacing, so a shop's
+/// robots.txt `Crawl-delay` can queue it; it gives up in time to answer
+/// within [`REQUEST_DEADLINE`].
+const LIVE_FETCH_DEADLINE: Duration = Duration::from_secs(25);
+/// A matrix refresh fetches every review page at the shop's `Crawl-delay`, so it runs in
+/// the background with a budget per page: the longest honoured delay plus a full fetch.
+const MATRIX_REFRESH_PAGE_BUDGET: Duration =
+    MAX_CRAWL_DELAY.saturating_add(Duration::from_secs(30));
+/// How long a refresh request waits for the matrix before answering that it is still
+/// refreshing, leaving room within [`REQUEST_DEADLINE`].
+const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 const REVIEW_SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const REVIEW_SESSION_COOKIE: &str = "crawler_review_session";
@@ -94,24 +108,14 @@ pub struct ReviewServer {
     config: ReviewServerConfig,
     html_fetcher: Arc<dyn HtmlFetcher>,
     sessions: Arc<DashMap<uuid::Uuid, std::time::Instant>>,
+    matrix_refreshes: MatrixRefreshes,
+    matrix_refresh_wait: Duration,
 }
 
 impl ReviewServer {
+    /// `html_fetcher` serves live inspection; pass the scraper's fetcher so
+    /// both count against the same robots.txt cache and per-domain pacing.
     pub fn new(
-        repository: CrawlerReviewRepository,
-        domain_administration: Arc<dyn CrawlerDomainAdministration>,
-        config: ReviewServerConfig,
-    ) -> Self {
-        Self {
-            repository,
-            domain_administration,
-            config,
-            html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
-            sessions: Arc::new(DashMap::new()),
-        }
-    }
-
-    pub fn new_with_fetcher(
         repository: CrawlerReviewRepository,
         domain_administration: Arc<dyn CrawlerDomainAdministration>,
         config: ReviewServerConfig,
@@ -123,6 +127,8 @@ impl ReviewServer {
             config,
             html_fetcher,
             sessions: Arc::new(DashMap::new()),
+            matrix_refreshes: MatrixRefreshes::default(),
+            matrix_refresh_wait: MATRIX_REFRESH_RESPONSE_WAIT,
         }
     }
 
@@ -372,16 +378,18 @@ impl ReviewServer {
                 .get("refresh")
                 .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
             if !refresh {
+                match self.matrix_refreshes.status(review_id) {
+                    MatrixRefreshStatus::Running => return matrix_refreshing(review_id),
+                    MatrixRefreshStatus::Failed(response) => return response,
+                    MatrixRefreshStatus::Idle => {}
+                }
                 match self.cached_schema_matrix(review_id).await {
                     Ok(Some(matrix)) => return HttpResponse::json(200, &matrix),
                     Ok(None) => {}
                     Err(err) => return internal_error(err),
                 }
             }
-            return match self.refresh_schema_matrix(review_id).await {
-                Ok(matrix) => HttpResponse::json(200, &matrix),
-                Err(response) => response,
-            };
+            return self.refresh_schema_matrix(review_id).await;
         }
 
         if request.method == "POST"
@@ -675,6 +683,7 @@ impl ReviewServer {
             .with_header("Set-Cookie", expired_session_cookie(&self.config))
     }
 
+    /// Fetches every review page live within a deadline sized for the shop's pacing.
     async fn live_review_pages(
         &self,
         review_id: CrawlerReviewId,
@@ -684,12 +693,24 @@ impl ReviewServer {
             .get_review(review_id)
             .await
             .map_err(internal_error)?;
-        let mut pages = Vec::with_capacity(detail.pages.len());
-        for page in detail.pages {
-            let html = self.fetch_live_html(&page).await?;
-            pages.push((page, html));
-        }
-        Ok(pages)
+        let deadline = matrix_refresh_deadline(detail.pages.len());
+        let fetch_all = async {
+            let mut pages = Vec::with_capacity(detail.pages.len());
+            for page in detail.pages {
+                let url = review_page_url(&page)?;
+                let html = self
+                    .html_fetcher
+                    .fetch(&url)
+                    .await
+                    .map(|fetched| fetched.html)
+                    .map_err(|err| live_fetch_error(&page, &err))?;
+                pages.push((page, html));
+            }
+            Ok(pages)
+        };
+        tokio::time::timeout(deadline, fetch_all)
+            .await
+            .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
     }
 
     async fn cached_schema_matrix(
@@ -713,10 +734,23 @@ impl ReviewServer {
         }
     }
 
-    async fn refresh_schema_matrix(
-        &self,
-        review_id: CrawlerReviewId,
-    ) -> Result<SchemaMatrix, HttpResponse> {
+    /// Starts a background refresh, or joins the running one, and answers with the matrix
+    /// when it finishes in time, otherwise with `202` for the console to poll.
+    async fn refresh_schema_matrix(&self, review_id: CrawlerReviewId) -> HttpResponse {
+        let refresh = self.clone().evaluate_live_schema_matrix(review_id);
+        match self
+            .matrix_refreshes
+            .start_or_join(review_id, refresh)
+            .outcome_within(self.matrix_refresh_wait)
+            .await
+        {
+            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
+            Some(Err(response)) => response,
+            None => matrix_refreshing(review_id),
+        }
+    }
+
+    async fn evaluate_live_schema_matrix(self, review_id: CrawlerReviewId) -> MatrixRefreshOutcome {
         let pages = self.live_review_pages(review_id).await?;
         let evaluated = self
             .repository
@@ -770,18 +804,8 @@ impl ReviewServer {
     }
 
     async fn fetch_live_html(&self, page: &CrawlerReviewPage) -> Result<String, HttpResponse> {
-        let url = Url::parse(&page.url).map_err(|err| {
-            HttpResponse::json(
-                400,
-                &json!({
-                    "error": "invalid live review page url",
-                    "url": page.url,
-                    "details": err.to_string(),
-                }),
-            )
-        })?;
-        self.html_fetcher
-            .fetch(&url)
+        let url = review_page_url(page)?;
+        self.fetch_live(&url)
             .await
             .map(|fetched| fetched.html)
             .map_err(|err| live_fetch_error(page, &err))
@@ -798,11 +822,24 @@ impl ReviewServer {
                 }),
             )
         })?;
-        self.html_fetcher
-            .fetch(&url)
+        self.fetch_live(&url)
             .await
             .map(|fetched| fetched.html)
             .map_err(|err| live_url_fetch_error(raw_url, &err))
+    }
+
+    async fn fetch_live(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+        tokio::time::timeout(LIVE_FETCH_DEADLINE, self.html_fetcher.fetch(url))
+            .await
+            .unwrap_or_else(|_| {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: format!(
+                        "live fetch did not finish within {}s; the shop's robots.txt Crawl-delay may be queueing it behind the scraper",
+                        LIVE_FETCH_DEADLINE.as_secs()
+                    ),
+                })
+            })
     }
 }
 
@@ -1058,6 +1095,45 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
     }
 }
 
+fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
+    Url::parse(&page.url).map_err(|err| {
+        HttpResponse::json(
+            400,
+            &json!({
+                "error": "invalid live review page url",
+                "url": page.url,
+                "details": err.to_string(),
+            }),
+        )
+    })
+}
+
+fn matrix_refresh_deadline(page_count: usize) -> Duration {
+    MATRIX_REFRESH_PAGE_BUDGET.saturating_mul(u32::try_from(page_count.max(1)).unwrap_or(u32::MAX))
+}
+
+fn matrix_refreshing(review_id: CrawlerReviewId) -> HttpResponse {
+    HttpResponse::json(
+        202,
+        &json!({
+            "status": "refreshing",
+            "review_id": review_id,
+            "message": "live review pages are fetched at the shop's robots.txt Crawl-delay; poll the matrix without refresh",
+        }),
+    )
+}
+
+fn matrix_refresh_timeout(review_id: CrawlerReviewId, deadline: Duration) -> HttpResponse {
+    warn!(review_id = %review_id, deadline_secs = deadline.as_secs(), "Schema matrix refresh timed out");
+    HttpResponse::json(
+        502,
+        &json!({
+            "error": "schema matrix refresh timed out",
+            "details": format!("live review pages did not finish within {}s", deadline.as_secs()),
+        }),
+    )
+}
+
 fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::CandidateChangedDuringEvaluation => HttpResponse::json(
@@ -1169,9 +1245,12 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 }
 
 #[cfg(test)]
+mod matrix_refresh_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scraper::scraper_service::service::FetchedHtml;
+    use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
@@ -1246,6 +1325,7 @@ mod tests {
                 auth_token: auth_token.map(str::to_owned),
                 local_mutations_without_token: false,
             },
+            Arc::new(MockHtmlFetcher::new()),
         ))
     }
 
@@ -1356,7 +1436,7 @@ mod tests {
     async fn should_serve_raw_live_html_as_plain_text() -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1384,7 +1464,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1464,7 +1544,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
-        let server = ReviewServer::new_with_fetcher(
+        let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
             Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
@@ -1556,6 +1636,7 @@ mod tests {
                 local_mutations_without_token: false,
             }
             .allow_local_mutations_without_token(),
+            Arc::new(MockHtmlFetcher::new()),
         ))
     }
 

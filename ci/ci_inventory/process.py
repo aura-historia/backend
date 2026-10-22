@@ -23,7 +23,7 @@ def preserve_junit(report, destination):
     return None
 
 
-def execute(argv, cwd, environment, check=None, junit=None):
+def execute(argv, cwd, environment, check=None, junit=None, stdout=None):
     print(f"test lane: {shlex.join(map(str, argv))}", flush=True)
     started = time.monotonic()
     report = pathlib.Path(cwd) / "target/nextest" / environment.get("NEXTEST_PROFILE", "default") / "junit.xml"
@@ -42,7 +42,7 @@ def execute(argv, cwd, environment, check=None, junit=None):
 
     previous = {number: signal.signal(number, forward) for number in (signal.SIGINT, signal.SIGTERM)}
     try:
-        process = subprocess.Popen(argv, cwd=cwd, env=environment, start_new_session=True)
+        process = subprocess.Popen(argv, cwd=cwd, env=environment, start_new_session=True, stdout=stdout)
         if interrupted is not None:
             forward(interrupted, None)
         if check is None:

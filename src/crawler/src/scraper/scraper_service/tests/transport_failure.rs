@@ -1,7 +1,7 @@
 use super::*;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind};
 use crate::scraper::scraper_service::domain::product::{DomainFetchHealth, FetchFailureSource};
-use crate::scraper::scraper_service::service::FetchError;
+use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperError};
 use std::time::Duration;
 
@@ -15,7 +15,6 @@ fn service_for_primary_failure(error: FetchError) -> ScraperServiceImpl {
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(MockProductListingSchemaService::new()),
-        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(MockScraperCandidateService::new()),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,

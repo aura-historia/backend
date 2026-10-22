@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -181,7 +182,116 @@ class LLVMDiagnostics(unittest.TestCase):
         self.assertIn("coverage mismatch diagnostics: diagnostic denied", errors.getvalue())
 
 
+class ExportDiagnostics(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        (self.root / "src").mkdir()
+        (self.root / "src/lib.rs").write_text("fn choose() {}\n")
+        self.output = self.root / "coverage.lcov"
+        self.warning = "warning: 1 functions have mismatched data\n"
+        self.failed_format = None
+        self.lcov = "SF:src/lib.rs\nDA:1,7\nend_of_record\n"
+        self.data = {"data": [{"functions": [{"name": "choose", "count": 7, "filenames": ["src/lib.rs"],
+                     "regions": [[1, 1, 1, 15, 7, 0, 0, 0]], "branches": []}],
+                     "files": [{"filename": "src/lib.rs", "branches": []}]}]}
+
+    def run_export(self, **options):
+        def llvm(argv, output=None):
+            if f"--format={self.failed_format}" in argv:
+                raise subprocess.CalledProcessError(37, argv, stderr="invalid required object\n")
+            if "--format=lcov" in argv:
+                output.write(self.lcov)
+            elif "--format=text" in argv:
+                output.write(json.dumps(self.data))
+            return self.warning if argv[1] == "export" else ""
+
+        with patch.object(EXPORTER, "coverage_objects", return_value=[self.root / "unit"]), \
+                patch.object(EXPORTER, "coverage_profiles", return_value=([self.root / "test.profraw"], [self.root / "test.profraw"])), \
+                patch.object(EXPORTER, "command", side_effect=[str(self.root), "host: test-host", "rustc test", "LLVM test"]), \
+                patch.object(EXPORTER, "run_llvm", side_effect=llvm):
+            EXPORTER.export(self.root, self.root, [], self.root, self.output, self.root, **options)
+
+    def manifest(self):
+        return json.loads(self.output.with_suffix(".objects.json").read_text())
+
+    def test_mismatch_report_requires_opt_in_and_preserves_normalized_coverage(self):
+        diagnostic = {"exit_code": 0, "stderr": "hash-mismatch: choose/hash0x0\n"}
+        with patch.object(EXPORTER, "report_mismatches", return_value=diagnostic) as report:
+            self.run_export()
+            report.assert_not_called()
+            before = self.output.read_bytes()
+            self.assertEqual(self.manifest()["export_diagnostics"], {"lcov": self.warning, "text": self.warning})
+            self.assertNotIn("mismatch_diagnostics", self.manifest())
+            self.run_export(mismatch_diagnostics="report")
+            report.assert_called_once()
+            self.assertEqual(self.output.read_bytes(), before)
+            self.assertEqual(self.manifest()["mismatch_diagnostics"], diagnostic)
+
+    def test_requested_report_is_skipped_when_exports_have_no_mismatch_warning(self):
+        self.warning = ""
+        with patch.object(EXPORTER, "report_mismatches") as report:
+            self.run_export(mismatch_diagnostics="report")
+            report.assert_not_called()
+        self.assertEqual(self.manifest()["export_diagnostics"], {"lcov": "", "text": ""})
+        self.assertTrue(self.output.is_file())
+
+    def test_required_export_failure_still_fails_without_running_optional_report(self):
+        for format in ("lcov", "text"):
+            self.failed_format = format
+            with self.subTest(format=format), patch.object(EXPORTER, "report_mismatches") as report, \
+                    self.assertRaises(subprocess.CalledProcessError) as error:
+                self.run_export(mismatch_diagnostics="report")
+            self.assertEqual(error.exception.returncode, 37)
+            self.assertEqual(error.exception.stderr, "invalid required object\n")
+            report.assert_not_called()
+            self.assertFalse(self.output.exists())
+
+    def test_raw_export_warnings_survive_normalization_failure(self):
+        self.lcov = "invalid LCOV\n"
+        with patch.object(EXPORTER, "report_mismatches") as report, self.assertRaises(ValueError):
+            self.run_export()
+        report.assert_not_called()
+        self.assertEqual(self.manifest()["export_diagnostics"], {"lcov": self.warning, "text": self.warning})
+        self.assertFalse(self.output.exists())
+
+
 class CompiledCoverageObjects(unittest.TestCase):
+    def test_captured_executable_bytes_must_match_the_recorded_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            binary = root / 'captured'
+            binary.write_bytes(b'original ELF bytes')
+            nextest = root / 'nextest.json'
+            nextest.write_text('{"rust-suites":{}}')
+            metadata = root / 'compile.jsonl'
+            metadata.write_text(json.dumps({'reason': 'compiler-artifact', 'executable': str(binary),
+                'original_executable': '/original/path', 'coverage_sha256': hashlib.sha256(binary.read_bytes()).hexdigest()}) +
+                '\n{"reason":"build-finished","success":true}\n')
+            self.assertEqual(EXPORTER.coverage_objects(nextest, [metadata], root / 'doctests', root), [binary])
+            binary.write_bytes(b'replacement ELF bytes')
+            with self.assertRaisesRegex(ValueError, 'Captured coverage object changed'):
+                EXPORTER.coverage_objects(nextest, [metadata], root / 'doctests', root)
+
+    def test_lane_manifest_requires_every_expected_compilation_stream(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            manifest = root / 'coverage-artifacts.json'
+            manifest.write_text(json.dumps(['compile.jsonl', 'pristine.jsonl', 'managed.jsonl', 'doctests.jsonl', 'unmanaged-0.jsonl']))
+            expected = [root / name for name in json.loads(manifest.read_text())]
+            self.assertEqual(EXPORTER.artifact_paths([], [manifest]), expected)
+            nextest = root / 'nextest.json'
+            nextest.write_text('{"rust-suites":{}}')
+            for artifact in expected[:-1]:
+                artifact.write_text('{"reason":"compiler-artifact"}\n{"reason":"build-finished","success":true}\n')
+            with self.assertRaises(FileNotFoundError):
+                EXPORTER.coverage_objects(nextest, expected, root / 'doctests', root)
+            for value in ([], {}, ['../compile.jsonl'], [None]):
+                manifest.write_text(json.dumps(value))
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    EXPORTER.artifact_paths([], [manifest])
+
     def test_objects_follow_actual_metadata_and_missing_executable_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

@@ -228,8 +228,8 @@ impl ProductCssSelectorSchema {
                 .map_err(ApplySchemaError::Description)?,
         };
 
-        // A miss yields `None`, exactly like a schema without the rule, so downstream
-        // normalization and the raw-values patch see "no price on this page".
+        // A miss yields `None`, exactly like a schema without the rule, so plausibility
+        // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
             Some(rule) => apply_optional_rule("price", rule, html, OptionalMissLog::Warn)

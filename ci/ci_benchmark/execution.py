@@ -21,6 +21,10 @@ def optional_command(argv, root, env=None, timeout=None):
 def environment_metadata(root, env):
     memory = pathlib.Path("/proc/meminfo")
     cpu = pathlib.Path("/proc/cpuinfo")
+    build_keys = ("CARGO_TARGET_DIR", "CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG",
+                  "CARGO_PROFILE_DEV_DEBUG", "RUSTUP_TOOLCHAIN", "RUSTFLAGS", "RUSTDOCFLAGS",
+                  "CARGO_ENCODED_RUSTFLAGS", "CARGO_ENCODED_RUSTDOCFLAGS", "RUSTDOC", "AURA_CI_RUSTDOC",
+                  "LLVM_PROFILE_FILE", "AURA_CI_COVERAGE_DIR")
     return {"os": platform.platform(), "architecture": platform.machine(), "logical_cpus": os.cpu_count(),
             "cpu_model": next((line.split(":", 1)[1].strip() for line in cpu.read_text().splitlines() if line.startswith("model name")), None) if cpu.exists() else None,
             "memory_total_kib": int(memory.read_text().split("MemTotal:", 1)[1].split()[0]) if memory.exists() else None,
@@ -28,7 +32,7 @@ def environment_metadata(root, env):
             "github_runner_image": os.environ.get("ImageOS"), "github_runner_image_version": os.environ.get("ImageVersion"),
             "rustc": optional_command(["rustc", "-vV"], root, env), "cargo": optional_command(["cargo", "--version"], root, env),
             "grcov": optional_command(["grcov", "--version"], root), "docker": optional_command(["docker", "--version"], root),
-            "build_environment": {key: env.get(key) for key in ("CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_TEST_DEBUG", "CARGO_PROFILE_DEV_DEBUG", "RUSTUP_TOOLCHAIN", "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTDOC", "LLVM_PROFILE_FILE")}}
+            "build_environment": {key: env.get(key) for key in build_keys}}
 
 
 def fixture_references(root):

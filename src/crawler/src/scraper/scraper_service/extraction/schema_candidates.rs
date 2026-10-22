@@ -2,9 +2,7 @@ use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use crate::scraper::normalization::product_normalization_service::{
-    PreparedProduct, ProductNormalizationContext,
-};
+use crate::scraper::plausibility::PlausibilityFindings;
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -17,7 +15,7 @@ use scraper::Html;
 /// how many values it holds:
 ///
 /// * Image candidates count once when the extraction contains validated image
-///   URLs. The production pipeline prepares images before scoring.
+///   URLs. The production pipeline validates images before scoring.
 /// * Multiple description fragments count as one populated `description` field.
 /// * Every non-empty `raw_attributes` key counts as one distinct attribute.
 ///
@@ -92,54 +90,52 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
     )
 }
 
-/// Score a candidate after deterministic preparation. Raw values are used
-/// only for extracted-ID provenance and raw-attribute policy.
-pub(crate) fn score_prepared_product(
-    raw: &RawExtractedProduct,
-    prepared: &PreparedProduct,
-) -> ExtractionCompletenessScore {
-    let extracted_id = usize::from(!raw.source_listing_id.trim().is_empty());
-    let state = usize::from(!prepared.raw_state.trim().is_empty());
-    let description = usize::from(prepared.description.is_some());
-    let optional = usize::from(prepared.price.is_some())
-        + usize::from(prepared.price_estimate_min.is_some())
-        + usize::from(prepared.price_estimate_max.is_some());
-    let images = usize::from(!prepared.images.is_empty());
-    let raw_attributes = raw
-        .raw_attributes
-        .values()
-        .filter(|values| any_populated(values))
-        .count();
-
-    ExtractionCompletenessScore(
-        extracted_id + 1 + description + optional + state + images + raw_attributes,
-    )
-}
-
 // ---------------------------------------------------------------------------
 // AppliedSchemaCandidate
 // ---------------------------------------------------------------------------
 
 /// A cached schema that applied successfully to the current page, together
-/// with its raw extraction and completeness score.
+/// with its raw extraction.
 pub(crate) struct AppliedSchemaCandidate<'a> {
     pub schema_index: usize,
     pub schema: &'a ProductCssSelectorSchema,
     pub raw: RawExtractedProduct,
-    #[allow(dead_code)]
-    pub score: ExtractionCompletenessScore,
 }
 
-pub(crate) struct PreparedSchemaCandidate<'a> {
+/// An applied candidate that passed the rejecting plausibility checks.
+pub(crate) struct CheckedSchemaCandidate<'a> {
     pub schema_index: usize,
     pub schema: &'a ProductCssSelectorSchema,
     /// Untouched extraction retained for source capture.
     pub raw: RawExtractedProduct,
-    /// Candidate-local copy whose images passed crawler validation.
-    pub validated_raw: RawExtractedProduct,
-    #[allow(dead_code)]
-    pub prepared: PreparedProduct,
+    /// Images that passed crawler validation, in canonical group order.
+    pub validated_image_urls: Vec<String>,
+    /// Findings that lower the rank or are only reported.
+    pub findings: PlausibilityFindings,
     pub score: ExtractionCompletenessScore,
+}
+
+impl<'a> CheckedSchemaCandidate<'a> {
+    /// Scores the candidate with its validated images, so thumbnails and malformed
+    /// URLs cannot inflate its completeness.
+    pub(crate) fn new(
+        applied: AppliedSchemaCandidate<'a>,
+        findings: PlausibilityFindings,
+        validated_image_urls: Vec<String>,
+    ) -> Self {
+        let score = score_raw_product(&RawExtractedProduct {
+            images: validated_image_urls.clone(),
+            ..applied.raw.clone()
+        });
+        Self {
+            schema_index: applied.schema_index,
+            schema: applied.schema,
+            raw: applied.raw,
+            validated_image_urls,
+            findings,
+            score,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,15 +165,11 @@ pub(crate) fn collect_applicable_candidates<'a>(
         match crate::scraper::scraper_service::extraction::engine::apply_schema_to_document(
             schema, html,
         ) {
-            Ok(raw) => {
-                let score = score_raw_product(&raw);
-                candidates.push(AppliedSchemaCandidate {
-                    schema_index,
-                    schema,
-                    raw,
-                    score,
-                });
-            }
+            Ok(raw) => candidates.push(AppliedSchemaCandidate {
+                schema_index,
+                schema,
+                raw,
+            }),
             Err(err) => {
                 apply_failures.push((schema_index, err));
             }
@@ -190,27 +182,37 @@ pub(crate) fn collect_applicable_candidates<'a>(
     }
 }
 
-/// Returns applicable cached schema indices in production ranking order.
+/// A cached schema that the fixture ranking seam kept, with its per-page findings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedSchemaCandidate {
+    pub schema_index: usize,
+    pub plausibility_findings: PlausibilityFindings,
+}
+
+/// Returns the applicable cached schemas in production ranking order.
 ///
 /// This is the shared ranking seam for fixture tests. It applies every schema
-/// to one parsed document and performs no network or LLM work.
-pub fn rank_applicable_schema_indices(
+/// to one parsed document, drops candidates that fail a rejecting plausibility
+/// check, and performs no network or LLM work.
+pub fn rank_applicable_schemas(
     schemas: &[ProductCssSelectorSchema],
     html: &str,
-) -> Vec<usize> {
+) -> Vec<RankedSchemaCandidate> {
     let parsed = Html::parse_document(html);
     let candidates = collect_applicable_candidates(schemas, &parsed).candidates;
     let base_url = url::Url::parse("https://example.com/").expect("static ranking base URL");
-    let mut prepared_candidates = Vec::new();
+    let mut checked_candidates = Vec::new();
     for candidate in candidates {
-        let raw = candidate.raw;
-        let mut validated_raw = raw.clone();
-        // Keep this fixture seam on the same deterministic lifecycle as
-        // production. Network image probing is unavailable here, so only
-        // obvious thumbnail/invalid URL candidates are discarded locally.
-        // Preserve ordered candidate-group semantics by choosing the first
-        // locally viable candidate from each group.
-        validated_raw.images = raw
+        let findings = PlausibilityFindings::of(&candidate.raw);
+        if findings.rejects_candidate() {
+            continue;
+        }
+        // Network image probing is unavailable here, so only obvious
+        // thumbnail/invalid URL candidates are discarded locally. Preserve
+        // ordered candidate-group semantics by choosing the first locally
+        // viable candidate from each group.
+        let validated_image_urls = candidate
+            .raw
             .images
             .iter()
             .filter_map(|raw_image| {
@@ -225,32 +227,19 @@ pub fn rank_applicable_schema_indices(
                     })
             })
             .collect();
-        let Ok(prepared) =
-            crate::scraper::normalization::product_normalization_service::prepare_product(
-                validated_raw.clone(),
-                ProductNormalizationContext {
-                    effective_url: base_url.clone(),
-                    source_record_key: base_url.to_string(),
-                    fallback_currency: None,
-                },
-            )
-        else {
-            continue;
-        };
-        let score = score_prepared_product(&validated_raw, &prepared);
-        prepared_candidates.push(PreparedSchemaCandidate {
-            schema_index: candidate.schema_index,
-            schema: candidate.schema,
-            raw,
-            validated_raw,
-            prepared,
-            score,
-        });
+        checked_candidates.push(CheckedSchemaCandidate::new(
+            candidate,
+            findings,
+            validated_image_urls,
+        ));
     }
-    rank_prepared_candidates(&mut prepared_candidates);
-    prepared_candidates
+    rank_checked_candidates(&mut checked_candidates);
+    checked_candidates
         .into_iter()
-        .map(|candidate| candidate.schema_index)
+        .map(|candidate| RankedSchemaCandidate {
+            schema_index: candidate.schema_index,
+            plausibility_findings: candidate.findings,
+        })
         .collect()
 }
 
@@ -260,25 +249,17 @@ pub fn rank_applicable_schema_indices(
 
 /// Orders candidates by:
 ///
-/// 1. higher completeness score;
-/// 2. original schema index as deterministic tie-breaker.
+/// 1. fewer rank-lowering plausibility findings (price, estimates, images);
+/// 2. higher completeness score;
+/// 3. original schema index as deterministic tie-breaker.
 ///
 /// Stored order therefore affects only ties.
-#[allow(dead_code)]
-pub(crate) fn rank_candidates(candidates: &mut [AppliedSchemaCandidate<'_>]) {
+pub(crate) fn rank_checked_candidates(candidates: &mut [CheckedSchemaCandidate<'_>]) {
     candidates.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then(left.schema_index.cmp(&right.schema_index))
-    });
-}
-
-pub(crate) fn rank_prepared_candidates(candidates: &mut [PreparedSchemaCandidate<'_>]) {
-    candidates.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
+        left.findings
+            .rank_penalty()
+            .cmp(&right.findings.rank_penalty())
+            .then(right.score.cmp(&left.score))
             .then(left.schema_index.cmp(&right.schema_index))
     });
 }
@@ -375,40 +356,32 @@ mod tests {
     }
 
     #[test]
-    fn should_score_prepared_values_and_ignore_synthesized_id() {
+    fn should_score_validated_images_instead_of_raw_image_candidates() {
+        let schema = schema();
         let mut raw = raw_product();
         raw.title = "Chair".to_string();
-        raw.state = "Available".to_string();
-        raw.price = Some("Price on Request".to_string());
-        let url = url::Url::parse("https://example.com/products/1").unwrap();
-        let prepared =
-            crate::scraper::normalization::product_normalization_service::prepare_product(
-                raw.clone(),
-                ProductNormalizationContext {
-                    effective_url: url.clone(),
-                    source_record_key: url.to_string(),
-                    fallback_currency: None,
-                },
-            )
-            .unwrap();
-        assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 3);
+        raw.images = vec!["/thumb-100x100.jpg".to_string()];
 
-        raw.source_listing_id = "SKU-1".to_string();
-        let prepared =
-            crate::scraper::normalization::product_normalization_service::prepare_product(
-                raw.clone(),
-                ProductNormalizationContext {
-                    source_record_key: url.to_string(),
-                    effective_url: url,
-                    fallback_currency: None,
-                },
-            )
-            .unwrap();
-        assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 4);
+        let without_valid_image = checked(&schema, 0, raw.clone(), Vec::new());
+        let with_valid_image = checked(
+            &schema,
+            0,
+            raw,
+            vec!["https://example.com/chair.jpg".to_string()],
+        );
+
+        assert_eq!(without_valid_image.score.as_usize(), 1);
+        assert_eq!(with_valid_image.score.as_usize(), 2);
+        assert_eq!(
+            with_valid_image.raw.images,
+            vec!["/thumb-100x100.jpg".to_string()],
+            "the untouched extraction stays source evidence"
+        );
     }
 
     #[test]
     fn should_rank_richer_candidate_first() {
+        let schema = schema();
         let mut poor = raw_product();
         poor.title = "Chair".to_string();
         let mut rich = raw_product();
@@ -416,114 +389,104 @@ mod tests {
         rich.price = Some("100 EUR".to_string());
         rich.state = "Available".to_string();
 
-        let schema = ProductCssSelectorSchema {
-            source_listing_id: None,
-            title: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("h1"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::Text,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
-            },
-            description: None,
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: None,
-            state: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("#state"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::Text,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
-            },
-            images: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("img"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::ImageUrl,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::All,
-            },
-            raw_attributes: BTreeMap::new(),
-        };
-
         let mut candidates = vec![
-            AppliedSchemaCandidate {
-                schema_index: 0,
-                schema: &schema,
-                raw: poor,
-                score: score_raw_product(&raw_product()),
-            },
-            AppliedSchemaCandidate {
-                schema_index: 1,
-                schema: &schema,
-                raw: rich,
-                score: score_raw_product(&raw_product()),
-            },
+            checked(&schema, 0, poor, Vec::new()),
+            checked(&schema, 1, rich, Vec::new()),
         ];
-        candidates[0].score = score_raw_product(&candidates[0].raw);
-        candidates[1].score = score_raw_product(&candidates[1].raw);
 
-        rank_candidates(&mut candidates);
+        rank_checked_candidates(&mut candidates);
 
         assert_eq!(candidates[0].schema_index, 1);
         assert_eq!(candidates[1].schema_index, 0);
     }
 
     #[test]
+    fn should_rank_candidate_with_fewer_price_or_image_findings_first() {
+        let schema = schema();
+        let mut zero_price = raw_product();
+        zero_price.title = "Chair".to_string();
+        zero_price.state = "Sold".to_string();
+        zero_price.price = Some("£0.00".to_string());
+        zero_price.description = vec!["Oak".to_string()];
+        let mut without_price = raw_product();
+        without_price.title = "Chair".to_string();
+        without_price.state = "Sold".to_string();
+
+        let mut candidates = vec![
+            checked(&schema, 0, zero_price, Vec::new()),
+            checked(&schema, 1, without_price, Vec::new()),
+        ];
+        assert!(candidates[0].score > candidates[1].score);
+
+        rank_checked_candidates(&mut candidates);
+
+        assert_eq!(
+            candidates[0].schema_index, 1,
+            "an implausible price ranks below a richer extraction"
+        );
+    }
+
+    #[test]
     fn should_break_score_ties_by_original_schema_index() {
-        let schema = ProductCssSelectorSchema {
-            source_listing_id: None,
-            title: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("h1"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::Text,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
+        let schema = schema();
+        let mut raw = raw_product();
+        raw.title = "Chair".to_string();
+
+        let mut candidates = vec![
+            checked(&schema, 2, raw.clone(), Vec::new()),
+            checked(&schema, 0, raw, Vec::new()),
+        ];
+
+        rank_checked_candidates(&mut candidates);
+
+        assert_eq!(candidates[0].schema_index, 0);
+        assert_eq!(candidates[1].schema_index, 2);
+    }
+
+    fn checked<'a>(
+        schema: &'a ProductCssSelectorSchema,
+        schema_index: usize,
+        raw: RawExtractedProduct,
+        validated_image_urls: Vec<String>,
+    ) -> CheckedSchemaCandidate<'a> {
+        let findings = PlausibilityFindings::of(&raw);
+        CheckedSchemaCandidate::new(
+            AppliedSchemaCandidate {
+                schema_index,
+                schema,
+                raw,
             },
+            findings,
+            validated_image_urls,
+        )
+    }
+
+    fn schema() -> ProductCssSelectorSchema {
+        let rule = |selector: &str, extract| crate::scraper::css_selector::rule::ExtractionRule {
+            selector: crate::scraper::css_selector::rule::CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract,
+            cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
+        };
+        ProductCssSelectorSchema {
+            source_listing_id: None,
+            title: rule(
+                "h1",
+                crate::scraper::css_selector::rule::ExtractionKind::Text,
+            ),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("#state"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::Text,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
-            },
-            images: crate::scraper::css_selector::rule::ExtractionRule {
-                selector: crate::scraper::css_selector::rule::CssSelector::from("img"),
-                additional_selectors: vec![],
-                extract: crate::scraper::css_selector::rule::ExtractionKind::ImageUrl,
-                cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::All,
-            },
+            state: rule(
+                "#state",
+                crate::scraper::css_selector::rule::ExtractionKind::Text,
+            ),
+            images: rule(
+                "img",
+                crate::scraper::css_selector::rule::ExtractionKind::ImageUrl,
+            ),
             raw_attributes: BTreeMap::new(),
-        };
-
-        let raw_a = {
-            let mut r = raw_product();
-            r.title = "Chair".to_string();
-            r
-        };
-        let raw_b = {
-            let mut r = raw_product();
-            r.title = "Chair".to_string();
-            r
-        };
-
-        let mut candidates = vec![
-            AppliedSchemaCandidate {
-                schema_index: 2,
-                schema: &schema,
-                score: score_raw_product(&raw_a),
-                raw: raw_a,
-            },
-            AppliedSchemaCandidate {
-                schema_index: 0,
-                schema: &schema,
-                score: score_raw_product(&raw_b),
-                raw: raw_b,
-            },
-        ];
-
-        rank_candidates(&mut candidates);
-
-        assert_eq!(candidates[0].schema_index, 0);
-        assert_eq!(candidates[1].schema_index, 2);
+        }
     }
 }

@@ -3,8 +3,8 @@
 Deterministic raw-revision normalization in the business worker improves through one loop:
 **capture unresolved inputs → log actionable diagnostics → improve the heuristics → replay the
 whole corpus**. The improving agent and its schedule live outside this repository. The crawler
-reuses the pure normalization code as its own extraction quick check; its rejected candidates
-are crawler concerns and are not recorded here.
+does not normalize; candidates its plausibility checks reject are crawler concerns and are not
+recorded here.
 
 ## Diagnostics
 

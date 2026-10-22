@@ -1,5 +1,5 @@
 name: Run a complete test lane
-description: Validate reviewed ownership, run supervised phases and retain coverage.
+description: Validate reviewed ownership, run supervised phases and retain diagnostics.
 inputs:
   id:
     description: Unique artifact and cache name.
@@ -22,31 +22,65 @@ inputs:
   profile:
     description: Supervisor service profile, or none for the remaining lane.
     required: true
+  coverage:
+    description: Coverage mode, llvm or none. None resets its target before optional dependency restore.
+    default: llvm
+  compilation_cache:
+    description: Compilation cache policy, dependencies or cold.
+    default: dependencies
 runs:
   using: composite
   steps:
 
-    - name: Configure instrumented lane
+    - name: Configure test lane
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
+        COVERAGE_MODE: ${{ inputs.coverage }}
+        COMPILATION_CACHE: ${{ inputs.compilation_cache }}
       run: |
         [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining|all|legacy-[a-z0-9][a-z0-9_-]*)$ ]]
+        case "$COVERAGE_MODE" in
+          llvm|none) ;;
+          *) printf 'Invalid coverage mode: %s\n' "$COVERAGE_MODE" >&2; exit 1 ;;
+        esac
+        case "$COMPILATION_CACHE" in
+          dependencies|cold) ;;
+          *) printf 'Invalid compilation cache policy: %s\n' "$COMPILATION_CACHE" >&2; exit 1 ;;
+        esac
         test -n "$RUNNER_TEMP"
-        coverage="$RUNNER_TEMP/coverage/$LANE_ID"
-        rm -rf "$coverage"
-        mkdir -p "$coverage/profiles/discovery" "$RUNNER_TEMP/lane/$LANE_ID"
+        test -n "$GITHUB_WORKSPACE"
+        mkdir -p "$RUNNER_TEMP/lane/$LANE_ID"
+        if [ "$COVERAGE_MODE" = llvm ]; then
+          coverage="$RUNNER_TEMP/coverage/$LANE_ID"
+          rm -rf "$coverage"
+          mkdir -p "$coverage/profiles/discovery"
+          {
+            printf 'CARGO_TARGET_DIR=%s/target/coverage\n' "$GITHUB_WORKSPACE"
+            printf 'RUSTFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
+            printf 'RUSTDOCFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
+            printf 'AURA_CI_COVERAGE_DIR=%s\n' "$coverage"
+            printf 'LLVM_PROFILE_FILE=%s/profiles/discovery/%%b-%%4m.profraw\n' "$coverage"
+            printf 'RUSTDOC=%s/ci/coverage-rustdoc.py\n' "$GITHUB_WORKSPACE"
+          } >> "$GITHUB_ENV"
+        else
+          target="$GITHUB_WORKSPACE/target/no-coverage"
+          rm -rf "$target"
+          mkdir -p "$target"
+          printf 'No-coverage policy: reset target %s; compilation cache policy %s.\n' "$target" "$COMPILATION_CACHE"
+          {
+            printf 'CARGO_TARGET_DIR=%s\n' "$target"
+            printf 'RUSTFLAGS=\nRUSTDOCFLAGS=\nCARGO_ENCODED_RUSTFLAGS=\nCARGO_ENCODED_RUSTDOCFLAGS=\n'
+            printf 'AURA_CI_COVERAGE_DIR=\nLLVM_PROFILE_FILE=\nAURA_CI_RUSTDOC=\n'
+            printf 'RUSTDOC=rustdoc\n'
+          } >> "$GITHUB_ENV"
+        fi
         {
-          printf 'CARGO_TARGET_DIR=%s/target/coverage\n' "$GITHUB_WORKSPACE"
           printf 'CARGO_PROFILE_TEST_DEBUG=1\n'
           printf 'CARGO_PROFILE_DEV_DEBUG=1\n'
           printf 'RUSTUP_TOOLCHAIN=nightly-2026-10-20\n'
-          printf 'RUSTFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
-          printf 'RUSTDOCFLAGS=-C instrument-coverage -Zcoverage-options=branch\n'
-          printf 'AURA_CI_COVERAGE_DIR=%s\n' "$coverage"
-          printf 'LLVM_PROFILE_FILE=%s/profiles/discovery/%%b-%%4m.profraw\n' "$coverage"
+          printf 'AURA_TEST_POSTGRES_IMAGE=postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67\n'
           printf 'NEXTEST_PROFILE=ci\n'
-          printf 'RUSTDOC=%s/ci/coverage-rustdoc.py\n' "$GITHUB_WORKSPACE"
           printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
           printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
         } >> "$GITHUB_ENV"
@@ -55,20 +89,31 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
-      run: bash ci/prepare-runner-disk.sh 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
+        COVERAGE_MODE: ${{ inputs.coverage }}
+      run: bash ci/prepare-runner-disk.sh "$COVERAGE_MODE" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/disk-preparation.log"
 
     - name: Install pinned Rust toolchain
       shell: bash
+      env:
+        COVERAGE_MODE: ${{ inputs.coverage }}
       run: |
         rustup toolchain install nightly-2026-10-20 --profile minimal --component llvm-tools-preview
-        printf 'AURA_CI_RUSTDOC=%s\n' "$(rustup which --toolchain nightly-2026-10-20 rustdoc)" >> "$GITHUB_ENV"
+        if [ "$COVERAGE_MODE" = llvm ]; then
+          printf 'AURA_CI_RUSTDOC=%s\n' "$(rustup which --toolchain nightly-2026-10-20 rustdoc)" >> "$GITHUB_ENV"
+        fi
         rustc -Vv
 
     - name: Restore lane compilation cache
+      if: inputs.compilation_cache == 'dependencies'
       id: cache
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
-        key: test-${{ inputs.id }}-llvm-coverage-v1
+        key: test-${{ inputs.id }}-${{ inputs.coverage }}-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}
+        workspaces: . -> target/${{ inputs.coverage == 'none' && 'no-coverage' || 'coverage' }}
+        cache-workspace-crates: false
+        cache-all-crates: false
+        cache-on-failure: false
+        save-if: true
         env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
 
     - name: Install verified test tools
@@ -81,7 +126,9 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
-        CACHE_KEY: test-${{ inputs.id }}-llvm-coverage-v1
+        COVERAGE_MODE: ${{ inputs.coverage }}
+        COMPILATION_CACHE: ${{ inputs.compilation_cache }}
+        CACHE_KEY: test-${{ inputs.id }}-${{ inputs.coverage }}-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}
         CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
         python3 - <<'PY'
@@ -89,13 +136,22 @@ runs:
         sys.path.insert(0, 'ci')
         from ci_benchmark.execution import environment_metadata
         root = pathlib.Path.cwd()
+        policy = os.environ['COMPILATION_CACHE']
+        attempted = policy == 'dependencies'
+        hit = (os.environ.get('CACHE_HIT') or None) if attempted else None
         record = {
             'checkout_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
             'checkout_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
             'run': {key: os.environ.get(key) for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF', 'RUNNER_NAME')},
             'runner': environment_metadata(root, os.environ),
-            'cache': {'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': os.environ.get('CACHE_HIT') or None,
-                      'limitation': 'Resolved and fallback cache keys are retained in the cache action log.'},
+            'coverage_mode': os.environ['COVERAGE_MODE'],
+            'cache': {'policy': policy, 'configured_key_suffix': os.environ['CACHE_KEY'], 'exact_hit': hit,
+                      'attempted': attempted,
+                      'restore_result': (('EXACT_HIT' if hit == 'true' else 'NON_EXACT' if hit == 'false' else 'UNKNOWN')
+                                         if attempted else 'DISABLED'),
+                      'target_reset': os.environ['COVERAGE_MODE'] == 'none',
+                      'limitation': ('A false hit output can mean miss, fallback or cache error; resolved keys and restore/save diagnostics are retained in the cache action log.'
+                                     if attempted else 'Cache restore/save disabled.')},
         }
         path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lane' / os.environ['LANE_ID'] / 'job.json'
         path.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
@@ -115,9 +171,28 @@ runs:
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
+        LANES: ${{ inputs.lanes }}
+        LEGACY_PACKAGE: ${{ inputs.legacy_package }}
+        COVERAGE_MODE: ${{ inputs.coverage }}
       run: |
-        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
-          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- bash -c 'cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics > "$1"' _ "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl"
+        discovered="$(python3 - <<'PY'
+        import os, sys
+        sys.path.insert(0, 'ci')
+        from ci_inventory.discovery import discovery_builds_supervisor
+        print('yes' if discovery_builds_supervisor(os.environ['LANES'].split(), os.environ['LEGACY_PACKAGE'], os.environ['COVERAGE_MODE']) else 'no')
+        PY
+        )"
+        if [ "$discovered" = yes ]; then
+          printf 'Lane discovery builds and validates the job supervisor.\n'
+          exit 0
+        fi
+        guard=(python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl")
+        build=(cargo build --locked --package test-api --all-features --bin aura-test-env --message-format=json-render-diagnostics)
+        if [ -n "$AURA_CI_COVERAGE_DIR" ]; then
+          guard+=(--profiles "$AURA_CI_COVERAGE_DIR/profiles")
+          build=(python3 ci/capture-cargo.py --output "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl" -- "${build[@]}")
+        fi
+        "${guard[@]}" -- "${build[@]}" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/supervisor.log"
 
     - name: Run owned targets and doctests
       shell: bash
@@ -143,8 +218,11 @@ runs:
         if [ "$PROFILE" != none ]; then
           arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
         fi
-        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --profiles "$AURA_CI_COVERAGE_DIR/profiles" \
-          --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+        guard=(python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl")
+        if [ -n "$AURA_CI_COVERAGE_DIR" ]; then
+          guard+=(--profiles "$AURA_CI_COVERAGE_DIR/profiles")
+        fi
+        "${guard[@]}" -- \
           python3 ci/run-test-lane.py "${arguments[@]}" --harness "$HARNESS" --slots "$SLOTS" --profile "$PROFILE" \
           --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
           --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
@@ -181,14 +259,14 @@ runs:
         retention-days: 7
 
     - name: Export LLVM coverage
-      if: always()
+      if: always() && inputs.coverage == 'llvm'
       shell: bash
       env:
         LANE_ID: ${{ inputs.id }}
         PROFILE: ${{ inputs.profile }}
         LEGACY_PACKAGE: ${{ inputs.legacy_package }}
       run: |
-        arguments=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/discovery/compile.jsonl")
+        arguments=(--cargo-artifact-manifest "$RUNNER_TEMP/lane/$LANE_ID/discovery/coverage-artifacts.json")
         if [[ "$PROFILE" != none || "$LEGACY_PACKAGE" == test-api || "$LEGACY_PACKAGE" == database-migration-lambda ]]; then
           arguments+=(--cargo-artifacts "$RUNNER_TEMP/lane/$LANE_ID/supervisor.jsonl")
         fi
@@ -217,7 +295,7 @@ runs:
         PY
 
     - name: Upload coverage
-      if: always()
+      if: always() && inputs.coverage == 'llvm'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: coverage-${{ inputs.id }}
@@ -233,7 +311,7 @@ runs:
         name: tests-${{ inputs.id }}-attempt-${{ github.run_attempt }}
         path: |
           ${{ runner.temp }}/lane/${{ inputs.id }}/
-          ${{ runner.temp }}/coverage/${{ inputs.id }}/${{ inputs.id }}.lcov
-          ${{ runner.temp }}/coverage/${{ inputs.id }}/${{ inputs.id }}.objects.json
+          ${{ inputs.coverage == 'llvm' && format('{0}/coverage/{1}/{1}.lcov', runner.temp, inputs.id) || '' }}
+          ${{ inputs.coverage == 'llvm' && format('{0}/coverage/{1}/{1}.objects.json', runner.temp, inputs.id) || '' }}
         if-no-files-found: warn
         retention-days: 7
