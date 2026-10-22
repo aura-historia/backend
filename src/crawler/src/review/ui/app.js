@@ -711,11 +711,12 @@ function renderPlausibilitySummary(matrix) {
     const perPage = failingPages.map(page =>
         `${escapeHtml(displayName(page.role))} (${pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join(', ')})`
     ).join('; ');
+    const pagePlural = failingPages.length === 1 ? '' : 's';
     return `<div class="plausibility-summary">
       <strong>Plausibility</strong>
       <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
       ${failingPages.length
-        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${failingPages.length === 1 ? '' : 's'}: ${perPage}</div>`
+        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}: ${perPage}</div>`
         : '<div class="muted">Selected schema passed them on every live page.</div>'}
     </div>`;
 }
@@ -793,12 +794,13 @@ function renderCurrentExtractedData(matrix) {
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
     const findings = pageFindings(page);
+    const checkPlural = findings.length === 1 ? '' : 's';
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
     // reviewer sees the failing check next to the field it concerns.
     return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${findings.length === 1 ? '' : 's'}</span>` : ''}</td>
+        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
         <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}</td>
       </tr>
     </tbody></table></div>`;
