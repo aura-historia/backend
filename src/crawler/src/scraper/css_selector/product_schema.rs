@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::rule::{
-    ExtractionError, ExtractionRule, split_image_candidate_group,
+    ExtractionError, ExtractionRule, RuleExtraction, split_image_candidate_group,
 };
 
 use listing_source_core::ListingSourceId;
@@ -173,13 +173,13 @@ impl ProductCssSelectorSchema {
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
-    ) -> Result<Vec<String>, ExtractionError> {
+    ) -> Result<RuleExtraction, ExtractionError> {
         match self.images.apply_image_url_candidate_groups(html) {
             Ok(images) => Ok(images),
             Err(ExtractionError::NoElementMatched { .. })
                 if image_rule_has_existing_empty_container(&self.images, html) =>
             {
-                Ok(Vec::new())
+                Ok(RuleExtraction::default())
             }
             Err(err) => Err(err),
         }
@@ -195,9 +195,11 @@ impl ProductCssSelectorSchema {
     /// price, debug or trace otherwise) instead of a page error: one page without
     /// a description must not invalidate the schema. Only `title` and `state` fail
     /// closed on a miss; `images` fails closed unless the image container exists and
-    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). Any other rule
-    /// failure (invalid selector, missing attribute) still returns the corresponding
-    /// [`ApplySchemaError`] variant immediately.
+    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). `images` skips
+    /// gallery elements without an image URL candidate and fails only when it skips
+    /// every element it matched. Any other rule failure (invalid selector, missing
+    /// attribute) still returns the corresponding [`ApplySchemaError`] variant
+    /// immediately.
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
@@ -268,7 +270,8 @@ impl ProductCssSelectorSchema {
 
         let images = self
             .apply_image_url_candidate_groups(html)
-            .map_err(ApplySchemaError::Images)?;
+            .map_err(ApplySchemaError::Images)?
+            .values;
         let images = images
             .into_iter()
             .map(|image| {
@@ -446,7 +449,8 @@ mod tests {
         ApplySchemaError, ProductCssSelectorSchema,
     };
     use crate::scraper::css_selector::rule::{
-        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule, HtmlAttributeName,
+        CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
+        HtmlAttributeName,
     };
 
     // -------------------------------------------------------------------------
@@ -1340,6 +1344,43 @@ mod tests {
         assert!(
             matches!(err, ApplySchemaError::Images(_)),
             "unexpected variant: {err}"
+        );
+    }
+
+    /// Only an `image_url` images rule skips gallery elements without a value (#2099). An
+    /// attribute images rule names the attribute it needs, so one element without it still
+    /// fails the page while the other elements carry it.
+    #[test]
+    fn should_return_err_images_when_one_gallery_img_lacks_attribute_of_attribute_rule() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div class="gallery">
+                    <img src="a.jpg"><img alt="no-src"><img src="c.jpg">
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            source_listing_id: Some(text_rule("#product-id")),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("#state"),
+            images: attr_rule_all("div.gallery img", "src"),
+            raw_attributes: Default::default(),
+        };
+
+        let err = schema.apply(&html).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                ApplySchemaError::Images(ExtractionError::MissingAttribute { attribute, .. })
+                    if attribute == "src"
+            ),
+            "unexpected error: {err}"
         );
     }
 

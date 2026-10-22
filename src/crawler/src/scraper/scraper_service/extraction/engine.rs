@@ -16,7 +16,8 @@ pub(crate) fn apply_schema_to_document(
     let mut raw = schema.apply(html)?;
     raw.images = schema
         .apply_image_url_candidate_groups(html)
-        .map_err(ApplySchemaError::Images)?;
+        .map_err(ApplySchemaError::Images)?
+        .values;
     Ok(raw)
 }
 

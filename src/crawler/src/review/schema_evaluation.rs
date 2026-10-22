@@ -252,9 +252,9 @@ fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
     page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
-    let document = Html::parse_document(page.raw_html);
-    let apply_result = apply_schema_to_document(schema, &document);
-    let fields = evaluate_schema_fields(schema, &document);
+    let html = Html::parse_document(page.raw_html);
+    let apply_result = apply_schema_to_document(schema, &html);
+    let fields = evaluate_schema_fields(schema, &html);
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
@@ -294,20 +294,25 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 
 fn evaluate_schema_fields(
     schema: &ProductCssSelectorSchema,
-    document: &Html,
+    html: &Html,
 ) -> Vec<SelectorFieldEvaluation> {
-    let mut fields = Vec::new();
-    let mut push = |field: &str, rule: &ExtractionRule, required: bool, match_count: MatchCount| {
-        fields.push(evaluate_rule(field, rule, document, required, match_count));
+    let evaluate = |field: &str, rule: &ExtractionRule, required: bool, match_count: MatchCount| {
+        evaluate_rule(field, rule, html, required, match_count)
     };
+    let mut fields = Vec::new();
     // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
     // fail the page on a miss.
     if let Some(rule) = &schema.source_listing_id {
-        push("source_listing_id", rule, false, MatchCount::Elements);
+        fields.push(evaluate(
+            "source_listing_id",
+            rule,
+            false,
+            MatchCount::Elements,
+        ));
     }
-    push("title", &schema.title, true, MatchCount::Elements);
+    fields.push(evaluate("title", &schema.title, true, MatchCount::Elements));
     if let Some(rule) = &schema.description {
-        push("description", rule, false, MatchCount::Elements);
+        fields.push(evaluate("description", rule, false, MatchCount::Elements));
     }
     let price_rules = [
         ("price", &schema.price),
@@ -316,21 +321,39 @@ fn evaluate_schema_fields(
     ];
     for (field, rule) in price_rules {
         if let Some(rule) = rule {
-            push(field, rule, false, MatchCount::of_price_rule(rule));
+            fields.push(evaluate(
+                field,
+                rule,
+                false,
+                MatchCount::of_price_rule(rule),
+            ));
         }
     }
-    push("state", &schema.state, true, MatchCount::Elements);
-    push("images", &schema.images, false, MatchCount::Elements);
+    fields.push(evaluate("state", &schema.state, true, MatchCount::Elements));
+    fields.push(evaluate_images_rule(schema, html));
     for (field, rule) in &schema.raw_attributes {
-        push(field, rule, false, MatchCount::Elements);
+        fields.push(evaluate(field, rule, false, MatchCount::Elements));
     }
     fields
+}
+
+/// Evaluates the `images` rule as runtime extraction applies it, with the count of
+/// matched elements it skipped for having no image URL candidate. A failed images
+/// rule fails the page, whose error the page evaluation already carries.
+fn evaluate_images_rule(schema: &ProductCssSelectorSchema, html: &Html) -> SelectorFieldEvaluation {
+    SelectorFieldEvaluation {
+        skipped_element_count: schema
+            .apply_image_url_candidate_groups(html)
+            .ok()
+            .map(|images| images.skipped_elements),
+        ..evaluate_rule("images", &schema.images, html, false, MatchCount::Elements)
+    }
 }
 
 fn evaluate_rule(
     field: &str,
     rule: &ExtractionRule,
-    document: &Html,
+    html: &Html,
     required: bool,
     match_count: MatchCount,
 ) -> SelectorFieldEvaluation {
@@ -346,16 +369,16 @@ fn evaluate_rule(
                 additional_selector_match_counts: Vec::new(),
                 error: Some(error),
                 required,
+                skipped_element_count: None,
             };
         }
     };
-    let selector_match_count = Some(match_count.of(document, &parsed));
+    let selector_match_count = Some(match_count.of(html, &parsed));
     let additional_selector_match_counts = rule
         .additional_selectors
         .iter()
         .map(|additional| {
-            Selector::parse(additional.as_ref())
-                .map_or(0, |parsed| match_count.of(document, &parsed))
+            Selector::parse(additional.as_ref()).map_or(0, |parsed| match_count.of(html, &parsed))
         })
         .collect();
 
@@ -366,6 +389,7 @@ fn evaluate_rule(
         additional_selector_match_counts,
         error: None,
         required,
+        skipped_element_count: None,
     }
 }
 
@@ -1178,6 +1202,81 @@ mod tests {
                 "/images/primary.jpg\u{1f}/images/fallback-800x600.jpg".to_string(),
             ])
         );
+    }
+
+    /// The `images` field reports how many matched gallery elements the rule skipped
+    /// for having no image URL candidate.
+    mod skipped_image_elements {
+        use super::*;
+
+        fn gallery_schema() -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("#gallery a"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::ImageUrl,
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            }
+        }
+
+        fn gallery_page(anchors: &str) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: "https://example.com/product".to_string(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: format!(
+                    "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><div id=\"gallery\">{anchors}</div></body></html>"
+                ),
+            }
+        }
+
+        fn field<'a>(page: &'a SchemaPageEvaluation, name: &str) -> &'a SelectorFieldEvaluation {
+            page.fields
+                .iter()
+                .find(|field| field.field == name)
+                .unwrap_or_else(|| panic!("{name} field must be in the matrix"))
+        }
+
+        #[test]
+        fn should_cover_page_and_count_anchors_without_image_url_candidate() {
+            let pages = vec![gallery_page(
+                "<a href=\"/images/1.jpg\"></a><a href=\"/images/2.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a><a href=\"#\"></a>",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(page.apply_ok);
+            assert_eq!(
+                page.extracted.as_ref().map(|raw| raw.images.clone()),
+                Some(vec![
+                    "/images/1.jpg".to_string(),
+                    "/images/2.jpg".to_string()
+                ])
+            );
+            let images = field(page, "images");
+            assert_eq!(images.selector_match_count, Some(5));
+            assert_eq!(images.skipped_element_count, Some(3));
+            assert_eq!(field(page, "title").skipped_element_count, None);
+        }
+
+        #[test]
+        fn should_fail_page_without_a_count_when_every_anchor_lacks_an_image_url_candidate() {
+            let pages = vec![gallery_page("<a href=\"#\"></a><a href=\"#\"></a>")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(!page.apply_ok);
+            assert_eq!(
+                page.error.as_deref(),
+                Some(
+                    "failed to extract `images`: element matched by `#gallery a` does not have attribute `image URL candidate`"
+                )
+            );
+            assert_eq!(field(page, "images").skipped_element_count, None);
+        }
     }
 
     #[test]
