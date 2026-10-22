@@ -6,6 +6,8 @@ The scraper fetches active and sold product URLs, detects verified removed-page 
 
 Raw extraction remains source evidence. The crawler keeps raw strings, ordered image candidate groups, duplicates, relative values, rejected candidates, and configured raw attributes. It stores a validated, canonical image projection separately for generic raw values. Extracted values must never invent auction identity, lot data, or attribution.
 
+A text rule captures the visible text of each matched element, trimmed at both ends with its internal whitespace kept ([`visible_text.rs`](../../src/crawler/src/scraper/css_selector/rule/visible_text.rs)). A `<br>` or a block element boundary starts a new line, and table cells are separated by a space, wherever markup whitespace does not already separate the text on either side, so `Top Hat<br>Pen` does not become `Top HatPen`; inline elements such as `span`, `a` or `sup` add nothing, so `£<span>2,800</span>` stays one value. `source_listing_id` joins its text as written instead, so a captured identity does not change with how its text is laid out.
+
 A matching page hash and effective schema-set fingerprint can skip extraction. Otherwise the crawler hashes its generic raw-input envelope. Equal input refreshes crawler scrape metadata without creating a new operational capture.
 
 The crawler does not normalize extracted values. Price parsing, currency, availability and language belong to the [ProductListing normalization worker](../events/flow.md#productlisting-write-flow), which reports what it cannot normalize. Generic raw values keep every supplied price, state and text value as extracted.

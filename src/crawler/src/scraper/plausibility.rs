@@ -363,9 +363,11 @@ fn has_only_zero_digits(value: &str) -> bool {
 /// Whether an extracted value still carries CSS rules or script source, as a selector
 /// produces when it targets a container holding an inline `<style>` or `<script>` block.
 ///
-/// Description prose is checked too, and text extraction joins text nodes without
-/// separators, so each pattern needs script syntax around its keyword: prose may say
-/// "a dual function (desk and table)" or end a line with "window." before `<br>`.
+/// Description prose is checked too, so each pattern needs script syntax around its
+/// keyword: prose says "a dual function (desk and table)" or ends a sentence with
+/// "window.". Text extraction starts a new line after it at `<br>` and block boundaries,
+/// but inline markup (`window.<b>Height</b>`) or a missing space still runs the next
+/// word into it.
 pub(crate) fn contains_markup_tokens(value: &str) -> bool {
     contains_css_declaration_block(value)
         || contains_function_source(value)
@@ -404,8 +406,8 @@ fn contains_function_source(value: &str) -> bool {
 
 /// `token` followed by a member name and then by script syntax (`.`, `(`, `[`, `;` or
 /// an assignment), as in `window.dataLayer.push` or `document.cookie;`. Prose ends a
-/// sentence there instead: `stained glass window. Circa 1880`, or `window.Height 40 cm`
-/// where a `<br>` separated the lines.
+/// sentence there instead: `stained glass window. Circa 1880`, `window.` and a new line,
+/// or `window.Height 40 cm` where inline markup or a missing space joined the words.
 fn contains_member_access(value: &str, token: &str) -> bool {
     value.match_indices(token).any(|(index, _)| {
         let rest = &value[index + token.len()..];
@@ -496,15 +498,15 @@ mod tests {
             assert!(PlausibilityFindings::of(&raw).is_empty());
         }
 
-        /// Text extraction joins text nodes without separators, so a `<br>` or a
-        /// minified paragraph break leaves `window.Height`; prose also says
-        /// "function (". Neither is script source.
+        /// Text extraction starts a new line after "window." or "document." at a `<br>`
+        /// or a paragraph break, while inline markup or a missing space leaves
+        /// `window.Dimensions`; prose also says "function (". None of it is script source.
         #[test]
         fn should_accept_description_prose_that_mentions_window_document_or_function() {
             let mut raw = plausible();
             raw.description = vec![
-                "Leaded glass from a bay window.Height 40 cm".to_owned(),
-                "Sold with the original purchase document.Provenance: private collection"
+                "Leaded glass from a bay window.\nHeight 40 cm".to_owned(),
+                "Sold with the original purchase document.\nProvenance: private collection"
                     .to_owned(),
                 "Serves a dual function (library steps and chair). Original glass {rare}"
                     .to_owned(),

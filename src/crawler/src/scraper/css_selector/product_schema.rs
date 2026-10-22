@@ -204,12 +204,16 @@ impl ProductCssSelectorSchema {
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
     /// (`description`, `images`) all results are kept as a `Vec<String>`.
+    ///
+    /// Text separates lines at `<br>` and block boundaries, except in
+    /// `source_listing_id`, which joins its text as written so a captured identity stays
+    /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
             Some(rule) => tolerate_optional_miss(
                 "source_listing_id",
-                rule.apply(html),
+                rule.apply_as_identity(html),
                 OptionalMissLog::Debug,
             )
             .map_err(ApplySchemaError::SourceListingId)?
@@ -1004,6 +1008,29 @@ mod tests {
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.source_listing_id, "");
+    }
+
+    /// An identity element whose text a `<br>` and a block child split, as a label such
+    /// as "Ref:<br>11614" renders on a product page.
+    mod identity_text_across_line_breaks {
+        use super::*;
+
+        const PAGE: &str = r#"<html><body><div id="product-id">Ref:<br>11614<p>A</p></div><h1>Pair of Windsor Chairs<br>English, c.1830</h1><span id="state">Available</span><img src="/a.jpg"></body></html>"#;
+
+        #[test]
+        fn should_join_the_identity_as_written_while_other_text_fields_separate_lines() {
+            let (html, schema) = minimal_schema(PAGE);
+            let schema = ProductCssSelectorSchema {
+                description: Some(text_rule_all("#product-id")),
+                ..schema
+            };
+
+            let result = schema.apply(&html).unwrap();
+
+            assert_eq!(result.source_listing_id, "Ref:11614A");
+            assert_eq!(result.description, vec!["Ref:\n11614\nA"]);
+            assert_eq!(result.title, "Pair of Windsor Chairs\nEnglish, c.1830");
+        }
     }
 
     // -------------------------------------------------------------------------

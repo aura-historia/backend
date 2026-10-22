@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use visible_text::visible_text;
+use visible_text::{TextBoundaries, visible_text};
 
 mod visible_text;
 
@@ -160,11 +160,24 @@ impl ExtractionRule {
     /// - **`All` cardinality**: takes all matched elements per selector. An image
     ///   rule skips elements without an image URL candidate (see [`RuleExtraction`]).
     ///
+    /// Text extraction separates lines at `<br>` and block boundaries, and table cells
+    /// with a space, wherever markup whitespace does not already separate them.
+    ///
     /// Returns `Err(NoElementMatched)` only when *no* selector produced any
     /// usable value, and `Err(MissingAttribute)` instead when an image rule skipped
     /// every element it matched.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html).map(|extraction| extraction.values)
+        self.extract(html, TextBoundaries::Separate)
+            .map(|extraction| extraction.values)
+    }
+
+    /// Applies this rule like [`Self::apply`], except that text joins its nodes as written
+    /// instead of separating lines at `<br>` and block boundaries. A captured listing
+    /// identity must not change with how text is laid out: a changed identity captures the
+    /// product again as a new listing.
+    pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
+        self.extract(html, TextBoundaries::Ignore)
+            .map(|extraction| extraction.values)
     }
 
     /// Applies this rule with cardinality `all`, whatever its configured cardinality,
@@ -175,10 +188,14 @@ impl ExtractionRule {
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut all_images_rule = self.clone();
         all_images_rule.cardinality = ExtractionCardinality::All;
-        all_images_rule.extract(html)
+        all_images_rule.extract(html, TextBoundaries::Separate)
     }
 
-    fn extract(&self, html: &Html) -> Result<RuleExtraction, ExtractionError> {
+    fn extract(
+        &self,
+        html: &Html,
+        boundaries: TextBoundaries,
+    ) -> Result<RuleExtraction, ExtractionError> {
         let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
 
         let mut extraction = RuleExtraction::default();
@@ -190,13 +207,19 @@ impl ExtractionRule {
 
             match self.cardinality {
                 ExtractionCardinality::First => {
-                    extraction
-                        .values
-                        .extend(self.first_value(elements, css_selector)?);
+                    extraction.values.extend(self.first_value(
+                        elements,
+                        css_selector,
+                        boundaries,
+                    )?);
                 }
                 ExtractionCardinality::All => {
-                    let skipped =
-                        self.push_every_value(elements, css_selector, &mut extraction.values)?;
+                    let skipped = self.push_every_value(
+                        elements,
+                        css_selector,
+                        boundaries,
+                        &mut extraction.values,
+                    )?;
                     if skipped > 0 {
                         first_skipping_selector.get_or_insert(css_selector);
                     }
@@ -223,12 +246,15 @@ impl ExtractionRule {
         &self,
         mut elements: scraper::html::Select<'_, '_>,
         css_selector: &CssSelector,
+        boundaries: TextBoundaries,
     ) -> Result<Option<String>, ExtractionError> {
         match &self.extract {
-            ExtractionKind::Text => extract_first_non_empty_text(elements, css_selector),
+            ExtractionKind::Text => {
+                extract_first_non_empty_text(elements, css_selector, boundaries)
+            }
             kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => elements
                 .next()
-                .map(|element| extract_from_element(&element, kind, css_selector))
+                .map(|element| extract_from_element(&element, kind, css_selector, boundaries))
                 .transpose(),
         }
     }
@@ -239,6 +265,7 @@ impl ExtractionRule {
         &self,
         elements: scraper::html::Select<'_, '_>,
         css_selector: &CssSelector,
+        boundaries: TextBoundaries,
         values: &mut Vec<String>,
     ) -> Result<usize, ExtractionError> {
         let mut skipped = 0;
@@ -249,7 +276,12 @@ impl ExtractionRule {
                     None => skipped += 1,
                 },
                 kind @ (ExtractionKind::Text | ExtractionKind::Attribute { .. }) => {
-                    values.push(extract_from_element(&element, kind, css_selector)?);
+                    values.push(extract_from_element(
+                        &element,
+                        kind,
+                        css_selector,
+                        boundaries,
+                    )?);
                 }
             }
         }
@@ -267,9 +299,11 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
 fn extract_first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
     selector_str: &str,
+    boundaries: TextBoundaries,
 ) -> Result<Option<String>, ExtractionError> {
     for element in elements {
-        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str)?;
+        let value =
+            extract_from_element(&element, &ExtractionKind::Text, selector_str, boundaries)?;
         if !value.is_empty() {
             return Ok(Some(value));
         }
@@ -282,9 +316,10 @@ fn extract_from_element(
     element: &scraper::ElementRef<'_>,
     kind: &ExtractionKind,
     selector_str: &str,
+    boundaries: TextBoundaries,
 ) -> Result<String, ExtractionError> {
     match kind {
-        ExtractionKind::Text => Ok(visible_text(element).trim().to_owned()),
+        ExtractionKind::Text => Ok(visible_text(element, boundaries).trim().to_owned()),
         ExtractionKind::Attribute { name } => {
             let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
                 ExtractionError::MissingAttribute {
