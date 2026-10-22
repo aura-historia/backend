@@ -1,3 +1,4 @@
+// CI source invalidation proxy: api.
 use super::{
     types::{
         AdminPartnershipApplicationData, DecidePartnershipApplicationData,
