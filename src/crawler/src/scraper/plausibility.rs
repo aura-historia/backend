@@ -7,6 +7,7 @@
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product_listing_core::source_listing_id::SourceListingId;
+use regex::regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -393,16 +394,12 @@ fn contains_css_declaration_block(value: &str) -> bool {
 /// `function`, an optional name and a parameter list followed by a body, as in
 /// `function(){` or `function track(event) {`; prose such as "its original function
 /// (as a desk)" has no body brace after the parentheses.
+///
+/// The regex engine matches in linear time, so page text that repeats
+/// `functionfunction…` cannot hold the scraper the way a name scan from every
+/// occurrence would.
 fn contains_function_source(value: &str) -> bool {
-    value.match_indices("function").any(|(index, keyword)| {
-        let rest = skip_identifier(value[index + keyword.len()..].trim_start()).trim_start();
-        let Some(parameters) = rest.strip_prefix('(') else {
-            return false;
-        };
-        parameters
-            .split_once(')')
-            .is_some_and(|(_, body)| body.trim_start().starts_with('{'))
-    })
+    regex!(r"function\s*(?:[A-Za-z_$][A-Za-z0-9_$]*)?\s*\([^)]*\)\s*\{").is_match(value)
 }
 
 /// `token` followed by a member name and then by script syntax (`.`, `(`, `[`, `;` or
@@ -599,6 +596,8 @@ mod tests {
                 "window.Shopify.theme",
                 "document.getElementById('price')",
                 "document.cookie;",
+                "var track = function\n(event)\n{ send(event) }",
+                "async function $load_2 ( ) {}",
             ] {
                 let mut raw = plausible();
                 raw.description = vec![format!("Walnut veneer. {script}")];
@@ -609,6 +608,24 @@ mod tests {
                     "{script}"
                 );
             }
+        }
+
+        /// Scanning a function name from every `function` occurrence takes minutes on
+        /// this text; the check must stay linear in the length of the page's text.
+        #[test]
+        fn should_check_a_description_that_repeats_function_in_linear_time() {
+            let repeated = "function".repeat(32 * 1024);
+            let mut raw = plausible();
+            raw.description = vec![repeated.clone()];
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+
+            raw.description = vec![format!("{repeated} track(event) {{ send(event) }}")];
+
+            assert_eq!(
+                PlausibilityFindings::of(&raw).as_slice(),
+                [finding(Description, MarkupTokens)]
+            );
         }
 
         #[test]
