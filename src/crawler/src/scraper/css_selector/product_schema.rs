@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::rule::{
-    ExtractionError, ExtractionRule, split_image_candidate_group,
+    ExtractionError, ExtractionRule, RuleExtraction, split_image_candidate_group,
 };
 
 use listing_source_core::ListingSourceId;
@@ -173,13 +173,13 @@ impl ProductCssSelectorSchema {
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
-    ) -> Result<Vec<String>, ExtractionError> {
+    ) -> Result<RuleExtraction, ExtractionError> {
         match self.images.apply_image_url_candidate_groups(html) {
             Ok(images) => Ok(images),
             Err(ExtractionError::NoElementMatched { .. })
                 if image_rule_has_existing_empty_container(&self.images, html) =>
             {
-                Ok(Vec::new())
+                Ok(RuleExtraction::default())
             }
             Err(err) => Err(err),
         }
@@ -195,9 +195,11 @@ impl ProductCssSelectorSchema {
     /// price, debug or trace otherwise) instead of a page error: one page without
     /// a description must not invalidate the schema. Only `title` and `state` fail
     /// closed on a miss; `images` fails closed unless the image container exists and
-    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). Any other rule
-    /// failure (invalid selector, missing attribute) still returns the corresponding
-    /// [`ApplySchemaError`] variant immediately.
+    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). `images` skips
+    /// gallery elements without an image URL candidate and fails only when it skips
+    /// every element it matched. Any other rule failure (invalid selector, missing
+    /// attribute) still returns the corresponding [`ApplySchemaError`] variant
+    /// immediately.
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
@@ -268,7 +270,8 @@ impl ProductCssSelectorSchema {
 
         let images = self
             .apply_image_url_candidate_groups(html)
-            .map_err(ApplySchemaError::Images)?;
+            .map_err(ApplySchemaError::Images)?
+            .values;
         let images = images
             .into_iter()
             .map(|image| {

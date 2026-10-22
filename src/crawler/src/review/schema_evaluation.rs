@@ -314,11 +314,24 @@ fn evaluate_schema_fields(
         fields.push(evaluate_rule("price_estimate_max", rule, html, false));
     }
     fields.push(evaluate_rule("state", &schema.state, html, true));
-    fields.push(evaluate_rule("images", &schema.images, html, false));
+    fields.push(evaluate_images_rule(schema, html));
     for (field, rule) in &schema.raw_attributes {
         fields.push(evaluate_rule(field, rule, html, false));
     }
     fields
+}
+
+/// Evaluates the `images` rule as runtime extraction applies it, with the count of
+/// matched elements it skipped for having no image URL candidate. A failed images
+/// rule fails the page, whose error the page evaluation already carries.
+fn evaluate_images_rule(schema: &ProductCssSelectorSchema, html: &Html) -> SelectorFieldEvaluation {
+    SelectorFieldEvaluation {
+        skipped_element_count: schema
+            .apply_image_url_candidate_groups(html)
+            .ok()
+            .map(|images| images.skipped_elements),
+        ..evaluate_rule("images", &schema.images, html, false)
+    }
 }
 
 fn evaluate_rule(
@@ -339,6 +352,7 @@ fn evaluate_rule(
                 additional_selector_match_counts: Vec::new(),
                 error: Some(error),
                 required,
+                skipped_element_count: None,
             };
         }
     };
@@ -358,6 +372,7 @@ fn evaluate_rule(
         additional_selector_match_counts,
         error: None,
         required,
+        skipped_element_count: None,
     }
 }
 
@@ -989,6 +1004,81 @@ mod tests {
                 "/images/primary.jpg\u{1f}/images/fallback-800x600.jpg".to_string(),
             ])
         );
+    }
+
+    /// The `images` field reports how many matched gallery elements the rule skipped
+    /// for having no image URL candidate.
+    mod skipped_image_elements {
+        use super::*;
+
+        fn gallery_schema() -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("#gallery a"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::ImageUrl,
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            }
+        }
+
+        fn gallery_page(anchors: &str) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: "https://example.com/product".to_string(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: format!(
+                    "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><div id=\"gallery\">{anchors}</div></body></html>"
+                ),
+            }
+        }
+
+        fn field<'a>(page: &'a SchemaPageEvaluation, name: &str) -> &'a SelectorFieldEvaluation {
+            page.fields
+                .iter()
+                .find(|field| field.field == name)
+                .unwrap_or_else(|| panic!("{name} field must be in the matrix"))
+        }
+
+        #[test]
+        fn should_cover_page_and_count_anchors_without_image_url_candidate() {
+            let pages = vec![gallery_page(
+                "<a href=\"/images/1.jpg\"></a><a href=\"/images/2.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a><a href=\"#\"></a>",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(page.apply_ok);
+            assert_eq!(
+                page.extracted.as_ref().map(|raw| raw.images.clone()),
+                Some(vec![
+                    "/images/1.jpg".to_string(),
+                    "/images/2.jpg".to_string()
+                ])
+            );
+            let images = field(page, "images");
+            assert_eq!(images.selector_match_count, Some(5));
+            assert_eq!(images.skipped_element_count, Some(3));
+            assert_eq!(field(page, "title").skipped_element_count, None);
+        }
+
+        #[test]
+        fn should_fail_page_without_a_count_when_every_anchor_lacks_an_image_url_candidate() {
+            let pages = vec![gallery_page("<a href=\"#\"></a><a href=\"#\"></a>")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(!page.apply_ok);
+            assert_eq!(
+                page.error.as_deref(),
+                Some(
+                    "failed to extract `images`: element matched by `#gallery a` does not have attribute `image URL candidate`"
+                )
+            );
+            assert_eq!(field(page, "images").skipped_element_count, None);
+        }
     }
 
     #[test]
