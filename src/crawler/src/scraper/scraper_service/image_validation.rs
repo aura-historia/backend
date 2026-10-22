@@ -58,10 +58,12 @@ impl ImageValidator for ReqwestImageValidator {
             return cached;
         }
 
-        let validation = match ImageUrlHint::of(url) {
+        let hint = ImageUrlHint::of(url);
+        let validation = match hint {
             ImageUrlHint::Dimensions(validation) => validation,
-            ImageUrlHint::ThumbnailName => ImageValidation::Invalid,
-            ImageUrlHint::NoHint => probe_image_dimensions(url).await,
+            ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => {
+                hint.settle(probe_image_dimensions(url).await)
+            }
         };
 
         self.cache
@@ -126,7 +128,8 @@ enum ImageUrlHint {
     /// Query `w`/`h` or `width`/`height`, or path dimensions such as
     /// `-300x200.`, give the image's size.
     Dimensions(ImageValidation),
-    /// The URL gives no size and names a thumbnail.
+    /// The URL gives no size and names a thumbnail. Shops also name full-size
+    /// uploads this way, so only a probe that reads the size decides.
     ThumbnailName,
     /// The URL gives no size and no other hint.
     NoHint,
@@ -139,7 +142,7 @@ impl ImageUrlHint {
         {
             return Self::Dimensions(validation_for_dimensions(width, height));
         }
-        if names_thumbnail(url.as_str()) {
+        if names_thumbnail(url) {
             return Self::ThumbnailName;
         }
         Self::NoHint
@@ -148,17 +151,27 @@ impl ImageUrlHint {
     /// Combines the hint with a validator or probe result. The hint can only
     /// reject an image, never accept one the validator rejected.
     fn settle(self, validation: ImageValidation) -> ImageValidation {
-        match self {
-            Self::Dimensions(ImageValidation::Invalid) | Self::ThumbnailName => {
-                ImageValidation::Invalid
-            }
-            Self::Dimensions(_) | Self::NoHint => validation,
+        match (self, validation) {
+            (Self::Dimensions(ImageValidation::Invalid), _) => ImageValidation::Invalid,
+            // An image of unknown size is normally kept, but a thumbnail-named
+            // one may really be a thumbnail. Rejecting it lets a later
+            // candidate of the same group take its place.
+            (Self::ThumbnailName, ImageValidation::Unknown) => ImageValidation::Invalid,
+            (_, validation) => validation,
         }
     }
 }
 
-pub(crate) fn names_thumbnail(url_text: &str) -> bool {
-    url_text.to_ascii_lowercase().contains("thumb")
+/// Whether a URL names a thumbnail and its own text, without a probe, cannot
+/// show that it is full size. Validation rejects such an image when its probe
+/// cannot read the size.
+pub(crate) fn is_unconfirmed_thumbnail(url: &Url) -> bool {
+    names_thumbnail(url)
+        && ImageUrlHint::of(url).settle(ImageValidation::Unknown) == ImageValidation::Invalid
+}
+
+fn names_thumbnail(url: &Url) -> bool {
+    url.as_str().to_ascii_lowercase().contains("thumb")
 }
 
 fn validation_for_dimensions(width: usize, height: usize) -> ImageValidation {
@@ -447,5 +460,79 @@ mod tests {
         .await;
 
         assert_eq!(result, vec!["https://example.com/image-800x600.jpg"]);
+    }
+
+    /// A shop's full-size 768x768 upload whose file name starts with `thumbnail_`.
+    const THUMBNAIL_NAMED_UPLOAD: &str =
+        "https://example.com/wp-content/uploads/2018/02/thumbnail_IMG_5849_org_l.jpg?fit=768%2C768";
+
+    #[tokio::test]
+    async fn should_keep_thumbnail_named_upload_when_its_probe_reads_a_full_size() {
+        let base = Url::parse("https://example.com/product/wall-light").unwrap();
+        let result = filter_valid_image_urls(
+            vec![THUMBNAIL_NAMED_UPLOAD.to_string()],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Valid,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            ImageUrlHint::of(&Url::parse(THUMBNAIL_NAMED_UPLOAD).unwrap()),
+            ImageUrlHint::ThumbnailName,
+            "the URL text leaves the decision to the probe"
+        );
+        assert_eq!(result, vec![THUMBNAIL_NAMED_UPLOAD]);
+    }
+
+    #[tokio::test]
+    async fn should_fall_back_from_thumbnail_named_candidate_when_its_probe_cannot_read_the_size() {
+        let base = Url::parse("https://example.com/product/wall-light").unwrap();
+        let unknown_size = StaticValidator {
+            validation: ImageValidation::Unknown,
+        };
+
+        let with_fallback = filter_valid_image_urls(
+            vec![format!(
+                "{THUMBNAIL_NAMED_UPLOAD}{IMAGE_CANDIDATE_SEPARATOR}/images/wall-light.jpg"
+            )],
+            &base,
+            &unknown_size,
+        )
+        .await;
+        let alone = filter_valid_image_urls(
+            vec![THUMBNAIL_NAMED_UPLOAD.to_string()],
+            &base,
+            &unknown_size,
+        )
+        .await;
+
+        assert_eq!(
+            with_fallback,
+            vec!["https://example.com/images/wall-light.jpg"]
+        );
+        assert!(alone.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_still_reject_resize_query_with_a_small_height() {
+        let resized =
+            "https://example.com/Object/636610351541085812.jpg?width=1000&height=150&mode=max";
+        let base = Url::parse("https://example.com/objects/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec![resized.to_string()],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Valid,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            ImageUrlHint::of(&Url::parse(resized).unwrap()),
+            ImageUrlHint::Dimensions(ImageValidation::Invalid)
+        );
+        assert!(result.is_empty());
     }
 }
