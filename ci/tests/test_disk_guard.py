@@ -42,6 +42,20 @@ class BoundedDiskGuard(unittest.TestCase):
             self.assertIsNone(record['sizes_kib']['profiles'])
             self.assertNotIn('docker', record['sizes_kib'])
 
+    def test_without_profiles_guards_the_target_and_preserves_child_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            log = root/'disk.jsonl'
+            result = subprocess.run([sys.executable, str(CI/'guard-disk.py'), '--target', temporary,
+                '--log', str(log), '--minimum-bytes', '1', '--', sys.executable, '-c', 'raise SystemExit(37)'],
+                capture_output=True)
+            self.assertEqual(result.returncode, 37, result.stderr)
+            records = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertTrue(records)
+            for record in records:
+                self.assertEqual(set(record['free_by_path']), {'workspace', 'target'})
+                self.assertEqual(set(record['sizes_kib']), {'target'})
+
     def test_low_space_cancels_without_waiting_for_expensive_observations(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

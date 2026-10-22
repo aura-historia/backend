@@ -2,9 +2,17 @@
 
 [`integrate.yml`](../.github/workflows/integrate.yml) runs independent API, crawler,
 integration and remaining test jobs, plus workspace lint. Every relevant pull
-request and `develop` push runs all lanes. The final Sonar job requires every test
-job and lint to succeed, validates the exact lane coverage artifacts, and waits for
-the existing Sonar quality gate. No affected-package selector precedes tests.
+request and `develop` push runs all lanes. The final quality job requires every
+test job and lint to succeed. No affected-package selector precedes tests.
+
+The current comparison candidate sets `coverage: none` on all four jobs. It keeps
+the full test and lint scope while omitting LLVM instrumentation, capture, export
+and Sonar analysis. This is an experiment pending a significant measured gain,
+not an established performance result or adoption decision. Each job resets its
+separate `target/no-coverage` directory and skips cache restore and save, so the
+first sample has a cold Cargo target. Whole-job comparisons therefore include the
+saved cache-write time as well as coverage and Sonar costs. The action defaults to
+`coverage: llvm`; instrumented legacy/layout controls retain their existing gates.
 
 ## Inventory and parity contract
 
@@ -35,7 +43,7 @@ as review evidence. Empty lanes and duplicated or foreign target identities fail
 instead of producing empty Cargo arguments that could select the root package.
 The manifest's target annotations remain source-classification evidence; the
 package projection owns execution. The runner family is explicit; each job retains
-its own Cargo target directory and coverage cache, separated from lint.
+its own Cargo target directory, separated from lint and instrumented caches.
 
 [`run-test-lane.py`](../ci/run-test-lane.py) is the shared sequential lane driver.
 It accepts repeated `--lane` selections
@@ -57,10 +65,15 @@ feature union through dependency-qualified features without executing fixture te
 targets in a second lane. Package-local and lane-selected feature graphs and case
 sets must be compared when changing this configuration.
 
-[`test-lane`](../.github/actions/test-lane/action.yml) configures coverage before
-cache restoration and installs checksum-verified, pinned Nextest. Coverage jobs use
-a dated nightly and its bundled LLVM tools; lint, compatibility and release builds
-keep the stable repository toolchain.
+[`test-lane`](../.github/actions/test-lane/action.yml) validates `coverage: llvm|none`
+before execution and installs checksum-verified, pinned Nextest. Both modes use
+the same dated nightly, bundled LLVM tools, dev/test debug level one and existing
+build/test concurrency. The `none` mode clears coverage flags, encoded flag
+overrides and profile/capture variables, and selects normal rustdoc. The driver
+keeps its ownership checks, compiled case lists, actual doctests, exceptional
+phases and JUnit without collecting coverage metadata. Lint and release builds
+keep the stable repository toolchain. The following export contracts apply to
+LLVM-enabled jobs.
 The job supervisor owns service cleanup, including cancellation; no job prunes
 shared Docker resources. Failure retains test/compile diagnostics and any coverage
 produced without allowing a failed lane to pass the final gate.
@@ -70,13 +83,15 @@ replaces the stable required coverage artifact only; the final
 gate still requires each lane's current result to succeed.
 Each lane's `job.json` records the actual checkout SHA/tree, workflow SHA/ref,
 CPU, memory, runner image/version and configured cache suffix/exact-hit result.
+It also records the coverage mode, target path, encoded flags, whether cache
+restoration was attempted and whether the target was reset for the experiment.
 Resolved/fallback cache keys remain in the cache action log. Missing metadata is
 reported as null; a runner label alone does not prove identical hardware.
 After execution, `fixture-images.json` records available fixture image IDs and
 repository digests through bounded, best-effort inspection of the reviewed
 references; unavailable identities are null and policy/read failures retain a
 diagnostic before the execution artifact uploads.
-Instrumented supervisor builds and tests both use debug level one, avoiding a
+Supervisor builds and tests both use debug level one, avoiding a
 second dependency build caused only by different dev/test debug settings.
 Native lanes, legacy controls and layout measurements set the lazy PostgreSQL
 fixture override to the managed supervisor's immutable image before execution
@@ -156,9 +171,9 @@ end or region kind fails. Zero branch outcomes remain zero, and summaries are re
 entries. Ambiguous branch locations and invalid source lines fail export.
 [`merge-coverage.py`](../ci/merge-coverage.py) requires the exact nonempty, valid
 lane reports before emitting one deterministic source record per file. Missing
-lanes, failed tests or invalid coverage fail mandatory CI before the existing
+lanes, failed tests or invalid coverage fail LLVM-enabled controls before their
 Sonar gate. Historical reports had no branch records, so they provide no numeric
-branch baseline. Required lanes, the legacy scheduling control and layout
+branch baseline. LLVM-enabled lanes, the legacy scheduling control and layout
 diagnostics use the same pinned nightly coverage configuration. Historical stable/
 grcov measurements retain their original source/configuration and cannot establish
 equivalence with this instrumentation. The original package baseline collector
@@ -248,8 +263,9 @@ resources before creation and delayed workers with their real stop/join operatio
 Start with the failed lane's attempt-scoped `tests-*-execution-attempt-*` artifact
 for `job.json`, `discovery/compile.log`, case lists, phase/JUnit logs and disk samples.
 The final `tests-*-attempt-*` artifact adds available LCOV and its object manifest.
-Check required export errors before optional diagnostics; the final gate still
-requires successful tests and every exact coverage artifact.
+For LLVM-enabled controls, check required export errors before optional diagnostics;
+their gates also require every exact coverage artifact. The ordinary no-coverage
+experiment retains test diagnostics and requires successful lint and all test lanes.
 
 To inspect a concrete mismatch on a local managed lane, retain its original raw
 profiles, objects and build metadata, then rerun the exporter from the same checkout

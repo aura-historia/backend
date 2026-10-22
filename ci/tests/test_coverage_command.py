@@ -93,7 +93,7 @@ if not os.environ.get('FIXTURE_EMPTY'):
                 previous_report = namespace / (lane + '.lcov')
                 previous_report.write_text('previous report')
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], env=dict(self.environment,
-                    LANE_ID=lane, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT=attempt,
+                    LANE_ID=lane, COVERAGE_MODE='llvm', GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT=attempt,
                     GITHUB_ENV=str(destination), RUNNER_TEMP=str(temporary), GITHUB_WORKSPACE=str(self.root)),
                     text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)

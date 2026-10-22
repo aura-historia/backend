@@ -55,6 +55,14 @@ class LaneMeasurementCommands(unittest.TestCase):
                          [call(["rustc", "-vV"], self.root, environment), call(["cargo", "--version"], self.root, environment)])
         self.assertEqual(record["build_environment"]["RUSTUP_TOOLCHAIN"], "nightly-2026-10-20")
 
+    def test_uninstrumented_provenance_retains_cleared_encoded_flags_and_capture_environment(self):
+        environment = dict.fromkeys(('RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTFLAGS',
+            'CARGO_ENCODED_RUSTDOCFLAGS', 'AURA_CI_RUSTDOC', 'LLVM_PROFILE_FILE', 'AURA_CI_COVERAGE_DIR'), '')
+        environment.update(CARGO_TARGET_DIR='/target/no-coverage', RUSTDOC='rustdoc')
+        with patch.object(execution, 'optional_command', return_value='selected-toolchain'):
+            record = execution.environment_metadata(self.root, environment)
+        self.assertEqual({key: record['build_environment'][key] for key in environment}, environment)
+
     def test_no_service_lane_omits_supervisor_compilation(self):
         self.args.lane, self.args.profile = ["REMAINING"], "none"
         self.assertEqual([name for name, _ in BENCHMARK.commands(self.args, self.root, self.target, self.output)],

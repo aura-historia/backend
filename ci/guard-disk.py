@@ -39,7 +39,10 @@ def memory_kib():
 
 class DiskGuard:
     def __init__(self, root, target, profiles, log, minimum):
-        self.root, self.paths, self.log, self.minimum = root, {'target': target, 'profiles': profiles}, log, minimum
+        self.root, self.log, self.minimum = root, log, minimum
+        self.paths = {'target': target}
+        if profiles is not None:
+            self.paths['profiles'] = profiles
         self.last_print = self.last_sizes = -float('inf')
         self.sizes, self.docker, self.low, self.command = dict.fromkeys(self.paths), None, False, None
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +89,7 @@ class DiskGuard:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', type=pathlib.Path, required=True)
-    parser.add_argument('--profiles', type=pathlib.Path, required=True)
+    parser.add_argument('--profiles', type=pathlib.Path, help='Optional coverage profile directory')
     parser.add_argument('--log', type=pathlib.Path, required=True)
     parser.add_argument('--minimum-bytes', type=int, default=3 * 1024 ** 3)
     parser.add_argument('command', nargs=argparse.REMAINDER)
