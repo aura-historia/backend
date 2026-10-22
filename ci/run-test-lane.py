@@ -64,6 +64,7 @@ def discover_lane(args, root):
             "--all-targets", "--message-format", "json"]
     if os.environ.get("AURA_CI_COVERAGE_DIR"):
         argv.extend(["--cargo-message-format", "json-render-diagnostics"])
+        (args.output / "compile.jsonl").unlink(missing_ok=True)
     print(f"test lane discovery: {shlex.join(argv)}", flush=True)
     with (args.output / "compile.log").open("w") as log:
         process = subprocess.run(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=log)

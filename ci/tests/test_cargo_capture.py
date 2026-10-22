@@ -6,6 +6,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from ci_inventory.coverage import execute_cargo, record_artifacts
@@ -43,20 +44,53 @@ class CargoCoverageCapture(unittest.TestCase):
             root = pathlib.Path(temporary)
             for raw in ('', '{}\n', '{"reason":"compiler-artifact"}\n',
                         '{"reason":"build-finished","success":true}\n',
-                        '{"reason":"compiler-artifact"}\n{"reason":"build-finished","success":false}\n'):
+                        '{"reason":"compiler-artifact"}\n{"reason":"build-finished","success":false}\n',
+                        b'{"reason":"compiler-artifact","package_id":"\xff"}\n{"reason":"build-finished","success":true}\n'):
+                destination = root / "phase.jsonl"
+                destination.write_text('stale successful capture')
                 with self.subTest(raw=raw), self.assertRaises(ValueError):
-                    record_artifacts(raw, root / "phase.jsonl", root / "objects")
+                    record_artifacts(raw, destination, root / "objects")
+                self.assertFalse(destination.exists())
+
+    def test_arbitrary_test_stdout_preserves_raw_bytes_after_the_cargo_prefix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            destination = root / "phase.jsonl"
+            prefix = b'{"reason":"compiler-artifact"}\n{"reason":"build-finished","success":true}\n'
+            raw = prefix + b'test stdout: \xff\n'
+            child = f"import sys; sys.stdout.buffer.write({raw!r})"
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                execute_cargo([sys.executable, '-c', child], root,
+                              dict(os.environ, AURA_CI_COVERAGE_DIR=str(root)), destination)
+            self.assertEqual(destination.with_suffix('.stdout.log').read_bytes(), raw)
+            self.assertEqual(destination.read_text(), ''.join(json.dumps(json.loads(line)) + '\n' for line in prefix.splitlines()))
+            self.assertIn('test stdout: \ufffd\n', output.getvalue())
+
+    def test_replay_failure_cannot_replace_the_original_child_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            destination = root / "phase.jsonl"
+            destination.write_text('stale successful capture')
+            with patch('ci_inventory.coverage.shutil.copyfileobj', side_effect=OSError('replay denied')), \
+                    contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit) as failure:
+                execute_cargo([sys.executable, '-c', "print('partial build'); raise SystemExit(37)"], root,
+                              dict(os.environ, AURA_CI_COVERAGE_DIR=str(root)), destination)
+            self.assertEqual(failure.exception.code, 37)
+            self.assertIn('could not replay Cargo stdout: replay denied', errors.getvalue())
+            self.assertEqual(destination.with_suffix('.stdout.log').read_bytes(), b'partial build\n')
+            self.assertFalse(destination.exists())
 
     def test_failed_child_retains_stdout_and_original_status_without_claiming_capture_success(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             destination = root / "phase.jsonl"
+            destination.write_text('stale successful capture')
             with contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as failure:
-                execute_cargo([sys.executable, '-c', "print('partial build'); raise SystemExit(37)"], root,
+                execute_cargo([sys.executable, '-c', "import sys; sys.stdout.buffer.write(b'partial build\\xff\\n'); raise SystemExit(37)"], root,
                               dict(os.environ, AURA_CI_COVERAGE_DIR=str(root)), destination)
             self.assertEqual(failure.exception.code, 37)
-            self.assertEqual(destination.with_suffix('.stdout.log').read_text(), 'partial build\n')
-            self.assertIn('partial build\n', output.getvalue())
+            self.assertEqual(destination.with_suffix('.stdout.log').read_bytes(), b'partial build\xff\n')
+            self.assertIn('partial build\ufffd\n', output.getvalue())
             self.assertFalse(destination.exists())
 
 

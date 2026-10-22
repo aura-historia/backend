@@ -180,6 +180,23 @@ class LaneDriverPhases(unittest.TestCase):
                           "doctest_targets": ['test-api::lib::test_api']}
         self.suites = {DRIVER.PRISTINE_TARGET: {}}
 
+    def test_failed_discovery_rerun_cannot_reuse_previous_cargo_metadata(self):
+        self.args.output.mkdir()
+        metadata = self.args.output / 'compile.jsonl'
+        metadata.write_text('stale successful capture')
+        self.args.manifest = pathlib.Path('test-lanes.json')
+        (self.root / self.args.manifest).write_text('{}')
+        result = types.SimpleNamespace(returncode=37, stdout='partial Cargo output')
+        with patch.object(DRIVER, 'command', return_value='{}'), \
+                patch.object(DRIVER, 'build_catalog', return_value=({'packages': []}, {})), \
+                patch.object(DRIVER, 'combined_selection', return_value=self.selection), \
+                patch.object(DRIVER.subprocess, 'run', return_value=result), \
+                patch.dict(os.environ, AURA_CI_COVERAGE_DIR=str(self.root / 'coverage')), \
+                self.assertRaisesRegex(RuntimeError, 'Nextest discovery failed \\(37\\)'):
+            DRIVER.discover_lane(self.args, self.root)
+        self.assertFalse(metadata.exists())
+        self.assertEqual((self.args.output / 'compile.stdout.log').read_text(), result.stdout)
+
     def test_expected_artifacts_include_every_compiling_phase_for_each_harness(self):
         self.args.output.mkdir()
         for harness in ('nextest', 'libtest'):

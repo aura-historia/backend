@@ -98,13 +98,18 @@ the supervisor), and Cargo-recorded repository proc-macro shared libraries.
 Every Cargo-backed execution phase records its own successful build metadata,
 including narrower exceptional selections and doctest dependency builds. The
 driver's `coverage-artifacts.json` lists every required phase stream; missing or
-incomplete streams fail export. Cargo-recorded non-test executables are copied
+incomplete streams fail export. A rerun invalidates its previous capture before
+compiling. Raw phase stdout bytes are retained and replayed after the command;
+invalid text is replaced only for console display. Stderr remains live, and
+stdout replay failures preserve an existing child failure or cancellation.
+Cargo-recorded non-test executables are copied
 before another phase can replace their stable paths. Metadata and the object
 manifest retain the original and captured paths and content hash; required export
 uses the copies. Identical executable bytes share one retained copy under the
 invocation's coverage directory, outside Cargo caches and ordinary artifact uploads.
 These copies add local disk usage; benchmark diagnostics retain them with the raw
-profiles for replay.
+profiles for replay. The free-space floor covers their filesystem; target/profile
+directory size samples exclude the copies.
 Nextest's `non-test-binaries` runtime/archive metadata can also list Rust metadata
 and archives as `dylib`; Cargo owns executable and proc-macro object selection.
 Rustdoc retains

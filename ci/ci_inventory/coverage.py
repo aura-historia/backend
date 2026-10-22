@@ -10,6 +10,7 @@ from .process import execute
 
 
 def record_artifacts(raw, destination, objects):
+    destination.unlink(missing_ok=True)
     messages = []
     for line in raw.splitlines():
         item = json.loads(line)
@@ -39,13 +40,23 @@ def record_artifacts(raw, destination, objects):
 
 def execute_cargo(argv, root, environment, destination, *, junit=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
     raw = destination.with_suffix(".stdout.log")
+    failed = False
     try:
-        with raw.open("w") as stream:
+        with raw.open("wb") as stream:
             execute(argv, root, environment, junit=junit, stdout=stream)
+    except BaseException:
+        failed = True
+        raise
     finally:
-        if raw.is_file():
-            with raw.open() as stream:
-                shutil.copyfileobj(stream, sys.stdout)
-            sys.stdout.flush()
-    record_artifacts(raw.read_text(), destination, pathlib.Path(environment["AURA_CI_COVERAGE_DIR"]) / "objects")
+        try:
+            if raw.is_file():
+                with raw.open(encoding="utf-8", errors="replace") as stream:
+                    shutil.copyfileobj(stream, sys.stdout)
+                sys.stdout.flush()
+        except (OSError, UnicodeError) as error:
+            if not failed:
+                raise
+            print(f"test lane: could not replay Cargo stdout: {error}", file=sys.stderr)
+    record_artifacts(raw.read_bytes(), destination, pathlib.Path(environment["AURA_CI_COVERAGE_DIR"]) / "objects")
