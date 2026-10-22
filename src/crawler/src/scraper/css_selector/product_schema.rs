@@ -449,7 +449,8 @@ mod tests {
         ApplySchemaError, ProductCssSelectorSchema,
     };
     use crate::scraper::css_selector::rule::{
-        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule, HtmlAttributeName,
+        CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
+        HtmlAttributeName,
     };
 
     // -------------------------------------------------------------------------
@@ -1343,6 +1344,43 @@ mod tests {
         assert!(
             matches!(err, ApplySchemaError::Images(_)),
             "unexpected variant: {err}"
+        );
+    }
+
+    /// Only an `image_url` images rule skips gallery elements without a value (#2099). An
+    /// attribute images rule names the attribute it needs, so one element without it still
+    /// fails the page while the other elements carry it.
+    #[test]
+    fn should_return_err_images_when_one_gallery_img_lacks_attribute_of_attribute_rule() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div class="gallery">
+                    <img src="a.jpg"><img alt="no-src"><img src="c.jpg">
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            source_listing_id: Some(text_rule("#product-id")),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("#state"),
+            images: attr_rule_all("div.gallery img", "src"),
+            raw_attributes: Default::default(),
+        };
+
+        let err = schema.apply(&html).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                ApplySchemaError::Images(ExtractionError::MissingAttribute { attribute, .. })
+                    if attribute == "src"
+            ),
+            "unexpected error: {err}"
         );
     }
 
