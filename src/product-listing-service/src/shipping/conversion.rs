@@ -107,7 +107,7 @@ impl<'a> ShippingConversion<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use fxrate_core::FxRateId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
@@ -125,7 +125,7 @@ mod tests {
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
 
-    fn snapshot() -> FxRateSnapshot {
+    pub(in crate::shipping) fn snapshot() -> FxRateSnapshot {
         NewFxRateSnapshot::capture_eur(
             FxRateId::new(),
             OffsetDateTime::UNIX_EPOCH,

@@ -157,7 +157,8 @@ fn advertised(effective: &EffectiveDeliveryTerms, currency: Currency) -> Adverti
         evaluated_at: OffsetDateTime::UNIX_EPOCH,
     }
 }
-/// Mirrors enrichment: the display covers the assessed zone, the preview its selected rate.
+/// Supplies what enrichment adds for either purpose: the assessed zone's display for details
+/// and the selected preview for collections.
 fn personalized(
     effective: &EffectiveDeliveryTerms,
     destination: GeographicDescription,

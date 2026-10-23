@@ -96,6 +96,7 @@ pub struct AdvertisedShipping {
     pub effective: EffectiveDeliveryTerms,
     /// Assessment without a destination or purchase inputs.
     pub assessment: ShippingAssessment,
+    /// Requested-currency values of every advertised rate; detail reads only.
     pub display: Option<ShippingDisplay>,
     /// Geographic provider retention deadline that caps shared caching; never serialized.
     pub geographic_valid_until: Option<OffsetDateTime>,
@@ -109,8 +110,10 @@ pub struct PersonalizedShipping {
     /// Minimal area facts only; never a street address, point or saved-address identity.
     pub destination: GeographicDescription,
     pub attribution: Option<DestinationAttribution>,
-    /// Requested-currency rates of the assessed zone's services.
+    /// Requested-currency values the read presents: the assessed zone's rates for details,
+    /// the previewed rate for collections.
     pub display: Option<ShippingDisplay>,
+    /// Collection reads only.
     pub price_preview: Option<ShippingPricePreview>,
 }
 
@@ -130,6 +133,15 @@ pub struct DestinationAttribution {
     pub attribution_url: String,
 }
 
+/// What a listing read presents, which bounds its conversion work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShippingReadPurpose {
+    /// A single listing: every advertised rate and the assessed zone's options.
+    Detail,
+    /// A collection item, including detail-shaped ones: at most one private price preview.
+    Collection,
+}
+
 /// Required by listing use cases; runtime composition supplies the current shipping service.
 #[derive(Clone)]
 pub struct ShippingEnrichment {
@@ -141,18 +153,46 @@ struct ShippingView {
     personalized: Option<PersonalizedShipping>,
 }
 impl ShippingView {
-    /// Adds requested-currency values and the private preview of the assessed zone.
-    fn convert(&mut self, conversion: &mut ShippingConversion) -> Result<(), FxRateSnapshotError> {
+    /// Adds the requested-currency values the read's purpose presents, and nothing else.
+    fn convert(
+        &mut self,
+        conversion: &mut ShippingConversion,
+        purpose: ShippingReadPurpose,
+    ) -> Result<(), FxRateSnapshotError> {
+        match purpose {
+            ShippingReadPurpose::Detail => self.convert_terms(conversion),
+            ShippingReadPurpose::Collection => self.convert_preview(conversion),
+        }
+    }
+    /// Converts every advertised rate; the private display covers the assessed zone's options.
+    fn convert_terms(
+        &mut self,
+        conversion: &mut ShippingConversion,
+    ) -> Result<(), FxRateSnapshotError> {
         let display = conversion.display(advertised_rates(&self.advertised.effective))?;
         if let Some(personalized) = &mut self.personalized {
             personalized.display = personalized
                 .assessment
                 .selected_zone
                 .map(|zone| display.zone(zone));
-            personalized.price_preview = preview::price_preview(&personalized.assessment)
-                .map(|selected| selected.with_display(personalized.display.as_ref()));
         }
         self.advertised.display = Some(display);
+        Ok(())
+    }
+    /// Selects the private preview and converts only its rate.
+    fn convert_preview(
+        &mut self,
+        conversion: &mut ShippingConversion,
+    ) -> Result<(), FxRateSnapshotError> {
+        let Some(personalized) = &mut self.personalized else {
+            return Ok(());
+        };
+        let Some(selected) = preview::price_preview(&personalized.assessment) else {
+            return Ok(());
+        };
+        let display = conversion.display([selected.rate()])?;
+        personalized.price_preview = Some(selected.with_display(Some(&display)));
+        personalized.display = Some(display);
         Ok(())
     }
 }
@@ -181,6 +221,7 @@ impl ShippingEnrichment {
         &self,
         context: &OperationContext,
         ids: Vec<ProductListingId>,
+        purpose: ShippingReadPurpose,
         currency: Currency,
         pinned_snapshot: Option<&FxRateSnapshot>,
         valuation_at: OffsetDateTime,
@@ -217,7 +258,7 @@ impl ShippingEnrichment {
             };
             let mut conversion = ShippingConversion::new(snapshot, currency);
             for view in shipping.values_mut() {
-                view.convert(&mut conversion)?;
+                view.convert(&mut conversion, purpose)?;
             }
         }
         Ok(shipping)
@@ -235,10 +276,13 @@ impl ShippingEnrichment {
             .ok_or(ShippingReadError::FxSnapshotMissing)
     }
 
+    /// Detail-shaped listings serve both single-listing reads and collections, so the caller
+    /// states the purpose its response presents.
     pub async fn details(
         &self,
         context: &OperationContext,
         items: &mut [ProductListingDetailsWithUserState],
+        purpose: ShippingReadPurpose,
         currency: Currency,
         snapshot: Option<&FxRateSnapshot>,
         valuation_at: OffsetDateTime,
@@ -247,6 +291,7 @@ impl ShippingEnrichment {
             .load(
                 context,
                 eligible_ids(items),
+                purpose,
                 currency,
                 snapshot,
                 valuation_at,
@@ -256,6 +301,7 @@ impl ShippingEnrichment {
         Ok(())
     }
 
+    /// Summaries appear only in collections.
     pub async fn summaries(
         &self,
         context: &OperationContext,
@@ -267,6 +313,7 @@ impl ShippingEnrichment {
             .load(
                 context,
                 eligible_ids(items),
+                ShippingReadPurpose::Collection,
                 currency,
                 Some(snapshot),
                 snapshot.captured_at(),
@@ -397,5 +444,182 @@ mod test_support {
                 items: vec![],
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo::{CountryCode, reference::ReferenceRelease};
+    use money::Price;
+    use shipping_core::{
+        assessment::assess,
+        coverage::{
+            CoverageCompleteness, DeliveryArea, ReferenceCountry, ShippingCoverage, ShippingZone,
+        },
+        inputs::{Applicability, AssessmentInput},
+        pricing::ShippingRate,
+        selection::{ListingDeliveryConfiguration, ProfileSelection},
+        terms::{
+            DeliveryTerms, ShippingEligibility, ShippingPolicy, ShippingService,
+            ShippingServiceTerms,
+        },
+    };
+
+    const RELEASE: ReferenceRelease = ReferenceRelease::IsoCodes4_20_1;
+
+    fn fixed(minor: u64, currency: Currency) -> ShippingPrice {
+        ShippingPrice::Fixed(Price::new(minor.into(), currency))
+    }
+    fn zone(country: &str, services: &[(&str, ShippingPrice)]) -> ShippingZone {
+        let services = services.iter().map(|(code, price)| {
+            ShippingService::new(
+                ShippingServiceCode::new((*code).to_owned()).unwrap(),
+                ShippingServiceTerms {
+                    eligibility: Some(ShippingEligibility::Offered),
+                    rate: Some(ShippingRate::new(
+                        *price,
+                        Some(ChargeBasis::PerItem),
+                        None,
+                        Default::default(),
+                    )),
+                    ..Default::default()
+                },
+            )
+        });
+        ShippingZone::new(
+            vec![DeliveryArea::Country(
+                ReferenceCountry::new(country, RELEASE).unwrap(),
+            )],
+            Applicability::default(),
+            services.collect(),
+        )
+        .unwrap()
+    }
+    /// A German destination's view of an unrelated French rate and two domestic rates.
+    fn view(unrelated: ShippingPrice) -> ShippingView {
+        let terms = DeliveryTerms::new(
+            Some(ShippingPolicy::coverage(
+                ShippingCoverage::new(
+                    RELEASE,
+                    CoverageCompleteness::Partial,
+                    Applicability::default(),
+                    vec![],
+                    vec![
+                        zone("FR", &[("UNRELATED", unrelated)]),
+                        zone(
+                            "DE",
+                            &[
+                                ("EXPRESS", fixed(2_500, Currency::Eur)),
+                                ("PARCEL", fixed(1_200, Currency::Eur)),
+                            ],
+                        ),
+                    ],
+                    None,
+                )
+                .unwrap(),
+            )),
+            None,
+        );
+        let configuration = ListingDeliveryConfiguration::new(
+            shipping_core::fixtures::gallery().source_id,
+            ProfileSelection::inline(terms),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let effective = EffectiveDeliveryTerms::resolve(&configuration, None, &[]);
+        let destination = GeographicDescription::new_in_release(
+            RELEASE,
+            None,
+            Some(CountryCode::DEU),
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let input = AssessmentInput {
+            destination: Some(destination.clone()),
+            ..Default::default()
+        };
+        ShippingView {
+            personalized: Some(PersonalizedShipping {
+                assessment: assess(&effective, &input, &[]),
+                destination,
+                attribution: None,
+                display: None,
+                price_preview: None,
+            }),
+            advertised: AdvertisedShipping {
+                assessment: assess(&effective, &AssessmentInput::default(), &[]),
+                effective,
+                display: None,
+                geographic_valid_until: None,
+                evaluated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+        }
+    }
+    fn convert(
+        view: &mut ShippingView,
+        purpose: ShippingReadPurpose,
+    ) -> Result<(), FxRateSnapshotError> {
+        let snapshot = conversion::tests::snapshot();
+        view.convert(
+            &mut ShippingConversion::new(&snapshot, Currency::Usd),
+            purpose,
+        )
+    }
+
+    #[test]
+    fn should_convert_only_the_previewed_rate_when_a_collection_presents_it() {
+        let overflowing = fixed(u64::MAX, Currency::Eur);
+        let mut view = view(overflowing);
+        convert(&mut view, ShippingReadPurpose::Collection).unwrap();
+        assert_eq!(None, view.advertised.display);
+        let personalized = view.personalized.unwrap();
+        let preview = personalized.price_preview.unwrap();
+        assert_eq!("PARCEL", preview.service.as_str());
+        assert_eq!(Some(fixed(1_320, Currency::Usd)), preview.display_price);
+        assert_eq!(
+            vec![ConvertedShippingRate {
+                zone_index: 1,
+                service_index: 1,
+                price: fixed(1_320, Currency::Usd),
+            }],
+            personalized.display.unwrap().rates
+        );
+        assert_eq!(
+            Err(FxRateSnapshotError::ConversionOverflow),
+            convert(&mut self::view(overflowing), ShippingReadPurpose::Detail),
+            "details convert, and fail on, every advertised rate"
+        );
+    }
+
+    #[test]
+    fn should_convert_every_advertised_rate_when_a_detail_presents_the_terms() {
+        let mut view = view(fixed(900, Currency::Eur));
+        convert(&mut view, ShippingReadPurpose::Detail).unwrap();
+        let converted = |zone_index, service_index, minor| ConvertedShippingRate {
+            zone_index,
+            service_index,
+            price: fixed(minor, Currency::Usd),
+        };
+        assert_eq!(
+            vec![
+                converted(0, 0, 990),
+                converted(1, 0, 2_750),
+                converted(1, 1, 1_320)
+            ],
+            view.advertised.display.unwrap().rates
+        );
+        let personalized = view.personalized.unwrap();
+        assert_eq!(
+            vec![converted(1, 0, 2_750), converted(1, 1, 1_320)],
+            personalized.display.unwrap().rates
+        );
+        assert_eq!(
+            None, personalized.price_preview,
+            "details present options instead"
+        );
     }
 }

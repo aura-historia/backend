@@ -1,5 +1,5 @@
 //! Selection of the single advertised rate a compact personalized read may preview.
-use super::{ShippingDisplay, ShippingPricePreview};
+use super::{ShippingDisplay, ShippingPricePreview, conversion::AdvertisedRate};
 use money::Price;
 use shipping_core::{
     assessment::{PredicateResult, ServiceAssessment, ShippingAssessment},
@@ -16,6 +16,13 @@ pub(super) struct SelectedPreview {
     price: ShippingPrice,
 }
 impl SelectedPreview {
+    pub(super) fn rate(&self) -> AdvertisedRate {
+        AdvertisedRate {
+            zone_index: self.zone_index,
+            service_index: self.service_index,
+            price: self.price,
+        }
+    }
     /// Attaches the requested-currency value the display holds for this rate.
     pub(super) fn with_display(self, display: Option<&ShippingDisplay>) -> ShippingPricePreview {
         ShippingPricePreview {

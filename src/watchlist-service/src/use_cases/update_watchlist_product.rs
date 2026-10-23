@@ -20,7 +20,7 @@ use product_listing_service::ports::{
     ProductListingDetailsReaderFactory, ProductListingLifecycleGuard,
     ProductListingLifecycleGuardError, ProductListingLifecycleGuardFactory,
 };
-use product_listing_service::shipping::ShippingEnrichment;
+use product_listing_service::shipping::{ShippingEnrichment, ShippingReadPurpose};
 use product_listing_service::use_cases::{
     GetProductListingError, PersonalizedProductListingDetailsView, ProductListingLookup,
     present_product_details, redact_hidden_product,
@@ -225,6 +225,7 @@ where
             .details(
                 context,
                 std::slice::from_mut(&mut product),
+                ShippingReadPurpose::Detail,
                 command.currency,
                 current_pricing.then_some(&snapshot),
                 valuation_at,

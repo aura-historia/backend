@@ -166,6 +166,7 @@ where
             .details(
                 context,
                 &mut items,
+                crate::shipping::ShippingReadPurpose::Collection,
                 request.currency,
                 current_snapshot.as_ref(),
                 valuation_at,

@@ -226,7 +226,9 @@ Detail terms keep advertised source prices. A rate whose amount is in another cu
 exponents and HalfUp rounding. Free, on-request and externally calculated prices have no
 amount to convert. Each shipping object containing a converted value carries one `display`
 valuation (`currency`, `fxRateId`, `capturedAt`); same-currency reads carry none. A preview
-uses the requested-currency value with the same valuation. Private assessed charges remain
+uses the requested-currency value with the same valuation. Reads convert only what they
+present: details every advertised rate, collections at most the previewed rate, so
+conversion failures concern presented values only. Private assessed charges remain
 source values. Conversion supplies neither applicability nor purchase inputs, a binding quote
 or a landed-cost total.
 

@@ -264,6 +264,7 @@ where
             .details(
                 context,
                 &mut product_listings,
+                product_listing_service::shipping::ShippingReadPurpose::Collection,
                 request.currency,
                 pricing_snapshots.current.as_ref(),
                 valuation_at,
