@@ -45,12 +45,15 @@ staging API; it is not a stage named `stage`. Application stacks are composed in
 | --- | --- |
 | `network` | Private workload/database networking and outbound access |
 | `data` | PostgreSQL, CDC transport, durable queues, scoped worker policies and dev CDC alarms |
-| `initialize` | Private migrator and FX functions; deployment does not invoke them |
-| `compute` | Application/worker Lambdas, Cognito, eventing and scheduled work |
+| `identity` | Durable Cognito pool/client/domain/providers and SES configuration |
+| `initialize` | Protected bootstrap, read-only inspector and initial FX functions |
+| `migrate` | Candidate forward migrator; routine deployment publishes it before invocation |
+| `compute` | Application/worker Lambdas, eventing and scheduled work |
 | `api` | REST and MCP HTTP APIs, regional domains, CloudFront and WAF |
 | `observability` | Production alarms and alarm topic |
 
-Network precedes data and initialize; compute precedes API and prod observability.
+Network/data/identity/initialize are protected platform boundaries; routine order is
+migrate, reviewed SQL, compute, API and prod observability.
 The standalone container-repository setup stack is outside normal releases.
 OpenSearch host administration, external DNS, provider dashboards and native-worker
 process/identity deployment are externally owned; CDK does not reconcile them.
@@ -135,8 +138,10 @@ weaken hard restrictions or authorize maintenance.
 Target approval attests the exact report and any completed manual prerequisite.
 OpenSearch commands run locally on the named host under the
 [OpenSearch contract](opensearch-stage.md#release-and-schema-change-contract).
-Provide sanitized mapping/alias observations as the dispatch `manual_evidence`
-JSON `{"observations":[{"prerequisiteId":"…","mapping":{},"aliases":{}}]}`.
+Provide a fresh sanitized before-state through dispatch `manual_evidence` as
+`{"beforeObservation":{"target":"prod","targetHost":"…","index":"…","alias":"…","mapping":{},"aliases":{},"observedAt":"…"}}`
+when private read access is unavailable. Also provide expected after observations as
+`manual_evidence` JSON `{"observations":[{"prerequisiteId":"…","mapping":{},"aliases":{}}]}`.
 If observations become available while approval waits, an approved operator can
 publish the immutable `reports/manual/<request-id>.json` observation object to the
 delivery bucket with conditional creation. The protected target job binds those
@@ -173,7 +178,8 @@ Before enabling normal requests:
    Import/move retained resources through reviewed CloudFormation operations; do
    not deploy the new stack layout blindly over a live deployment.
 2. Protect `develop`. Configure required CI checks as described in [CI](ci.md).
-   Configure `aws-release-build`, `aws-dev` (if enabled), and `aws-prod` with required
+   Configure `aws-release-build`, `aws-dev` (if enabled), `aws-prod`, and each enabled
+   `aws-<target>-maintenance` with required
    reviewers, protected-branch deployment policy, and administrator bypass disabled.
    The owner chooses whether self-approval is allowed. Verify these in GitHub's UI
    and API, then set `DELIVERY_PROTECTIONS_VERIFIED=true`; helpers also reject missing
@@ -189,8 +195,13 @@ Before enabling normal requests:
    are disabled. Admission rejects bootstrap/default executions without authorization.
    Application bundles cannot update the control plane or its permissions boundaries.
 5. Use the outputs from [delivery-stack.ts](../infra/src/delivery-stack.ts) for the
-   repository variables below. Keep control-source version, trusted workflow revision,
-   build configuration and target files aligned; changing them is platform work.
+   repository variables below. Pin `DELIVERY_WORKFLOW_REVISION` to the approved control commit for helper
+   checkouts and test evidence; actual invocation HEAD is recorded separately.
+   Trusted helpers compare control-sensitive paths to that pin and reject changed
+   workflow entries/helpers until the owner updates the approved control plane.
+   App-only commits can advance develop without changing this pin. The protected
+   develop entry YAML grants no authority by itself. Keep control-source version,
+   pinned workflow revision, build configuration and target files aligned; changing them is platform work.
    Configure a strong review model explicitly, qualified read-only inspector and
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
@@ -206,6 +217,7 @@ Before enabling normal requests:
 | `AWS_ACCOUNT_ID`, `AWS_REGION` | Explicit approved workload account; `eu-central-1` |
 | `DELIVERY_BUCKET` | `DeliveryBucket` |
 | `DELIVERY_CONTROL_VERSION` | Approved immutable control ZIP version |
+| `DELIVERY_WORKFLOW_REVISION` | Approved full control-source commit, independent of candidate source |
 | `DELIVERY_READER_ROLE_ARN` | `BundleReaderRoleArn` |
 | `DELIVERY_BUILD_PIPELINE` | `BuildPipelineName` |
 | `DELIVERY_BUILD_REQUESTER_ROLE_ARN` | `BuildRequesterRoleArn` |
@@ -233,6 +245,34 @@ Cognito's fixed trigger deadline. Hold if timing or fail-closed behavior is
 unverified. User-pool/schema/client replacement needs an explicit identity and
 callback migration; never silently replace a production pool.
 
+### Existing-stack ownership transition
+
+The final split is not a direct safe update of deployed stacks. A separately approved
+maintenance plan must freeze both writers, inspect native settlement and retain the
+source templates, physical identities, exports/consumers and resource histories.
+Prepare ownership-only refactor/import templates that preserve all existing resource
+properties and identities. Keep existing exports until consumers switch. Validate
+CloudFormation support and import/refactor change sets before execution; a normal
+update that deletes the moved source resources is not the transition procedure.
+
+| Existing owner | New owner | Preserve |
+| --- | --- | --- |
+| compute Cognito/SES | identity | Pool/client/domain/providers and email configuration identities |
+| compute scheduler DLQs/router archive | data | Existing queue/bucket physical names, backlog and archived failure custody |
+| initialize routine migration Lambda | migrate | Existing `database-migration-lambda-<stage>` function identity |
+
+After ownership is verified, review the inspector secret/private endpoint permissions,
+new release-bucket endpoint access, separate bootstrap/inspection functions, artifact
+parameters and permissions boundaries. IAM path changes replace roles: retain old roles
+**and their inline policies** while any retained Lambda version still uses them. Cut over
+stable aliases and drain old versions before retiring policies. DMS/Kinesis/RDS,
+replication slots and worker queue identities/settings must remain unchanged.
+
+A fresh environment creates protected identity with `AttachIdentityTriggers=false`,
+then compute creates stable pre/post trigger aliases, then separately approved identity
+sets `AttachIdentityTriggers=true`. Do not detach or replace an existing pool to perform
+this sequence. No existing-stack ownership transition is implied by a successful synth.
+
 ### Immutable artifacts and build evidence
 
 The retained delivery bucket owns shared content-addressed bytes, versioned
@@ -245,13 +285,15 @@ both environments. Per-target assemblies may differ while application bytes rema
 identical. CDK file assets are published and referenced by exact key/version before
 assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 
-One on-demand shared build group is the initial configuration, not a measured
-performance claim. Real CodeBuild executions export duration, build ID and artifact
-sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
+One on-demand shared build group and the initial compute size are provisional,
+not a measured performance/capacity claim. Before enabling paid release builds,
+an explicitly approved benchmark must record cold/warm duration, peak memory,
+cache behavior and final native billed compute minutes; adjust compute if needed. Real CodeBuild executions export observed duration/compute minutes, per-container
+cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
 minutes and cache behavior. Benchmark cold/warm builds through the protected build
 approval before changing group count or compute size. There is no reserved build
-fleet, build VPC or automatic source-triggered paid work. Pipeline scratch artifacts
-and build cache have bounded retention; completed bundles and recovery evidence are
+fleet, build VPC or automatic source-triggered paid work. Pipeline scratch artifacts have bounded retention; local shared target data lasts
+for its build worker only; completed bundles and recovery evidence are
 retained. Configure the delivery budget and confirm notification subscriptions.
 
 ### Optional dev and idle costs
@@ -289,7 +331,7 @@ calls are not exactly once. Function success alone does not prove workload readi
 Never run duplicate consumers or purge/rename queues to simplify handoff.
 
 [Maintenance](../.github/workflows/maintenance.yml) is a protected, narrow manual
-entry for status, explicit exclusion, reviewed DMS pause/resume and reconciliation.
+entry for status, explicit baseline adoption/exclusion, reviewed DMS pause/resume and reconciliation.
 It does not execute arbitrary SQL, shell commands or stack updates. It uses the same
 non-expiring environment record as routine delivery. A maintenance pause needs fresh
 WAL/storage headroom and monitoring evidence; persist exact task/slot/checkpoint
@@ -297,6 +339,24 @@ identity and intent before mutation. Resume only the owned normal stop using
 `resume-processing`; never invent a new start LSN or automatically clear an overdue
 pause. Follow the [worker recovery procedure](durable-worker-runbook.md) for native
 custody and capture changes.
+
+Dispatch `status` first to obtain the current state digest. Mutations require an
+`evidence` JSON object with that `expectedStateDigest` and a reviewed `reason`.
+`enter` acquires maintenance exclusion and records the actual capture baseline;
+`pause` additionally requires fresh `wal` evidence (`observedAt`, `retainedBytes`,
+`freeBytes`, `maxPauseSeconds`, `monitoringUri`). `resume` reads the exact retained
+pause record. Retries reconcile retained intent/results and never issue a blind
+second stop/start. `reconcile` additionally requires `migrationInvocationSettled:true`
+and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
+intended DMS/capture state plus health are checked before clearing the hold.
+
+For the first baseline only, `adopt` takes `bundleDigest` and `reason`. Deploy the
+reviewed bootstrap/platform templates and exact bundle through the separately
+approved platform procedure first. Adoption checks actual stack templates and
+artifact/source parameters, Lambda ZIP and serving alias bytes, immutable container
+digests, complete migration checksums, reconstructed schema and native settlement.
+It publishes a held record before verification; failure retains that hold and cannot
+label an asserted baseline verified. It cannot overwrite an existing verified baseline.
 
 Failed native operations require fresh actual schema plus settled CloudFormation,
 CodeBuild, CodeDeploy and pipeline evidence before reconciliation. A manually owned
