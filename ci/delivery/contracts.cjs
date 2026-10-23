@@ -103,7 +103,7 @@ function validateReport(report) {
   shape('report', report);
   if (report.prerequisiteDigest !== digest(report.manualPrerequisites)) fail('report', 'manual prerequisite digest mismatch');
   unique(report.manualPrerequisites.map(prerequisite => prerequisite.id), 'report.manualPrerequisites');
-  if (report.verdict === 'ROUTINE' && (report.uncertainties.length || !report.baseline.bundleDigest || !report.baseline.sourceSha)) fail('report', 'uncertain/unknown baseline cannot be routine');
+  if (report.verdict === 'ROUTINE' && (report.uncertainties.length || Object.values(report.compatibility).some(value => value !== true) || !report.baseline.bundleDigest || !report.baseline.sourceSha)) fail('report', 'uncertain/unknown baseline cannot be routine');
   return report;
 }
 function validateEnvironmentState(state) {

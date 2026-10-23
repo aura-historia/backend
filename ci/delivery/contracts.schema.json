@@ -530,7 +530,10 @@
         "uncertainties",
         "manualPrerequisites",
         "prerequisiteDigest",
-        "createdAt"
+        "createdAt",
+        "findings",
+        "compatibility",
+        "reviewEvidenceDigest"
       ],
       "properties": {
         "version": {
@@ -692,6 +695,68 @@
         },
         "createdAt": {
           "$ref": "#/$defs/time"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "path",
+              "detail"
+            ],
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/text"
+              },
+              "path": {
+                "$ref": "#/$defs/text"
+              },
+              "detail": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "required": [
+            "oldNew",
+            "queuedMessages",
+            "sql",
+            "search"
+          ],
+          "properties": {
+            "oldNew": {
+              "enum": [
+                true,
+                false
+              ]
+            },
+            "queuedMessages": {
+              "enum": [
+                true,
+                false
+              ]
+            },
+            "sql": {
+              "enum": [
+                true,
+                false
+              ]
+            },
+            "search": {
+              "enum": [
+                true,
+                false
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "reviewEvidenceDigest": {
+          "$ref": "#/$defs/sha256"
         }
       },
       "additionalProperties": false
