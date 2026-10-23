@@ -352,3 +352,83 @@ fn should_encode_the_same_terms_with_adapter_owned_public_and_persisted_referenc
             .is_err()
     );
 }
+
+#[test]
+fn should_require_nullable_geography_and_position_assertions_in_terms_schemas() {
+    let source = ListingSourceId::new();
+    let mut terms = terms::encode(&gallery_terms(8000)).unwrap();
+    terms["collection"]["site"] = json!({
+        "kind":"ASSERTED",
+        "geography":{
+            "reference_release":"iso-codes-4.20.1",
+            "address_text":null,
+            "country":"DE",
+            "subdivision":null,
+            "postal_code":null
+        },
+        "position":{
+            "point":{"latitude_degrees":52.5,"longitude_degrees":13.4},
+            "precision":"PREMISES",
+            "accuracy_metres":null
+        }
+    });
+    assert_terms(terms.clone());
+    let input = json!({
+        "creationKey":"asserted-site",
+        "content":{"name":"Asserted site","attributedPartyId":null,"terms":terms},
+        "evidence":[]
+    });
+    let command = serde_json::from_value::<CreateData>(input.clone())
+        .unwrap()
+        .into_command(source)
+        .unwrap();
+    let output = profile_output(source, command.content.terms);
+    let input_schema = validator::<CreateData>(false);
+    let output_schema = validator::<ProfileData>(true);
+    for (assertion, fields) in [
+        (
+            "geography",
+            &[
+                "reference_release",
+                "address_text",
+                "country",
+                "subdivision",
+                "postal_code",
+            ][..],
+        ),
+        ("position", &["point", "precision", "accuracy_metres"][..]),
+    ] {
+        for field in fields {
+            let path = format!("/content/terms/collection/site/{assertion}");
+            let mut invalid_input = input.clone();
+            invalid_input
+                .pointer_mut(&path)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(*field);
+            assert!(
+                serde_json::from_value::<CreateData>(invalid_input.clone())
+                    .unwrap()
+                    .into_command(source)
+                    .is_err(),
+                "codec accepted missing {assertion}/{field}"
+            );
+            assert!(
+                !input_schema.is_valid(&invalid_input),
+                "input schema accepted missing {assertion}/{field}"
+            );
+            let mut invalid_output = output.clone();
+            invalid_output
+                .pointer_mut(&path)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(*field);
+            assert!(
+                !output_schema.is_valid(&invalid_output),
+                "output schema accepted missing {assertion}/{field}"
+            );
+        }
+    }
+}

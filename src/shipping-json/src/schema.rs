@@ -46,7 +46,7 @@ pub(super) fn subdivision(_: &mut SchemaGenerator) -> Schema {
 }
 pub(super) fn geography(generator: &mut SchemaGenerator) -> Schema {
     optional(
-        json_schema!({"type":"object","additionalProperties":false,"required":["reference_release"],"properties":{
+        json_schema!({"type":"object","additionalProperties":false,"required":["reference_release","address_text","country","subdivision","postal_code"],"properties":{
             "reference_release":release(generator),
             "address_text":{"type":["string","null"]},
             "country":optional(country(generator)),
@@ -58,7 +58,7 @@ pub(super) fn geography(generator: &mut SchemaGenerator) -> Schema {
 pub(super) fn position(_: &mut SchemaGenerator) -> Schema {
     use geo::SpatialPrecision;
     optional(
-        json_schema!({"type":"object","additionalProperties":false,"required":["point","precision"],"properties":{
+        json_schema!({"type":"object","additionalProperties":false,"required":["point","precision","accuracy_metres"],"properties":{
             "point":{"type":"object","additionalProperties":false,"required":["latitude_degrees","longitude_degrees"],"properties":{
                 "latitude_degrees":{"type":"number","minimum":-90,"maximum":90},
                 "longitude_degrees":{"type":"number","minimum":-180,"maximum":180}
