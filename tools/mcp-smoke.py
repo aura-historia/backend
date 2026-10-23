@@ -131,6 +131,23 @@ class Smoke:
                 "wrong fixed-client authentication")
         require("registration_endpoint" not in metadata, "unexpected registration claim")
 
+    def catalogue(self, label, version=CURRENT):
+        tools, cursors, params = [], set(), {}
+        page_bound = (len(manifest_operations()) + 49) // 50
+        for page in range(page_bound):
+            _, result = self.rpc(f"{label} page {page + 1}", "tools/list", params, version=version)
+            items = result.get("tools")
+            require(isinstance(items, list) and len(items) <= 50, "invalid catalogue page")
+            tools.extend(items)
+            cursor = result.get("nextCursor")
+            if cursor is None:
+                return verify_catalogue({"tools": tools})
+            require(isinstance(cursor, str) and bool(cursor) and cursor not in cursors,
+                    "invalid catalogue continuation")
+            cursors.add(cursor)
+            params = {"cursor": cursor}
+        raise SmokeFailure("catalogue continuation exceeds this release's page bound")
+
     def verify_protocols(self):
         for path in ("/health", "/ready"):
             for method in ("GET", "HEAD"):
@@ -138,8 +155,7 @@ class Smoke:
         _, discovered = self.rpc("current discovery", "server/discover", {})
         require(discovered.get("supportedVersions") == [CURRENT, *LEGACY],
                 "current discovery drops supported revisions")
-        _, listed = self.rpc("anonymous catalogue", "tools/list", {})
-        self.tools = verify_catalogue(listed)
+        self.tools = self.catalogue("anonymous catalogue")
         _, result = self.rpc("anonymous public operation", "tools/call",
                              {"name": "getPublicOverview", "arguments": {}})
         verify_tool_result("public overview", result, self.tools["getPublicOverview"]["outputSchema"])
@@ -152,8 +168,7 @@ class Smoke:
                     "unexpected negotiated revision")
             self.rpc(f"initialized {version}", "notifications/initialized", {}, 202,
                      version=version, notification=True)
-            _, legacy = self.rpc(f"catalogue {version}", "tools/list", {}, version=version)
-            require(verify_catalogue(legacy) == self.tools, "legacy catalogue differs")
+            require(self.catalogue(f"catalogue {version}", version) == self.tools, "legacy catalogue differs")
 
     def verify_http_boundary(self):
         challenge, _ = self.rpc("protected missing bearer", "tools/call",
@@ -246,7 +261,7 @@ def evidence_headers(headers):
 def manifest_operations():
     directory = pathlib.Path(__file__).resolve().parents[1] / "src/aura-historia-mcp"
     operations = {}
-    for filename in ("public-operations.json", "authenticated-operations.json"):
+    for filename in ("public-operations.json", "authenticated-operations.json", "partner-operations.json"):
         manifest = json.loads((directory / filename).read_text())
         for operation in manifest["operations"]:
             require(operation["name"] == operation["operationId"], "manifest operation ID mismatch")

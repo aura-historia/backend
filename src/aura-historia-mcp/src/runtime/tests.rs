@@ -12,7 +12,15 @@ fn should_register_the_complete_production_catalogue() {
         ])
         .env_clear()
         .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
-        .env("STAGE", "ephemeral");
+        .env("STAGE", "ephemeral")
+        .env(
+            "PRODUCT_LISTING_INGESTION_QUEUE_URL",
+            "http://127.0.0.1:9/fixture.fifo",
+        )
+        .env("AWS_REGION", "eu-central-1")
+        .env("AWS_ACCESS_KEY_ID", "fixture")
+        .env("AWS_SECRET_ACCESS_KEY", "fixture")
+        .env("AWS_EC2_METADATA_DISABLED", "true");
     if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
         command.env("LLVM_PROFILE_FILE", profile);
     }
@@ -37,24 +45,58 @@ async fn production_registry_probe() {
     let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy_with(options);
     let runtime = Runtime::from_pool(pool);
     let config = ProductListingConfig::from_getter(|_| None).unwrap();
-    let registry = production_registry(
-        &runtime,
-        ProductListingDependencies::from_env(&config).unwrap(),
-    )
-    .unwrap();
-    let manifest: serde_json::Value =
-        serde_json::from_str(include_str!("../../authenticated-operations.json")).unwrap();
-    for selected in manifest["operations"].as_array().unwrap() {
-        let name = selected["operationId"].as_str().unwrap();
-        assert_eq!(
-            crate::AccessClass::Protected,
-            registry.get(name).unwrap().policy().access
-        );
+    let registry =
+        production_registry(&runtime, McpDependencies::from_env(&config).await.unwrap()).unwrap();
+    let mut expected = std::collections::BTreeMap::new();
+    for manifest in [
+        include_str!("../../public-operations.json"),
+        include_str!("../../authenticated-operations.json"),
+        include_str!("../../partner-operations.json"),
+    ] {
+        let manifest: serde_json::Value = serde_json::from_str(manifest).unwrap();
+        for entry in manifest["operations"].as_array().unwrap() {
+            let name = entry["operationId"].as_str().unwrap().to_owned();
+            let mut entry = entry.clone();
+            for key in ["access", "requiredScopes", "annotations"] {
+                if entry.get(key).is_none() {
+                    entry[key] = manifest[key].clone();
+                }
+            }
+            assert!(expected.insert(name, entry).is_none());
+        }
     }
-    let (tools, next) = registry.page(None).unwrap();
-    assert_eq!(38, tools.len());
-    assert!(next.is_none());
+    let (mut tools, next) = registry.page(None).unwrap();
+    assert_eq!(50, tools.len());
+    let (rest, end) = registry.page(next.as_deref()).unwrap();
+    assert_eq!(24, rest.len());
+    assert!(end.is_none());
+    tools.extend(rest);
+    assert_eq!(74, expected.len());
+    assert!(
+        registry
+            .get("putWoocommerceListingSourceIngestionConfiguration")
+            .is_none()
+    );
+    assert_eq!(
+        expected.keys().cloned().collect::<Vec<_>>(),
+        tools
+            .iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<Vec<_>>()
+    );
     for tool in tools {
+        let entry = &expected[tool.name.as_ref()];
+        let meta = serde_json::to_value(&tool.meta).unwrap();
+        assert_eq!(entry["operationId"], meta["aura.historia/operationId"]);
+        assert_eq!(entry["access"], meta["aura.historia/access"]);
+        assert_eq!(
+            entry["requiredScopes"],
+            meta["aura.historia/requiredScopes"]
+        );
+        assert_eq!(
+            entry["annotations"],
+            serde_json::to_value(&tool.annotations).unwrap()
+        );
         for (kind, schema) in [
             ("input", serde_json::to_value(tool.input_schema).unwrap()),
             ("output", serde_json::to_value(tool.output_schema).unwrap()),

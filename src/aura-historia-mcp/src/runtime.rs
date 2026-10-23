@@ -1,19 +1,34 @@
 use crate::public::{PublicServices, operations};
 use crate::{AuraTokenGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
-    ProductListingConfig, ProductListingDependencies, ProductListingProviderError, RotatingRuntime,
-    Runtime, RuntimeError,
+    ProductListingConfig, ProductListingDependencies, ProductListingIngestionConfigError,
+    ProductListingIngestionDependencies, ProductListingProviderError, RotatingRuntime, Runtime,
+    RuntimeError,
 };
 use axum::Router;
 use platform_lambda_bootstrap::VersionedCompositionCache;
 use std::sync::Arc;
 
+/// Provider handles selected by the production catalogue; applications may inject local adapters.
+pub struct McpDependencies {
+    pub listings: ProductListingDependencies,
+    pub ingestion: ProductListingIngestionDependencies,
+}
+
+impl McpDependencies {
+    pub async fn from_env(listings: &ProductListingConfig) -> Result<Self, McpStartupError> {
+        Ok(Self {
+            listings: ProductListingDependencies::from_env(listings)?,
+            ingestion: ProductListingIngestionDependencies::from_env().await?,
+        })
+    }
+}
+
 pub fn mcp_router(
     transport: TransportConfig,
-    listings: &ProductListingConfig,
     runtime: &Runtime,
+    dependencies: McpDependencies,
 ) -> Result<Router, McpStartupError> {
-    let dependencies = ProductListingDependencies::from_env(listings)?;
     let registry = production_registry(runtime, dependencies)?;
     let gate = AuraTokenGate::new(
         runtime.access_token_authentication().clone(),
@@ -24,12 +39,12 @@ pub fn mcp_router(
 
 fn production_registry(
     runtime: &Runtime,
-    dependencies: ProductListingDependencies,
+    dependencies: McpDependencies,
 ) -> Result<crate::Registry, RegistryError> {
     let saved_searches = runtime
-        .saved_searches(Arc::clone(&dependencies.embeddings))
+        .saved_searches(Arc::clone(&dependencies.listings.embeddings))
         .clone();
-    let mut registered = operations(PublicServices::from_runtime(runtime, dependencies))?;
+    let mut registered = operations(PublicServices::from_runtime(runtime, dependencies.listings))?;
     registered.extend(crate::tools::account::operations(
         runtime.user_profile().clone(),
         runtime.private_addresses().clone(),
@@ -40,6 +55,29 @@ fn production_registry(
     )?);
     registered.extend(crate::tools::notifications::operations(
         runtime.notifications().clone(),
+    )?);
+    let ingestion = runtime.partner_product_listing_ingestion(dependencies.ingestion);
+    registered.extend(crate::tools::partner_listing_management::operations(
+        runtime.partner_listing_management().clone(),
+    )?);
+    registered.extend(crate::tools::partner_product_listing_batches::operations(
+        runtime.partner_product_listing_batches().clone(),
+    )?);
+    registered.extend(crate::tools::partner_product_listing_ingestion::operations(
+        ingestion.clone(),
+    )?);
+    registered.extend(crate::tools::party_locations::operations(
+        runtime.party_locations().clone(),
+    )?);
+    registered.extend(crate::tools::source_location_defaults::operations(
+        runtime.source_location_defaults().clone(),
+    )?);
+    registered.extend(crate::tools::shipping::operations(
+        runtime.shipping_management().clone(),
+    )?);
+    registered.extend(crate::tools::product_listing_delivery::operations(
+        runtime.product_listing_delivery().clone(),
+        ingestion.submit.clone(),
     )?);
     crate::Registry::new(registered)
 }
@@ -72,7 +110,8 @@ impl RotatingMcpRouter {
         let app = self
             .routers
             .get_or_try_build(runtime.version_id(), || async {
-                mcp_router(self.transport.clone(), &self.listings, runtime.value())
+                let dependencies = McpDependencies::from_env(&self.listings).await?;
+                mcp_router(self.transport.clone(), runtime.value(), dependencies)
             })
             .await?;
         Ok(app.value().clone())
@@ -85,6 +124,8 @@ pub enum McpStartupError {
     Runtime(#[from] RuntimeError),
     #[error("MCP listing providers unavailable")]
     Providers(#[from] ProductListingProviderError),
+    #[error("MCP ingestion publisher unavailable")]
+    Ingestion(#[from] ProductListingIngestionConfigError),
     #[error("invalid MCP operation registry")]
     Registry(#[from] RegistryError),
     #[error("invalid MCP transport configuration")]
