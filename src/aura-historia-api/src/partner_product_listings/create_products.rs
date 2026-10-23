@@ -1,13 +1,14 @@
+use super::batch_response::BatchResponse;
 use super::types::{
-    CreateProductListingData, PartnerProductFailureData, parse_listing_source_id,
-    parse_partner_product_batch,
+    CreateProductListingData, parse_listing_source_id, parse_partner_product_batch,
 };
 use crate::auth::protected_context;
 use crate::error::ApiError;
 use crate::state::PartnerProductListingsState;
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
+#[cfg(test)]
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 pub async fn create_products(
@@ -43,32 +44,14 @@ pub async fn create_products(
         Err(error) => return error.into_response(),
     };
 
-    let mut failures = Vec::new();
-    let mut first_error = None;
-    let mut successes = 0;
+    let mut response = BatchResponse::new(listing_source_id);
     for (source_listing_id, command) in mapped {
-        match state.create.execute(&context, command).await {
-            Ok(_) => successes += 1,
-            Err(error) => {
-                let error = ApiError::from(error);
-                let error_code = error.code();
-                first_error.get_or_insert(error);
-                failures.push(PartnerProductFailureData::new(
-                    listing_source_id,
-                    source_listing_id,
-                    error_code,
-                ));
-            }
-        }
+        response.record(
+            source_listing_id,
+            state.create.execute(&context, command).await,
+        );
     }
-
-    if successes == 0
-        && let Some(error) = first_error
-    {
-        return error.into_response();
-    }
-
-    (StatusCode::OK, Json(failures)).into_response()
+    response.into_response()
 }
 
 #[cfg(test)]
