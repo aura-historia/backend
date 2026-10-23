@@ -91,11 +91,13 @@ run/attempt, toolchain and inventory. Missing and skipped suites fail eligibilit
 A successful artifact upload cannot change that result. Rust `Complete Rust suite`
 also aggregates lint and every lane for ordinary CI.
 
-Configure the branch ruleset to require `Complete Rust suite` and the ordinary
-infrastructure/image/template checks where their workflow triggers apply. Do not
-require the manual-only release workflow on PRs. GitHub owners must verify required
-checks and environment restrictions explicitly; repository YAML alone does not
-configure a ruleset. Coverage and Sonar were retired by the current CI contract;
+Use an always-running PR aggregate for branch required checks. The ordinary
+workflows retain path filters: before requiring `Complete Rust suite` or other
+filtered checks, remove those workflow filters or add an always-present dispatcher
+that explicitly accounts for skipped paths. GitHub leaves a required path-filtered
+workflow pending when it never starts. Do not require the manual-only release suite
+on PRs. GitHub owners must verify the actual ruleset and environment restrictions;
+repository YAML alone does not configure them. Coverage and Sonar were retired by the current CI contract;
 release eligibility consumes the current suites without adding a second harness.
 
 ## Cache and failures
