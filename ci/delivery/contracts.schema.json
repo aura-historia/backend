@@ -1,0 +1,817 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura-historia.com/contracts/delivery/v1",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "sourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "enum": [
+        "dev",
+        "prod"
+      ]
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "migration": {
+      "type": "object",
+      "required": [
+        "version",
+        "checksum"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{96}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "bucket",
+        "key",
+        "versionId",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "kind": {
+          "enum": [
+            "LAMBDA",
+            "TEMPLATE",
+            "ASSEMBLY",
+            "SOURCE",
+            "ASSET"
+          ]
+        },
+        "bucket": {
+          "$ref": "#/$defs/text"
+        },
+        "key": {
+          "$ref": "#/$defs/text"
+        },
+        "versionId": {
+          "$ref": "#/$defs/text"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "sourceAsset": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/text"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "testEvidence": {
+      "type": "object",
+      "required": [
+        "version",
+        "repository",
+        "sourceSha",
+        "workflowRevision",
+        "runId",
+        "runAttempt",
+        "toolchainDigest",
+        "configDigest",
+        "inventoryDigest",
+        "requiredJobs",
+        "jobResults",
+        "reports",
+        "completedAt"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "repository": {
+          "const": "aura-historia/backend"
+        },
+        "sourceSha": {
+          "$ref": "#/$defs/sourceSha"
+        },
+        "workflowRevision": {
+          "$ref": "#/$defs/sourceSha"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "toolchainDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "inventoryDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "requiredJobs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "jobResults": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "success",
+              "failure",
+              "cancelled",
+              "skipped"
+            ]
+          }
+        },
+        "reports": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "completedAt": {
+          "$ref": "#/$defs/time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bundle": {
+      "type": "object",
+      "required": [
+        "version",
+        "repository",
+        "sourceSha",
+        "build",
+        "artifacts",
+        "images",
+        "catalogs",
+        "migrations",
+        "sourceAssets",
+        "targets",
+        "tests"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "repository": {
+          "const": "aura-historia/backend"
+        },
+        "sourceSha": {
+          "$ref": "#/$defs/sourceSha"
+        },
+        "build": {
+          "type": "object",
+          "required": [
+            "id",
+            "configDigest",
+            "toolchain",
+            "image",
+            "profile",
+            "architecture"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/sha256"
+            },
+            "configDigest": {
+              "$ref": "#/$defs/sha256"
+            },
+            "toolchain": {
+              "$ref": "#/$defs/text"
+            },
+            "image": {
+              "type": "string",
+              "pattern": "@sha256:[a-f0-9]{64}$"
+            },
+            "profile": {
+              "$ref": "#/$defs/text"
+            },
+            "architecture": {
+              "enum": [
+                "x86_64"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "repository",
+              "digest"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/text"
+              },
+              "repository": {
+                "$ref": "#/$defs/text"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "catalogs": {
+          "type": "object",
+          "required": [
+            "lambdas",
+            "containers"
+          ],
+          "properties": {
+            "lambdas": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "containers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "migrations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/migration"
+          }
+        },
+        "sourceAssets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceAsset"
+          }
+        },
+        "targets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "account",
+              "region",
+              "assemblyDigest",
+              "templateDigests"
+            ],
+            "properties": {
+              "account": {
+                "type": "string",
+                "pattern": "^[0-9]{12}$"
+              },
+              "region": {
+                "$ref": "#/$defs/text"
+              },
+              "assemblyDigest": {
+                "$ref": "#/$defs/sha256"
+              },
+              "templateDigests": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "tests": {
+          "$ref": "#/$defs/testEvidence"
+        }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "version",
+        "id",
+        "repository",
+        "sourceSha",
+        "target",
+        "workflowRevision",
+        "runId",
+        "runAttempt",
+        "testEvidenceDigest",
+        "bundleDigest",
+        "authorization"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository": {
+          "const": "aura-historia/backend"
+        },
+        "sourceSha": {
+          "$ref": "#/$defs/sourceSha"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "workflowRevision": {
+          "$ref": "#/$defs/sourceSha"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "testEvidenceDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bundleDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        },
+        "authorization": {
+          "type": "object",
+          "required": [
+            "scope",
+            "environment",
+            "approvedAt"
+          ],
+          "properties": {
+            "scope": {
+              "enum": [
+                "BUILD",
+                "DEPLOY"
+              ]
+            },
+            "environment": {
+              "enum": [
+                "aws-release-build",
+                "aws-dev",
+                "aws-prod"
+              ]
+            },
+            "approvedAt": {
+              "$ref": "#/$defs/time"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "prerequisite": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "targetHost",
+        "index",
+        "alias",
+        "sourceAssets",
+        "preconditions",
+        "steps",
+        "verification",
+        "stopConditions",
+        "expectedBeforeDigest",
+        "expectedAfterDigest"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "kind": {
+          "const": "OPENSEARCH"
+        },
+        "targetHost": {
+          "$ref": "#/$defs/text"
+        },
+        "index": {
+          "$ref": "#/$defs/text"
+        },
+        "alias": {
+          "$ref": "#/$defs/text"
+        },
+        "sourceAssets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sourceAsset"
+          }
+        },
+        "preconditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "verification": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "stopConditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "expectedBeforeDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expectedAfterDigest": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "report": {
+      "type": "object",
+      "required": [
+        "version",
+        "requestId",
+        "target",
+        "account",
+        "region",
+        "baseline",
+        "migrationLedgerDigest",
+        "candidateBundleDigest",
+        "configDigest",
+        "templateDigest",
+        "changeSetDigest",
+        "inventory",
+        "reviewer",
+        "evidence",
+        "verdict",
+        "uncertainties",
+        "manualPrerequisites",
+        "prerequisiteDigest",
+        "createdAt"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[0-9]{12}$"
+        },
+        "region": {
+          "$ref": "#/$defs/text"
+        },
+        "baseline": {
+          "type": "object",
+          "required": [
+            "revision",
+            "bundleDigest",
+            "sourceSha"
+          ],
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bundleDigest": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/sha256"
+                }
+              ]
+            },
+            "sourceSha": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/sourceSha"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "migrationLedgerDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidateBundleDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "templateDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "changeSetDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "inventory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "category",
+              "path",
+              "change"
+            ],
+            "properties": {
+              "category": {
+                "$ref": "#/$defs/text"
+              },
+              "path": {
+                "$ref": "#/$defs/text"
+              },
+              "change": {
+                "$ref": "#/$defs/text"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "reviewer": {
+          "type": "object",
+          "required": [
+            "model",
+            "promptVersion",
+            "policyVersion"
+          ],
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/text"
+            },
+            "promptVersion": {
+              "$ref": "#/$defs/text"
+            },
+            "policyVersion": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "uri",
+              "sha256"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/text"
+              },
+              "uri": {
+                "$ref": "#/$defs/text"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "verdict": {
+          "enum": [
+            "ROUTINE",
+            "MAINTENANCE_REQUIRED"
+          ]
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "manualPrerequisites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prerequisite"
+          }
+        },
+        "prerequisiteDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "environmentState": {
+      "type": "object",
+      "required": [
+        "version",
+        "target",
+        "revision",
+        "state",
+        "lastVerified",
+        "observedSchema",
+        "active",
+        "holdReason"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "READY",
+            "IN_PROGRESS",
+            "NEEDS_ATTENTION",
+            "MAINTENANCE"
+          ]
+        },
+        "lastVerified": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "bundleDigest",
+                "sourceSha",
+                "verifiedAt"
+              ],
+              "properties": {
+                "bundleDigest": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "sourceSha": {
+                  "$ref": "#/$defs/sourceSha"
+                },
+                "verifiedAt": {
+                  "$ref": "#/$defs/time"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "observedSchema": {
+          "type": "object",
+          "required": [
+            "sha256",
+            "observedAt",
+            "migrations"
+          ],
+          "properties": {
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "observedAt": {
+              "$ref": "#/$defs/time"
+            },
+            "migrations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/migration"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "active": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "executionId",
+                "requestDigest",
+                "bundleDigest"
+              ],
+              "properties": {
+                "executionId": {
+                  "$ref": "#/$defs/text"
+                },
+                "requestDigest": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "bundleDigest": {
+                  "$ref": "#/$defs/sha256"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "holdReason": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/text"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

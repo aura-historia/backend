@@ -6,6 +6,35 @@ This runbook owns deployment order, operator prerequisites and recovery boundari
 successful synth are **not evidence of deployed state or workload readiness**.
 Verify the approved account, physical resources and effective configuration at each release.
 
+## Delivery evidence and ownership
+
+The versioned [delivery contracts](../ci/delivery/contracts.schema.json) and
+[pure validators](../ci/delivery/contracts.cjs) own release evidence. Canonical JSON
+sorts object keys and retains array order; its SHA-256 binds every request, report
+and immutable bundle. SQLx migration checksums remain SHA-384 and are never
+substituted with artifact hashes.
+
+A completed bundle binds its exact source, complete Lambda/image catalogs,
+content-addressed versioned objects, registry digests, migration checksums,
+OpenSearch/source assets, per-target assemblies and original full-suite tests.
+Build identity is source SHA plus approved build-configuration digest. Publish
+completion metadata last. Missing/corrupt objects fail reuse. A new deployment
+request carries fresh tests and target approval without changing the bundle.
+
+Compatibility evidence binds the target account/region, last verified deployment,
+actual schema ledger, cumulative changes, effective templates/configuration,
+reviewer model/policy and manual prerequisite digest. Unknown baselines and
+uncertain review require maintenance. Manual OpenSearch administration remains
+operator work under the [OpenSearch contract](opensearch-stage.md); retained
+worker/message compatibility follows the [worker runbook](durable-worker-runbook.md).
+
+The environment record holds only its last verified application bundle, separately
+observed SQL state, active execution and an explicit operational hold. Successful
+SQL followed by failed application deployment updates schema evidence and preserves
+the previous verified bundle. Holds have no expiry or automatic unlock; maintenance
+and routine delivery share the same exclusion boundary. Request approvals authorize
+only their exact build or target scope and cannot be transferred between environments.
+
 ## Infrastructure boundary
 
 The CDK app declares `dev` and `prod` in `eu-central-1`. AWS `dev` serves the
