@@ -300,8 +300,7 @@ async fn provider(
             sender,
             "contact@aura-historia.test",
             configuration_set,
-            stage.to_owned(),
-            commit,
+            format!("{stage}/{commit}/"),
             "https://stage.aura-historia.com",
         )?,
     ))
