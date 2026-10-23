@@ -28,7 +28,7 @@ schemars = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 shipping-core = { workspace = true }
 shipping-json = { workspace = true }
 shipping-service = { workspace = true }

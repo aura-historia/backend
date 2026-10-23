@@ -102,7 +102,9 @@ fn http_key_grammar_covers_visible_ascii_except_comma() {
 #[test]
 fn publisher_outcomes_have_bounded_codes_and_correct_status() {
     use product_listing_service::use_cases::{
-        ProductListingIngestionCommandId, ProductListingIngestionOutcome as Outcome,
+        ProductListingIngestionCommandId, ProductListingIngestionItemOutcome,
+        ProductListingIngestionNotAttemptedReason, ProductListingIngestionOutcome as Outcome,
+        ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionId,
     };
     let command_id =
         ProductListingIngestionCommandId::from_wire(&format!("plic1_{}", "a".repeat(64))).unwrap();
@@ -182,7 +184,22 @@ fn publisher_outcomes_have_bounded_codes_and_correct_status() {
         ),
     ];
     for (outcome, code, retryable, status) in cases {
-        let failure = outcome_failure(&make(outcome), None).unwrap();
+        let result = ProductListingIngestionSubmissionResult {
+            submission_id: ProductListingIngestionSubmissionId::from_wire(&format!(
+                "plis1_{}",
+                "b".repeat(64)
+            ))
+            .unwrap(),
+            idempotency_key: ProductListingIngestionIdempotencyKey::new("fixture").unwrap(),
+            original_input_count: 2,
+            items: vec![make(outcome)],
+        };
+        let failure = admission::report(result, vec![], &[None, None])
+            .report
+            .failures
+            .into_iter()
+            .find(|failure| failure.index == 1)
+            .unwrap();
         assert_eq!(
             (failure.index, failure.error, failure.retryable),
             (1, code, retryable)

@@ -8,6 +8,7 @@ mod access_token_authentication;
 mod notifications;
 mod partner_listing_management;
 mod partner_product_listing_batches;
+mod partner_product_listing_ingestion;
 mod party_locations;
 mod postgres;
 mod private_addresses;
@@ -30,6 +31,10 @@ mod watchlist;
 pub use notifications::Notifications;
 pub use partner_listing_management::PartnerListingManagement;
 pub use partner_product_listing_batches::PartnerProductListingBatches;
+pub use partner_product_listing_ingestion::{
+    PartnerProductListingIngestion, ProductListingIngestionConfigError,
+    ProductListingIngestionDependencies, with_publication_deadline,
+};
 pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
@@ -58,6 +63,7 @@ pub struct Runtime {
     postgres: PgPool,
     notifications: OnceLock<Notifications>,
     partner_listing_management: OnceLock<PartnerListingManagement>,
+    partner_product_listing_ingestion: OnceLock<PartnerProductListingIngestion>,
     partner_product_listing_batches: OnceLock<PartnerProductListingBatches>,
     party_locations: OnceLock<PartyLocations>,
     source_location_defaults: OnceLock<SourceLocationDefaults>,
@@ -82,6 +88,7 @@ impl Runtime {
             postgres,
             notifications: OnceLock::new(),
             partner_listing_management: OnceLock::new(),
+            partner_product_listing_ingestion: OnceLock::new(),
             partner_product_listing_batches: OnceLock::new(),
             party_locations: OnceLock::new(),
             source_location_defaults: OnceLock::new(),
@@ -180,6 +187,14 @@ impl Runtime {
     pub fn watchlist(&self) -> &Watchlist {
         self.watchlist
             .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
+    }
+
+    pub fn partner_product_listing_ingestion(
+        &self,
+        dependencies: ProductListingIngestionDependencies,
+    ) -> &PartnerProductListingIngestion {
+        self.partner_product_listing_ingestion
+            .get_or_init(|| PartnerProductListingIngestion::compose(&self.postgres, dependencies))
     }
 
     pub fn partner_product_listing_batches(&self) -> &PartnerProductListingBatches {

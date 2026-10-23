@@ -1,8 +1,8 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE, INVALID_OBJECT_ID};
 use crate::wire::parse_path_object_id;
 pub(super) use aura_historia_contracts::partner_product_listings::{
-    CreateProductListingData, MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE, UpdateProductListingData,
-    UpsertProductListingData, WithdrawProductListingData, prepare_batch,
+    CreateProductListingData, UpdateProductListingData, UpsertProductListingData,
+    WithdrawProductListingData, prepare_batch,
 };
 use aura_historia_contracts::product_listing_management::MutationInputError;
 use listing_source_core::ListingSourceId;

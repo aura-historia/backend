@@ -42,7 +42,6 @@ pub async fn update_products(
         |product| {
             product
                 .into_key_and_command(listing_source_id)
-                .map_err(super::types::mutation_input_error)
                 .map(
                     |(product_key, command)| ProductListingIngestionIntent::Update {
                         product_key,

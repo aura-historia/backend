@@ -92,9 +92,6 @@ use oauth_service::use_cases::{
 };
 use opensearch::{OpenSearch, SearchParts};
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
-};
 use product_listing_postgres::SqlxAdminProductListingReader;
 use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
@@ -114,10 +111,9 @@ use listing_source_service::use_cases::commands::update_listing_source::UpdateLi
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
 use partnership_postgres::{
-    SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
-    SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
-    SqlxPartnershipDetailsReaderFactory, SqlxPartnershipRepositoryFactory,
-    SqlxPartnershipSearchReaderFactory,
+    SqlxListingSourceGrantRepositoryFactory, SqlxPartnershipApplicationReaderFactory,
+    SqlxPartnershipApplicationRepositoryFactory, SqlxPartnershipDetailsReaderFactory,
+    SqlxPartnershipRepositoryFactory, SqlxPartnershipSearchReaderFactory,
 };
 use partnership_service::use_cases::{
     commands::{
@@ -126,7 +122,6 @@ use partnership_service::use_cases::{
         grant_partnership_listing_source::GrantPartnershipListingSourceHandler,
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
-        put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
         revoke_partnership_listing_source::RevokePartnershipListingSourceHandler,
         revoke_partnership_membership::RevokePartnershipMembershipHandler,
@@ -155,7 +150,6 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
-    SubmitPartnerProductListingIngestionHandler,
 };
 
 use sqlx::PgPool;
@@ -1160,10 +1154,11 @@ async fn app_state_from_config_and_runtime(
     let pool = runtime.postgres_pool().clone();
     let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-    let ingestion_publisher = SqsProductListingIngestionPublisher::new(
-        aws_sdk_sqs::Client::new(&aws_client_config),
-        ingestion_queue_url_from_env()?,
-    );
+    let ingestion_dependencies =
+        aura_historia_runtime::ProductListingIngestionDependencies::from_sqs(
+            aws_sdk_sqs::Client::new(&aws_client_config),
+            ingestion_queue_url_from_env()?,
+        );
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
         config.cognito_user_pool_id(),
@@ -1447,10 +1442,8 @@ async fn app_state_from_config_and_runtime(
     );
     let public_product_listings = runtime.public_product_listings(listing_dependencies);
     let partner_batches = runtime.partner_product_listing_batches();
-    let submit_product_listing_ingestion =
-        Arc::new(SubmitPartnerProductListingIngestionHandler::new(
-            ScopedSqsProductListingIngestionPublisher::new(ingestion_publisher),
-        ));
+    let partner_ingestion = runtime.partner_product_listing_ingestion(ingestion_dependencies);
+    let submit_product_listing_ingestion = partner_ingestion.submit.clone();
     let authorize_woocommerce_product = AuthorizeProductListingRawCaptureHandler::new(
         unit_of_work.clone(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
@@ -1545,13 +1538,7 @@ async fn app_state_from_config_and_runtime(
         Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_ingestion_configuration(Arc::new(
-        PutListingSourceIngestionConfigurationHandler::new(
-            unit_of_work.clone(),
-            SqlxListingSourceRepositoryFactory::new(),
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        ),
-    ))
+    .with_ingestion_configuration(partner_ingestion.put_configuration.clone())
     .with_public_reads(
         Arc::clone(&public_listing_sources.search),
         Arc::clone(&public_listing_sources.get_by_slug),
