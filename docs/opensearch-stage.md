@@ -122,8 +122,8 @@ checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutove
 
 ## Release and schema-change contract
 
-Host/security/assets/upgrades remain manual operations; Release, Migrate and Initialize
-do not administer OpenSearch. Follow the
+Host/security/assets/upgrades remain manual operations; the delivery pipeline and
+scoped database operations do not administer OpenSearch. Follow the
 [first-time release](infra.md#first-time-stage) and
 [consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff), without
 using compute creation as a readiness probe. Runtime roles must never gain admin rights.
