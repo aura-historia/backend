@@ -1,57 +1,56 @@
 mod bootstrap;
+mod operations;
 
-use bootstrap::{MigrationConfig, initialize_database};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use platform_lambda_bootstrap::{log_cold_start, log_invocation_start, logging_config_from_env};
+use operations::OperationConfig;
+use platform_lambda_bootstrap::{
+    log_cold_start, log_invocation_start, logging_config_from_env, required_config_from_env,
+};
 use platform_observability::init;
-use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::time::Instant;
-use tracing::info;
 
-#[derive(Serialize)]
-struct InitializationResult {
-    status: &'static str,
+#[derive(Clone)]
+enum DatabaseOperation {
+    Bootstrap(bootstrap::MigrationConfig),
+    Inspect(OperationConfig),
+    Migrate(OperationConfig),
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let initialization_started_at = Instant::now();
+    let started_at = Instant::now();
     init(logging_config_from_env());
-
-    let config = MigrationConfig::from_env()?;
-    log_cold_start("database-migration-lambda", initialization_started_at);
-
+    // The deployment identity fixes the operation and secret access. Payloads cannot select bootstrap.
+    let operation = match required_config_from_env("DATABASE_OPERATION")?.as_str() {
+        "BOOTSTRAP" => DatabaseOperation::Bootstrap(bootstrap::MigrationConfig::from_env()?),
+        "INSPECT" => {
+            DatabaseOperation::Inspect(OperationConfig::from_env("POSTGRES_INSPECTION_SECRET_ARN")?)
+        }
+        "MIGRATE" => {
+            DatabaseOperation::Migrate(OperationConfig::from_env("POSTGRES_MIGRATION_SECRET_ARN")?)
+        }
+        _ => return Err("invalid DATABASE_OPERATION".into()),
+    };
+    log_cold_start("database-migration-lambda", started_at);
     run(service_fn(move |event: LambdaEvent<Value>| {
-        let config = config.clone();
+        let operation = operation.clone();
         async move {
             log_invocation_start("database-migration-lambda", &event.context);
-            initialize_database(&config)
-                .await
-                .map_err(|error| -> Error { Box::new(error) })?;
-            info!(
-                event = "database.initialization.completed",
-                "Database initialization completed"
-            );
-            Ok::<_, Error>(InitializationResult { status: "ready" })
+            let response = match operation {
+                DatabaseOperation::Bootstrap(config) => {
+                    bootstrap::initialize_database(&config).await?;
+                    json!({"status":"BOOTSTRAPPED"})
+                }
+                DatabaseOperation::Inspect(config) => {
+                    serde_json::to_value(operations::inspect(&config).await?)?
+                }
+                DatabaseOperation::Migrate(config) => serde_json::to_value(
+                    operations::migrate(&config, serde_json::from_value(event.payload)?).await?,
+                )?,
+            };
+            Ok::<_, Error>(response)
         }
     }))
     .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_return_only_safe_initialization_result() {
-        let response = match serde_json::to_string(&InitializationResult { status: "ready" }) {
-            Ok(response) => response,
-            Err(error) => panic!("failed to serialize initialization result: {error}"),
-        };
-
-        assert_eq!(response, r#"{"status":"ready"}"#);
-        assert!(!response.contains("password"));
-        assert!(!response.contains("secret"));
-    }
 }

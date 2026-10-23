@@ -1,4 +1,4 @@
--- Run inside one transaction after the caller sets the three aura.bootstrap.* password settings.
+-- Run inside one transaction after the caller sets the four aura.bootstrap.* password settings.
 -- This script never creates publications or replication slots. DMS first start uses a separately approved existing named slot and LSN.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
@@ -9,10 +9,12 @@ DECLARE
     runtime_password text := current_setting('aura.bootstrap.runtime_password', true);
     migrator_password text := current_setting('aura.bootstrap.migrator_password', true);
     replication_password text := current_setting('aura.bootstrap.replication_password', true);
+    inspection_password text := current_setting('aura.bootstrap.inspection_password', true);
 BEGIN
     IF runtime_password IS NULL OR runtime_password = ''
         OR migrator_password IS NULL OR migrator_password = ''
-        OR replication_password IS NULL OR replication_password = '' THEN
+        OR replication_password IS NULL OR replication_password = ''
+        OR inspection_password IS NULL OR inspection_password = '' THEN
         RAISE EXCEPTION 'required Aura role passwords are unavailable';
     END IF;
 
@@ -26,6 +28,11 @@ BEGIN
         CREATE ROLE aura_replication LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_inspector') THEN
+        CREATE ROLE aura_inspector LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+    END IF;
+    ALTER ROLE aura_inspector SET default_transaction_read_only = on;
+    EXECUTE format('ALTER ROLE aura_inspector PASSWORD %L', inspection_password);
     EXECUTE format('ALTER ROLE aura_runtime PASSWORD %L', runtime_password);
     EXECUTE format('ALTER ROLE aura_migrator PASSWORD %L', migrator_password);
     EXECUTE format('ALTER ROLE aura_replication PASSWORD %L', replication_password);
@@ -36,7 +43,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $$
 BEGIN
     EXECUTE format(
-        'GRANT CONNECT ON DATABASE %I TO aura_runtime, aura_migrator, aura_replication',
+        'GRANT CONNECT ON DATABASE %I TO aura_runtime, aura_migrator, aura_replication, aura_inspector',
         current_database()
     );
     EXECUTE format('GRANT CREATE ON DATABASE %I TO aura_migrator', current_database());
@@ -49,7 +56,12 @@ ALTER SCHEMA public OWNER TO aura_migrator;
 GRANT rds_replication TO aura_replication WITH INHERIT TRUE;
 
 SET LOCAL ROLE aura_migrator;
-GRANT USAGE ON SCHEMA public TO aura_runtime, aura_replication;
+GRANT USAGE ON SCHEMA public TO aura_runtime, aura_replication, aura_inspector;
+DO $$ BEGIN
+    IF to_regclass('public._sqlx_migrations') IS NOT NULL THEN
+        GRANT SELECT (version, checksum, success) ON public._sqlx_migrations TO aura_inspector;
+    END IF;
+END $$;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aura_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO aura_runtime;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO aura_replication;

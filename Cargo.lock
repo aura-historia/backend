@@ -2431,6 +2431,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 name = "database-migration-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
@@ -2438,6 +2439,7 @@ dependencies = [
  "platform-postgres-secretsmanager",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",

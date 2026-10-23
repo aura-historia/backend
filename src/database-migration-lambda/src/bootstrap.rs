@@ -1,3 +1,4 @@
+use application::error::BoxError;
 use platform_lambda_bootstrap::{LambdaPostgresConfig, required_config_from_env};
 use platform_postgres::VersionedPostgresCredentials;
 use platform_postgres_secretsmanager::load_versioned_postgres_credentials_from_secret_arn;
@@ -7,6 +8,7 @@ use thiserror::Error;
 const ADMIN_SECRET_ARN_ENV: &str = "POSTGRES_ADMIN_SECRET_ARN";
 const RUNTIME_SECRET_ARN_ENV: &str = "POSTGRES_RUNTIME_SECRET_ARN";
 const MIGRATION_SECRET_ARN_ENV: &str = "POSTGRES_MIGRATION_SECRET_ARN";
+const INSPECTION_SECRET_ARN_ENV: &str = "POSTGRES_INSPECTION_SECRET_ARN";
 const REPLICATION_SECRET_ARN_ENV: &str = "POSTGRES_REPLICATION_SECRET_ARN";
 const INITIALIZATION_ADVISORY_LOCK: &str = "aura_historia_database_initialize";
 const ROLE_BOOTSTRAP_SQL: &str = include_str!("../../../infra/sql/rds-bootstrap-roles-core.sql");
@@ -19,21 +21,24 @@ pub(super) struct MigrationConfig {
     runtime_secret_arn: String,
     migration_secret_arn: String,
     replication_secret_arn: String,
+    inspection_secret_arn: String,
 }
 
 impl MigrationConfig {
     pub(super) fn from_env() -> Result<Self, InitializationError> {
         Ok(Self {
             postgres: LambdaPostgresConfig::from_env()
-                .map_err(|_| InitializationError::InvalidConfiguration)?,
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
             admin_secret_arn: required_config_from_env(ADMIN_SECRET_ARN_ENV)
-                .map_err(|_| InitializationError::InvalidConfiguration)?,
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
             runtime_secret_arn: required_config_from_env(RUNTIME_SECRET_ARN_ENV)
-                .map_err(|_| InitializationError::InvalidConfiguration)?,
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
             migration_secret_arn: required_config_from_env(MIGRATION_SECRET_ARN_ENV)
-                .map_err(|_| InitializationError::InvalidConfiguration)?,
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
+            inspection_secret_arn: required_config_from_env(INSPECTION_SECRET_ARN_ENV)
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
             replication_secret_arn: required_config_from_env(REPLICATION_SECRET_ARN_ENV)
-                .map_err(|_| InitializationError::InvalidConfiguration)?,
+                .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?,
         })
     }
 }
@@ -43,31 +48,37 @@ struct RoleCredentials {
     runtime: VersionedPostgresCredentials,
     migrator: VersionedPostgresCredentials,
     replication: VersionedPostgresCredentials,
+    inspection: VersionedPostgresCredentials,
 }
 
 impl RoleCredentials {
     async fn load(config: &MigrationConfig) -> Result<Self, InitializationError> {
         let admin = load_versioned_postgres_credentials_from_secret_arn(&config.admin_secret_arn)
             .await
-            .map_err(|_| InitializationError::CredentialsUnavailable)?;
+            .map_err(|source| InitializationError::CredentialsUnavailable(Box::new(source)))?;
         let runtime =
             load_versioned_postgres_credentials_from_secret_arn(&config.runtime_secret_arn)
                 .await
-                .map_err(|_| InitializationError::CredentialsUnavailable)?;
+                .map_err(|source| InitializationError::CredentialsUnavailable(Box::new(source)))?;
         let migrator =
             load_versioned_postgres_credentials_from_secret_arn(&config.migration_secret_arn)
                 .await
-                .map_err(|_| InitializationError::CredentialsUnavailable)?;
+                .map_err(|source| InitializationError::CredentialsUnavailable(Box::new(source)))?;
+        let inspection =
+            load_versioned_postgres_credentials_from_secret_arn(&config.inspection_secret_arn)
+                .await
+                .map_err(|source| InitializationError::CredentialsUnavailable(Box::new(source)))?;
         let replication =
             load_versioned_postgres_credentials_from_secret_arn(&config.replication_secret_arn)
                 .await
-                .map_err(|_| InitializationError::CredentialsUnavailable)?;
+                .map_err(|source| InitializationError::CredentialsUnavailable(Box::new(source)))?;
 
         Ok(Self {
             admin,
             runtime,
             migrator,
             replication,
+            inspection,
         })
     }
 }
@@ -75,19 +86,21 @@ impl RoleCredentials {
 #[derive(Debug, Error)]
 pub(super) enum InitializationError {
     #[error("database initialization configuration is invalid")]
-    InvalidConfiguration,
+    InvalidConfiguration(#[source] BoxError),
     #[error("database initialization credentials are unavailable")]
-    CredentialsUnavailable,
+    CredentialsUnavailable(#[source] BoxError),
     #[error("database initialization connection failed")]
-    Connection,
+    Connection(#[source] BoxError),
     #[error("database initialization is already running")]
     AlreadyRunning,
     #[error("database role bootstrap failed")]
-    RoleBootstrap,
+    RoleBootstrap(#[source] BoxError),
     #[error("database schema migration failed")]
-    Migration,
+    Migration(#[source] BoxError),
     #[error("database initialization lock release failed")]
-    LockRelease,
+    LockRelease(#[source] BoxError),
+    #[error("database initialization lock was not held")]
+    LockNotHeld,
 }
 
 pub(super) async fn initialize_database(
@@ -97,16 +110,16 @@ pub(super) async fn initialize_database(
     let mut admin_connection = config
         .postgres
         .migration_pool_config(credentials.admin.credentials())
-        .map_err(|_| InitializationError::InvalidConfiguration)?
+        .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?
         .connect_connection()
         .await
-        .map_err(|_| InitializationError::Connection)?;
+        .map_err(|source| InitializationError::Connection(Box::new(source)))?;
 
     let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1))")
         .bind(INITIALIZATION_ADVISORY_LOCK)
         .fetch_one(&mut admin_connection)
         .await
-        .map_err(|_| InitializationError::Connection)?;
+        .map_err(|source| InitializationError::Connection(Box::new(source)))?;
     if !locked {
         return Err(InitializationError::AlreadyRunning);
     }
@@ -118,9 +131,9 @@ pub(super) async fn initialize_database(
         .bind(INITIALIZATION_ADVISORY_LOCK)
         .fetch_one(&mut admin_connection)
         .await
-        .map_err(|_| InitializationError::LockRelease)?;
+        .map_err(|source| InitializationError::LockRelease(Box::new(source)))?;
     if !unlocked {
-        return Err(InitializationError::LockRelease);
+        return Err(InitializationError::LockNotHeld);
     }
 
     Ok(())
@@ -132,7 +145,7 @@ async fn bootstrap_roles(
 ) -> Result<(), InitializationError> {
     bootstrap_roles_inner(connection, credentials)
         .await
-        .map_err(|_| InitializationError::RoleBootstrap)
+        .map_err(|source| InitializationError::RoleBootstrap(Box::new(source)))
 }
 
 async fn bootstrap_roles_inner(
@@ -144,11 +157,13 @@ async fn bootstrap_roles_inner(
     sqlx::query(
         "SELECT set_config('aura.bootstrap.runtime_password', $1, true), \
                 set_config('aura.bootstrap.migrator_password', $2, true), \
-                set_config('aura.bootstrap.replication_password', $3, true)",
+                set_config('aura.bootstrap.replication_password', $3, true), \
+                set_config('aura.bootstrap.inspection_password', $4, true)",
     )
     .bind(credentials.runtime.credentials().password())
     .bind(credentials.migrator.credentials().password())
     .bind(credentials.replication.credentials().password())
+    .bind(credentials.inspection.credentials().password())
     .execute(&mut *transaction)
     .await?;
 
@@ -165,15 +180,22 @@ async fn apply_root_migrations(
     let mut connection = config
         .postgres
         .migration_pool_config(migrator.credentials())
-        .map_err(|_| InitializationError::InvalidConfiguration)?
+        .map_err(|source| InitializationError::InvalidConfiguration(Box::new(source)))?
         .connect_connection()
         .await
-        .map_err(|_| InitializationError::Connection)?;
+        .map_err(|source| InitializationError::Connection(Box::new(source)))?;
 
     ROOT_MIGRATIONS
         .run(&mut connection)
         .await
-        .map_err(|_| InitializationError::Migration)
+        .map_err(|source| InitializationError::Migration(Box::new(source)))?;
+    sqlx::query(
+        "GRANT SELECT (version, checksum, success) ON public._sqlx_migrations TO aura_inspector",
+    )
+    .execute(&mut connection)
+    .await
+    .map_err(|source| InitializationError::RoleBootstrap(Box::new(source)))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -213,7 +235,7 @@ mod tests {
                     Err(error) => panic!("failed to acquire PostgreSQL test connection: {error}"),
                 };
                 let prepare_rds_administrator = sqlx::raw_sql(
-                    "DO $$ BEGIN\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN\n                   CREATE ROLE rds_replication NOLOGIN;\n                 END IF;\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_admin') THEN\n                   CREATE ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 ELSE\n                   ALTER ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 END IF;\n               END $$;\n               ALTER DATABASE postgres OWNER TO aura_admin;\n               GRANT rds_replication TO aura_admin WITH ADMIN OPTION;",
+                    "DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION pg_database_owner; GRANT USAGE ON SCHEMA public TO PUBLIC; DO $$ BEGIN\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN\n                   CREATE ROLE rds_replication NOLOGIN;\n                 END IF;\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_admin') THEN\n                   CREATE ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 ELSE\n                   ALTER ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 END IF;\n               END $$;\n               ALTER DATABASE postgres OWNER TO aura_admin;\n               GRANT rds_replication TO aura_admin WITH ADMIN OPTION;",
                 )
                 .execute(&mut *connection)
                 .await;
@@ -225,6 +247,7 @@ mod tests {
                     runtime: credentials("aura_runtime", "runtime-password"),
                     migrator: credentials("aura_migrator", "migrator-password"),
                     replication: credentials("aura_replication", "replication-password"),
+                    inspection: credentials("aura_inspector", "inspection-password"),
                 };
 
                 if let Err(error) = sqlx::query("SET ROLE aura_admin")
@@ -369,6 +392,11 @@ mod tests {
                 assert_eq!(migration_version, 20260725090000);
                 assert!(runtime_can_insert);
                 assert!(replication_can_select);
+                sqlx::query("SET ROLE aura_inspector").execute(&mut *connection).await.expect("assume inspector");
+                sqlx::query("SELECT version, checksum, success FROM _sqlx_migrations").fetch_all(&mut *connection).await.expect("read sanitized ledger");
+                assert!(sqlx::query("SELECT * FROM users").fetch_all(&mut *connection).await.is_err());
+                assert!(sqlx::query("DELETE FROM _sqlx_migrations").execute(&mut *connection).await.is_err());
+                sqlx::query("RESET ROLE").execute(&mut *connection).await.expect("reset inspector role");
             })
             .await;
     }
