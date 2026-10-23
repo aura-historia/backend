@@ -23,9 +23,9 @@ import {
   grantCognitoAdminAccess,
   grantCognitoFederatedLinkingAccess,
   importLambdaCatalog,
-  InitializationLambdas,
   Lambdas,
 } from "./constructs/lambdas";
+import { InitializationLambdas } from "./constructs/database-operations";
 import { addCdcAlarms, Observability } from "./constructs/observability";
 import { PeriodicMatcher } from "./constructs/periodic-matcher";
 import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
