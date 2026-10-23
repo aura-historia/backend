@@ -1,16 +1,12 @@
+mod error;
 pub(crate) mod listing;
-mod terms;
 use crate::{
     auth::{TokenAuthenticator, protected_context},
-    error::{
-        ApiError, BAD_BODY_VALUE, FORBIDDEN, INVALID_CREDENTIALS, LISTING_SOURCE_NOT_FOUND,
-        PARTY_NOT_FOUND, SHIPPING_CREATION_KEY_CONFLICT, SHIPPING_LOCATION_NOT_FOUND,
-        SHIPPING_PROFILE_NOT_FOUND, SHIPPING_PROFILE_RETIRED, SHIPPING_REFERENCE_INELIGIBLE,
-        SHIPPING_REVISION_EXHAUSTED, SHIPPING_STALE_REVISION, SHIPPING_STORAGE_ERROR,
-        SHIPPING_TEMPORARILY_UNAVAILABLE,
-    },
+    error::{ApiError, BAD_BODY_VALUE, SHIPPING_STORAGE_ERROR},
     wire::parse_path_object_id,
 };
+#[cfg(test)]
+use aura_historia_contracts::shipping::terms;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -18,19 +14,22 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use listing_source_core::ListingSourceId;
-use party_core::party_id::PartyId;
-use serde::{Deserialize, Serialize};
-use shipping_core::profile::{ShippingProfileContent, ShippingProfileId, ShippingProfileName};
+
+#[cfg(test)]
+use aura_historia_contracts::shipping::management::ContentData;
+pub use aura_historia_contracts::shipping::management::ListQuery;
+use aura_historia_contracts::shipping::management::{
+    AssignData, ClearData, CreateData, DefaultData, LifecycleData, ProfileData, ReplaceData,
+    SummaryData,
+};
+use shipping_core::profile::ShippingProfileId;
 use shipping_service::{
     ShippingError,
-    ports::{ShippingDefaultRevision, ShippingEvidence, ShippingManagementRevision},
     use_cases::{
-        AssignDefaultCommand, AssignShippingDefaultUseCase, ClearDefaultCommand,
-        ClearShippingDefaultUseCase, CreateProfileCommand, CreateShippingProfileUseCase,
-        DefaultEligibility, DefaultView, GetShippingDefaultUseCase, GetShippingProfileUseCase,
-        ListShippingProfilesUseCase, ProfileLifecycleCommand, ProfileSummary, ProfileView,
-        ReplaceProfileCommand, ReplaceShippingProfileUseCase, RestoreShippingProfileUseCase,
-        RetireShippingProfileUseCase,
+        AssignShippingDefaultUseCase, ClearShippingDefaultUseCase, CreateShippingProfileUseCase,
+        DefaultView, GetShippingDefaultUseCase, GetShippingProfileUseCase,
+        ListShippingProfilesUseCase, ProfileView, ReplaceShippingProfileUseCase,
+        RestoreShippingProfileUseCase, RetireShippingProfileUseCase,
     },
 };
 use std::sync::Arc;
@@ -54,229 +53,11 @@ fn bad() -> ApiError {
 fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
     serde_json::from_str(body).map_err(|_| bad())
 }
-struct RequiredNullable<T>(Option<T>);
-fn required<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
-    d: D,
-) -> Result<RequiredNullable<T>, D::Error> {
-    Option::deserialize(d).map(RequiredNullable)
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ContentData {
-    name: String,
-    #[serde(deserialize_with = "required")]
-    attributed_party_id: RequiredNullable<PartyId>,
-    terms: serde_json::Value,
-}
-impl ContentData {
-    fn domain(self, source: ListingSourceId) -> Result<ShippingProfileContent, ApiError> {
-        Ok(ShippingProfileContent {
-            name: ShippingProfileName::new(self.name).map_err(|_| bad())?,
-            attributed_party: self.attributed_party_id.0,
-            terms: terms::decode(self.terms, source).map_err(|_| bad())?,
-        })
-    }
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EvidenceData {
-    reference: String,
-    assertion: String,
-}
-fn evidence(data: Vec<EvidenceData>) -> Result<Vec<ShippingEvidence>, ApiError> {
-    data.into_iter()
-        .map(|e| ShippingEvidence::new(e.reference, e.assertion).map_err(|_| bad()))
-        .collect()
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CreateData {
-    #[serde(default)]
-    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
-    creation_key: String,
-    content: ContentData,
-    evidence: Vec<EvidenceData>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ReplaceData {
-    #[serde(default)]
-    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
-    expected_revision: ShippingManagementRevision,
-    content: ContentData,
-    evidence: Vec<EvidenceData>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LifecycleData {
-    #[serde(default)]
-    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
-    expected_revision: ShippingManagementRevision,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AssignData {
-    #[serde(default)]
-    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
-    expected_revision: ShippingDefaultRevision,
-    shipping_profile_id: ShippingProfileId,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ClearData {
-    #[serde(default)]
-    import: Option<product_listing_ingestion_sqs::delivery::ImportData>,
-    expected_revision: ShippingDefaultRevision,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ListQuery {
-    object_key: Option<String>,
-    integration_method: Option<String>,
-    after: Option<ShippingProfileId>,
-    size: Option<u32>,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileData {
-    shipping_profile_id: ShippingProfileId,
-    listing_source_id: ListingSourceId,
-    management_revision: ShippingManagementRevision,
-    terms_revision: u64,
-    lifecycle: &'static str,
-    content: ProfileContentData,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileContentData {
-    name: String,
-    attributed_party_id: Option<PartyId>,
-    terms: serde_json::Value,
-}
-impl TryFrom<ProfileView> for ProfileData {
-    type Error = ApiError;
-    fn try_from(v: ProfileView) -> Result<Self, Self::Error> {
-        Ok(Self {
-            shipping_profile_id: v.id,
-            listing_source_id: v.source_id,
-            management_revision: v.management_revision,
-            terms_revision: v.revision.into_inner(),
-            lifecycle: v.lifecycle.as_str(),
-            content: ProfileContentData {
-                name: v.content.name.as_str().into(),
-                attributed_party_id: v.content.attributed_party,
-                terms: terms::encode(&v.content.terms)
-                    .map_err(|_| ApiError::internal_server_error(SHIPPING_STORAGE_ERROR))?,
-            },
-        })
-    }
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SummaryData {
-    shipping_profile_id: ShippingProfileId,
-    listing_source_id: ListingSourceId,
-    name: String,
-    management_revision: ShippingManagementRevision,
-    terms_revision: u64,
-    lifecycle: &'static str,
-}
-impl From<ProfileSummary> for SummaryData {
-    fn from(v: ProfileSummary) -> Self {
-        Self {
-            shipping_profile_id: v.id,
-            listing_source_id: v.source_id,
-            name: v.name.as_str().into(),
-            management_revision: v.management_revision,
-            terms_revision: v.revision.into_inner(),
-            lifecycle: v.lifecycle.as_str(),
-        }
-    }
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DefaultData {
-    listing_source_id: ListingSourceId,
-    revision: ShippingDefaultRevision,
-    shipping_profile_id: Option<ShippingProfileId>,
-    eligibility: Option<&'static str>,
-}
-impl From<DefaultView> for DefaultData {
-    fn from(v: DefaultView) -> Self {
-        Self {
-            listing_source_id: v.source_id,
-            revision: v.revision,
-            shipping_profile_id: v.profile_id,
-            eligibility: v.eligibility.map(|e| match e {
-                DefaultEligibility::Active => "ACTIVE",
-                DefaultEligibility::Retired => "RETIRED",
-                DefaultEligibility::Missing => "MISSING",
-            }),
-        }
-    }
-}
-impl From<ShippingError> for ApiError {
-    fn from(e: ShippingError) -> Self {
-        match e {
-            ShippingError::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
-            ShippingError::SourceAccessDenied => Self::forbidden(FORBIDDEN),
-            ShippingError::SourceNotFound => Self::not_found(LISTING_SOURCE_NOT_FOUND),
-            ShippingError::ProfileNotFound => Self::not_found(SHIPPING_PROFILE_NOT_FOUND),
-            ShippingError::AttributedPartyNotFound { .. } => Self::not_found(PARTY_NOT_FOUND),
-            ShippingError::LocationNotFound => Self::not_found(SHIPPING_LOCATION_NOT_FOUND),
-            ShippingError::InvalidInput
-            | ShippingError::InvalidRevision
-            | ShippingError::InvalidTerms(shipping_core::InvalidShippingValue::SourceMismatch) => {
-                bad()
-            }
-            ShippingError::InvalidTerms(shipping_core::InvalidShippingValue::RetiredProfile)
-            | ShippingError::LocationRetired => Self::conflict(SHIPPING_REFERENCE_INELIGIBLE),
-            ShippingError::InvalidTerms(_)
-            | ShippingError::Profile(shipping_core::profile::ShippingProfileError::Invalid(_)) => {
-                bad()
-            }
-            ShippingError::ImportAuthorityStale => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_AUTHORITY_STALE)
-            }
-            ShippingError::ImportOwnershipConflict => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_OWNERSHIP_CONFLICT)
-            }
-            ShippingError::ImportRequestConflict => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_REQUEST_CONFLICT)
-            }
-            ShippingError::ImportOutOfOrder => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_OUT_OF_ORDER)
-            }
-            ShippingError::ImportIdentityExists => {
-                Self::conflict(crate::error::SHIPPING_IMPORT_IDENTITY_EXISTS)
-            }
-            ShippingError::ImportDependencyMissing => {
-                Self::not_found(crate::error::SHIPPING_IMPORT_DEPENDENCY_MISSING)
-            }
-            ShippingError::StaleRevision => Self::conflict(SHIPPING_STALE_REVISION),
-            ShippingError::CreationKeyConflict => Self::conflict(SHIPPING_CREATION_KEY_CONFLICT),
-            ShippingError::RevisionExhausted
-            | ShippingError::Profile(
-                shipping_core::profile::ShippingProfileError::RevisionExhausted,
-            ) => Self::conflict(SHIPPING_REVISION_EXHAUSTED),
-            ShippingError::Profile(shipping_core::profile::ShippingProfileError::Retired) => {
-                Self::conflict(SHIPPING_PROFILE_RETIRED)
-            }
-            ShippingError::PersistenceUnavailable { .. } | ShippingError::Transaction(_) => {
-                Self::service_unavailable(SHIPPING_TEMPORARILY_UNAVAILABLE)
-            }
-            ShippingError::CorruptShippingState { .. }
-            | ShippingError::PersistenceFailed { .. } => {
-                Self::internal_server_error(SHIPPING_STORAGE_ERROR)
-            }
-        }
-    }
-}
 fn profile_response(result: Result<ProfileView, ShippingError>) -> Response {
-    match result
-        .map_err(ApiError::from)
-        .and_then(ProfileData::try_from)
-    {
+    match result.map_err(ApiError::from).and_then(|view| {
+        ProfileData::try_from(view)
+            .map_err(|_| ApiError::internal_server_error(SHIPPING_STORAGE_ERROR))
+    }) {
         Ok(v) => Json(v).into_response(),
         Err(e) => e.into_response(),
     }
@@ -307,16 +88,7 @@ pub async fn create(
     let command = (|| {
         let source_id = source_id(&source)?;
         let d: CreateData = parse(&body)?;
-        Ok::<_, ApiError>(CreateProfileCommand {
-            import: d
-                .import
-                .map(|v| v.into_command().map_err(|_| bad()))
-                .transpose()?,
-            source_id,
-            creation_key: d.creation_key,
-            content: d.content.domain(source_id)?,
-            evidence: evidence(d.evidence)?,
-        })
+        d.into_command(source_id).map_err(|_| bad())
     })();
     match command {
         Ok(c) => profile_response(s.create.execute(&ctx, c).await),
@@ -336,17 +108,8 @@ pub async fn replace(
     let command = (|| {
         let source_id = source_id(&source)?;
         let d: ReplaceData = parse(&body)?;
-        Ok::<_, ApiError>(ReplaceProfileCommand {
-            import: d
-                .import
-                .map(|v| v.into_command().map_err(|_| bad()))
-                .transpose()?,
-            source_id,
-            profile_id: profile_id(&id)?,
-            expected_revision: d.expected_revision,
-            content: d.content.domain(source_id)?,
-            evidence: evidence(d.evidence)?,
-        })
+        d.into_command(source_id, profile_id(&id)?)
+            .map_err(|_| bad())
     })();
     match command {
         Ok(c) => profile_response(s.replace.execute(&ctx, c).await),
@@ -367,15 +130,8 @@ async fn lifecycle(
     };
     let command = (|| {
         let d: LifecycleData = parse(&body)?;
-        Ok::<_, ApiError>(ProfileLifecycleCommand {
-            import: d
-                .import
-                .map(|v| v.into_command().map_err(|_| bad()))
-                .transpose()?,
-            source_id: source_id(&source)?,
-            profile_id: profile_id(&id)?,
-            expected_revision: d.expected_revision,
-        })
+        d.into_command(source_id(&source)?, profile_id(&id)?)
+            .map_err(|_| bad())
     })();
     match command {
         Ok(c) => profile_response(if restore {
@@ -428,24 +184,10 @@ pub async fn list(
     };
     let request = source_id(&source).and_then(|source| {
         let Query(q) = query.map_err(|_| bad())?;
-        let identity = match (q.object_key, q.integration_method) {
-            (None, None) => None,
-            (Some(object_key), method) => {
-                let integration = match method {
-                    None => product_listing_core::delivery::DeliveryIntegration::Source,
-                    Some(method) => shipping_json::listing_delivery::decode_integration(
-                        serde_json::json!({"kind":"PROVIDER","method":method}),
-                    )
-                    .map_err(|_| bad())?,
-                };
-                Some(shipping_service::imports::ProfileImportIdentity {
-                    object_key,
-                    integration,
-                })
-            }
-            _ => return Err(bad()),
-        };
-        Ok((source, q.after, q.size, identity))
+        let after = q.after;
+        let size = q.size;
+        let identity = q.into_identity().map_err(|_| bad())?;
+        Ok((source, after, size, identity))
     });
     match request {
         Ok((source, after, size, identity)) => match s
@@ -485,15 +227,7 @@ pub async fn assign_default(
     };
     let command = (|| {
         let d: AssignData = parse(&body)?;
-        Ok::<_, ApiError>(AssignDefaultCommand {
-            import: d
-                .import
-                .map(|v| v.into_command().map_err(|_| bad()))
-                .transpose()?,
-            source_id: source_id(&source)?,
-            profile_id: d.shipping_profile_id,
-            expected_revision: d.expected_revision,
-        })
+        d.into_command(source_id(&source)?).map_err(|_| bad())
     })();
     match command {
         Ok(c) => default_response(s.assign_default.execute(&ctx, c).await),
@@ -512,14 +246,7 @@ pub async fn clear_default(
     };
     let command = (|| {
         let d: ClearData = parse(&body)?;
-        Ok::<_, ApiError>(ClearDefaultCommand {
-            import: d
-                .import
-                .map(|v| v.into_command().map_err(|_| bad()))
-                .transpose()?,
-            source_id: source_id(&source)?,
-            expected_revision: d.expected_revision,
-        })
+        d.into_command(source_id(&source)?).map_err(|_| bad())
     })();
     match command {
         Ok(c) => default_response(s.clear_default.execute(&ctx, c).await),

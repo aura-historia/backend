@@ -85,6 +85,10 @@ reuse these handles without loading search, embedding or identity-provider confi
 The use cases retain current partnership grants, delegated capabilities, transaction boundaries
 and optimistic version checks.
 
+`Runtime::shipping_management()` constructs the nine profile/default use-case handles once for
+the warm pool. REST and MCP reuse the same PostgreSQL composition without loading provider settings.
+Services retain source/operator authorization, transactions, creation-key/import replay and revisions.
+
 `Runtime::party_locations()` supplies the five protected location-management handles;
 `Runtime::source_location_defaults()` supplies the four operator-or-administrator default
 handles. REST and MCP reuse the same warm PostgreSQL composition without constructing a

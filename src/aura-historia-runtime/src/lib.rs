@@ -21,6 +21,7 @@ mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
 mod saved_searches;
+mod shipping_management;
 mod source_location_defaults;
 mod user_profile;
 mod watchlist;
@@ -41,6 +42,7 @@ pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
 pub use saved_searches::SavedSearches;
+pub use shipping_management::ShippingManagement;
 pub use source_location_defaults::SourceLocationDefaults;
 pub use user_profile::UserProfile;
 pub use watchlist::Watchlist;
@@ -68,6 +70,7 @@ pub struct Runtime {
     public_overview: OnceLock<PublicOverview>,
     saved_searches: OnceLock<SavedSearches>,
     watchlist: OnceLock<Watchlist>,
+    shipping_management: OnceLock<ShippingManagement>,
 }
 
 impl Runtime {
@@ -90,6 +93,7 @@ impl Runtime {
             public_overview: OnceLock::new(),
             saved_searches: OnceLock::new(),
             watchlist: OnceLock::new(),
+            shipping_management: OnceLock::new(),
         }
     }
 
@@ -177,6 +181,11 @@ impl Runtime {
     pub fn partner_listing_management(&self) -> &PartnerListingManagement {
         self.partner_listing_management
             .get_or_init(|| PartnerListingManagement::compose(&self.postgres))
+    }
+
+    pub fn shipping_management(&self) -> &ShippingManagement {
+        self.shipping_management
+            .get_or_init(|| ShippingManagement::compose(&self.postgres))
     }
 
     pub fn notifications(&self) -> &Notifications {

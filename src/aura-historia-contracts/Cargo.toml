@@ -43,6 +43,7 @@ watchlist-core = { workspace = true }
 watchlist-service = { workspace = true }
 
 [dev-dependencies]
+uuid = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
 serde_json = { workspace = true }
 serde_qs = { workspace = true }

@@ -1638,66 +1638,17 @@ async fn app_state_from_config_and_runtime(
             submit: submit_product_listing_ingestion,
             authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         };
+    let shipping = runtime.shipping_management();
     let shipping_state = shipping::ShippingState {
-        create: Arc::new(
-            shipping_service::use_cases::CreateShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        replace: Arc::new(
-            shipping_service::use_cases::ReplaceShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        retire: Arc::new(
-            shipping_service::use_cases::RetireShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        restore: Arc::new(
-            shipping_service::use_cases::RestoreShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        assign_default: Arc::new(
-            shipping_service::use_cases::AssignShippingDefaultHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        clear_default: Arc::new(
-            shipping_service::use_cases::ClearShippingDefaultHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        get: Arc::new(shipping_service::use_cases::GetShippingProfileHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::SqlxShippingReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        list: Arc::new(
-            shipping_service::use_cases::ListShippingProfilesHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingReaderFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        get_default: Arc::new(shipping_service::use_cases::GetShippingDefaultHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::SqlxShippingReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
+        create: shipping.create.clone(),
+        replace: shipping.replace.clone(),
+        retire: shipping.retire.clone(),
+        restore: shipping.restore.clone(),
+        assign_default: shipping.assign_default.clone(),
+        clear_default: shipping.clear_default.clone(),
+        get: shipping.get.clone(),
+        list: shipping.list.clone(),
+        get_default: shipping.get_default.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let source_location_defaults_state = state::SourceLocationDefaultsState {

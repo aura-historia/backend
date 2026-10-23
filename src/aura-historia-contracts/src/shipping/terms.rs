@@ -28,3 +28,12 @@ pub fn decode(
 pub fn encode(value: &DeliveryTerms) -> Result<serde_json::Value, BoxError> {
     shipping_json::encode::<PublicReferences>(value)
 }
+
+/// Complete public terms schema uses the authoritative codec with public TypeID references.
+pub fn schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    shipping_json::terms_schema(
+        generator,
+        crate::wire::schema::object_id(PartyId::PREFIX),
+        crate::wire::schema::object_id(PartyLocationId::PREFIX),
+    )
+}
