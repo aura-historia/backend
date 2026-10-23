@@ -82,10 +82,8 @@ jobs:
         with:
           id: api
           lanes: API
-          harness: nextest
           slots: 4
           profile: api
-          coverage: none
           compilation_cache: dependencies
 
   crawler:
@@ -101,10 +99,8 @@ jobs:
         with:
           id: crawler
           lanes: CRAWLER
-          harness: nextest
           slots: 4
           profile: postgres
-          coverage: none
           compilation_cache: dependencies
 
   integration:
@@ -120,10 +116,8 @@ jobs:
         with:
           id: integration
           lanes: INFRASTRUCTURE
-          harness: nextest
           slots: 4
           profile: api
-          coverage: none
           compilation_cache: dependencies
 
   remaining:
@@ -136,10 +130,8 @@ jobs:
         with:
           id: remaining
           lanes: REMAINING
-          harness: nextest
           slots: 4
           profile: none
-          coverage: none
           compilation_cache: dependencies
 
   quality:

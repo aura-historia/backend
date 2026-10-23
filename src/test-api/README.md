@@ -1,88 +1,72 @@
-# Integration test infrastructure
+# Integration test fixtures
 
-## Job supervisor
+## Run locally
 
-Build the Rust CLI and run one service lifecycle around the complete test command:
+Tests need Linux with PID descriptor support, a Docker daemon at
+`/var/run/docker.sock`, and the Docker CLI. Fixtures start real PostgreSQL,
+Floci and OpenSearch as needed, using fake credentials and local endpoints.
+No emulator account, license token or deployed service is required.
+
+Start with a consumer package:
 
 ```sh
-cargo build --locked -p test-api --features supervisor --bin aura-test-env
-./target/debug/aura-test-env run --profile postgres --slots 4 -- <test-command>
-./target/debug/aura-test-env run --profile api --slots 4 -- <test-command>
+cargo test --locked -p product-listing-postgres --all-features --test public_catalogue_overview
 ```
 
-Profiles are `postgres` (PostgreSQL only), `aws` (Floci only), `opensearch` (Floci and
-OpenSearch), and `api` (all three). Managed images are pinned by digest in
-[`environment/services.rs`](src/environment/services.rs): PostgreSQL 16, Floci 2.3.0,
-and real OpenSearch 3.5.0. OpenSearch runs directly on the run's Docker network;
-Floci has memory storage and no Docker socket. PostgreSQL retains logical WAL and
-the generated CA/SANs used by verified TLS. The supervisor installs the workspace
-OpenSearch mapping and native RRF hybrid pipeline before launching the command.
-Fixture migration directories and setup scripts retain their existing semantics;
-server readiness does not pre-apply the business schema to every profile.
+Plain Cargo tests use process-owned fixtures and serialize access where needed.
+For parallel Nextest with shared services:
 
-The supervisor targets Linux with PID descriptor support, including `/proc` for stale
-process recovery.
-Docker must be available at the local `/var/run/docker.sock`. Each invocation owns
-UUID-named, labelled containers, volumes and a bridge network, with Docker-assigned
-ports published only on `127.0.0.1`. The supervisor inherits command stdout/stderr,
-forwards SIGINT/SIGTERM to its child process group, terminates remaining descendants
-carrying its exact managed invocation identity even when a runner starts new sessions,
-and cleans its resources after success, failure or cancellation. Its exit code is
-the child's exit code, or `128 + signal`; infrastructure/cleanup failure after a
-successful command returns 1. A service exit, unhealthy state or changed start
-identity fails the invocation; restarting requires a new invocation.
+```sh
+cargo build --locked -p test-api --all-features --bin aura-test-env
+./target/debug/aura-test-env run --profile postgres --slots 4 -- \
+  cargo nextest run --locked -p crawler --all-features --test-threads 4
+```
 
-`AURA_TEST_ENV` JSON diagnostics on stderr report run ID, service start counts,
-bootstrap time and cleanup time. They are independent of optional `AURA_CI_TIMING`
-benchmark records. The private run directory defaults to
-`$TMPDIR/aura-test-env-v1-<uid>` and can be selected with `--state-dir ABSOLUTE`.
-A held OS file lock protects each live invocation from GC. Normal runs first collect
-stale invocations; operators can retry explicitly after a hard kill or Docker outage:
+Profiles: `postgres` (PostgreSQL), `aws` (Floci), `opensearch` (Floci and
+OpenSearch), `api` (all three). Use the [CI driver](../../docs/ci.md) for complete
+lanes and the pristine migration phase. Run doctests separately with
+`cargo test --locked -p <package> --all-features --doc`.
+
+This crate's `tests/` contains ignored fixture diagnostics. Run a selected
+diagnostic outside any managed supervisor:
+
+```sh
+cargo test --locked -p test-api --all-features --test postgres -- --ignored --test-threads=1
+```
+
+## Supervisor ownership
+
+One supervisor owns the complete command's service lifecycle. It creates
+UUID-named, labelled containers, volumes and a network; ports bind only to
+`127.0.0.1`. Images are pinned in
+[`environment/services.rs`](src/environment/services.rs). PostgreSQL uses
+verified TLS and logical WAL. Managed OpenSearch installs the workspace mapping
+and hybrid pipeline before tests start.
+
+Children attach to validated job configuration. Both
+`AURA_TEST_ENV_MANAGED=1` and absolute `AURA_TEST_ENV_CONFIG` must be present
+together; partial or invalid configuration fails before fixture startup.
+The supervisor supplies fake credentials, local endpoints and disabled IMDS.
+
+SIGINT/SIGTERM are forwarded, owned descendants are stopped across sessions, and
+only invocation-owned resources are removed. Command failures are preserved;
+service failure or cleanup failure also fails the invocation. Diagnostics appear
+as `AURA_TEST_ENV` JSON on stderr.
+
+Private state defaults to `$TMPDIR/aura-test-env-v1-<uid>`; select another path
+with `--state-dir ABSOLUTE`. A lock protects live runs. Startup collects stale
+runs. After a hard kill or Docker failure, recover against the same state directory:
 
 ```sh
 ./target/debug/aura-test-env gc
 ```
 
-GC validates owner manifests and removes only exact run/UID-labelled resources. It
-verifies the managed invocation environment of remaining processes and uses PID
-descriptors to fence PID reuse while signalling. A foreign member of the saved child
-group fails recovery. SIGKILL prevents synchronous supervisor cleanup;
-GC completes that recovery. Docker failures retain the run directory for retry.
-No global prune is used. These controls govern fixture ownership; they are not a
-network or process sandbox for an arbitrary supplied command.
+Recovery validates ownership and signals through PID descriptors to prevent PID
+reuse. Failed cleanup retains recovery state. No global Docker prune is used.
 
-### Managed child contract, version 1
+## Isolated tests
 
-Both `AURA_TEST_ENV_MANAGED=1` and an absolute `AURA_TEST_ENV_CONFIG` are required.
-Partial or malformed configuration fails before unmanaged startup. The JSON file
-is atomically published as `<private-state>/<run_id>/environment.json`; its parent
-is owned by the current UID with mode 0700. The validated fields are:
-
-| Field | Contract |
-| --- | --- |
-| `schema_version` | Integer `1`; unknown versions/fields fail |
-| `run_id` | 32 lowercase hexadecimal characters, matching the directory |
-| `profile` | `POSTGRES`, `AWS`, `OPENSEARCH`, or `API` |
-| `slots` | Integer 1–1024, invocation capacity for downstream test leases |
-| `postgres` | Null or `{port, root_certificate}`; localhost database/user/password `postgres`, verified TLS required, CA within the run directory |
-| `aws_endpoint` | Null or loopback HTTP origin with explicit port |
-| `opensearch_endpoint` | Null or loopback HTTP origin with explicit port |
-| `aws_services` | Exact sorted profile topology: `eventbridge`, `s3`, `sesv2`, `sqs`; OpenSearch profiles also contain `opensearch` |
-
-Endpoints accept `127.0.0.1` only, without userinfo, query, fragment or non-root path.
-Topology is immutable; fixtures requesting unsupported services or extra Floci
-environment fail. Child processes cache validated configuration and local clients,
-attach without testcontainers, and register no container/CA cleanup. Per-call
-PostgreSQL pools remain owned by the test's Tokio runtime.
-
-The command receives fixed fake AWS credentials, `eu-central-1`, local endpoint
-configuration, disabled IMDS, and empty run-owned AWS config/credential files.
-Inherited AWS credential sources, profiles and service endpoint overrides are
-removed. Never supply live credentials or external endpoints to test commands.
-
-### Isolated test contexts
-
-Opt a migrated test into a scoped context:
+Declare actual services and request a scoped context:
 
 ```rust,ignore
 const DATABASE: Postgres = Postgres::new("migrations");
@@ -91,263 +75,41 @@ const DATABASE: Postgres = Postgres::new("migrations");
 async fn should_read_its_own_data(context: TestContext) {
     let pool = get_postgres_client().await;
     let index = context.product_listings_index().unwrap();
-    // Construct search/projector adapters through their existing with_index() methods.
+    // Pass the scoped pool/index to the adapters under test.
 }
 ```
 
-The optional context argument receives the same scope used by fixture setup and
-`get_postgres_client()`. The macro catches setup/body/individual teardown panics,
-continues reverse teardown, and preserves the original test panic when cleanup also
-fails. Unmigrated macro callers retain process-local serialization and acquire the
-actual job-wide exclusive reservation. Direct fixture callers must acquire a context
-or `reserve_exclusive()` themselves before sharing managed mutable state.
+The optional argument receives the context used by setup and teardown. The macro
+preserves test panics while continuing reverse teardown. Legacy macro callers
+retain serialization and the same exclusive reservation.
 
-Each context holds one bounded slot and a shared job gate. With Nextest, it validates
-`NEXTEST=1`, `NEXTEST_RUN_ID`, `NEXTEST_TEST_GLOBAL_SLOT`, and execution mode
-`process-per-test`; configure Nextest test threads no higher than supervisor slots.
-Slots start at zero. Competing Nextest invocations under the same supervisor use the
-same slot files and wait up to 120 seconds, rather than allocating additional capacity.
-Filters/retries require no predetermined test ordering. `exclusive = true` creates a
-scoped context holding the exclusive job gate, excluding every ordinary context and
-legacy macro caller across all groups and invocations. A group with one thread does
-not establish this exclusion. Raw global operations can use `reserve_exclusive()`
-and its `scope(future)` method. Role/bootstrap tests requiring absent roles and pristine
-`postgres` ownership need a separate supervisor invocation that has not requested a
-business baseline; a reservation alone does not restore cluster-global state.
+Keep Nextest threads at or below supervisor slots. Cross-process leases bound
+concurrency; `exclusive = true` excludes every other context for global operations.
+A one-thread Nextest group does not establish that exclusion. Absent-role and
+pristine-cluster tests require a fresh supervisor.
 
-Non-Nextest drivers use `TestContext::acquire_explicit(name, isolation)`, keep the
-returned `TestSession`, run work through `session.context().scope(future)`, then await
-`session.finish()`. This path uses the same semaphore/file reservations. It deliberately
-ignores inherited Nextest slot identity for a separate child batch. A parent waiting
-for that batch must release its own lease first. Unmanaged `cargo test` remains
-supported with the existing process-owned services and one local context slot.
+PostgreSQL clones a fresh database from an immutable migration/setup template per
+test generation. Migration paths stay within the workspace. Register manually
+created pools with `register_postgres_pool()` so they close before database removal.
 
-PostgreSQL prepares an immutable template once per actual migration/setup contract,
-under a cross-process template lock. Paths must resolve within the workspace;
-missing/empty/escaping declarations fail. The key includes ordered filenames, SQL
-contents and setup-script identity. Business prerequisites, extensions and seeded data
-belong to the template. Each test receives a fresh generation database before its body,
-restoring schema, triggers/constraints and seeds while fencing prior writers. Preparation
-and cloning occur in fixture setup; all setup/reset time remains in suite/workflow time
-and is reported separately through the existing benchmark recorder. `CONTEXT_ACQUIRE`
-includes lease waiting and recovery before fixture setup; `POSTGRES_SLOT_RESET`
-includes baseline preparation and cloning; `CONTEXT_CLEANUP` includes owned shutdown
-and resource removal after fixture teardown. These phases remain inside full suite time.
-A new pool is
-created on each calling Tokio runtime and registered for close before database deletion.
-Register any manually constructed pool with `register_postgres_pool()`.
+Pass `product_listings_index()` to every OpenSearch adapter, write, read and refresh.
+Resolve context-owned SQS/S3/SES names before creation; register extra senders with
+`register_sender()`. Register manually created resources before creating them and
+enable all fixture features required for recovery.
 
-OpenSearch contexts create generation-specific indices from production mappings and
-reuse the native hybrid RRF pipeline. Pass `product_listings_index()` to every adapter,
-write, read and refresh; raw client calls do not rewrite a literal index name. Context
-cleanup deletes only owned indices; legacy delete-by-query performs its own refresh
-without a second refresh request.
+Contexts do not propagate through raw Tokio tasks or OS threads. Capture resolved
+resources, scope a context clone, or use `context.spawn()`. `spawn_owned()` retains
+the real worker join and preserves its result, cancellation and panic.
 
-SQS/S3/SES names contain the complete run ID and a fresh test generation, preserving
-FIFO suffixes. `queue_name()`, `bucket_name()`, `configuration_set_name()` and
-`sender_email()` resolve context identities. Await `queue_name()`, `bucket_name()` and
-`configuration_set_name()` before manual create requests; fixtures persist their
-index, queue and sender ownership during setup. Labels use lowercase ASCII
-letters/digits/internal hyphens; maximum label lengths are 29 for ordinary SQS, 24
-for FIFO SQS, 12 for S3, and 13 for SES configuration sets. Worker queue fixtures also
-preserve redrive, visibility, encryption and policy metadata. Enable the corresponding
-fixture features (`sqs`, `s3`, `ses`, `opensearch`, `postgres`) for every resource a lane
-may recover. Unsupported recovery fails before a new test body.
+Register external workers/servers with `on_shutdown()`. Stop and join delayed
+writers, callbacks and long polls before releasing resources. Teardown joins work,
+closes pools, removes resources, then releases the lease. Dropped sessions transfer
+cleanup to a dedicated runtime; deadline failure retains the reservation until
+owned work stops.
 
-SES uses a unique verified sender. For another owned sender, await
-`context.register_sender("secondary")` before passing the returned address to
-`verify_sender_identity()`; registration persists recovery ownership before creation.
-Capture helpers inspect the default source, and cleanup removes only each owned
-sender's returned message IDs. Floci 2.3.0 supports source filtering on GET
-and message-ID filtering on DELETE; an email parameter on DELETE is not scoped
-cleanup. Unfiltered managed deletion is permitted only inside the legacy exclusive
-scope. Test-owned SES configuration sets/identities are removed with the context.
+Insert API fake state through `insert_api_state()` before server creation and read
+it through `api_state()`. The factory runs once per context and the server joins
+before state is released. Client pools belong to the runtime that uses them.
 
-The OpenSearch, SQS and SES client getters return owned clients. Create them on the
-runtime that uses them, including API server and cleanup runtimes; clones may share a
-pool within that runtime. The cached AWS configuration retains fixed fake credentials
-and endpoint settings without an HTTP connector. S3 clients follow the same ownership
-rule when built from that configuration.
-
-Contexts do not propagate automatically through `tokio::spawn` or OS threads.
-Capture resolved resources/pools, explicitly scope a context clone, or use
-`context.spawn()` for abort-and-join ownership. Register external worker/server
-shutdown through `on_shutdown()`; shutdown must stop and join every delayed writer,
-callback or long poll before resources are removed. The API fixture explicitly scopes
-its factory on its own runtime and registers server/thread shutdown; `base_url()`
-returns the current context's owned URL. Captures, failure injection and caches in
-consumer code still need per-context ownership before in-process parallel execution.
-
-For API fake state, a setup fixture before `&API` inserts an `Arc<ApiTestState>` with
-`context.insert_api_state(state)`. The factory and test helpers read it through
-`context.api_state::<Arc<ApiTestState>>()`. Missing state and duplicate initialization
-return errors; insertion after server initialization starts is rejected. The factory
-runs once per context/API declaration even when setup callers race. The server stops
-and its thread joins before the context drops this owned state.
-
-A worker can capture the scoped resources and remain owned by the context:
-
-```rust,ignore
-let pool = context.postgres_pool().await?;
-let queue_url = worker_queues.queue_url(); // Resolve before a raw spawned task.
-context.spawn(async move {
-    run_worker(pool, queue_url).await;
-})?;
-// An external JoinHandle/server instead registers stop-and-join with on_shutdown().
-```
-
-For a result-bearing task, `spawn_owned(future)` returns `OwnedTask<T>`. Awaiting it
-returns the worker's original `Result<T, tokio::task::JoinError>`; `abort()`,
-`is_finished()` and polling through `&mut` remain available. It explicitly scopes the
-worker and registers shutdown before spawning. The context retains the actual worker
-join even if the caller runtime cancels the result waiter or the body drops its handle.
-Use this helper for delayed writes and race-test relays that must retain cancellation
-and panic assertions; see [`owned_task.rs`](src/owned_task.rs).
-
-Normal teardown stops/joins owned tasks and servers, closes pools, removes only
-registered resources, then releases the reservation. Dropping a session transfers its
-reservation and cleanup to a separate runtime thread. A cleanup deadline reports
-failure to the caller while delayed joins continue holding the reservation and API
-state; resources are removed only after owned shutdown actually completes. Timeout
-failures retain recovery metadata. A killed process cannot
-run Drop: its persistent slot manifest is recovered before the next holder proceeds.
-Cleanup failure remains visible and retains recovery metadata. Corrupt/foreign
-ownership fails closed. New generation names protect a reused slot from a late old
-request; supervisor GC owns final job cleanup after interruption.
-
-### Exceptional execution phases
-
-Ordinary managed tests use isolated contexts. Role rotation, migration reconstruction
-and concurrent cleanup cases that need exclusion use `exclusive = true`, sharing the
-same gate as ordinary and legacy callers. Two fixture contracts retain the legacy
-exclusive macro path: the SQS purge case checks invisible source/DLQ messages disappear
-while another queue stays intact; the PostgreSQL teardown case checks business rows
-disappear from the same pool. Scoped teardown removes owned resource incarnations at
-session finish. The cancelled long-poll case finishes one context before acquiring the
-next, exercising actual slot reuse with a new queue.
-
-Two kinds of cases require separate invocations:
-
-| Phase | Exact selection | Required environment |
-| --- | --- | --- |
-| Pristine PostgreSQL bootstrap | `database-migration-lambda`, bin `database-migration-lambda`, `tests::should_bootstrap_roles_and_apply_root_schema_as_migrator` | Fresh `postgres` supervisor; no prior business baseline request |
-| Unmanaged lifecycle controls | `test-api`, test targets `aws` and `managed_environment`; target `isolated_context`, exact case `should_verify_managed_context_isolation_and_recovery` | Clear managed and Nextest variables; these cases own/control their own supervisors or fixtures |
-
-Exclude those selections from ordinary managed invocations. The pristine bootstrap
-reserves the exclusive gate but deliberately uses the untouched `postgres` database:
-cloning a migrated database or merely serializing it would invalidate its absent-role,
-ownership and grant assertions. Run it with the supervisor binary built above:
-
-```sh
-./target/debug/aura-test-env run --profile postgres --slots 1 -- \
-  cargo nextest run --locked -p database-migration-lambda --all-features \
-  --test-threads 1 -E 'test(=tests::should_bootstrap_roles_and_apply_root_schema_as_migrator)'
-```
-
-For the lifecycle controls, clear the complete fixture/runner identity before Cargo
-starts. Their subprocesses also clear inherited identities, retain fixed fake credentials
-and coverage output, and test actual unmanaged resource cleanup:
-
-```sh
-env -u AURA_TEST_ENV_MANAGED -u AURA_TEST_ENV_CONFIG \
-  -u NEXTEST -u NEXTEST_RUN_ID -u NEXTEST_TEST_GLOBAL_SLOT -u NEXTEST_EXECUTION_MODE \
-  cargo test --locked -p test-api --all-features \
-  --test aws --test managed_environment -- --test-threads=1
-env -u AURA_TEST_ENV_MANAGED -u AURA_TEST_ENV_CONFIG \
-  -u NEXTEST -u NEXTEST_RUN_ID -u NEXTEST_TEST_GLOBAL_SLOT -u NEXTEST_EXECUTION_MODE \
-  cargo test --locked -p test-api --all-features --test isolated_context \
-  should_verify_managed_context_isolation_and_recovery -- --exact --test-threads=1
-```
-
-Doctests remain a separate `cargo test --locked --workspace --all-features --doc`
-invocation; Nextest does not execute them. Keep ignored child probes discoverable,
-with their existing parent-driven execution, rather than globally enabling ignored
-provider benchmarks. Unmanaged local `cargo test --locked --workspace --all-features`
-continues to work with its process-owned fixtures.
-
-When adding a consumer, declare its actual migration/setup fixture, opt into isolation,
-pass the scoped index/name into adapters, register manual resources before creation,
-and register every delayed worker's real stop/join. Compile each mixed managed lane
-with all fixture features needed to recover any preceding holder's manifest; workspace
-`--all-features` provides that union. A package-only build may need additional
-`test-api` features or a separate supervisor phase. Preserve the existing inventory's
-case identities and add deliberate target changes through its reviewed manifest flow.
-
-### Smoke verification
-
-```sh
-cargo test --locked -p test-api --all-features --test managed_environment -- --nocapture
-# Lifecycle-only driver when a fixture test binary is not needed:
-python3 ci/test-env-smoke.py --binary ./target/debug/aura-test-env
-```
-
-The smoke suite uses real services: PostgreSQL-only, AWS-only, native OpenSearch,
-304 attach processes with Docker absent from their PATH, two simultaneous full
-supervisors, interruption, nonzero exit/abort, descendants, cancellation during
-bootstrap, a forced service restart, partial Docker failure, active-run GC and
-hard-kill recovery. The Rust entry also exercises business migrations/extensions,
-replication prerequisites and verified TLS through managed fixture attachment.
-The driver verifies exact run resources and state are removed.
-
-For focused context acceptance, build the `isolated_context` test executable and pass
-its reported path to the driver:
-
-```sh
-cargo test --locked -p test-api --all-features --test isolated_context --no-run
-python3 ci/test-context-smoke.py --binary ./target/debug/aura-test-env \
-  --fixture-binary <isolated_context-executable> --output /tmp/aura-context-check
-```
-
-Ordinary all-feature `cargo test` runs the same driver with two slots through
-`isolated_context::should_verify_managed_context_isolation_and_recovery`, including
-cleanup-failure recovery. Run it in the [unmanaged control phase](#exceptional-execution-phases).
-It reuses Cargo's compiled
-executables and preserves the inherited coverage profile destination for all children.
-The driver's optional `--slots 1|2|4` selects one round; its default remains all three.
-
-This runs 1/2/4 slots on actual PostgreSQL/Floci/OpenSearch, competing invocations,
-killed-holder recovery, restored seeds/DDL, thread-bound HTTP factories, an untouched
-SES sentinel and a filtered real Nextest retry. It records full TRUNCATE versus
-recreation measurements for the business baseline. Recreation also restores DDL/seeds
-and fences old writers, so a faster TRUNCATE is insufficient for that isolation contract.
-
-## Unmanaged local fixtures
-
-AWS fixtures start a pinned [Floci](https://github.com/floci-io/floci) container automatically.
-Image versions live in the [AWS fixture](src/aws.rs) and [OpenSearch bootstrap](src/opensearch.rs).
-Tests need a local Docker daemon, the Docker CLI, and access to `/var/run/docker.sock`.
-No emulator account or license token is required. The SDK uses fixed test credentials and
-`eu-central-1`; PostgreSQL runs independently in its existing real database fixture.
-
-Each test executable owns one emulator. Declare the complete AWS service topology on its first
-test; later tests may request subsets with compatible environment settings. Floci enables its
-services together, and the topology check catches inconsistent fixture declarations.
-PostgreSQL-only tests start no AWS emulator.
-
-OpenSearch uses a real, version-pinned engine launched by Floci. The fixture waits for readiness,
-uses its published host port, and installs the workspace mappings and hybrid search pipeline.
-Containers and volumes carry a process-specific namespace and are removed on normal exit or
-interruption. The [lifecycle test](tests/aws.rs) exercises concurrent process isolation and cleanup.
-SES fixtures verify senders and expose captured messages without configuring an SMTP relay.
-
-Run the fixture suite with:
-
-```sh
-cargo test --locked -p test-api --all-features
-```
-
-## Comparing emulator performance
-
-From each checkout, run the same package through this revision's
-[benchmark runner](../../ci/benchmark-integration.sh), using its absolute path for older checkouts.
-For example:
-
-```sh
-ci/benchmark-integration.sh aura-historia-api /tmp/aura-api-benchmark
-```
-
-The runner builds before timing, executes all test targets with one test thread, and writes build
-and test logs, environment metadata, and wall time. Pre-pull the images used by both checkouts
-before measuring; run them sequentially on the same machine. Compare identical passing test
-counts, keep startup and cleanup inside the timed run, and record the revisions, image versions,
-host load, and results with the issue. A failing or filtered suite is not a performance result.
+Killed tests leave recovery manifests for the next slot holder. Corrupt or foreign
+ownership fails closed; fresh generation names fence late requests from old tests.

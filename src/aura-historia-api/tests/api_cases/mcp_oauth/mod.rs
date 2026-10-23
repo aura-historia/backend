@@ -31,16 +31,6 @@ fn should_verify_generic_oauth_and_real_hybrid_mcp() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("11 passed; 0 failed"));
-    // Child probes retain their own test identities and opt-in phase observations.
-    if std::env::var("AURA_CI_BENCHMARK_TIMING").ok().as_deref() == Some("1") {
-        use std::io::Write as _;
-        for line in String::from_utf8_lossy(&output.stderr)
-            .lines()
-            .filter(|line| line.starts_with("AURA_CI_TIMING "))
-        {
-            let _ = writeln!(std::io::stderr().lock(), "{line}");
-        }
-    }
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         if line.starts_with("test result:")
             || (line.starts_with("test mcp_oauth::cases::") && line.ends_with(" ... ok"))

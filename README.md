@@ -60,7 +60,7 @@ cargo test --locked --workspace --tests --all-features
 ```
 
 The test fixtures start Floci automatically; no emulator account or license token is required.
-See [integration test infrastructure](src/test-api/README.md) for requirements and benchmarks.
+See [local testing and CI](docs/ci.md) for focused commands and parallel lanes, and the [fixture guide](src/test-api/README.md) for service ownership and cleanup.
 
 ## Architecture and contracts
 
