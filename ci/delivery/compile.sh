@@ -15,6 +15,8 @@ if [ "${1:-}" = prepare ]; then
   cargo install cargo-lambda --version 1.9.0 --locked
   python3 -m venv /output/tools
   /output/tools/bin/pip install ziglang==0.14.1
+  zig_binary="$(/output/tools/bin/python -c 'import pathlib,ziglang; print(pathlib.Path(ziglang.__file__).parent / "zig")')"
+  ln -sf "$zig_binary" /output/tools/bin/zig
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.xz -o /output/node.tar.xz
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/SHASUMS256.txt -o /output/node-shasums
   (cd /output && sed -n 's#  node-v26.0.0-linux-x64.tar.xz$#  node.tar.xz#p' node-shasums | sha256sum --check -)

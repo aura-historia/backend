@@ -10,48 +10,48 @@ on:
   push:
     branches: [develop]
     paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".cargo/**"
-      - ".config/**"
-      - "ci/**"
-      - "tooling/**"
-      - "tests/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-      - "opensearch/**"
-      - "mjml/**"
-      - "docs/swagger.yaml"
-      - "docs/fixtures/**"
-      - "infra/sql/**"
-      - "infra/assets/rds-ca-layer/**"
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.cargo/**'
+      - '.config/**'
+      - 'ci/**'
+      - 'tooling/**'
+      - 'tests/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'depgraph-rules.toml'
+      - 'sonar-project.properties'
+      - 'src/**'
+      - 'migrations/**'
+      - 'opensearch/**'
+      - 'mjml/**'
+      - 'docs/swagger.yaml'
+      - 'docs/fixtures/**'
+      - 'infra/sql/**'
+      - 'infra/assets/rds-ca-layer/**'
   pull_request:
     paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".cargo/**"
-      - ".config/**"
-      - "ci/**"
-      - "tooling/**"
-      - "tests/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-      - "opensearch/**"
-      - "mjml/**"
-      - "docs/swagger.yaml"
-      - "docs/fixtures/**"
-      - "infra/sql/**"
-      - "infra/assets/rds-ca-layer/**"
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.cargo/**'
+      - '.config/**'
+      - 'ci/**'
+      - 'tooling/**'
+      - 'tests/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'depgraph-rules.toml'
+      - 'sonar-project.properties'
+      - 'src/**'
+      - 'migrations/**'
+      - 'opensearch/**'
+      - 'mjml/**'
+      - 'docs/swagger.yaml'
+      - 'docs/fixtures/**'
+      - 'infra/sql/**'
+      - 'infra/assets/rds-ca-layer/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.source_sha && format('{0}-{1}', github.run_id, github.run_attempt) || 'ci' }}
