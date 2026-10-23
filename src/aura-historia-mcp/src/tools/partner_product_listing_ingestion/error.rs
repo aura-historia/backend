@@ -20,7 +20,7 @@ pub(super) fn configuration(error: PutListingSourceIngestionConfigurationError) 
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         NotFound => OperationError::NotFound,
         InvalidConfiguration => OperationError::InvalidInput,
-        ConcurrencyConflict | ShopifyDomainConflict { .. } => OperationError::Conflict,
+        ConcurrencyConflict | ShopifyDomainConflict { .. } => OperationError::Conflict(None),
         TemporarilyUnavailable { source }
         | BeginTransactionFailed(source)
         | CommitTransactionFailed(source) => OperationError::Unavailable(source),

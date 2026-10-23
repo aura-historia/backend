@@ -5,7 +5,7 @@ async fn should_return_safe_distinct_operation_errors_without_private_failure_ca
     for (error, code, tool_code) in [
         (OperationError::InvalidInput, None, Some("INVALID_INPUT")),
         (OperationError::NotFound, None, Some("NOT_FOUND")),
-        (OperationError::Conflict, None, Some("CONFLICT")),
+        (OperationError::Conflict(None), None, Some("CONFLICT")),
         (
             OperationError::Unavailable(std::io::Error::other("private token secret").into()),
             None,

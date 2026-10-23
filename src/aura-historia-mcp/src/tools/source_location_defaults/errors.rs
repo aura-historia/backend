@@ -11,7 +11,7 @@ pub(super) fn default(error: LocationDefaultError) -> OperationError {
         LocationDefaultError::LocationRetired
         | LocationDefaultError::DefaultNotAssigned
         | LocationDefaultError::ConcurrencyConflict
-        | LocationDefaultError::RevisionExhausted => OperationError::Conflict,
+        | LocationDefaultError::RevisionExhausted => OperationError::Conflict(None),
         LocationDefaultError::InvalidRevision | LocationDefaultError::InvalidAssignment(_) => {
             OperationError::InvalidInput
         }

@@ -512,7 +512,7 @@ async fn should_reject_malformed_inputs_and_preserve_safe_error_categories() {
         assert!(matches!(
             (mode, &result),
             (1, Err(OperationError::Forbidden))
-                | (2, Err(OperationError::Conflict))
+                | (2, Err(OperationError::Conflict(None)))
                 | (3, Err(OperationError::NotFound))
                 | (4, Err(OperationError::Unavailable(_)))
         ));

@@ -8,7 +8,7 @@ pub(super) fn location(error: PartyLocationError) -> OperationError {
         PartyLocationError::NotFound => OperationError::NotFound,
         PartyLocationError::ConcurrencyConflict
         | PartyLocationError::RevisionExhausted
-        | PartyLocationError::Domain(_) => OperationError::Conflict,
+        | PartyLocationError::Domain(_) => OperationError::Conflict(None),
         PartyLocationError::InvalidInput => OperationError::InvalidInput,
         PartyLocationError::TemporarilyUnavailable { source } => {
             OperationError::Unavailable(source)

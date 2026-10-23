@@ -90,7 +90,7 @@ fn should_keep_failure_causes_and_classify_safe_location_errors() {
     ));
     assert!(matches!(
         errors::location(PartyLocationError::ConcurrencyConflict),
-        OperationError::Conflict
+        OperationError::Conflict(None)
     ));
     let error = errors::location(PartyLocationError::TemporarilyUnavailable {
         source: static_error("private cause"),

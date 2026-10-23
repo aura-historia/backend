@@ -82,7 +82,10 @@ fn should_keep_failure_causes_and_classify_safe_default_errors() {
         LocationDefaultError::LocationRetired,
         LocationDefaultError::DefaultNotAssigned,
     ] {
-        assert!(matches!(errors::default(error), OperationError::Conflict));
+        assert!(matches!(
+            errors::default(error),
+            OperationError::Conflict(None)
+        ));
     }
     assert!(matches!(
         errors::default(LocationDefaultError::LocationNotFound),

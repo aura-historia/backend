@@ -28,7 +28,7 @@ pub(super) fn shipping(error: ShippingError) -> OperationError {
         | ShippingError::RevisionExhausted
         | ShippingError::Profile(
             ShippingProfileError::RevisionExhausted | ShippingProfileError::Retired,
-        ) => OperationError::Conflict,
+        ) => OperationError::Conflict(None),
         ShippingError::InvalidTerms(_) => OperationError::InvalidInput,
         error @ (ShippingError::PersistenceUnavailable { .. } | ShippingError::Transaction(_)) => {
             OperationError::Unavailable(Box::new(error))

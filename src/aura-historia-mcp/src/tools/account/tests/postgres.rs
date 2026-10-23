@@ -215,7 +215,7 @@ async fn should_preserve_owned_address_pagination_cas_destinations_and_http_scop
     assert_eq!(json!(2), updated["version"]);
     assert_eq!(json!(2), updated["inputRevision"]);
     assert_error(&registry, "updateUserAddress", replacement, &ctx, |e| {
-        matches!(e, OperationError::Conflict)
+        matches!(e, OperationError::Conflict(None))
     })
     .await;
     assert_error(
@@ -223,7 +223,7 @@ async fn should_preserve_owned_address_pagination_cas_destinations_and_http_scop
         "deleteUserAddress",
         json!({"addressId":id,"expectedVersion":1}),
         &ctx,
-        |e| matches!(e, OperationError::Conflict),
+        |e| matches!(e, OperationError::Conflict(None)),
     )
     .await;
     exercise_destinations(&registry, &ctx, id, foreign_address["addressId"].clone()).await;
@@ -353,7 +353,7 @@ async fn exercise_destinations(
         "setBrowsingDestination",
         json!({"expectedVersion":1,"destination":{"kind":"NONE"}}),
         ctx,
-        |e| matches!(e, OperationError::Conflict),
+        |e| matches!(e, OperationError::Conflict(None)),
     )
     .await;
 }

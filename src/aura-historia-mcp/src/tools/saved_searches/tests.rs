@@ -461,11 +461,11 @@ fn should_preserve_technical_causes_and_service_conflicts() {
     assert!(error.source().unwrap().source().is_some());
     assert!(matches!(
         error::update(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict),
-        OperationError::Conflict
+        OperationError::Conflict(None)
     ));
     assert!(matches!(
         error::create(CreateSearchFilterError::SearchFilterAlreadyExists),
-        OperationError::Conflict
+        OperationError::Conflict(None)
     ));
     assert!(matches!(
         error::update(
