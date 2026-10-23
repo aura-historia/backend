@@ -230,7 +230,6 @@ async fn ensure_container_started() {
                 pid = std::process::id(),
                 "Postgres container started."
             );
-            crate::benchmark::record_timing("POSTGRES_STARTUP", "PROCESS", started.elapsed());
 
             // Leak the handle intentionally: the container must stay alive for the whole
             // test-suite. The atexit handler takes care of removing it on process exit.
@@ -446,7 +445,6 @@ async fn apply_migrations(migrations_dir: &'static str) {
         elapsed_ms = started.elapsed().as_millis(),
         "Applied Postgres migrations."
     );
-    crate::benchmark::record_timing("POSTGRES_MIGRATIONS", migrations_dir, started.elapsed());
 }
 
 async fn apply_setup_script(setup_script: &'static str) {
@@ -599,7 +597,6 @@ impl IntegrationTestService for Postgres {
             elapsed_ms = started.elapsed().as_millis(),
             "Truncated application-owned public tables for test isolation."
         );
-        crate::benchmark::record_timing("POSTGRES_RESET", "PROCESS", started.elapsed());
     }
 }
 

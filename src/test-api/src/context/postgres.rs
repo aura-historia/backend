@@ -2,7 +2,6 @@ use super::{Kind, Result, TestContext, failure, lease};
 use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, ConnectOptions, Connection, Executor, PgConnection, PgPool};
 use std::path::Path;
-use std::time::Instant;
 
 struct Baseline {
     key: String,
@@ -68,7 +67,6 @@ impl Baseline {
 impl TestContext {
     pub(crate) async fn prepare_postgres(&self, fixture: &crate::Postgres) -> Result<()> {
         self.active()?;
-        let started = Instant::now();
         let fixture_copy = *fixture;
         let baseline = tokio::task::spawn_blocking(move || Baseline::read(&fixture_copy)).await??;
         {
@@ -124,11 +122,6 @@ impl TestContext {
         administrator.close().await?;
         *self.0.postgres.lock().expect("context Postgres lock") = Some(options.database(&database));
         *self.0.baseline.lock().expect("baseline lock") = Some(baseline.key);
-        crate::benchmark::record_timing(
-            "POSTGRES_SLOT_RESET",
-            fixture.migrations_dir,
-            started.elapsed(),
-        );
         Ok(())
     }
 

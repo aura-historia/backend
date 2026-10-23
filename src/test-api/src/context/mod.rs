@@ -122,7 +122,6 @@ impl TestContext {
         if name.is_empty() || name.len() > 4096 {
             return Err(failure("test name must be nonempty and bounded"));
         }
-        let started = std::time::Instant::now();
         let allocation = lease::Allocation::current().await?;
         let reservation = allocation.reserve(runner, isolation).await?;
         let run = allocation.run.clone();
@@ -153,7 +152,7 @@ impl TestContext {
             slot: reservation.slot,
             resources: vec![],
         };
-        let session = tokio::task::spawn_blocking(move || -> Result<_> {
+        tokio::task::spawn_blocking(move || -> Result<_> {
             manifest.write(&path)?;
             let reservation = Arc::new(reservation);
             let context = Self(Arc::new(State {
@@ -180,9 +179,7 @@ impl TestContext {
                 reservation: Some(reservation),
             })
         })
-        .await??;
-        crate::benchmark::record_timing("CONTEXT_ACQUIRE", name, started.elapsed());
-        Ok(session)
+        .await?
     }
 
     pub fn current() -> Option<Self> {

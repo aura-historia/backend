@@ -5,8 +5,6 @@ mod aura_historia_api;
 pub mod aws;
 pub mod context;
 pub use context::{Isolation, TestContext, TestSession, reserve_exclusive};
-#[doc(hidden)]
-pub mod benchmark;
 pub mod environment;
 mod owned_task;
 pub use owned_task::{OwnedTask, spawn_owned};

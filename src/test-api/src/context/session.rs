@@ -67,7 +67,6 @@ fn start_cleanup(
         .name("aura-test-cleanup".into())
         .spawn(move || {
             let _reservation = reservation;
-            let started = std::time::Instant::now();
             let result = (|| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -94,14 +93,6 @@ fn start_cleanup(
             if let Err(error) = &result {
                 eprintln!("test cleanup failed; next slot holder must recover: {error}");
             }
-            let owner = context
-                .0
-                .manifest
-                .lock()
-                .expect("context metadata lock")
-                .name
-                .clone();
-            crate::benchmark::record_timing("CONTEXT_CLEANUP", &owner, started.elapsed());
             if let Some(sender) = sender {
                 let _ = sender.send(result);
             }

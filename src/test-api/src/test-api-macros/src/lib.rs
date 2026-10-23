@@ -135,7 +135,6 @@ fn lifecycle(
             }
         }
     });
-    let name = &input.sig.ident;
     let body = &input.block;
     let mutable = if identifiers.is_empty() {
         quote! {}
@@ -150,16 +149,10 @@ fn lifecycle(
         let __env:Vec<(&str,&str)> = __environment_declarations.concat();
         let __aws=if __services.is_empty() {None} else {Some(test_api::aws::get_aws_emulator(&__services,&__env).await)};
         let #mutable __completed=0usize;
-        let __started=std::time::Instant::now();
         let __setup=test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async { #( #setup )* })).await;
-        test_api::benchmark::record_timing("SETUP",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
-        let __started=std::time::Instant::now();
         let __body=match __setup {Ok(())=>test_api::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {#context_argument #body})).await,Err(panic)=>Err(panic)};
-        test_api::benchmark::record_timing("BODY",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
-        let __started=std::time::Instant::now();
         let #mutable __teardown_panic: Option<Box<dyn std::any::Any+Send>>=None;
         #( #teardown )*
-        test_api::benchmark::record_timing("TEARDOWN",concat!(module_path!(),"::",stringify!(#name)),__started.elapsed());
         drop(__aws);
         match (__body,__teardown_panic) {
             (Err(panic),cleanup)=>{if cleanup.is_some() {eprintln!("integration service teardown also panicked");} std::panic::resume_unwind(panic);},
