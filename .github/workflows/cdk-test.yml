@@ -1,6 +1,12 @@
 name: CDK checks
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact candidate SHA selected by the trusted release workflow
+        required: false
+        type: string
   push:
     branches: [develop]
     paths:
@@ -61,6 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -85,7 +93,7 @@ jobs:
       - name: Test CDK app and deployment helpers
         run: |
           npm --prefix infra test
-          node --test ci/*.test.cjs
+          node --test ci/*.test.cjs ci/delivery/*.test.cjs
 
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
