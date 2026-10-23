@@ -108,7 +108,9 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
       age !== null ? `Maximum iterator age: ${age} ms.` : idle ? 'Observed healthy reader of an empty stream.' : 'Fresh flow/idle-reader evidence missing.');
     for (const name of ['DestinationDeliveryFailures', 'OnFailureDestinationDeliveredEventCount']) {
       const value = await metric(api, { namespace: 'AWS/Lambda', name, statistic: 'Sum',
-        dimensions: { EventSourceMappingUUID: inventory.routerMappingId } }, since, observedAt);
+        dimensions: name === 'DestinationDeliveryFailures'
+          ? { FunctionName: `cdc-router-lambda-${context.target}` }
+          : { EventSourceMappingUUID: inventory.routerMappingId } }, since, observedAt);
       // Failure-only metrics need not emit zero; mapping counters and flow evidence remain separately required.
       add(name, value === null || value === 0 ? 'PASS' : 'FAIL',
         value === null ? 'No failure event metric emitted; flow evidence is checked separately.' : `Failure events: ${value}.`);

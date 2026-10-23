@@ -27,6 +27,10 @@ test("manual delivery has no source triggers, reserved builders, mandatory dev t
   for (const build of Object.values(template.findResources("AWS::CodeBuild::Project"))) {
     expect(build.Properties.VpcConfig).toBeUndefined();
     expect(build.Properties.Environment.Fleet).toBeUndefined();
+    expect(build.Properties.ServiceRole["Fn::GetAtt"][1]).toBe("Arn");
+    const buildspec = JSON.parse(build.Properties.Source.BuildSpec);
+    if (build.Properties.Name.endsWith("-admission")) expect(buildspec.artifacts.files).toEqual(["prepared/**/*"]);
+    else expect(buildspec.artifacts).toBeUndefined();
   }
   template.resourceCountIs("AWS::Events::Rule", 0);
   template.resourceCountIs("AWS::StepFunctions::StateMachine", 0);
@@ -95,7 +99,13 @@ test("protected ownership and alias rollout remain acyclic and use CloudFormatio
   compute.resourceCountIs("AWS::Cognito::UserPool", 0);
   compute.resourceCountIs("AWS::SQS::Queue", 0);
   compute.resourceCountIs("AWS::S3::Bucket", 0);
-  Template.fromStack(stacks.identity).resourceCountIs("AWS::Cognito::UserPool", 1);
+  const identity = Template.fromStack(stacks.identity);
+  identity.resourceCountIs("AWS::Cognito::UserPool", 1);
+  identity.resourceCountIs("AWS::Lambda::Permission", 2);
+  for (const permission of Object.values(identity.findResources("AWS::Lambda::Permission"))) {
+    expect(permission.Condition).toBe("IdentityTriggersAttached");
+    expect(permission.Properties.Principal).toBe("cognito-idp.amazonaws.com");
+  }
   Template.fromStack(stacks.migration).resourceCountIs("AWS::Lambda::Function", 1);
   compute.resourceCountIs("AWS::CodeDeploy::DeploymentGroup", 2);
   const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));

@@ -295,9 +295,10 @@ export class ApplicationIdentityStack extends cdk.Stack {
     });
 
 
-    const trigger = (binary: string, id: string) => lambda.Function.fromFunctionArn(this, id,
-      this.formatArn({ service: "lambda", resource: "function", resourceName: `${binary}-${stageName}:live`,
-        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }));
+    const trigger = (binary: string, id: string) => lambda.Function.fromFunctionAttributes(this, id, {
+      functionArn: this.formatArn({ service: "lambda", resource: "function", resourceName: `${binary}-${stageName}:live`,
+        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }), sameEnvironment: true,
+    });
     this.identity = new Identity(this, "Identity", {
       config, stageName, emailConfigurationSet: this.emailConfigurationSet,
       postConfirmationLambda: trigger("cognito-post-confirmation", "PostConfirmationTrigger"),

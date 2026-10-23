@@ -17,4 +17,3 @@ export function constrainRoutineRoles(stack: cdk.Stack, stage: StageName, kind: 
     }
   } });
 }
-

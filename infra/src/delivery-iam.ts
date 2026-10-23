@@ -38,7 +38,7 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses", "cloudwatch:PutMetricData",
           ...(kind === "runtime" ? ["geo-places:Geocode"] : []),
         ], resources: ["*"] }),
-        new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue"], resources: [
+        new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], resources: [
           arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/${kind === "runtime" ? "runtime" : "migrator"}-??????`),
         ] }),
         new iam.PolicyStatement({ actions: ["s3:GetObject", "s3:GetObjectVersion"], resources: [bucket.arnForObjects("objects/sha256/*"), bucket.arnForObjects("mail/*")] }),

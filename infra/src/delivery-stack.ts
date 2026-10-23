@@ -137,7 +137,7 @@ export class DeliveryStack extends cdk.Stack {
             const name = `${boundary}${suffix}`;
             return `if [ -f prepared/action-variables.json ]; then export ${name}="$(node -p 'require("./prepared/action-variables.json").${name} || ""')"; fi`;
           }))] } },
-        artifacts: { files: ["prepared/**/*"], 'discard-paths': 'no' } }),
+        ...(name.endsWith("-admission") ? { artifacts: { files: ["prepared/**/*"], 'discard-paths': 'no' } } : {}) }),
       environmentVariables: { DELIVERY_BUCKET: { value: this.releases.bucketName },
         DELIVERY_CONTROL_VERSION: { value: props.controlVersion }, DELIVERY_BUILD_CONFIG: { value: props.buildConfig },
         AWS_ACCOUNT_ID: { value: this.account }, DELIVERY_DEV_ENABLED: { value: String(targets.includes("dev")) } },
@@ -236,13 +236,19 @@ export class DeliveryStack extends cdk.Stack {
     migration.addToRolePolicy(new iam.PolicyStatement({ actions: ["cloudformation:DescribeStacks"], resources: [this.formatArn({ service: "cloudformation", resource: "stack", resourceName: `application-${stage}-migrate/*` })] }));
     this.releases.grantPut(verify, `environments/${this.account}/${this.region}/${stage}.json`);
 
-    const grantInspectionReads = (role: iam.IGrantable) => iam.Grant.addToPrincipal({ grantee: role,
-      actions: ["dms:DescribeReplicationTasks", "dms:DescribeEndpoints", "dms:DescribeTableStatistics", "dms:DescribeReplicationInstances",
-        "rds:DescribeDBInstances", "sts:GetCallerIdentity",
-        "cloudwatch:GetMetricStatistics", "cloudwatch:DescribeAlarms", "kinesis:DescribeStreamSummary",
-        "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetAlias", "lambda:ListAliases", "lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings",
-        "cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents", "cloudformation:ListStackResources", "cloudformation:GetTemplate",
-        "sqs:GetQueueAttributes", "sqs:GetQueueUrl", "ecs:DescribeTaskDefinition", "scheduler:GetSchedule", "events:DescribeRule"], resourceArns: ["*"] });
+    const grantInspectionReads = (role: iam.IGrantable) => {
+      iam.Grant.addToPrincipal({ grantee: role,
+        actions: ["dms:DescribeReplicationTasks", "dms:DescribeEndpoints", "dms:DescribeTableStatistics", "dms:DescribeReplicationInstances",
+          "rds:DescribeDBInstances", "sts:GetCallerIdentity",
+          "cloudwatch:GetMetricStatistics", "cloudwatch:DescribeAlarms", "kinesis:DescribeStreamSummary",
+          "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetAlias", "lambda:ListAliases", "lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings",
+          "cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents", "cloudformation:ListStackResources", "cloudformation:GetTemplate",
+          "sqs:GetQueueAttributes", "sqs:GetQueueUrl", "ecs:DescribeTaskDefinition", "scheduler:GetSchedule", "events:DescribeRule", "events:ListTargetsByRule"], resourceArns: ["*"] });
+      iam.Grant.addToPrincipal({ grantee: role, actions: ["ssm:GetParameter"],
+        resourceArns: ["stripe", "shopify"].map((provider) => this.formatArn({
+          service: "ssm", resource: "parameter", resourceName: `eventbridge/${stage}/${provider}-event-bus-name`,
+        })) });
+    };
     for (const job of [prepare, migration, verify]) {
       grantInspectionReads(job);
       this.releases.grantPut(job, "reports/executions/*");
