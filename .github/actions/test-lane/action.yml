@@ -57,6 +57,7 @@ runs:
       shell: bash
       run: |
         rustup toolchain install nightly-2026-10-20 --profile minimal
+        bash ci/retain-active-toolchain.sh
         rustc -Vv
 
     - name: Restore lane compilation cache
@@ -68,7 +69,7 @@ runs:
         cache-workspace-crates: false
         cache-all-crates: false
         cache-on-failure: false
-        save-if: true
+        save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
         env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
 
     - name: Install verified Nextest

@@ -81,7 +81,16 @@ Required tests use no LLVM instrumentation or Sonar analysis. Each job resets
 `target/no-coverage`, then restores compatible external dependencies through
 the pinned cache action. Workspace crates and test executables are rebuilt.
 Keys separate lanes, compiler/environment, Cargo inputs and execution policy.
-Inspect restore logs to distinguish an exact hit, fallback and miss.
+
+Only successful `develop` push runs publish the lint and test-lane caches.
+Pull requests restore the newest compatible `develop` entry, which GitHub
+exposes to every branch, and save nothing. Work unique to a PR, such as a
+changed `Cargo.lock`, lane driver or compiler, is therefore rebuilt on each
+push until it reaches `develop`; a miss costs time only, and PRs still run
+every test. Jobs remove runner-image toolchains they do not compile with
+before restoring, because the cache action hashes every installed toolchain.
+Inspect restore logs to distinguish an exact hit, a fallback to an older
+`develop` entry and a miss.
 
 The disk guard stops execution below three GiB free. Tests keep installed SDKs;
 lint retains its existing disk preparation. Cleanup removes only owned resources
