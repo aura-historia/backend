@@ -9,6 +9,7 @@
 //! gcloud auth application-default login
 //! $env:VERTEX_AI_PROJECT_ID="my-project"
 //! $env:VERTEX_AI_LOCATION="europe-west3"
+//! $env:SPIDER_MAX_SIZE_BYTES="8388608"
 //! cargo run -p crawler --bin dev
 //! ```
 //!
@@ -18,6 +19,7 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual`)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual`)* |
+//! | `SPIDER_MAX_SIZE_BYTES` | Spider page-body ceiling in bytes, from `1048576` (1 MiB) through `8388608` (8 MiB, the crawler's own response-body limit); every crawl fails while it is unset or out of range | *(required)*; use `8388608` |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
