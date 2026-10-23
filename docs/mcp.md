@@ -328,6 +328,45 @@ the entire own inbox; it has no ID selection or request body. Successful mutatio
 with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
 reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
+## Party locations and source defaults
+
+The protected location-management family uses `partyId` and, for existing sites,
+`locationId` alongside the shared REST body/query fields. `createPartyLocation`,
+`correctPartyLocation` and `setPartyLocationLifecycle` require `parties:write`;
+`listPartyLocations` and `getPartyLocation` require `parties:read`. The existing use cases
+recheck explicit location-management grants or eligible active partnership membership.
+Party CRUD and manager-grant changes are excluded.
+
+Creation preserves label, every role, management geography/position, scoped evidence and
+optional `relocates: { id, revision }`. It is keyless: identical requests can create distinct
+records. Its idempotent annotation is false, and clients must reconcile after an ambiguous
+timeout before deciding whether to create again. Relocation atomically retires the old site
+and creates its replacement; repeating the old revision conflicts without recovering the
+successful result. See [command retries](command-retries.md).
+
+Correction retains `expectedRevision` and `correction: "SAME_SITE"`. Omission preserves a
+field; null clears geography, position or evidence, while label and roles reject null.
+Lifecycle changes use the existing revision and `ACTIVE`/`RETIRED` values. All management
+responses retain revision, inputRevision and evidence. Listing accepts `after` and `limit`
+(default 25, 1–100), returns `{ items, next }`, and uses the returned `next` as `after`.
+An exhausted page returns `next: null`; authority is checked again on every page.
+
+`getSourceLocationDefault` requires `listing-sources:read`. `assignSourceLocationDefault`,
+`changeSourceLocationDefaultApplicability` and `clearSourceLocationDefault` require
+`listing-sources:write`. Arguments combine `listingSourceId` with the shared REST body.
+The services require current source authority, exact source grants for eligible partnership
+operators, and an operator-owned active location for assignment/applicability changes.
+Business-association and advertised-inventory evidence retain separate scopes. Applicability
+omission preserves that meaning; null clears it. Clear remains valid after retirement and
+returns `assignment: null`, `eligibility: null` with the retained revision tombstone.
+
+Revision-checked mutations advertise idempotent effects: a repeated committed revision
+can conflict and does not replay the successful result. No mutation is automatically retried.
+Management evidence and exact inputs remain protected and are never included in public
+discovery contracts or operational logs. The [family acceptance tests](../src/aura-historia-mcp/tests/location_management.rs)
+exercise production composition, current grants, paging, evidence and revision behavior
+against isolated local PostgreSQL.
+
 ## Generic OAuth acceptance and stage smoke
 
 Register one fixed confidential client per environment with an exact HTTPS callback and a

@@ -82,3 +82,10 @@ provenance DTO also re-exported by asynchronous listing ingestion. `shipping::te
 the complete authoritative terms schema with public references for other operation families.
 [Shipping fixtures](tests/shipping_management.rs) compare both schema directions with actual codecs,
 including public TypeIDs versus persisted UUIDs, required nulls, complete terms and import metadata.
+
+Protected party-location management DTOs and pure command/view mappings live in
+`party_locations::management`; source-default references and applicability evidence live in
+`listing_sources::location_default`. REST and MCP preserve their full fields, revision codecs,
+patch null rules and bounded location pages. Management `GeographyData`/`PositionData` remain
+separate from public `GeographicSearchData`. The [location contract tests](tests/location_management.rs)
+check actual JSON against schemas, including nullable clears and retained evidence.

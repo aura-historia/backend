@@ -1612,10 +1612,7 @@ async fn app_state_from_config_and_runtime(
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
-    use party_postgres::{
-        SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
-        SqlxPartyLocationRepositoryFactory,
-    };
+    use party_postgres::SqlxPartyLocationAccessFactory;
     use party_service::use_cases::party_locations::*;
     let location_admin =
         || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
@@ -1627,41 +1624,16 @@ async fn app_state_from_config_and_runtime(
             location_admin(),
         )),
         discovery: Some(Arc::clone(&runtime.public_party_locations().discover)),
-        create: Arc::new(CreatePartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        update: Arc::new(UpdatePartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        lifecycle: Arc::new(SetPartyLocationLifecycleHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
+        create: Arc::clone(&runtime.party_locations().create),
+        update: Arc::clone(&runtime.party_locations().update),
+        lifecycle: Arc::clone(&runtime.party_locations().lifecycle),
         grant: Arc::new(GrantPartyLocationManagementHandler::new(
             unit_of_work.clone(),
             SqlxPartyLocationAccessFactory,
             location_admin(),
         )),
-        get: Arc::new(GetPartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationReaderFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        list: Arc::new(ListPartyLocationsHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationReaderFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
+        get: Arc::clone(&runtime.party_locations().get),
+        list: Arc::clone(&runtime.party_locations().list),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     use listing_source_postgres::{
@@ -1703,26 +1675,10 @@ async fn app_state_from_config_and_runtime(
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let source_location_defaults_state = state::SourceLocationDefaultsState {
-        assign: Arc::new(AssignLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        clear: Arc::new(ClearLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        get: Arc::new(GetLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
+        assign: Arc::clone(&runtime.source_location_defaults().assign),
+        clear: Arc::clone(&runtime.source_location_defaults().clear),
+        change: Arc::clone(&runtime.source_location_defaults().change),
+        get: Arc::clone(&runtime.source_location_defaults().get),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let admin_source_location_defaults_state = state::SourceLocationDefaultsState {

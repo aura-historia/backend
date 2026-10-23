@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-listing-source-core = { workspace = true }
-shipping-core = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
 auction-core = { workspace = true }
@@ -19,10 +17,12 @@ fxrate-service = { workspace = true }
 geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
+listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
+party-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
@@ -34,6 +34,7 @@ search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+shipping-core = { workspace = true }
 shipping-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
@@ -53,10 +54,8 @@ domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
-listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
 serial_test = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
