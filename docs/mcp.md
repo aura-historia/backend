@@ -621,3 +621,39 @@ a new key/timestamp must never be attached to old assertions to bypass current a
 After a conflict, refetch and reconcile. No mutation is automatically retried. The
 [shipping contract](shipping.md#incremental-typed-imports) owns import replay retention and authority;
 no shipping quote, purchase, booking or checkout tool is introduced.
+
+## Listing delivery management
+
+`getProductListingDelivery`, `changeProductListingDelivery` and
+`submitProductListingDelivery` identify a listing by public `listingSourceId` plus
+opaque `sourceListingId`. The latter is normalized by the existing constructor and
+retains up to 512 UTF-8 bytes; identifier-shaped strings keep their source-local meaning.
+Individual listing management uses the separate `productListingId` contract.
+The delivery read requires `product-listings:read` and returns the complete current
+configuration, including explicit null, and `expectedVersion`. Changes/submission require
+`product-listings:write` and retain the complete shared command: positive version,
+integration, selection, rate inputs, tagged patches, whole-component overrides,
+public profile/Party/location references and import provenance. The
+[listing contract](product-listing.md#listing-delivery-assertions) and
+[shipping contract](shipping.md) own their semantics.
+Delivery commands reject duplicate fields, including nested terms, overrides and rate
+inputs, before invoking a use case.
+Tagged unit patches and component overrides accept omitted or explicitly null `value`
+payloads, matching the shared codec.
+
+The synchronous change returns `CHANGED` or `UNCHANGED` and the resulting version.
+Existing use cases recheck current source authority and referenced dependencies,
+including semantic no-ops. Ordinary stale versions conflict; exact committed import
+retries retain the existing replay behavior and return current state after authority
+checks. Refetch and reconcile after an ambiguous response, preserving exact import
+content/keys when retrying an import.
+
+Submission reuses the [shared admission contract](#asynchronous-partner-ingestion-and-shopify-configuration)
+with `originalInputCount: 1`, original index `0`, the complete normalized source ID
+and effective idempotency key. `PUBLISHED` confirms queue custody. Current grants,
+version and business rules are checked at command application. Uncertain/unsent outcomes
+remain explicit; no admission outcome claims a committed mutation. Retry only the same
+actor/source, effective key and unchanged command, including version and import fields.
+The optional generated key makes the submission's idempotency annotation false.
+There is no status resource or automatic retry. Publication reserves 500 ms for the report.
+The family exposes module-local registration; the partner release owns catalogue publication.

@@ -2,7 +2,7 @@
 use crate::OperationError;
 use shipping_core::{InvalidShippingValue, profile::ShippingProfileError};
 use shipping_service::ShippingError;
-pub(super) fn shipping(error: ShippingError) -> OperationError {
+pub(in crate::tools) fn shipping(error: ShippingError) -> OperationError {
     match error {
         ShippingError::AuthenticationRequired | ShippingError::SourceAccessDenied => {
             OperationError::Forbidden

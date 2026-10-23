@@ -1,184 +1,43 @@
-//! Public TypeID delivery command protocol shared by API and asynchronous ingestion.
-use crate::codec::{CodecError, WirePatch, map_patch};
-use application::{
-    error::{BoxError, box_error},
-    patch_field::PatchField,
-};
-use listing_source_core::ListingSourceId;
-use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
-use product_listing_core::product_listing_id::ProductListingKey;
-use product_listing_service::{
-    ports::ProductListingStorageVersion,
-    use_cases::{ChangeProductListingDeliveryCommand, ProductListingDeliveryPatch},
-};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use shipping_core::profile::ShippingProfileId;
-use shipping_json::{
-    ShippingTermsReferenceCodec,
-    listing_delivery::{self, DeliveryReferenceCodec},
-};
-pub struct PublicDeliveryReferences;
-impl ShippingTermsReferenceCodec for PublicDeliveryReferences {
-    fn decode_party(v: &str) -> Result<PartyId, BoxError> {
-        v.parse().map_err(box_error)
-    }
-    fn encode_party(v: PartyId) -> String {
-        v.to_string()
-    }
-    fn decode_location(v: &str) -> Result<PartyLocationId, BoxError> {
-        v.parse().map_err(box_error)
-    }
-    fn encode_location(v: PartyLocationId) -> String {
-        v.to_string()
-    }
-}
-impl DeliveryReferenceCodec for PublicDeliveryReferences {
-    fn decode_source(v: &str) -> Result<ListingSourceId, BoxError> {
-        v.parse().map_err(box_error)
-    }
-    fn encode_source(v: ListingSourceId) -> String {
-        v.to_string()
-    }
-    fn decode_profile(v: &str) -> Result<ShippingProfileId, BoxError> {
-        v.parse().map_err(box_error)
-    }
-    fn encode_profile(v: ShippingProfileId) -> String {
-        v.to_string()
-    }
-}
+//! Compatibility boundary for the shared public delivery command codec.
+use crate::codec::CodecError;
+pub use aura_historia_contracts::product_listing_delivery::PublicDeliveryReferences;
 pub use aura_historia_contracts::shipping::imports::ImportData;
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CommandData {
-    expected_version: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    import: Option<ImportData>,
-    delivery: WirePatch<PatchData>,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PatchData {
-    integration: Value,
-    selection: WirePatch<Value>,
-    rate_inputs: WirePatch<Value>,
-    shipping: WirePatch<Value>,
-    collection: WirePatch<Value>,
-}
-fn invalid<T>(v: Result<T, BoxError>) -> Result<T, CodecError> {
-    v.map_err(|_| CodecError::Invalid)
-}
+use product_listing_core::product_listing_id::ProductListingKey;
+use product_listing_service::use_cases::ChangeProductListingDeliveryCommand;
+use serde_json::Value;
 pub fn decode_command(
     value: Value,
     key: ProductListingKey,
 ) -> Result<ChangeProductListingDeliveryCommand, CodecError> {
-    let data: CommandData = serde_json::from_value(value).map_err(|_| CodecError::Invalid)?;
-    decode_data(data, key)
+    aura_historia_contracts::product_listing_delivery::decode_command(value, key)
+        .map_err(|_| CodecError::Invalid)
 }
-/// Parse typed command fields directly, preserving duplicate-field rejection at HTTP ingress.
 pub fn decode_command_text(
     body: &str,
     key: ProductListingKey,
 ) -> Result<ChangeProductListingDeliveryCommand, CodecError> {
-    let data: CommandData = serde_json::from_str(body).map_err(|_| CodecError::Invalid)?;
-    decode_data(data, key)
+    aura_historia_contracts::product_listing_delivery::decode_command_text(body, key)
+        .map_err(|_| CodecError::Invalid)
 }
-fn decode_data(
-    data: CommandData,
-    key: ProductListingKey,
-) -> Result<ChangeProductListingDeliveryCommand, CodecError> {
-    if data.expected_version > i64::MAX as u64 {
-        return Err(CodecError::Invalid);
-    }
-    let source = key.listing_source_id;
-    let delivery = map_patch(data.delivery, |p| {
-        Ok(ProductListingDeliveryPatch {
-            integration: invalid(listing_delivery::decode_integration(p.integration))?,
-            selection: map_patch(p.selection, |v| {
-                invalid(listing_delivery::decode_selection::<PublicDeliveryReferences>(v, source))
-            })?,
-            rate_inputs: map_patch(p.rate_inputs, |v| {
-                invalid(listing_delivery::decode_inputs(v, source))
-            })?,
-            shipping: map_patch(p.shipping, |v| {
-                invalid(listing_delivery::decode_shipping::<PublicDeliveryReferences>(v, source))
-            })?,
-            collection: map_patch(p.collection, |v| {
-                invalid(listing_delivery::decode_collection::<
-                    PublicDeliveryReferences,
-                >(v, source))
-            })?,
-        })
-    })?;
-    let command = ChangeProductListingDeliveryCommand {
-        import: data
-            .import
-            .map(ImportData::into_command)
-            .transpose()
-            .map_err(|_| CodecError::Invalid)?,
-        product_key: key,
-        expected_version: ProductListingStorageVersion::try_from(data.expected_version)
-            .map_err(|_| CodecError::Invalid)?,
-        delivery,
-    };
-    if let PatchField::Set(p) = &command.delivery {
-        p.apply(source, None).map_err(|_| CodecError::Invalid)?;
-    }
-    Ok(command)
+pub fn encode_command(command: &ChangeProductListingDeliveryCommand) -> Result<Value, CodecError> {
+    aura_historia_contracts::product_listing_delivery::encode_command(command)
+        .map_err(|_| CodecError::Invalid)
 }
-fn patch<T>(
-    p: &PatchField<T>,
-    f: impl FnOnce(&T) -> Result<Value, BoxError>,
-) -> Result<WirePatch<Value>, CodecError> {
-    Ok(match p {
-        PatchField::Unchanged => WirePatch::Unchanged,
-        PatchField::Clear => WirePatch::Clear,
-        PatchField::Set(v) => WirePatch::Set(invalid(f(v))?),
-    })
-}
-pub fn encode_command(c: &ChangeProductListingDeliveryCommand) -> Result<Value, CodecError> {
-    let delivery = match &c.delivery {
-        PatchField::Unchanged => WirePatch::Unchanged,
-        PatchField::Clear => WirePatch::Clear,
-        PatchField::Set(p) => WirePatch::Set(PatchData {
-            integration: invalid(listing_delivery::encode_integration(&p.integration))?,
-            selection: patch(
-                &p.selection,
-                listing_delivery::encode_selection::<PublicDeliveryReferences>,
-            )?,
-            rate_inputs: patch(&p.rate_inputs, listing_delivery::encode_inputs)?,
-            shipping: patch(
-                &p.shipping,
-                listing_delivery::encode_shipping::<PublicDeliveryReferences>,
-            )?,
-            collection: patch(
-                &p.collection,
-                listing_delivery::encode_collection::<PublicDeliveryReferences>,
-            )?,
-        }),
-    };
-    serde_json::to_value(CommandData {
-        expected_version: c.expected_version.into_inner(),
-        import: c
-            .import
-            .as_ref()
-            .map(ImportData::from_command)
-            .transpose()
-            .map_err(|_| CodecError::Invalid)?,
-        delivery,
-    })
-    .map_err(|_| CodecError::Invalid)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::patch_field::PatchField;
+    use listing_source_core::ListingSourceId;
     use product_listing_service::use_cases::{
         ProductListingIngestionActor, ProductListingIngestionCommandId,
         ProductListingIngestionIntent, ProductListingIngestionMessage,
         ProductListingIngestionMetadata, ProductListingIngestionOperation,
         ProductListingIngestionSubmissionId,
     };
+    use product_listing_service::{
+        ports::ProductListingStorageVersion, use_cases::ProductListingDeliveryPatch,
+    };
+    use shipping_core::profile::ShippingProfileId;
     use shipping_core::{
         selection::{ComponentOverride, ProfileSelection},
         terms::ShippingPolicy,

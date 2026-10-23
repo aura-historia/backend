@@ -9,3 +9,5 @@ pub mod source_location_defaults;
 pub mod watchlist;
 
 pub mod partner_product_listing_ingestion;
+
+pub mod product_listing_delivery;

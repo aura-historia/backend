@@ -1576,21 +1576,8 @@ async fn app_state_from_config_and_runtime(
     use listing_source_service::use_cases::location_default::*;
     let product_listing_delivery_state =
         partner_product_listings::delivery::ProductListingDeliveryState {
-            change: Arc::new(
-                product_listing_service::use_cases::ChangeProductListingDeliveryHandler::new(
-                    unit_of_work.clone(),
-                    SqlxProductListingRepositoryFactory,
-                    SqlxProductListingEventAppenderFactory,
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
-                ),
-            ),
-            get: Arc::new(
-                product_listing_service::use_cases::GetProductListingDeliveryHandler::new(
-                    unit_of_work.clone(),
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReaderFactory,
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
-                ),
-            ),
+            change: runtime.product_listing_delivery().change.clone(),
+            get: runtime.product_listing_delivery().get.clone(),
             submit: submit_product_listing_ingestion,
             authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         };

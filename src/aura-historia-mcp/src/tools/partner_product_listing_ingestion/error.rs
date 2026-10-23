@@ -2,7 +2,9 @@ use crate::OperationError;
 use partnership_service::use_cases::commands::put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationError;
 use product_listing_service::use_cases::ProductListingIngestionSubmissionError;
 
-pub(super) fn submission(error: ProductListingIngestionSubmissionError) -> OperationError {
+pub(in crate::tools) fn submission(
+    error: ProductListingIngestionSubmissionError,
+) -> OperationError {
     match error {
         ProductListingIngestionSubmissionError::AuthenticationRequired
         | ProductListingIngestionSubmissionError::Forbidden => OperationError::Forbidden,

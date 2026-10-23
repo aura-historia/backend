@@ -101,3 +101,10 @@ Synchronous `prepare_batch` validates every item before exposing command values;
 adapters reuse individual converters while retaining their independent per-item validation.
 The same family owns indexed synchronous mutation reports and full create/update/upsert/withdraw
 fields, reusing `product_listing_fields` for Auction/lot and image representations.
+
+`product_listing_delivery` owns the shared source-keyed delivery command, pure codec and
+read/change result mappings. The ingestion adapter retains compatibility delegates to that
+single owner. Delivery schemas use the shipping codec's DTOs, public reference schemas,
+`shipping::terms::schema` and `shipping::imports::ImportData`; they preserve tagged patch
+states independently of ordinary listing patch omission/null. The [delivery contract tests](tests/product_listing_delivery.rs)
+cover full terms, references, imports, versions, explicit nulls and serialized outcomes.

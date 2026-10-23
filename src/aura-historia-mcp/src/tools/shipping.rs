@@ -1,5 +1,5 @@
 //! Shipping profile/default operations call the existing authorized use cases in process.
-mod errors;
+pub(super) mod errors;
 #[cfg(test)]
 mod tests;
 use crate::{AccessClass, OperationDefinition, OperationError, OperationPolicy, RegistryError};

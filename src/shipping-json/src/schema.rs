@@ -74,3 +74,35 @@ pub(super) fn features(_: &mut SchemaGenerator) -> Schema {
 pub(super) fn components(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type":"object","propertyNames":codes([ChargeComponent::Transport.as_str(),ChargeComponent::Packing.as_str(),ChargeComponent::Insurance.as_str(),ChargeComponent::Handling.as_str(),ChargeComponent::Installation.as_str(),ChargeComponent::ImportDuty.as_str(),ChargeComponent::Tax.as_str()]),"additionalProperties":codes([ComponentInclusion::Included.as_str(),ComponentInclusion::Excluded.as_str()])})
 }
+
+/// Replace adapter-owned object references in schemas generated from the codec DTOs.
+pub(super) fn references(generator: &mut SchemaGenerator, references: &[(&str, Schema)]) {
+    fn replace(value: &mut serde_json::Value, references: &[(&str, Schema)]) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if let Some(properties) = object
+                    .get_mut("properties")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    for (name, schema) in references {
+                        if let Some(value) = properties.get_mut(*name) {
+                            *value = serde_json::to_value(schema).expect("schema is JSON");
+                        }
+                    }
+                }
+                for value in object.values_mut() {
+                    replace(value, references);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    replace(value, references);
+                }
+            }
+            _ => {}
+        }
+    }
+    for definition in generator.definitions_mut().values_mut() {
+        replace(definition, references);
+    }
+}

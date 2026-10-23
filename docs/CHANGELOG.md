@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-23 — Listing delivery MCP family (#2254)
+
+- Define source-keyed delivery inspection, versioned change and single-command asynchronous submission through the existing application services. Shared contracts preserve every delivery field, public reference, import, version and outcome. Admission retains the full source-local identity and shared retry/uncertainty report without claiming committed mutation. The partner release owns publication. See the [delivery tool contract](mcp.md#listing-delivery-management).
+
 ## 2026-10-23 — Partner ingestion MCP family (#2253)
 
 - Define four asynchronous listing admission tools and non-secret Shopify configuration through the existing application use cases. Admission reports preserve original positions, effective retry keys and published/rejected/not-attempted/unknown outcomes; queue admission is distinct from committed state. Raw MCP arguments retain strict DTO duplicate-field validation. REST response bodies and key headers remain stable. The partner release owns publication; WooCommerce configuration remains excluded. See the [ingestion contract](mcp.md#asynchronous-partner-ingestion-and-shopify-configuration).
