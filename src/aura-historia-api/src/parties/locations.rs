@@ -1,226 +1,55 @@
 use crate::{
     auth::protected_context,
-    error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE},
-    patch_value::{PatchValue, clearable, non_nullable_patch},
+    error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_OBJECT_ID},
     state::PartyLocationsState,
-    wire::{parse_path_object_id, parse_query_object_id},
+    wire::parse_path_object_id,
 };
-use application::{operation_context::OperationContext, patch_field::PatchField};
+use application::operation_context::OperationContext;
+pub use aura_historia_contracts::party_locations::management::ListData;
+use aura_historia_contracts::party_locations::management::{
+    CreateData, LifecycleData, ListInputError, LocationData, LocationInputError, PageData,
+    UpdateData,
+};
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::QueryRejection},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use party_core::{
-    party_id::PartyId,
-    party_location::{
-        PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
-    },
-    party_location_id::PartyLocationId,
-};
-use party_service::{
-    ports::party_location::{ExpectedPartyLocation, PartyLocationRevision},
-    use_cases::party_locations::*,
-};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-use time::OffsetDateTime;
+use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
+use party_service::use_cases::party_locations::*;
+use serde::Deserialize;
 use user_core::user_id::UserId;
 
 fn bad() -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE).with_detail("Invalid PartyLocation input.")
 }
-fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
-    serde_json::from_str(body).map_err(|_| bad())
-}
-fn map_patch<T, U>(
-    patch: PatchField<T>,
-    convert: impl FnOnce(T) -> Result<U, ApiError>,
-) -> Result<PatchField<U>, ApiError> {
-    Ok(match patch {
-        PatchField::Unchanged => PatchField::Unchanged,
-        PatchField::Clear => PatchField::Clear,
-        PatchField::Set(v) => PatchField::Set(convert(v)?),
-    })
-}
-
-pub(crate) use aura_historia_contracts::geography::{GeographyData, PositionData};
-
 impl From<aura_historia_contracts::geography::InvalidGeographyData> for ApiError {
     fn from(_: aura_historia_contracts::geography::InvalidGeographyData) -> Self {
         bad()
     }
 }
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct EvidenceData {
-    reference: String,
-    #[serde(
-        default,
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    observed_at: Option<OffsetDateTime>,
-    scope: String,
+fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
+    serde_json::from_str(body).map_err(|_| bad())
 }
-impl EvidenceData {
-    fn into_service(self) -> Result<LocationEvidence, ApiError> {
-        LocationEvidence::new(
-            self.reference,
-            self.observed_at,
-            LocationAssertionScope::from_code(&self.scope).ok_or_else(bad)?,
-        )
-        .map_err(|_| bad())
+impl From<LocationInputError> for ApiError {
+    fn from(error: LocationInputError) -> Self {
+        Self::bad_request(BAD_BODY_VALUE).with_detail(error.to_string())
     }
-}
-impl From<LocationEvidence> for EvidenceData {
-    fn from(v: LocationEvidence) -> Self {
-        Self {
-            reference: v.reference().to_owned(),
-            observed_at: v.observed_at(),
-            scope: v.scope().as_str().to_owned(),
-        }
-    }
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LocationData {
-    id: PartyLocationId,
-    party_id: PartyId,
-    label: String,
-    roles: Vec<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geography: Option<GeographyData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    position: Option<PositionData>,
-    lifecycle: &'static str,
-    revision: PartyLocationRevision,
-    input_revision: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    evidence: Option<EvidenceData>,
-}
-impl From<PartyLocationView> for LocationData {
-    fn from(v: PartyLocationView) -> Self {
-        Self {
-            id: v.id,
-            party_id: v.party_id,
-            label: v.label.as_str().to_owned(),
-            roles: v.roles.iter().map(|v| v.as_str()).collect(),
-            geography: v.geography.map(Into::into),
-            position: v.position.map(Into::into),
-            lifecycle: v.lifecycle.as_str(),
-            revision: v.revision,
-            input_revision: v.input_revision,
-            evidence: v.evidence.map(Into::into),
-        }
-    }
-}
-fn role_set(roles: Vec<String>) -> Result<BTreeSet<PartyLocationRole>, ApiError> {
-    if roles.len() > 4 {
-        return Err(bad());
-    }
-    let count = roles.len();
-    let set = roles
-        .into_iter()
-        .map(|v| PartyLocationRole::from_code(&v).ok_or_else(bad))
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    if count != set.len() {
-        return Err(bad());
-    }
-    Ok(set)
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ExpectedData {
-    id: PartyLocationId,
-    revision: PartyLocationRevision,
-}
-impl From<ExpectedData> for ExpectedPartyLocation {
-    fn from(v: ExpectedData) -> Self {
-        Self {
-            id: v.id,
-            revision: v.revision,
-        }
-    }
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CreateData {
-    label: String,
-    #[serde(default)]
-    roles: Vec<String>,
-    #[serde(default)]
-    geography: Option<GeographyData>,
-    #[serde(default)]
-    position: Option<PositionData>,
-    #[serde(default)]
-    evidence: Option<EvidenceData>,
-    #[serde(default)]
-    relocates: Option<ExpectedData>,
 }
 fn create_command(party_id: PartyId, body: &str) -> Result<CreatePartyLocationCommand, ApiError> {
-    let d: CreateData = parse(body)?;
-    Ok(CreatePartyLocationCommand {
-        party_id,
-        content: PartyLocationContent {
-            label: PartyLocationLabel::new(d.label).map_err(|_| bad())?,
-            roles: role_set(d.roles)?,
-            geography: d.geography.map(GeographyData::into_core).transpose()?,
-            position: d.position.map(PositionData::into_core).transpose()?,
-        },
-        evidence: d.evidence.map(EvidenceData::into_service).transpose()?,
-        relocates: d.relocates.map(Into::into),
-    })
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct UpdateData {
-    expected_revision: PartyLocationRevision,
-    correction: String,
-    #[serde(default)]
-    label: PatchValue<String>,
-    #[serde(default)]
-    roles: PatchValue<Vec<String>>,
-    #[serde(default)]
-    geography: PatchValue<GeographyData>,
-    #[serde(default)]
-    position: PatchValue<PositionData>,
-    #[serde(default)]
-    evidence: PatchValue<EvidenceData>,
+    parse::<CreateData>(body)?
+        .into_command(party_id)
+        .map_err(Into::into)
 }
 fn update_command(
     party_id: PartyId,
     id: PartyLocationId,
     body: &str,
 ) -> Result<UpdatePartyLocationCommand, ApiError> {
-    let d: UpdateData = parse(body)?;
-    if d.correction != "SAME_SITE" {
-        return Err(bad());
-    }
-    Ok(UpdatePartyLocationCommand {
-        party_id,
-        expected: ExpectedPartyLocation {
-            id,
-            revision: d.expected_revision,
-        },
-        label: map_patch(non_nullable_patch(d.label, "label")?, |v| {
-            PartyLocationLabel::new(v).map_err(|_| bad())
-        })?,
-        roles: map_patch(non_nullable_patch(d.roles, "roles")?, role_set)?,
-        geography: map_patch(clearable(d.geography), |v| {
-            v.into_core().map_err(Into::into)
-        })?,
-        position: map_patch(clearable(d.position), |v| v.into_core().map_err(Into::into))?,
-        evidence: map_patch(clearable(d.evidence), EvidenceData::into_service)?,
-    })
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LifecycleData {
-    expected_revision: PartyLocationRevision,
-    lifecycle: String,
+    parse::<UpdateData>(body)?
+        .into_command(party_id, id)
+        .map_err(Into::into)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -309,14 +138,7 @@ pub async fn lifecycle(
         let party_id = parse_path_object_id(&party, "party_id", "Party")?;
         let id = parse_path_object_id(&id, "location_id", "PartyLocation")?;
         let d: LifecycleData = parse(&body)?;
-        Ok::<_, ApiError>(SetPartyLocationLifecycleCommand {
-            party_id,
-            expected: ExpectedPartyLocation {
-                id,
-                revision: d.expected_revision,
-            },
-            lifecycle: PartyLocationLifecycle::from_code(&d.lifecycle).ok_or_else(bad)?,
-        })
+        d.into_command(party_id, id).map_err(ApiError::from)
     })();
     match command {
         Ok(c) => location_response(s.lifecycle.execute(&ctx, c).await, false),
@@ -379,12 +201,6 @@ pub async fn get(
     };
     get_location(s, party, id, ctx).await
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ListData {
-    after: Option<String>,
-    limit: Option<u32>,
-}
 async fn list_locations(
     s: PartyLocationsState,
     party: String,
@@ -393,25 +209,17 @@ async fn list_locations(
 ) -> Response {
     let request = (|| {
         let Query(d) = query.map_err(|_| ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE))?;
-        if d.limit.is_some_and(|limit| !(1..=100).contains(&limit)) {
-            return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE));
-        }
-        Ok::<_, ApiError>(ListPartyLocationsRequest {
-            party_id: parse_path_object_id(&party, "party_id", "Party")?,
-            after: d
-                .after
-                .map(|v| parse_query_object_id(&v, "after", "PartyLocation"))
-                .transpose()?,
-            limit: d.limit.unwrap_or(25),
+        let party_id = parse_path_object_id(&party, "party_id", "Party")?;
+        d.into_request(party_id).map_err(|error| match error {
+            ListInputError::Limit => ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE),
+            ListInputError::After(_) => ApiError::bad_request(INVALID_OBJECT_ID)
+                .with_detail("must be a valid PartyLocation ID")
+                .with_query_field("after"),
         })
     })();
     let mut response = match request {
         Ok(request) => match s.list.execute(&context, request).await {
-            Ok(page) => Json(serde_json::json!({
-                "items": page.items.into_iter().map(LocationData::from).collect::<Vec<_>>(),
-                "next": page.next,
-            }))
-            .into_response(),
+            Ok(page) => Json(PageData::from(page)).into_response(),
             Err(error) => ApiError::from(error).into_response(),
         },
         Err(error) => error.into_response(),

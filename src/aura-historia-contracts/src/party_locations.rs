@@ -1,4 +1,6 @@
 //! Public location discovery contracts, separate from protected location management.
+pub mod management;
+
 use crate::geographic_search::GeographicSearchData;
 use application::pagination::Cursor;
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};

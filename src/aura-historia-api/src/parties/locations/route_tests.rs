@@ -3,11 +3,15 @@ use crate::{
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
     state::AppState,
 };
+use application::patch_field::PatchField;
 use axum::{body::Body, http::Request};
+use party_core::party_location::{PartyLocationLabel, PartyLocationLifecycle};
+use party_service::ports::party_location::PartyLocationRevision;
 use party_service::use_cases::queries::list_party_location_managers::{
     ListPartyLocationManagersRequest, ListPartyLocationManagersUseCase, PartyLocationManagerAccess,
     PartyLocationManagerView, PartyLocationManagersPage,
 };
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 #[derive(Default)]

@@ -5,9 +5,11 @@ use crate::{
         LISTING_SOURCE_INTERNAL_ERROR, LISTING_SOURCE_NOT_FOUND,
         LISTING_SOURCE_TEMPORARILY_UNAVAILABLE, PARTY_NOT_FOUND,
     },
-    patch_value::{PatchValue, clearable},
     state::SourceLocationDefaultsState,
     wire::parse_path_object_id,
+};
+use aura_historia_contracts::listing_sources::location_default::{
+    AssignData, ChangeData, ClearData, DefaultData,
 };
 use axum::{
     Json,
@@ -15,12 +17,8 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use listing_source_core::{ListingSourceId, location_default::*};
-use listing_source_service::{
-    ports::location_default::LocationDefaultRevision, use_cases::location_default::*,
-};
-use party_core::party_location_id::PartyLocationId;
-use serde::{Deserialize, Serialize};
+use listing_source_core::ListingSourceId;
+use listing_source_service::use_cases::location_default::*;
 
 fn bad() -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE).with_detail("Invalid source location default input.")
@@ -28,135 +26,25 @@ fn bad() -> ApiError {
 fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, ApiError> {
     serde_json::from_str(body).map_err(|_| bad())
 }
-fn deserialize_revision<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<LocationDefaultRevision, D::Error> {
-    let value = i64::deserialize(deserializer)?;
-    LocationDefaultRevision::try_from(value).map_err(serde::de::Error::custom)
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EvidenceData {
-    reference: String,
-    scope: String,
-}
-impl EvidenceData {
-    fn into_core(self) -> Result<SourceLocationEvidence, ApiError> {
-        SourceLocationEvidence::new(
-            self.reference,
-            SourceLocationMeaning::from_code(&self.scope).ok_or_else(bad)?,
-        )
-        .map_err(|_| bad())
-    }
-}
-impl From<&SourceLocationEvidence> for EvidenceData {
-    fn from(e: &SourceLocationEvidence) -> Self {
-        Self {
-            reference: e.reference().to_owned(),
-            scope: e.scope().as_str().to_owned(),
-        }
-    }
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AssignData {
-    #[serde(deserialize_with = "deserialize_revision")]
-    expected_revision: LocationDefaultRevision,
-    party_location_id: PartyLocationId,
-    business_association: Option<EvidenceData>,
-    advertised_inventory: Option<EvidenceData>,
-}
 fn assign_command(
     source_id: ListingSourceId,
     body: &str,
 ) -> Result<AssignLocationDefaultCommand, ApiError> {
-    let d: AssignData = parse(body)?;
-    Ok(AssignLocationDefaultCommand {
-        source_id,
-        expected_revision: d.expected_revision,
-        assignment: SourceLocationAssignment::new(
-            d.party_location_id,
-            d.business_association
-                .map(EvidenceData::into_core)
-                .transpose()?,
-            d.advertised_inventory
-                .map(EvidenceData::into_core)
-                .transpose()?,
-        )
-        .map_err(|_| bad())?,
-    })
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ClearData {
-    #[serde(deserialize_with = "deserialize_revision")]
-    expected_revision: LocationDefaultRevision,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ChangeData {
-    #[serde(deserialize_with = "deserialize_revision")]
-    expected_revision: LocationDefaultRevision,
-    #[serde(default)]
-    business_association: PatchValue<EvidenceData>,
-    #[serde(default)]
-    advertised_inventory: PatchValue<EvidenceData>,
-}
-fn evidence_patch(
-    value: PatchValue<EvidenceData>,
-) -> Result<application::patch_field::PatchField<SourceLocationEvidence>, ApiError> {
-    use application::patch_field::PatchField;
-    Ok(match clearable(value) {
-        PatchField::Unchanged => PatchField::Unchanged,
-        PatchField::Clear => PatchField::Clear,
-        PatchField::Set(e) => PatchField::Set(e.into_core()?),
-    })
+    parse::<AssignData>(body)?
+        .into_command(source_id)
+        .map_err(|_| bad())
 }
 fn change_command(
     source_id: ListingSourceId,
     body: &str,
 ) -> Result<ChangeLocationDefaultApplicabilityCommand, ApiError> {
-    let d: ChangeData = parse(body)?;
-    Ok(ChangeLocationDefaultApplicabilityCommand {
-        source_id,
-        expected_revision: d.expected_revision,
-        business_association: evidence_patch(d.business_association)?,
-        advertised_inventory: evidence_patch(d.advertised_inventory)?,
-    })
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AssignmentData {
-    party_location_id: PartyLocationId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    business_association: Option<EvidenceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    advertised_inventory: Option<EvidenceData>,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DefaultData {
-    listing_source_id: ListingSourceId,
-    revision: LocationDefaultRevision,
-    assignment: Option<AssignmentData>,
-    eligibility: Option<&'static str>,
+    parse::<ChangeData>(body)?
+        .into_command(source_id)
+        .map_err(|_| bad())
 }
 fn response(result: Result<LocationDefaultView, LocationDefaultError>) -> Response {
     match result {
-        Ok(v) => Json(DefaultData {
-            listing_source_id: v.source_id,
-            revision: v.revision,
-            assignment: v.assignment.map(|a| AssignmentData {
-                party_location_id: a.location_id(),
-                business_association: a.business_association().map(Into::into),
-                advertised_inventory: a.advertised_inventory().map(Into::into),
-            }),
-            eligibility: v.eligibility.map(|e| match e {
-                SelectedLocationEligibility::Active => "ACTIVE",
-                SelectedLocationEligibility::Retired => "RETIRED",
-            }),
-        })
-        .into_response(),
+        Ok(v) => Json(DefaultData::from(v)).into_response(),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -234,10 +122,11 @@ pub async fn clear(
     };
     let command = (|| {
         let d: ClearData = parse(&body)?;
-        Ok::<_, ApiError>(ClearLocationDefaultCommand {
-            source_id: parse_path_object_id(&source, "listing_source_id", "ListingSource")?,
-            expected_revision: d.expected_revision,
-        })
+        Ok::<_, ApiError>(d.into_command(parse_path_object_id(
+            &source,
+            "listing_source_id",
+            "ListingSource",
+        )?))
     })();
     match command {
         Ok(c) => response(s.clear.execute(&ctx, c).await),

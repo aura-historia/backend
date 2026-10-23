@@ -78,3 +78,10 @@ transactions, destination acceptance and materialized match semantics.
 one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
 the existing services; transport adapters share notification DTOs and pagination conversions.
+
+`Runtime::party_locations()` supplies the five protected location-management handles;
+`Runtime::source_location_defaults()` supplies the four operator-or-administrator default
+handles. REST and MCP reuse the same warm PostgreSQL composition without constructing a
+geocoder or loading provider configuration. Explicit grant changes and administrator-only
+default routes retain their separate composition and policies. Services own authority,
+location eligibility, revision checks and atomic relocation.

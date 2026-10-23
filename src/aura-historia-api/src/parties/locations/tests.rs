@@ -1,4 +1,7 @@
 use super::*;
+use application::patch_field::PatchField;
+use aura_historia_contracts::geography::PositionData;
+use std::collections::BTreeSet;
 #[test]
 fn creates_unresolved_sites_without_any_geocoder() {
     for body in [
