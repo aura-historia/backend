@@ -240,7 +240,7 @@ where
     Arc::new(move |arguments, context| {
         let handler = Arc::clone(&handler);
         Box::pin(async move {
-            let input = serde_json::from_str(arguments.get())
+            let input = crate::arguments::decode(arguments)
                 .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
             let limit = context.max_response_bytes;
             let value = handler(input, context).await?;

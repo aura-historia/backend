@@ -12,6 +12,99 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+struct Flattened<T> {
+    #[serde(flatten)]
+    data: T,
+}
+
+async fn raw_call(app: Router, name: &str, arguments: &str) -> Value {
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{name}","arguments":{arguments}}}}}"#
+    );
+    let response = app
+        .oneshot(
+            Request::post("/v1")
+                .header("host", "mcp.example.test")
+                .header("content-type", "application/json")
+                .header("accept", "application/json,text/event-stream")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    serde_json::from_slice(
+        &to_bytes(response.into_body(), 2 * 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn should_preserve_raw_fractional_numbers_across_flattened_shared_contracts() {
+    use aura_historia_contracts::{
+        party_locations::management::CreateData,
+        product_listings::search::ProductListingSearchData, saved_searches::CreateSearchFilterData,
+    };
+    let app = app(vec![
+        OperationDefinition::new(
+            "testLocation",
+            "Location",
+            policy(),
+            |input: Flattened<CreateData>, _| async move {
+                Ok::<_, OperationError>(input.data.position.unwrap())
+            },
+        )
+        .unwrap(),
+        OperationDefinition::new(
+            "testSearch",
+            "Search",
+            policy(),
+            |input: Flattened<ProductListingSearchData>, _| async move {
+                Ok::<_, OperationError>(input.data.geography.unwrap())
+            },
+        )
+        .unwrap(),
+        OperationDefinition::new(
+            "testSavedSearch",
+            "Saved search",
+            policy(),
+            |input: Flattened<CreateSearchFilterData>, _| async move {
+                let command = input
+                    .data
+                    .into_command(user_core::user_id::UserId::new())
+                    .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
+                Ok::<_, OperationError>(
+                    aura_historia_contracts::geographic_search::GeographicSearchData::from(
+                        command.search.geography.unwrap(),
+                    ),
+                )
+            },
+        )
+        .unwrap(),
+    ]);
+    let geography = r#"{"origin":{"latitude":52.125,"longitude":13.375},"radius":{"amount":0.25,"unit":"KILOMETERS"},"mode":"APPROXIMATE"}"#;
+    for (name, input, pointer) in [
+        ("testLocation", r#"{"label":"Store","position":{"latitudeDegrees":52.125,"longitudeDegrees":13.375,"precision":"PREMISES","accuracyMetres":0.25}}"#.to_owned(), "/latitudeDegrees"),
+        ("testSearch", format!(r#"{{"geography":{geography}}}"#), "/origin/latitude"),
+        ("testSavedSearch", format!(r#"{{"name":"Saved","search":{{"geography":{geography}}}}}"#), "/origin/latitude"),
+    ] {
+        let response = raw_call(app.clone(), name, &input).await;
+        let output = &response["result"]["structuredContent"];
+        assert_eq!(output.pointer(pointer), Some(&json!(52.125)), "{name}: {response}");
+        let longitude = if name == "testLocation" { "/longitudeDegrees" } else { "/origin/longitude" };
+        let distance = if name == "testLocation" { "/accuracyMetres" } else { "/radius/amount" };
+        assert_eq!(output.pointer(longitude), Some(&json!(13.375)), "{name}: {response}");
+        assert_eq!(output.pointer(distance), Some(&json!(0.25)), "{name}: {response}");
+        let duplicate = input.replacen("52.125", if name == "testLocation" { "52.125,\"latitudeDegrees\":53.125" } else { "52.125,\"latitude\":53.125" }, 1);
+        assert_eq!(raw_call(app.clone(), name, &duplicate).await["error"]["code"], -32602);
+        let forged = input.replacen("52.125", r#"{"$serde_json::private::Number":"52.125"}"#, 1);
+        assert_eq!(raw_call(app.clone(), name, &forged).await["error"]["code"], -32602);
+    }
+}
+
 fn policy() -> OperationPolicy {
     OperationPolicy {
         access: AccessClass::Public,
