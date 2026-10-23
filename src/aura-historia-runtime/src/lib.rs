@@ -6,6 +6,7 @@
 
 mod access_token_authentication;
 mod notifications;
+mod party_locations;
 mod postgres;
 mod private_addresses;
 pub mod product_listing_config;
@@ -19,10 +20,12 @@ mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
 mod saved_searches;
+mod source_location_defaults;
 mod user_profile;
 mod watchlist;
 
 pub use notifications::Notifications;
+pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
@@ -36,6 +39,7 @@ pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
 pub use saved_searches::SavedSearches;
+pub use source_location_defaults::SourceLocationDefaults;
 pub use user_profile::UserProfile;
 pub use watchlist::Watchlist;
 
@@ -47,6 +51,8 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 pub struct Runtime {
     postgres: PgPool,
     notifications: OnceLock<Notifications>,
+    party_locations: OnceLock<PartyLocations>,
+    source_location_defaults: OnceLock<SourceLocationDefaults>,
     user_profile: OnceLock<UserProfile>,
     private_addresses: OnceLock<PrivateAddresses>,
     access_token_authentication: OnceLock<Arc<dyn AuthenticateAccessTokenUseCase>>,
@@ -66,6 +72,8 @@ impl Runtime {
         Self {
             postgres,
             notifications: OnceLock::new(),
+            party_locations: OnceLock::new(),
+            source_location_defaults: OnceLock::new(),
             user_profile: OnceLock::new(),
             private_addresses: OnceLock::new(),
             access_token_authentication: OnceLock::new(),
@@ -165,6 +173,16 @@ impl Runtime {
     pub fn notifications(&self) -> &Notifications {
         self.notifications
             .get_or_init(|| Notifications::compose(&self.postgres))
+    }
+
+    pub fn party_locations(&self) -> &PartyLocations {
+        self.party_locations
+            .get_or_init(|| PartyLocations::compose(&self.postgres))
+    }
+
+    pub fn source_location_defaults(&self) -> &SourceLocationDefaults {
+        self.source_location_defaults
+            .get_or_init(|| SourceLocationDefaults::compose(&self.postgres))
     }
 
     pub fn public_overview(&self) -> &PublicOverview {

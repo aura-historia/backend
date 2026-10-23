@@ -76,3 +76,10 @@ Watchlist entry, mutation, list query and paged personalized-detail contracts li
 REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
 patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
 compare schema validation with the complete input mapping, including null and omission rules.
+
+Protected party-location management DTOs and pure command/view mappings live in
+`party_locations::management`; source-default references and applicability evidence live in
+`listing_sources::location_default`. REST and MCP preserve their full fields, revision codecs,
+patch null rules and bounded location pages. Management `GeographyData`/`PositionData` remain
+separate from public `GeographicSearchData`. The [location contract tests](tests/location_management.rs)
+check actual JSON against schemas, including nullable clears and retained evidence.
