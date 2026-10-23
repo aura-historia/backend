@@ -3,10 +3,11 @@ use crate::review::model::{
     CrawlerReviewPage, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ApplySchemaError, ProductCssSelectorSchema, SchemaExtraction,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
-use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
 
 /// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
@@ -253,14 +254,18 @@ fn evaluate_schema_page(
     page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
     let html = Html::parse_document(page.raw_html);
-    let apply_result = apply_schema_to_document(schema, &html);
-    let fields = evaluate_schema_fields(schema, &html);
+    let extraction = schema.extract(&html);
+    let fields = evaluate_schema_fields(
+        schema,
+        &html,
+        skipped_image_elements(schema, &html, &extraction),
+    );
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
     // apply error; every finding stays listed for the reviewer.
-    let (apply_ok, extracted, error, plausibility_findings) = match apply_result {
-        Ok(extracted) => {
+    let (apply_ok, extracted, error, plausibility_findings) = match extraction {
+        Ok(SchemaExtraction { raw: extracted, .. }) => {
             let findings = PlausibilityFindings::of(&extracted);
             let rejection = findings.rejection_reason();
             (rejection.is_none(), Some(extracted), rejection, findings)
@@ -292,9 +297,28 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
     page.apply_ok && page.extracted.is_some()
 }
 
+/// The `images` elements the page's extraction skipped for having no value, or `None`
+/// when the `images` rule fails. A page that fails on another rule may not reach its
+/// `images` rule, so the rule is applied on its own for such a page.
+fn skipped_image_elements(
+    schema: &ProductCssSelectorSchema,
+    html: &Html,
+    extraction: &Result<SchemaExtraction, ApplySchemaError>,
+) -> Option<usize> {
+    match extraction {
+        Ok(extraction) => Some(extraction.skipped_image_elements),
+        Err(ApplySchemaError::Images(_)) => None,
+        Err(_) => schema
+            .apply_image_url_candidate_groups(html)
+            .ok()
+            .map(|images| images.skipped_elements),
+    }
+}
+
 fn evaluate_schema_fields(
     schema: &ProductCssSelectorSchema,
     html: &Html,
+    skipped_image_elements: Option<usize>,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
     // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
@@ -316,7 +340,7 @@ fn evaluate_schema_fields(
         fields.push(evaluate_rule("price_estimate_max", rule, html, false));
     }
     fields.push(evaluate_rule("state", &schema.state, html, true));
-    fields.push(evaluate_images_rule(schema, html));
+    fields.push(evaluate_images_rule(schema, html, skipped_image_elements));
     for (field, rule) in &schema.raw_attributes {
         fields.push(evaluate_rule(field, rule, html, false));
     }
@@ -324,14 +348,15 @@ fn evaluate_schema_fields(
 }
 
 /// Evaluates the `images` rule as runtime extraction applies it, with the count of
-/// matched elements it skipped for having no value. A failed images rule fails the
-/// page, whose error the page evaluation already carries.
-fn evaluate_images_rule(schema: &ProductCssSelectorSchema, html: &Html) -> SelectorFieldEvaluation {
+/// matched elements it skipped for having no value ([`skipped_image_elements`]). A
+/// failed images rule fails the page, whose error the page evaluation already carries.
+fn evaluate_images_rule(
+    schema: &ProductCssSelectorSchema,
+    html: &Html,
+    skipped_element_count: Option<usize>,
+) -> SelectorFieldEvaluation {
     SelectorFieldEvaluation {
-        skipped_element_count: schema
-            .apply_image_url_candidate_groups(html)
-            .ok()
-            .map(|images| images.skipped_elements),
+        skipped_element_count,
         ..evaluate_rule("images", &schema.images, html, false)
     }
 }
@@ -1303,6 +1328,29 @@ mod tests {
             let images = field(page, "images");
             assert_eq!(images.selector_match_count, Some(3));
             assert_eq!(images.skipped_element_count, Some(1));
+        }
+
+        #[test]
+        fn should_count_skipped_anchors_when_the_page_fails_before_its_images_rule() {
+            let schema = ProductCssSelectorSchema {
+                title: text_rule("h2"),
+                ..gallery_schema()
+            };
+            let pages = vec![gallery_page(
+                "<a href=\"/images/1.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a>",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(!page.apply_ok);
+            assert_eq!(
+                page.error.as_deref(),
+                Some(
+                    "failed to extract `title`: no element matched selector `h2` (or any additional selectors)"
+                )
+            );
+            assert_eq!(field(page, "images").skipped_element_count, Some(2));
         }
 
         #[test]

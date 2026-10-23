@@ -203,12 +203,35 @@ impl ProductCssSelectorSchema {
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
-    /// (`description`, `images`) all results are kept as a `Vec<String>`.
+    /// (`description`, `images`) all results are kept as a `Vec<String>`; `images` keeps
+    /// the first image URL candidate of each gallery element, where [`Self::extract`]
+    /// keeps the element's whole ordered group.
     ///
     /// Text separates lines at `<br>` and block boundaries, except in
     /// `source_listing_id`, which joins its text as written so a captured identity stays
     /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
+        let mut raw = self.extract(html)?.raw;
+        raw.images = raw
+            .images
+            .into_iter()
+            .map(|image| {
+                split_image_candidate_group(&image)
+                    .into_iter()
+                    .next()
+                    .unwrap_or(image.as_str())
+                    .to_owned()
+            })
+            .collect();
+        Ok(raw)
+    }
+
+    /// Applies this schema like [`Self::apply`], except that `images` keeps each gallery
+    /// element's ordered image URL candidates as one group, which runtime image
+    /// validation tries in order, and the result counts the `images` elements skipped for
+    /// having no value. Runtime extraction and the schema review matrix both apply a
+    /// schema this way, so each rule, the `images` rule included, runs once per page.
+    pub(crate) fn extract(&self, html: &Html) -> Result<SchemaExtraction, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
             Some(rule) => tolerate_optional_miss(
@@ -282,18 +305,7 @@ impl ProductCssSelectorSchema {
 
         let images = self
             .apply_image_url_candidate_groups(html)
-            .map_err(ApplySchemaError::Images)?
-            .values;
-        let images = images
-            .into_iter()
-            .map(|image| {
-                split_image_candidate_group(&image)
-                    .into_iter()
-                    .next()
-                    .unwrap_or(image.as_str())
-                    .to_owned()
-            })
-            .collect();
+            .map_err(ApplySchemaError::Images)?;
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
@@ -311,16 +323,19 @@ impl ProductCssSelectorSchema {
             }
         }
 
-        Ok(RawExtractedProduct {
-            source_listing_id,
-            title,
-            description,
-            price,
-            price_estimate_min,
-            price_estimate_max,
-            state,
-            images,
-            raw_attributes,
+        Ok(SchemaExtraction {
+            raw: RawExtractedProduct {
+                source_listing_id,
+                title,
+                description,
+                price,
+                price_estimate_min,
+                price_estimate_max,
+                state,
+                images: images.values,
+                raw_attributes,
+            },
+            skipped_image_elements: images.skipped_elements,
         })
     }
 }
@@ -450,6 +465,17 @@ pub struct RawExtractedProduct {
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
+/// What [`ProductCssSelectorSchema::extract`] captured from a page.
+#[derive(Debug)]
+pub(crate) struct SchemaExtraction {
+    /// The raw values, with each gallery element's ordered image URL candidates as one
+    /// `images` entry.
+    pub(crate) raw: RawExtractedProduct,
+    /// Matched `images` elements without a value (see
+    /// [`RuleExtraction::skipped_elements`]).
+    pub(crate) skipped_image_elements: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -457,11 +483,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::scraper::css_selector::product_schema::{
-        ApplySchemaError, ProductCssSelectorSchema,
+        ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
     };
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
-        HtmlAttributeName,
+        HtmlAttributeName, IMAGE_CANDIDATE_SEPARATOR,
     };
 
     // -------------------------------------------------------------------------
@@ -1445,6 +1471,44 @@ mod tests {
 
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0], "/full-800x600.jpg");
+    }
+
+    #[test]
+    fn should_keep_image_url_candidate_groups_and_count_skipped_elements_when_extracting() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="/thumb-100x100.jpg" data-large_image="/full-800x600.jpg">
+                <img alt="placeholder">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: ExtractionRule {
+                selector: CssSelector::from("img"),
+                additional_selectors: vec![],
+                extract: ExtractionKind::ImageUrl,
+                cardinality: ExtractionCardinality::All,
+            },
+            ..required_only_schema()
+        };
+
+        let extraction = schema.extract(&html).unwrap();
+        let applied = schema.apply(&html).unwrap();
+
+        assert_eq!(
+            extraction.raw.images,
+            vec![format!(
+                "/full-800x600.jpg{IMAGE_CANDIDATE_SEPARATOR}/thumb-100x100.jpg"
+            )]
+        );
+        assert_eq!(extraction.skipped_image_elements, 1);
+        assert_eq!(
+            applied,
+            RawExtractedProduct {
+                images: vec!["/full-800x600.jpg".to_string()],
+                ..extraction.raw
+            }
+        );
     }
 
     // -------------------------------------------------------------------------
