@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_search_parties_with_filters_bounded_pages_and_stable_cursor() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -125,7 +125,7 @@ async fn should_search_parties_with_filters_bounded_pages_and_stable_cursor() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_empty_party_search_result() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

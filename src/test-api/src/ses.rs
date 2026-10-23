@@ -10,18 +10,14 @@ use tracing::{debug, info, warn};
 /// Sender identity verified for Floci SES integration tests.
 const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
-/// A lazily-initialized, globally shared SESv2 client for integration testing.
-static SES_CLIENT: OnceCell<Client> = OnceCell::const_new();
 static SENDER_VERIFIED: OnceCell<()> = OnceCell::const_new();
 
-/// Returns a shared `aws_sdk_sesv2::Client` for interacting with Floci.
+/// Creates an owned Floci client on the calling runtime.
 ///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
-pub async fn get_ses_client() -> &'static Client {
-    let client = SES_CLIENT
-        .get_or_init(|| async { Client::new(get_aws_config().await) })
-        .await;
+/// Clone it within that runtime to share its connection pool. Obtain another client after
+/// the runtime stops, including during fixture cleanup.
+pub async fn get_ses_client() -> Client {
+    let client = Client::new(get_aws_config().await);
     debug!("Successfully initialized SESv2-Client.");
     client
 }
@@ -41,12 +37,24 @@ impl IntegrationTestService for Ses {
     }
 
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            let sender = context.sender_email().expect("scoped SES sender");
+            context
+                .persist_resources()
+                .await
+                .expect("persist scoped SES sender");
+            verify_sender_identity(&sender).await;
+            return;
+        }
         SENDER_VERIFIED
             .get_or_init(|| verify_sender_identity(SENDER_EMAIL))
             .await;
     }
 
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         clear_sent_emails().await;
     }
 }
@@ -134,6 +142,9 @@ pub struct SentEmailBody {
 /// Queries the `/_aws/ses` internal endpoint which Floci exposes for
 /// retrospecting sent messages.
 pub async fn get_sent_emails() -> Vec<SentEmail> {
+    if let Some(context) = crate::TestContext::current() {
+        return get_sent_emails_from(&context.sender_email().expect("scoped SES sender")).await;
+    }
     let url = format!("{}/_aws/ses", get_endpoint_url());
     let response = reqwest::Client::new()
         .get(&url)
@@ -178,6 +189,16 @@ pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
 /// Intended for test isolation — call this in `tear_down` so that each test
 /// starts with a clean slate.
 pub async fn clear_sent_emails() {
+    if let Some(context) = crate::TestContext::current() {
+        clear_source(&context.sender_email().expect("scoped SES sender"))
+            .await
+            .expect("clear owned SES captures");
+        return;
+    }
+    assert!(
+        crate::environment::managed_environment().is_none() || crate::context::exclusive_active(),
+        "unscoped SES mailbox deletion is forbidden in managed mode"
+    );
     let url = format!("{}/_aws/ses", get_endpoint_url());
     reqwest::Client::new()
         .delete(&url)
@@ -282,4 +303,43 @@ pub async fn wait_for_ses_email_to(
         );
         tokio::time::sleep(poll_interval).await;
     }
+}
+
+/// Floci 2.3.0 filters GET by source and DELETE by message ID, never by source.
+pub(crate) async fn clear_source(source: &str) -> Result<(), application::error::BoxError> {
+    #[derive(Deserialize)]
+    struct Capture {
+        #[serde(rename = "Id")]
+        id: String,
+        #[serde(rename = "Source")]
+        source: String,
+    }
+    #[derive(Deserialize)]
+    struct Captures {
+        messages: Vec<Capture>,
+    }
+    let url = format!("{}/_aws/ses", get_endpoint_url());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let body = client
+        .get(&url)
+        .query(&[("email", source)])
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Captures>()
+        .await?;
+    for message in body.messages {
+        if message.source != source {
+            return Err(std::io::Error::other("SES returned an unowned capture").into());
+        }
+        client
+            .delete(&url)
+            .query(&[("id", message.id)])
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    Ok(())
 }

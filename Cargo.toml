@@ -118,7 +118,6 @@ members = [
     "src/oauth-postgres",
     "src/fxrate-lambda",
     "src/crawler",
-    "src/ci-determinator",
 ]
 
 [workspace.dependencies]

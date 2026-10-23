@@ -127,7 +127,7 @@ async fn create_committed_partnership(pool: &PgPool, party_id: PartyId) -> Partn
     stored.value.id()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_find_partnership_by_id_and_create_only_once_for_party() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -174,7 +174,7 @@ async fn should_find_partnership_by_id_and_create_only_once_for_party() {
     assert_eq!(1, count_partnerships(&pool).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reactivate_dissolved_partnership_for_party_with_same_id_and_incremented_version() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -222,7 +222,7 @@ async fn should_reactivate_dissolved_partnership_for_party_with_same_id_and_incr
     assert_eq!(3, persisted.2);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_dissolve_active_partnership_remove_associations_and_replay_without_version_bump() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -319,7 +319,7 @@ async fn should_dissolve_active_partnership_remove_associations_and_replay_witho
     assert_eq!(2, persisted_version);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_add_and_remove_members_idempotently() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -394,7 +394,7 @@ async fn should_add_and_remove_members_idempotently() {
     assert!(!can_manage_locations(&pool, party_id, user_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn explicit_location_grants_survive_membership_removal_and_dissolution() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -470,7 +470,7 @@ async fn explicit_location_grants_survive_membership_removal_and_dissolution() {
     assert!(!can_manage_locations(&pool, party_id, user_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn membership_revocation_and_dissolution_serialize_with_location_management() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -557,7 +557,7 @@ async fn membership_revocation_and_dissolution_serialize_with_location_managemen
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_partnership_and_membership_writes() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;

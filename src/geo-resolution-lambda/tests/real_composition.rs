@@ -64,6 +64,10 @@ async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, Resolut
         .connect_with(fixture.connect_options().as_ref().clone())
         .await
         .unwrap();
+    test_api::TestContext::current()
+        .unwrap()
+        .register_postgres_pool(pool.clone())
+        .unwrap();
     let provider = Arc::new(Provider {
         pool: pool.clone(),
         calls: AtomicUsize::new(0),
@@ -156,7 +160,7 @@ async fn view(pool: &PgPool, binding: ResolutionBinding) -> ResolutionView {
     view
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_authority() {
     let (pool, provider, binding, work) = setup(false).await;
     let use_case = compose(&pool, &provider);
@@ -279,7 +283,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
     let (pool, provider, binding, work) = setup(true).await;
     let use_case = compose(&pool, &provider);

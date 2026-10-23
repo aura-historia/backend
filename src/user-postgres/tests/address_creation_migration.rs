@@ -11,7 +11,7 @@ const PRIOR: &str = include_str!("../../../migrations/20261010120000_geography.s
 const CLEANUP: &str =
     include_str!("../../../migrations/20261014120000_remove_geography_creation_receipts.sql");
 
-#[aura_integration_test(services = [SCHEMA])]
+#[aura_integration_test(services = [SCHEMA], exclusive = true)]
 async fn keyless_writes_support_both_schemas_and_cleanup_preserves_addresses_and_tombstones() {
     let pool = get_postgres_client().await;
     let mut tx = SqlxUnitOfWork::new(pool).begin().await.unwrap();

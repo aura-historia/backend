@@ -61,7 +61,7 @@ fn snapshots(
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_capture_complete_fx_snapshot_from_scheduled_event() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
@@ -86,7 +86,7 @@ async fn should_capture_complete_fx_snapshot_from_scheduled_event() {
     assert!(result.is_ok(), "FX lambda integration failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_persist_partial_snapshot_and_should_deduplicate_retry() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;

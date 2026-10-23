@@ -1,0 +1,31 @@
+name: Lint the complete Rust workspace
+description: Run the independent workspace quality checks.
+runs:
+  using: composite
+  steps:
+    - name: Prepare hosted runner disk capacity
+      shell: bash
+      run: bash ci/prepare-runner-disk.sh
+    - name: Install toolchain
+      shell: bash
+      run: rustup show
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: lint
+    - name: Format check
+      shell: bash
+      run: cargo fmt --all -- --check
+    - name: Check geographic reference reproducibility
+      shell: bash
+      run: python3 src/geo/scripts/generate_reference.py --check
+    - name: Install dependency graph checker
+      shell: bash
+      run: cargo install cargo-depgraph-check --version 0.1.0 --locked
+    - name: Check dependency graph rules
+      shell: bash
+      run: cargo depgraph-check check
+    - name: Clippy lint
+      shell: bash
+      run: |
+        python3 ci/guard-disk.py --target target --log "$RUNNER_TEMP/lint-disk.jsonl" -- \
+          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err

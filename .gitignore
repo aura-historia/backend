@@ -34,6 +34,7 @@ coverage.lcov
 ## Python
 **/models_cache
 **/python/__pycache__
+**/__pycache__/
 **/.venv
 
 # Environment variables file

@@ -61,7 +61,7 @@ async fn claim(
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
     let pool = get_postgres_client().await;
     let address = email(&format!("retry-{}@example.test", uuid::Uuid::now_v7()));
@@ -147,7 +147,7 @@ async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
     stale_release_tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn released_grant_superseded_by_withdrawal_remains_a_valid_terminal_intent() {
     let pool = get_postgres_client().await;
     let address = email(&format!(
@@ -224,7 +224,7 @@ async fn released_grant_superseded_by_withdrawal_remains_a_valid_terminal_intent
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn generic_user_transition_rejects_provider_race_repair_without_mutation() {
     let pool = get_postgres_client().await;
     let id = UserId::new();
@@ -266,7 +266,7 @@ async fn generic_user_transition_rejects_provider_race_repair_without_mutation()
     assert_eq!(count, 0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn generic_email_only_intent_rejects_provider_race_repair() {
     let pool = get_postgres_client().await;
     let address = email("reject-anonymous-repair@example.test");
@@ -296,7 +296,7 @@ async fn generic_email_only_intent_rejects_provider_race_repair() {
     assert_eq!(count, 0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn verified_user_proofs_are_atomic_replay_safe_and_revision_fenced() {
     let pool = get_postgres_client().await;
     let id = UserId::new();
@@ -427,7 +427,7 @@ async fn verified_user_proofs_are_atomic_replay_safe_and_revision_fenced() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -594,7 +594,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn service_port_withdrawal_updates_registered_user_and_cancels_only_exact_email() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -720,7 +720,7 @@ async fn service_port_withdrawal_updates_registered_user_and_cancels_only_exact_
     assert_eq!((2, 3), unchanged);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn case_folded_lock_does_not_merge_distinct_exact_provider_addresses() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -783,7 +783,7 @@ async fn case_folded_lock_does_not_merge_distinct_exact_provider_addresses() {
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn local_verified_grant_and_intent_roll_back_with_callers_transaction() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -857,7 +857,7 @@ async fn local_verified_grant_and_intent_roll_back_with_callers_transaction() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_withdrawal_rolls_back_both_user_change_and_cancellation() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -910,7 +910,7 @@ async fn provider_withdrawal_rolls_back_both_user_change_and_cancellation() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn deletion_cancels_user_grant_and_preserves_user_revoke() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1040,7 +1040,7 @@ async fn deletion_cancels_user_grant_and_preserves_user_revoke() {
         .bind(id.as_uuid()).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn deleted_address_revoke_cannot_withdraw_a_new_owners_consent() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1102,7 +1102,7 @@ async fn deleted_address_revoke_cannot_withdraw_a_new_owners_consent() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn anonymous_grant_cannot_override_registered_email() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1144,7 +1144,7 @@ async fn anonymous_grant_cannot_override_registered_email() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_same_proof_commits_one_intent_and_one_consent_revision() {
     let pool = get_postgres_client().await;
     let id = UserId::new();
@@ -1200,7 +1200,7 @@ async fn concurrent_same_proof_commits_one_intent_and_one_consent_revision() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn ordinary_profile_update_does_not_advance_revision_between_distinct_proofs() {
     use user_core::user::UserProfile;
 
@@ -1284,7 +1284,7 @@ async fn ordinary_profile_update_does_not_advance_revision_between_distinct_proo
     assert_eq!((true, 2, 4), after_second);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn old_signup_replay_after_revoke_remains_revoked() {
     let pool = get_postgres_client().await;
     let id = UserId::new();
@@ -1375,7 +1375,7 @@ struct PersistedCompletion {
     updated: OffsetDateTime,
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn finalize_exact_retry_keeps_receipt_and_conflicting_completion_cannot_succeed() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1481,7 +1481,7 @@ async fn finalize_exact_retry_keeps_receipt_and_conflicting_completion_cannot_su
     assert_eq!(receipt, persisted(&pool).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn typed_worker_claim_distinguishes_missing_deferred_terminal_and_exact_receipt() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1580,7 +1580,7 @@ async fn typed_worker_claim_distinguishes_missing_deferred_terminal_and_exact_re
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn typed_worker_recheck_blocks_reassigned_deletion_revoke_and_fences_finalization() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1640,7 +1640,7 @@ async fn typed_worker_recheck_blocks_reassigned_deletion_revoke_and_fences_final
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn typed_worker_expired_grant_blocks_and_expired_lease_reclaims_without_old_custody() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1723,7 +1723,7 @@ async fn typed_worker_expired_grant_blocks_and_expired_lease_reclaims_without_ol
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn blocked_finalization_has_exact_receipt_and_rejects_conflicting_tuple() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1874,7 +1874,7 @@ async fn blocked_finalization_has_exact_receipt_and_rejects_conflicting_tuple() 
     ).bind(intent.intent_id.as_uuid()).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn typed_claim_selects_only_requested_id_and_missing_does_not_claim_other_rows() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -1936,7 +1936,7 @@ async fn typed_claim_selects_only_requested_id_and_missing_does_not_claim_other_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn simultaneous_claims_for_same_id_have_one_committed_lease_and_one_deferred() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2002,7 +2002,7 @@ async fn simultaneous_claims_for_same_id_have_one_committed_lease_and_one_deferr
     assert_eq!(persisted.2, claim.lease_expires_at);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn stale_user_revision_recheck_supersedes_claim_and_rejects_finalize() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2078,7 +2078,7 @@ async fn stale_user_revision_recheck_supersedes_claim_and_rejects_finalize() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_terminal_replays_without_reclaiming_or_rewriting_receipt() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2163,7 +2163,7 @@ async fn failed_terminal_replays_without_reclaiming_or_rewriting_receipt() {
     ).bind(intent.intent_id.as_uuid()).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_withdrawal_racing_user_grant_schedules_one_revoke_and_replays_it() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2288,7 +2288,7 @@ async fn provider_withdrawal_racing_user_grant_schedules_one_revoke_and_replays_
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn blocked_claim_retry_repairs_grant_after_worker_crash() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2356,7 +2356,7 @@ async fn blocked_claim_retry_repairs_grant_after_worker_crash() {
     assert_eq!(state, (false, 2, 3));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_repairs_of_same_raced_grant_share_one_revoke() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2456,7 +2456,7 @@ async fn concurrent_repairs_of_same_raced_grant_share_one_revoke() {
     assert_eq!(state, (false, 2, 3));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn fresh_verified_grant_after_provider_withdrawal_needs_no_race_repair() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2521,7 +2521,7 @@ async fn fresh_verified_grant_after_provider_withdrawal_needs_no_race_repair() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn newer_verified_grant_supersedes_leased_user_race_repair_on_recheck() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2620,7 +2620,7 @@ async fn newer_verified_grant_supersedes_leased_user_race_repair_on_recheck() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn raced_user_grant_reuses_local_revoke_but_not_after_a_fresh_grant() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2698,7 +2698,7 @@ async fn raced_user_grant_reuses_local_revoke_but_not_after_a_fresh_grant() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn anonymous_grant_race_reuses_email_only_revoke_and_provider_race_repair_stays_anonymous() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2770,7 +2770,7 @@ async fn anonymous_grant_race_reuses_email_only_revoke_and_provider_race_repair_
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn expired_or_identity_blocked_grants_do_not_schedule_race_repair() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2838,7 +2838,7 @@ async fn expired_or_identity_blocked_grants_do_not_schedule_race_repair() {
     ).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn raced_grant_does_not_revoke_a_reassigned_address() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -2911,7 +2911,7 @@ async fn raced_grant_does_not_revoke_a_reassigned_address() {
     ).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn race_repair_rolls_back_with_callers_transaction() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());

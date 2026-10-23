@@ -151,7 +151,7 @@ async fn replace_profile(pool: &PgPool, profile: ShippingProfileId, amount: u64)
     sqlx::query("INSERT INTO shipping_changes(listing_source_id,subject_kind,subject_id,revision,terms_revision,change_kind,actor) SELECT listing_source_id,'PROFILE',shipping_profile_id,management_revision,terms_revision,'REPLACED','SERVICE:test' FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn gallery_public_change_advances_only_painting_projection_and_cabinet_dependency_refresh_is_silent()
  {
     let pool = get_postgres_client().await;
@@ -247,7 +247,7 @@ async fn gallery_public_change_advances_only_painting_projection_and_cabinet_dep
     drain(&pool).await;
     assert_eq!(count,sqlx::query_scalar::<_,i64>("SELECT count(*) FROM product_listing_events WHERE event_type='ENRICHMENT_SHIPPING_UPDATED'").fetch_one(&pool).await.unwrap());
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_checkpoints() {
     let pool = get_postgres_client().await;
     let (source, _, ids) = seed(&pool).await;
@@ -332,7 +332,7 @@ async fn duplicate_claims_expired_leases_and_invalidation_fence_transactional_ch
             .is_ok()
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn profile_updates_during_fanout_and_listings_behind_cursor_have_independent_work() {
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -364,7 +364,7 @@ async fn profile_updates_during_fanout_and_listings_behind_cursor_have_independe
     }
     assert_eq!(fixture("cabinet"), summary(&pool, ids[1]).await);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn observations_and_authority_refresh_without_canonical_listing_changes() {
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -408,7 +408,7 @@ async fn observations_and_authority_refresh_without_canonical_listing_changes() 
     assert_eq!(fixture("painting8000"), summary(&pool, ids[0]).await);
     assert_eq!(versions,sqlx::query_as::<_,(Uuid,i64)>("SELECT product_listing_id,version FROM product_listings WHERE product_listing_id=ANY($1) ORDER BY product_listing_id").bind(ids.iter().map(|id|id.into_uuid()).collect::<Vec<_>>()).fetch_all(&pool).await.unwrap());
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn retirement_default_switch_withdrawal_and_source_removal_cannot_be_restored_by_old_work() {
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -597,7 +597,7 @@ async fn accepted_country_resolution(
     Ok(resolution_id)
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_projection_data() {
     use shipping_core::{coverage::*, inputs::Applicability, terms::*};
     let pool = get_postgres_client().await;
@@ -853,7 +853,7 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_without_canonical_writes()
  {
     let pool = get_postgres_client().await;
@@ -914,7 +914,7 @@ async fn bounded_source_rebuild_recreates_summaries_and_reverse_dependencies_wit
     assert_eq!(4, references);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn component_observations_and_manual_handoff_recompute_applicability_without_listing_events()
 {
     use shipping_core::{coverage::*, inputs::*, terms::DeliveryTerms};
@@ -991,7 +991,7 @@ async fn component_observations_and_manual_handoff_recompute_applicability_witho
     assert_eq!(count,sqlx::query_scalar::<_,i64>("SELECT count(*) FROM product_listing_events WHERE product_listing_id=$1 AND event_group='DOMAIN'").bind(ids[0].into_uuid()).fetch_one(&pool).await.unwrap());
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn a_hundred_inline_listings_batch_two_hundred_independent_sites_in_one_snapshot() {
     use shipping_core::{coverage::ShippingCoverage, terms::*};
     let pool = get_postgres_client().await;

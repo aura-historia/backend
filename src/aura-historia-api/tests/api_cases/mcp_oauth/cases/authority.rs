@@ -3,7 +3,7 @@ use aura_historia_contracts::users::addresses::{AddressData, PageData};
 use mcp::assert_shared_output;
 use reqwest::Method;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_keep_concurrent_users_ownership_and_roles_identical_to_rest() {
     let client = GenericClient::registered().await;
@@ -133,7 +133,7 @@ async fn assert_address_ownership(
     assert_eq!(json!([]), bob_addresses["items"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_reject_expiry_suspension_and_auth_store_outage_on_the_next_authorization_check() {
     let client = GenericClient::registered().await;
@@ -207,7 +207,7 @@ async fn assert_shared_status(
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_revoke_the_next_check_without_retroactively_cancelling_an_authorized_write() {
     let client = GenericClient::registered().await;
@@ -260,7 +260,7 @@ async fn should_revoke_the_next_check_without_retroactively_cancelling_an_author
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_preserve_first_party_no_expiry_and_reject_delegated_consent() {
     let client = GenericClient::registered().await;

@@ -26,11 +26,6 @@ const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
 
-/// A lazily-initialized, globally shared OpenSearch client for integration testing.
-///
-/// This `OnceCell` ensures that the client is only created once during the test lifecycle,
-/// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
-static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
 static OPENSEARCH_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
 
 fn test_access_policies() -> String {
@@ -48,26 +43,19 @@ fn test_access_policies() -> String {
     .to_string()
 }
 
-/// Returns a shared `opensearch::OpenSearch`-Client for interacting with Floci.
+/// Construct an owned client on the calling Tokio runtime.
 ///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
-///
-/// # Returns
-///
-/// A reference to a lazily-initialized `Client` instance.
-pub async fn get_opensearch_client() -> &'static Client {
-    let client = OPENSEARCH_CLIENT
-        .get_or_init(|| async {
-            let endpoint_url = domain_endpoint().await;
-            let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
-                .build()
-                .expect("shouldn't fail creating OpenSearch-Transport");
-            opensearch::OpenSearch::new(transport)
-        })
-        .await;
-    debug!("Successfully initialized OpenSearch-Client.");
-    client
+/// HTTP pools contain runtime-owned dispatch tasks. Reusing them after that runtime stops,
+/// including from a context cleanup thread or API server thread, can fail with DispatchGone.
+/// Call this on each owning runtime; clones may share a transport within that runtime.
+pub async fn get_opensearch_client() -> Client {
+    let endpoint_url = domain_endpoint().await;
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
+        .disable_proxy()
+        .build()
+        .expect("shouldn't fail creating OpenSearch-Transport");
+    debug!("Successfully initialized runtime-owned OpenSearch client.");
+    Client::new(transport)
 }
 
 /// Marker type representing the OpenSearch service in Floci-based tests.
@@ -84,17 +72,57 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            if crate::environment::managed_environment().is_none() {
+                OPENSEARCH_BOOTSTRAPPED
+                    .get_or_init(|| async { set_up_open_search().await })
+                    .await;
+            }
+            let index = context
+                .product_listings_index()
+                .expect("scoped product index");
+            context
+                .persist_resources()
+                .await
+                .expect("persist scoped index");
+            ensure_index_exists(
+                &get_opensearch_client().await,
+                &index,
+                PRODUCT_LISTINGS_INDEX_MAPPING_STR,
+            )
+            .await
+            .expect("create scoped product index");
+            return;
+        }
+        if let Some(config) = crate::environment::managed_environment() {
+            assert!(
+                config.opensearch_endpoint().is_some(),
+                "managed profile has no OpenSearch"
+            );
+            return;
+        }
         OPENSEARCH_BOOTSTRAPPED
             .get_or_init(|| async { set_up_open_search().await })
             .await;
     }
 
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         clear_all_indices().await;
     }
 }
 
 async fn domain_endpoint() -> Url {
+    if let Some(config) = crate::environment::managed_environment() {
+        return Url::parse(
+            config
+                .opensearch_endpoint()
+                .expect("managed profile has no OpenSearch"),
+        )
+        .expect("managed endpoint was validated");
+    }
     // Floci reports a container IP in DescribeDomain. Host clients must use the published port.
     let container_name = format!(
         "floci-aws-{}-opensearch-000000000000-eu-central-1-{TEST_DOMAIN_NAME}",
@@ -134,7 +162,7 @@ async fn set_up_open_search() {
     wait_until_domain_processed(TEST_DOMAIN_NAME)
         .await
         .expect("shouldn't fail waiting for domain  to complete processing");
-    wait_until_indices_are_set_up()
+    bootstrap_indices(&get_opensearch_client().await)
         .await
         .expect("shouldn't fail setting up indices");
     debug!(
@@ -209,7 +237,7 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 
 async fn ensure_index_exists(
     client: &Client,
-    index: &'static str,
+    index: &str,
     mapping: &'static str,
 ) -> Result<(), Error> {
     let mapping: serde_json::Value =
@@ -234,7 +262,12 @@ async fn ensure_index_exists(
             .error_for_status_code()?;
     }
 
-    refresh_index(index).await;
+    client
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
+        .send()
+        .await?
+        .error_for_status_code()?;
     Ok(())
 }
 
@@ -247,9 +280,9 @@ async fn ensure_index_exists(
 /// Registers a `score-ranker-processor` pipeline using Reciprocal Rank Fusion (RRF) —
 /// the same native hybrid-fusion technique used in production.
 ///
-/// Panics if the pipeline cannot be registered, so hybrid tests fail fast with a meaningful
-/// message rather than surfacing a confusing "pipeline not defined" 400 error later.
-async fn register_hybrid_search_pipeline(client: &Client) {
+/// Returns the original registration failure so bootstrap can retry readiness or report
+/// its cause before a test reaches a hybrid query.
+async fn register_hybrid_search_pipeline(client: &Client) -> Result<(), Error> {
     // The pipeline name constant contains only alphanumeric characters and hyphens, which
     // are safe to embed in a URL path without encoding.
     debug_assert!(
@@ -273,7 +306,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
         ]
     });
 
-    match client
+    client
         .send(
             Method::Put,
             &path,
@@ -282,39 +315,14 @@ async fn register_hybrid_search_pipeline(client: &Client) {
             Some(JsonBody::new(rrf_body)),
             None,
         )
-        .await
-    {
-        Ok(resp) if resp.status_code().is_success() => {
-            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' (RRF)");
-            true
-        }
-        Ok(resp) => {
-            debug!(
-                status = %resp.status_code(),
-                "score-ranker-processor RRF pipeline registration returned non-success"
-            );
-            panic!(
-                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: HTTP {status}",
-                status = resp.status_code()
-            );
-        }
-        Err(e) => {
-            debug!(
-                error = %e,
-                "score-ranker-processor RRF pipeline registration failed"
-            );
-            panic!(
-                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: {e}"
-            );
-        }
-    };
+        .await?
+        .error_for_status_code()?;
+    Ok(())
 }
 
-async fn set_up_indices() -> Result<(), Error> {
-    let client = get_opensearch_client().await;
-
+async fn set_up_indices(client: &Client) -> Result<(), Error> {
     // Register the native-hybrid RRF search pipeline before creating indices.
-    register_hybrid_search_pipeline(client).await;
+    register_hybrid_search_pipeline(client).await?;
 
     ensure_index_exists(
         client,
@@ -326,10 +334,10 @@ async fn set_up_indices() -> Result<(), Error> {
     Ok(())
 }
 
-async fn wait_until_indices_are_set_up() -> Result<(), Error> {
+pub(crate) async fn bootstrap_indices(client: &Client) -> Result<(), Error> {
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        match set_up_indices().await {
+        match set_up_indices(client).await {
             Ok(()) => return Ok(()),
             Err(err) if std::time::Instant::now() < deadline => {
                 debug!(error = %err, "OpenSearch indices are not ready yet; retrying setup.");
@@ -349,7 +357,7 @@ pub(crate) async fn clear_all_indices() {
     const INDICES: &[&str] = &["product-listings", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
-            Ok(_) => refresh_index(index).await,
+            Ok(_) => {}
             Err(e) => {
                 debug!("Skipping clear for OpenSearch index '{index}' (may not exist yet): {e}")
             }
@@ -408,3 +416,6 @@ pub async fn refresh_index(index: &str) {
         .error_for_status_code()
         .unwrap();
 }
+
+#[cfg(test)]
+mod runtime_tests;

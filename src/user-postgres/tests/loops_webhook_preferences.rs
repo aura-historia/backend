@@ -229,7 +229,7 @@ async fn consent_state(pool: &sqlx::PgPool, id: UserId) -> (bool, i64, Option<Of
     .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invalidation_and_receipt_together()
  {
     let pool = get_postgres_client().await;
@@ -346,7 +346,7 @@ async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invali
     assert_eq!(120, expiry_days);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn global_unsubscribe_and_contact_deletion_apply_their_distinct_withdrawal_dispositions() {
     let pool = get_postgres_client().await;
     let cases = [
@@ -409,7 +409,7 @@ async fn global_unsubscribe_and_contact_deletion_apply_their_distinct_withdrawal
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn recreated_contact_can_withdraw_and_can_rebind_after_verified_resubscription() {
     let pool = get_postgres_client().await;
 
@@ -560,7 +560,7 @@ async fn recreated_contact_can_withdraw_and_can_rebind_after_verified_resubscrip
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn same_provider_second_withdrawal_wins_over_a_subsecond_local_grant() {
     let pool = get_postgres_client().await;
     let address = email("loops-same-second-withdrawal@example.test");
@@ -602,7 +602,7 @@ async fn same_provider_second_withdrawal_wins_over_a_subsecond_local_grant() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn email_only_withdrawal_cancels_matching_grant_and_pending_challenge_without_creating_user()
 {
     let pool = get_postgres_client().await;
@@ -681,7 +681,7 @@ async fn email_only_withdrawal_cancels_matching_grant_and_pending_challenge_with
     assert_eq!(Some(event_at), invalidated);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn unrelated_lists_api_echo_forged_metadata_and_unknown_mailboxes_do_not_grant_or_redirect() {
     let pool = get_postgres_client().await;
     let address = email("loops-existing@example.test");
@@ -761,7 +761,7 @@ async fn unrelated_lists_api_echo_forged_metadata_and_unknown_mailboxes_do_not_g
     assert_eq!(0, fences);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn duplicate_delivery_is_concurrent_idempotent_and_changed_body_reuse_conflicts() {
     let pool = get_postgres_client().await;
     let address = email("loops-duplicate@example.test");
@@ -814,7 +814,7 @@ async fn duplicate_delivery_is_concurrent_idempotent_and_changed_body_reuse_conf
     assert_eq!((false, 2, Some(event_time)), consent_state(&pool, id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_receipt_insert_rolls_back_user_intent_and_challenge_effects() {
     let pool = get_postgres_client().await;
     let address = email("loops-atomic-rollback@example.test");
@@ -898,7 +898,7 @@ async fn failed_receipt_insert_rolls_back_user_intent_and_challenge_effects() {
     assert_eq!(0, count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn resubscribe_needs_both_current_provider_scopes_and_never_overrides_newer_withdrawal() {
     let pool = get_postgres_client().await;
     let event_base = timestamp();
@@ -974,7 +974,7 @@ async fn resubscribe_needs_both_current_provider_scopes_and_never_overrides_newe
     assert_eq!((false, 0, None), consent_state(&pool, stale_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn later_verified_resubscribe_updates_only_exact_registered_mailbox_without_outbound_echo() {
     let pool = get_postgres_client().await;
     let address = email("loops-resubscribe@example.test");
@@ -1088,7 +1088,7 @@ async fn later_verified_resubscribe_updates_only_exact_registered_mailbox_withou
     assert!(!consent_state(&pool, id).await.0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn ignored_positive_remains_spent_after_receipt_cleanup_and_provider_change() {
     let pool = get_postgres_client().await;
     let address = email("loops-positive-replay@example.test");
@@ -1188,7 +1188,7 @@ async fn ignored_positive_remains_spent_after_receipt_cleanup_and_provider_chang
     assert_eq!(0, intent_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn uncertain_provider_read_does_not_commit_receipt_or_local_permission() {
     let pool = get_postgres_client().await;
     let address = email("loops-provider-read-error@example.test");
@@ -1233,7 +1233,7 @@ async fn uncertain_provider_read_does_not_commit_receipt_or_local_permission() {
     assert_eq!(0, receipts);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn stale_and_equal_provider_positive_events_cannot_reverse_a_withdrawal() {
     let pool = get_postgres_client().await;
     let address = email("loops-ordering@example.test");
@@ -1310,7 +1310,7 @@ async fn stale_and_equal_provider_positive_events_cannot_reverse_a_withdrawal() 
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn hard_bounce_is_not_a_consent_withdrawal_and_complaint_keeps_its_source_label() {
     let pool = get_postgres_client().await;
     let address = email("loops-delivery-signals@example.test");
@@ -1376,7 +1376,7 @@ async fn hard_bounce_is_not_a_consent_withdrawal_and_complaint_keeps_its_source_
     assert_eq!(Disposition::AppliedComplaintBlock.as_str(), disposition);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn verified_unsupported_event_is_receipted_and_delivery_id_reuse_conflicts() {
     let pool = get_postgres_client().await;
     let now = timestamp();

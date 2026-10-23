@@ -21,7 +21,7 @@ use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn logical_run_rejects_filter_snapshot_identity_mismatches() {
     use search_filter_service::ports::{
         PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReadError,
@@ -73,7 +73,7 @@ async fn logical_run_rejects_filter_snapshot_identity_mismatches() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn logical_run_freezes_filters_resumes_after_crash_and_does_not_repeat_completed_users() {
     use search_filter_postgres::SqlxPeriodicSearchFilterCandidateReader;
     use search_filter_service::ports::{
@@ -229,7 +229,7 @@ async fn logical_run_freezes_filters_resumes_after_crash_and_does_not_repeat_com
     tx.commit().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_resolve_missing_progress_to_creation_and_only_advance_forward() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -287,7 +287,7 @@ async fn should_resolve_missing_progress_to_creation_and_only_advance_forward() 
     assert_eq!(Some(first_target), saved);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_checkpoint_when_final_transaction_drops() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

@@ -35,7 +35,7 @@ use user_service::use_cases::queries::check_user_admin::{
 
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_discover_public_locations_without_cross_location_matches_or_management_evidence() {
     use application::pagination::Cursor;
     use geo::core::discovery::*;
@@ -328,7 +328,7 @@ async fn signals(pool: &PgPool, id: PartyLocationId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_equal_creates_have_distinct_ids_and_signals() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -395,7 +395,7 @@ async fn concurrent_equal_creates_have_distinct_ids_and_signals() {
     assert!(third.next.is_none());
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_relocations_create_one_replacement_and_conflict_on_the_old_revision() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -438,7 +438,7 @@ async fn concurrent_relocations_create_one_replacement_and_conflict_on_the_old_r
     assert_eq!(1, signals(&pool, replacement.id).await);
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn correction_noops_lifecycle_and_relocation_are_distinct() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -538,7 +538,7 @@ async fn correction_noops_lifecycle_and_relocation_are_distinct() {
     assert!(deleted.is_err());
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn authorization_requires_scope_and_explicit_party_grant() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -728,7 +728,7 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
     ));
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn management_reads_require_authority_for_every_location() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -818,7 +818,7 @@ async fn management_reads_require_authority_for_every_location() {
     assert!(page.items.contains(&retired));
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn independent_sessions_enforce_database_cas() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -886,7 +886,7 @@ async fn independent_sessions_enforce_database_cas() {
     assert_eq!(2, signals(&pool, v.id).await);
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn service_updates_serialize_expected_revisions_and_rollback_failed_relocations() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -929,7 +929,7 @@ async fn service_updates_serialize_expected_revisions_and_rollback_failed_reloca
     assert_eq!(2, signals(&pool, v.id).await);
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn corrupt_persisted_geography_fails_closed() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -958,7 +958,7 @@ async fn corrupt_persisted_geography_fails_closed() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn required_patch_fields_reject_clear_and_role_replacement_preserves_geographic_inputs() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -992,7 +992,7 @@ async fn required_patch_fields_reject_clear_and_role_replacement_preserves_geogr
     assert_eq!(2, signals(&pool, v.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn invalid_stored_object_ids_fail_closed() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -1023,7 +1023,7 @@ async fn invalid_stored_object_ids_fail_closed() {
     assert_eq!(1, signals(&pool, v.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn exhausted_revisions_allow_noops_and_reject_changes_without_signals() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -1068,7 +1068,7 @@ async fn exhausted_revisions_allow_noops_and_reject_changes_without_signals() {
     assert_eq!(1, signals(&pool, v.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_resolution_failure() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -1118,7 +1118,7 @@ async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_resolution
     assert_eq!(1, signals(&pool, old.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -1155,7 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn public_discovery_admits_current_derived_country_and_rejects_revoked_expired_or_stale_evidence()
  {
     use geo_postgres::SqlxResolutionRepositoryFactory;
@@ -1331,7 +1331,7 @@ impl CheckUserAdminUseCase for DatabaseAdmin {
     }
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn location_authority_rechecks_admin_after_waiting_for_the_party() {
     let pool = get_postgres_client().await;
     let party_id = party(&pool).await;
@@ -1355,7 +1355,7 @@ async fn location_authority_rechecks_admin_after_waiting_for_the_party() {
                 .execute(&mut *blocked_by)
                 .await
                 .unwrap();
-            let request = tokio::spawn({
+            let request = test_api::spawn_owned({
                 let pool = pool.clone();
                 async move {
                     let context = context(if grant {
@@ -1453,7 +1453,7 @@ async fn location_authority_rechecks_admin_after_waiting_for_the_party() {
     .unwrap();
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn location_authority_holds_user_status_until_commit() {
     let pool = get_postgres_client().await;
     let party_id = party(&pool).await;

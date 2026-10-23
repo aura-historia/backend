@@ -73,7 +73,7 @@ impl EmbeddingGenerator for Generator {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_retry_commits_once_duplicate_is_noop_and_missing_source_is_retained() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -113,7 +113,7 @@ async fn provider_retry_commits_once_duplicate_is_noop_and_missing_source_is_ret
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn source_change_while_provider_is_in_flight_is_rejected_by_guarded_commit() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -124,7 +124,7 @@ async fn source_change_while_provider_is_in_flight_is_rejected_by_guarded_commit
             calls: calls.clone(), fail_first: false, pause: Some(pause),
         });
         let body = job_body(product, source)?;
-        let in_flight = tokio::spawn({
+        let in_flight = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event("in-flight", body), use_case.as_ref()).await }

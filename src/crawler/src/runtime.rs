@@ -319,9 +319,9 @@ mod tests {
         ListingSourceSyncError, RegisteredListingSource,
     };
     use crate::service::raw_capture::MockProductListingRawCaptureService;
-    use crate::test_support::migrated_crawler_database;
     use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
     use serial_test::serial;
+    use test_api::{FutureExt as _, IntegrationTestService as _};
 
     /// A crawl scope without ListingSources, so the cron loop finds no work.
     struct EmptyListingSources;
@@ -335,8 +335,7 @@ mod tests {
         }
     }
 
-    // Tests that touch the process environment or the shared Postgres container are serialized,
-    // so no test reads the environment while another one changes it.
+    // The runner separates environment-mutating runtime/logging tests from ordinary tests.
     fn set_env(name: &str, value: Option<&str>) {
         match value {
             Some(value) => unsafe { std::env::set_var(name, value) },
@@ -376,10 +375,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     #[serial]
     async fn should_build_runtime_on_freshly_migrated_crawler_database() {
-        let (admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let applied_migrations: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
             .fetch_one(&pool)
             .await
@@ -392,16 +391,14 @@ mod tests {
         );
         drop(runtime);
         pool.close().await;
-        admin_pool.close().await;
 
         assert!(applied_migrations > 0);
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     #[serial]
     #[should_panic(expected = "crawler review server task panicked")]
     async fn should_stop_when_the_review_server_cannot_start() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
         let occupied = std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap_or_else(|error| panic!("reserve review console port: {error}"));
         let mut review_config = review_config();
@@ -409,9 +406,55 @@ mod tests {
             .local_addr()
             .unwrap_or_else(|error| panic!("read reserved review console port: {error}"));
 
-        build(pool, profile(review_config), disabled_llm_config())
-            .run()
-            .await;
+        run_on_owned_runtime(review_config).await;
+    }
+
+    async fn run_on_owned_runtime(review_config: ReviewServerConfig) {
+        let context = test_api::TestContext::current().expect("crawler runtime test context");
+        let (join_sender, join_receiver) =
+            tokio::sync::oneshot::channel::<std::thread::JoinHandle<()>>();
+        // Production run() drops its losing task handle. Keep its whole test runtime owned
+        // until both internal tasks end, including when the body panics or stops waiting.
+        context
+            .on_shutdown(async move {
+                let thread = join_receiver.await?;
+                tokio::task::spawn_blocking(move || thread.join())
+                    .await?
+                    .map_err(|_| std::io::Error::other("crawler test runtime thread panicked"))?;
+                Ok(())
+            })
+            .expect("register crawler test runtime shutdown");
+        let (completed, result) = tokio::sync::oneshot::channel();
+        let thread = std::thread::spawn(move || {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build crawler test runtime");
+                let outcome = runtime.block_on(context.scope(async move {
+                    let pool = test_api::get_postgres_client().await;
+                    let outcome = std::panic::AssertUnwindSafe(
+                        build(pool.clone(), profile(review_config), disabled_llm_config()).run(),
+                    )
+                    .catch_unwind()
+                    .await;
+                    pool.close().await;
+                    outcome
+                }));
+                drop(runtime);
+                outcome
+            }))
+            .and_then(std::convert::identity);
+            let _ = completed.send(outcome);
+        });
+        if let Err(thread) = join_sender.send(thread) {
+            // A rejected hand-off must still join, rather than detach a running thread.
+            let _ = thread.join();
+            panic!("crawler test runtime shutdown ownership was lost");
+        }
+        if let Err(panic) = result.await.expect("crawler test runtime result") {
+            std::panic::resume_unwind(panic);
+        }
     }
 
     fn review_config() -> ReviewServerConfig {

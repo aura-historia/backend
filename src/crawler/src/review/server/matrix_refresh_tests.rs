@@ -1,5 +1,6 @@
 use super::{ReviewServer, ReviewServerConfig};
 use crate::network::policy::NetworkErrorKind;
+use crate::review::matrix_refresh::MatrixRefreshStatus;
 use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -9,7 +10,6 @@ use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfiguration, CrawlerDomainConfigurationError,
     CrawlerDomainRemoval,
 };
-use crate::test_support::migrated_crawler_database;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::{Domain, ListingSourceId};
 use serde_json::json;
@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use test_api::IntegrationTestService as _;
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -127,7 +128,6 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
 }
 
 struct Fixture {
-    _admin_pool: PgPool,
     pool: PgPool,
     server: ReviewServer,
     review_id: CrawlerReviewId,
@@ -136,7 +136,7 @@ struct Fixture {
 const PAGE_COUNT: usize = 2;
 
 async fn fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
-    let (admin_pool, pool) = migrated_crawler_database().await;
+    let pool = test_api::get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
@@ -175,15 +175,37 @@ async fn fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
                 auth_token: None,
                 local_mutations_without_token: false,
             },
-            fetcher,
+            fetcher.clone(),
         )
     };
+    register_refresh_shutdown(server.clone(), fetcher, review_id);
     Fixture {
-        _admin_pool: admin_pool,
         pool,
         server,
         review_id,
     }
+}
+
+fn register_refresh_shutdown(
+    server: ReviewServer,
+    fetcher: Arc<PacedFetcher>,
+    review_id: CrawlerReviewId,
+) {
+    test_api::TestContext::current()
+        .expect("matrix refresh test context")
+        .on_shutdown(async move {
+            // A failed assertion can leave the refresh waiting for the fake shop.
+            // Finish its database writes before the context removes its database.
+            fetcher.release(PAGE_COUNT);
+            while matches!(
+                server.matrix_refreshes.status(review_id),
+                MatrixRefreshStatus::Running
+            ) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok(())
+        })
+        .expect("register matrix refresh shutdown");
 }
 
 async fn get_matrix(server: &ReviewServer, review_id: CrawlerReviewId, refresh: bool) -> String {
@@ -218,7 +240,7 @@ async fn stored_matrix(pool: &PgPool, review_id: CrawlerReviewId) -> Option<serd
     summary.get("schema_matrix").cloned()
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_answer_accepted_and_serve_the_matrix_on_poll_when_pages_are_paced() {
     let fetcher = PacedFetcher::new(None);
     let fixture = fixture(fetcher.clone()).await;
@@ -244,7 +266,7 @@ async fn should_answer_accepted_and_serve_the_matrix_on_poll_when_pages_are_pace
     );
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_fetch_each_page_once_when_refresh_requests_overlap() {
     let fetcher = PacedFetcher::new(None);
     let fixture = fixture(fetcher.clone()).await;
@@ -261,7 +283,7 @@ async fn should_fetch_each_page_once_when_refresh_requests_overlap() {
     assert_eq!(fetcher.fetched.load(Ordering::SeqCst), PAGE_COUNT);
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_report_the_page_fetch_failure_on_poll_when_the_refresh_fails() {
     let fetcher = PacedFetcher::new(Some("robots.txt disallows the page"));
     let fixture = fixture(fetcher.clone()).await;
@@ -283,7 +305,7 @@ async fn should_report_the_page_fetch_failure_on_poll_when_the_refresh_fails() {
     );
 }
 
-#[tokio::test]
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_store_the_matrix_of_the_current_candidate_when_it_changes_during_the_refresh() {
     let fetcher = PacedFetcher::new(None);
     let fixture = fixture(fetcher.clone()).await;

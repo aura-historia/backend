@@ -22,7 +22,7 @@ use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_search_oauth_clients_by_literal_name_when_query_contains_like_wildcards() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;
@@ -65,7 +65,7 @@ async fn should_search_oauth_clients_by_literal_name_when_query_contains_like_wi
     assert!(result.is_ok(), "literal wildcard search failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_clamp_oauth_client_search_page_size_to_one_and_one_hundred() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;
@@ -111,7 +111,7 @@ async fn should_clamp_oauth_client_search_page_size_to_one_and_one_hundred() {
     assert!(result.is_ok(), "page-size bounds failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_no_search_after_when_page_is_exactly_full_without_an_extra_row() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;
@@ -141,7 +141,7 @@ async fn should_return_no_search_after_when_page_is_exactly_full_without_an_extr
     assert!(result.is_ok(), "exact-page cursor test failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_order_equal_created_oauth_clients_by_client_id() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;
@@ -208,7 +208,7 @@ async fn should_order_equal_created_oauth_clients_by_client_id() {
     assert!(result.is_ok(), "equal-created ordering failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_filter_oauth_clients_by_client_id_and_name_intersection() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;
@@ -256,7 +256,7 @@ async fn should_filter_oauth_clients_by_client_id_and_name_intersection() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_invalid_persisted_oauth_client_row_when_listing() {
     let result: Result<(), Box<dyn StdError>> = async {
         let pool = get_postgres_client().await;

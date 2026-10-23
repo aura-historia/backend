@@ -43,7 +43,9 @@ impl IntegrationTestService for OrderedService {
     }
 }
 
-#[aura_integration_test(services = [OrderedService("a"), OrderedService("b")])]
+#[aura_integration_test(services = [OrderedService("a"), OrderedService("b")], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
+#[test_api::serial(macro_lifecycle_events)]
 async fn should_set_up_in_order_and_tear_down_in_reverse_order() {
     record("body");
 }
@@ -68,8 +70,10 @@ impl IntegrationTestService for PanicService {
     }
 }
 
-#[aura_integration_test(services = [PanicService])]
+#[aura_integration_test(services = [PanicService], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 #[should_panic(expected = "test-body panic")]
+#[test_api::serial(macro_lifecycle_events)]
 async fn should_tear_down_and_rethrow_test_body_panic() {
     record("body");
     panic!("test-body panic");

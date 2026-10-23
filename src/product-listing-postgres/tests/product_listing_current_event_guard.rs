@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_block_product_current_event_update_until_current_event_guard_transaction_commits() {
     let result = current_event_guard_lock_flow().await;
     assert!(
@@ -64,7 +64,7 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
     .await?;
     let (update_started_tx, update_started_rx) = oneshot::channel();
     let update_pool = pool.clone();
-    let mut update = tokio::spawn(async move {
+    let mut update = test_api::spawn_owned(async move {
         let _ = update_started_tx.send(());
         sqlx::query(
             "UPDATE product_listings SET current_event_id = $1, availability = 'SOLD_OUT', version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2",
@@ -89,7 +89,7 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_recheck_current_event_after_waiting_for_concurrent_product_commit() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -125,7 +125,7 @@ async fn should_recheck_current_event_after_waiting_for_concurrent_product_commi
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_reversed_historical_watchlist_and_match_facts_after_newer_event() {
     use product_listing_postgres::{
         SqlxProductListingSearchFilterMatchSourceReaderFactory,

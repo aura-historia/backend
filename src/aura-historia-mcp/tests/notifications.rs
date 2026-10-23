@@ -159,7 +159,7 @@ async fn count(pool: &sqlx::PgPool, user: UserId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_complete_payloads_preferences_pagination_scopes_and_own_inbox_mutations() {
     let pool = get_postgres_client().await;
     let owner = user(&pool).await;

@@ -173,12 +173,12 @@ async fn seed_product_listing(
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_empty_overview() {
     assert_eq!(AdminOverview::default(), read_overview().await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_aggregate_representative_authoritative_data() {
     let pool = get_postgres_client().await;
     let free_user = seed_user(&pool, "FREE", "USER").await;

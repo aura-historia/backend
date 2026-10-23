@@ -327,7 +327,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn pages_all_auctions_by_updated_created_and_name_in_both_orders() {
         let pool = get_postgres_client().await;
         let source = seed_source(&pool).await;
@@ -404,7 +404,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn filters_format_independently_including_unspecified_format() {
         let pool = get_postgres_client().await;
         let source = seed_source(&pool).await;
@@ -456,7 +456,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn filters_reported_status_independently_including_unspecified_status() {
         let pool = get_postgres_client().await;
         let source = seed_source(&pool).await;
@@ -514,7 +514,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn searches_literal_case_insensitive_text_and_exact_source_keys_without_listings() {
         let pool = get_postgres_client().await;
         let source = seed_source(&pool).await;

@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_publish_the_disjoint_manifests_as_the_actual_production_registry() {
     let mcp = McpServer::start().await;

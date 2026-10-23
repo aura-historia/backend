@@ -354,7 +354,7 @@ mod tests {
         }
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_search_source_and_operator_names_with_ranked_literal_matching() {
         let pool = get_postgres_client().await;
         let operator_id = uuid::Uuid::now_v7();
@@ -393,7 +393,7 @@ mod tests {
         assert!(short_prefix.items.is_empty());
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_traverse_more_than_a_thousand_matching_sources_without_duplicates() {
         let pool = get_postgres_client().await;
         let party_id = uuid::Uuid::now_v7();
@@ -480,7 +480,7 @@ mod tests {
         database_ctype: String,
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     #[ignore = "opt-in real PostgreSQL public ListingSource search performance harness"]
     async fn should_capture_public_listing_source_search_postgres_performance() {
         let pool = get_postgres_client().await;

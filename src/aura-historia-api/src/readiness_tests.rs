@@ -91,7 +91,7 @@ fn assert_reader_search(request: &str) {
     )));
 }
 
-#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn readiness_requires_successful_reader_search_and_postgres_query() {
     let postgres = test_api::get_postgres_client().await;
     for (upstream_status, body, expected) in [

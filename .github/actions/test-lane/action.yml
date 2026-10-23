@@ -1,0 +1,128 @@
+name: Run a complete test lane
+description: Validate package ownership, run supervised Nextest and doctests, and retain diagnostics.
+inputs:
+  id:
+    description: Unique artifact and cache name.
+    required: true
+  lanes:
+    description: Space-separated inventory lane names.
+    required: true
+  slots:
+    description: Maximum simultaneous tests and context slots.
+    required: true
+  profile:
+    description: Supervisor service profile, or none for the remaining lane.
+    required: true
+  compilation_cache:
+    description: Compilation cache policy, dependencies or cold.
+    default: dependencies
+runs:
+  using: composite
+  steps:
+    - name: Configure test lane
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        COMPILATION_CACHE: ${{ inputs.compilation_cache }}
+      run: |
+        [[ "$LANE_ID" =~ ^(api|crawler|integration|remaining)$ ]]
+        case "$COMPILATION_CACHE" in
+          dependencies|cold) ;;
+          *) printf 'Invalid compilation cache policy: %s\n' "$COMPILATION_CACHE" >&2; exit 1 ;;
+        esac
+        test -n "$RUNNER_TEMP"
+        test -n "$GITHUB_WORKSPACE"
+        mkdir -p "$RUNNER_TEMP/lane/$LANE_ID"
+        target="$GITHUB_WORKSPACE/target/no-coverage"
+        rm -rf "$target"
+        mkdir -p "$target"
+        printf 'Reset target %s; compilation cache policy %s.\n' "$target" "$COMPILATION_CACHE"
+        {
+          printf 'CARGO_TARGET_DIR=%s\n' "$target"
+          printf 'RUSTFLAGS=\nRUSTDOCFLAGS=\nCARGO_ENCODED_RUSTFLAGS=\nCARGO_ENCODED_RUSTDOCFLAGS=\n'
+          printf 'LLVM_PROFILE_FILE=\nRUSTDOC=rustdoc\n'
+          printf 'CARGO_PROFILE_TEST_DEBUG=1\nCARGO_PROFILE_DEV_DEBUG=1\n'
+          printf 'RUSTUP_TOOLCHAIN=nightly-2026-10-20\n'
+          printf 'AURA_TEST_POSTGRES_IMAGE=postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67\n'
+          printf 'NEXTEST_PROFILE=ci\n'
+          printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
+          printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
+        } >> "$GITHUB_ENV"
+
+    - name: Observe runner disk capacity
+      shell: bash
+      run: bash ci/prepare-runner-disk.sh observe
+
+    - name: Install pinned Rust toolchain
+      shell: bash
+      run: |
+        rustup toolchain install nightly-2026-10-20 --profile minimal
+        rustc -Vv
+
+    - name: Restore lane compilation cache
+      if: inputs.compilation_cache == 'dependencies'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: test-${{ inputs.id }}-none-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}
+        workspaces: . -> target/no-coverage
+        cache-workspace-crates: false
+        cache-all-crates: false
+        cache-on-failure: false
+        save-if: true
+        env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
+
+    - name: Install verified Nextest
+      shell: bash
+      run: |
+        bash ci/install-test-tools.sh "$RUNNER_TEMP/test-tools"
+        printf '%s\n' "$RUNNER_TEMP/test-tools" >> "$GITHUB_PATH"
+
+    - name: Log in to GHCR
+      if: inputs.profile != 'none'
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Build job supervisor when not owned by the lane
+      if: inputs.profile != 'none'
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        LANES: ${{ inputs.lanes }}
+      run: |
+        if [[ " $LANES " == *" INFRASTRUCTURE "* ]]; then
+          printf 'Lane discovery builds and validates the job supervisor.\n'
+          exit 0
+        fi
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          cargo build --locked --package test-api --all-features --bin aura-test-env
+
+    - name: Run owned targets and doctests
+      shell: bash
+      env:
+        LANE_ID: ${{ inputs.id }}
+        LANES: ${{ inputs.lanes }}
+        SLOTS: ${{ inputs.slots }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        read -ra selected <<< "$LANES"
+        arguments=()
+        for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
+        if [ "$PROFILE" != none ]; then
+          arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
+        fi
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
+          python3 ci/run-test-lane.py "${arguments[@]}" --slots "$SLOTS" --profile "$PROFILE" \
+          --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/$LANE_ID/state" \
+          --output "$RUNNER_TEMP/lane/$LANE_ID/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/$LANE_ID/tests.log"
+
+    - name: Preserve test diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: tests-${{ inputs.id }}-attempt-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/lane/${{ inputs.id }}/
+        if-no-files-found: warn
+        retention-days: 7

@@ -28,7 +28,7 @@ use user_service::use_cases::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_register_opaque_cognito_subject_as_independent_default_user() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -69,7 +69,7 @@ async fn should_register_opaque_cognito_subject_as_independent_default_user() {
     assert!(stored.value.preferences().language.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_commit_native_signup_consent_once_and_keep_withdrawal_on_replay() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -137,7 +137,7 @@ async fn should_commit_native_signup_consent_once_and_keep_withdrawal_on_replay(
     assert_eq!((false, 2, 3, 1), final_state);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_registration_without_grant_for_nonqualifying_consent_proofs() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -222,7 +222,7 @@ async fn should_preserve_registration_without_grant_for_nonqualifying_consent_pr
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_federated_bootstrap_profile_and_language_on_first_creation() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -282,7 +282,7 @@ async fn should_persist_federated_bootstrap_profile_and_language_on_first_creati
     assert_eq!(UserRole::User, stored.value.account().role);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_register_once_when_same_confirmation_runs_concurrently() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -333,7 +333,7 @@ async fn should_register_once_when_same_confirmation_runs_concurrently() {
     assert_eq!(1, version);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_external_login_idempotent_for_the_canonical_cognito_subject() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -386,7 +386,7 @@ async fn should_keep_external_login_idempotent_for_the_canonical_cognito_subject
     assert_eq!(user_id, repeated_user_id);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_overwrite_application_profile_on_registration_replay() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -475,7 +475,7 @@ async fn should_not_overwrite_application_profile_on_registration_replay() {
     assert_eq!(Some(Language::Fr), stored.value.preferences().language);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_isolate_same_subject_by_cognito_issuer() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -509,7 +509,7 @@ async fn should_isolate_same_subject_by_cognito_issuer() {
     assert_ne!(first, second);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_changed_email_for_registered_identity_without_mutation() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -559,7 +559,7 @@ async fn should_reject_changed_email_for_registered_identity_without_mutation() 
     assert_eq!(vec!["ada@example.com"], emails);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_new_identity_for_existing_email_without_orphan_binding() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(

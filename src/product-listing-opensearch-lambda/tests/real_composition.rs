@@ -18,14 +18,22 @@ mod projection_write_relay;
 use projection_write_relay::ProjectionWriteRelay;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
-const PRODUCT_LISTINGS_INDEX: &str = "product-listings";
+fn product_listings_index() -> String {
+    test_api::TestContext::current()
+        .expect("active Lambda projection test")
+        .product_listings_index()
+        .expect("scoped product listings index")
+}
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
 async fn should_apply_replay_withdraw_and_restore_through_the_real_lambda_composition() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
-        let use_case =
-            compose_projection_use_case(pool.clone(), get_opensearch_client().await.clone());
+        let use_case = compose_projection_use_case(
+            pool.clone(),
+            get_opensearch_client().await.clone(),
+            product_listings_index(),
+        );
         let fixture = insert_active_product_with_event(&pool, 7).await?;
 
         let applied = handler(
@@ -107,12 +115,15 @@ async fn should_apply_replay_withdraw_and_restore_through_the_real_lambda_compos
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
 async fn should_retain_missing_source_and_exhausted_records_through_the_real_lambda_path() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
-        let use_case =
-            compose_projection_use_case(pool.clone(), get_opensearch_client().await.clone());
+        let use_case = compose_projection_use_case(
+            pool.clone(),
+            get_opensearch_client().await.clone(),
+            product_listings_index(),
+        );
         let missing_event = EventId::new();
         let missing_listing = ProductListingId::new();
 
@@ -155,16 +166,19 @@ async fn should_retain_missing_source_and_exhausted_records_through_the_real_lam
     assert!(result.is_ok(), "real Lambda retry test failed: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
 async fn should_fence_delayed_live_and_withdrawal_writes_through_the_real_lambda_composition() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
         let target = get_opensearch_client().await.clone();
         let fixture = insert_active_product_with_event(&pool, 20).await?;
         let mut delayed_live_target = ProjectionWriteRelay::pause(target.clone()).await?;
-        let delayed_live_use_case =
-            compose_projection_use_case(pool.clone(), delayed_live_target.client.clone());
-        let delayed_live = tokio::spawn(async move {
+        let delayed_live_use_case = compose_projection_use_case(
+            pool.clone(),
+            delayed_live_target.client.clone(),
+            product_listings_index(),
+        );
+        let delayed_live = test_api::spawn_owned(async move {
             handler(
                 event(fixture.event_id, fixture.product_listing_id),
                 delayed_live_use_case.as_ref(),
@@ -174,7 +188,8 @@ async fn should_fence_delayed_live_and_withdrawal_writes_through_the_real_lambda
         delayed_live_target.wait_until_received().await?;
 
         let withdrawn_event_id = withdraw(&pool, fixture.product_listing_id, 21).await?;
-        let current_use_case = compose_projection_use_case(pool.clone(), target.clone());
+        let current_use_case =
+            compose_projection_use_case(pool.clone(), target.clone(), product_listings_index());
         let withdrawn = handler(
             event(withdrawn_event_id, fixture.product_listing_id),
             current_use_case.as_ref(),
@@ -200,9 +215,12 @@ async fn should_fence_delayed_live_and_withdrawal_writes_through_the_real_lambda
         let delayed_withdrawal_event_id =
             withdraw(&pool, restore_fixture.product_listing_id, 31).await?;
         let mut delayed_withdrawal_target = ProjectionWriteRelay::pause(target.clone()).await?;
-        let delayed_withdrawal_use_case =
-            compose_projection_use_case(pool.clone(), delayed_withdrawal_target.client.clone());
-        let delayed_withdrawal = tokio::spawn(async move {
+        let delayed_withdrawal_use_case = compose_projection_use_case(
+            pool.clone(),
+            delayed_withdrawal_target.client.clone(),
+            product_listings_index(),
+        );
+        let delayed_withdrawal = test_api::spawn_owned(async move {
             handler(
                 event(
                     delayed_withdrawal_event_id,
@@ -245,15 +263,18 @@ async fn should_fence_delayed_live_and_withdrawal_writes_through_the_real_lambda
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
 async fn should_retry_after_the_real_target_accepts_a_write_but_its_response_is_lost() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
         let target = get_opensearch_client().await.clone();
         let fixture = insert_active_product_with_event(&pool, 40).await?;
         let lost_response_target = ProjectionWriteRelay::drop_response(target.clone()).await?;
-        let uncertain_use_case =
-            compose_projection_use_case(pool.clone(), lost_response_target.client.clone());
+        let uncertain_use_case = compose_projection_use_case(
+            pool.clone(),
+            lost_response_target.client.clone(),
+            product_listings_index(),
+        );
 
         let first = handler(
             event(fixture.event_id, fixture.product_listing_id),
@@ -269,7 +290,7 @@ async fn should_retry_after_the_real_target_accepts_a_write_but_its_response_is_
             accepted["_source"]["eventId"]
         );
 
-        let retry_use_case = compose_projection_use_case(pool, target);
+        let retry_use_case = compose_projection_use_case(pool, target, product_listings_index());
         let retry = handler(
             event(fixture.event_id, fixture.product_listing_id),
             retry_use_case.as_ref(),
@@ -494,11 +515,11 @@ async fn stored(
 async fn stored_optional(
     product_listing_id: ProductListingId,
 ) -> Result<Option<Value>, Box<dyn std::error::Error + Send + Sync>> {
-    refresh_index(PRODUCT_LISTINGS_INDEX).await;
+    refresh_index(&product_listings_index()).await;
     let response = get_opensearch_client()
         .await
         .get(GetParts::IndexId(
-            PRODUCT_LISTINGS_INDEX,
+            &product_listings_index(),
             &product_listing_id.to_string(),
         ))
         .send()

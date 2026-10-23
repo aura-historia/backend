@@ -41,7 +41,7 @@ use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn normalized_titles_round_trip_through_history_details_and_worker_sources() {
     let pool = get_postgres_client().await;
     for (index, raw) in [
@@ -61,7 +61,7 @@ async fn normalized_titles_round_trip_through_history_details_and_worker_sources
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn legacy_title_reads_preserve_identifiers_versions_and_immutable_event_payloads() {
     let pool = get_postgres_client().await;
     for (slug, current_text, history_text) in [

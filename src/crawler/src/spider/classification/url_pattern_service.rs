@@ -350,8 +350,8 @@ mod tests {
     use crate::spider::classification::url_pattern_repository::{
         ListingSourceUrlPatternRecord, MockListingSourceUrlPatternRepository,
     };
-    use crate::test_support::migrated_crawler_database;
     use listing_source_core::Domain;
+    use test_api::IntegrationTestService as _;
 
     #[tokio::test]
     async fn should_not_reclassify_completed_no_pattern_domain_until_reset() {
@@ -435,9 +435,9 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_apply_inferred_pattern_through_approved_review_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let mut classification = MockUrlClassificationService::new();
@@ -473,9 +473,9 @@ mod tests {
         assert_eq!(review_status, "APPROVED");
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_not_infer_pattern_while_a_review_is_pending_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let urls = ["https://manual.example.com/item/1".to_owned()];
@@ -510,9 +510,9 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_open_undecided_review_without_llm_call_when_authoring_is_manual() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let service = UrlPatternServiceImpl::new(
@@ -599,9 +599,9 @@ mod tests {
         .unwrap_or_else(|error| panic!("read reviews and LLM calls: {error}"))
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_review_when_authoring_is_manual() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
         let service = UrlPatternServiceImpl::new(
@@ -629,9 +629,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_inference_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -657,9 +657,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_reclassify_stored_pattern_the_crawl_already_used_when_authoring_is_auto() {
-        let (_admin_pool, pool) = migrated_crawler_database().await;
+        let pool = test_api::get_postgres_client().await;
         let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
         store_pattern(&pool, &listing_source_id, &domain_id, "/product/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());

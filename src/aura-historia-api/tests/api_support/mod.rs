@@ -1,3 +1,11 @@
+mod fakes;
+
+pub use fakes::*;
+use fakes::{
+    RecordingWoocommerceIngestionPublisher, SuccessfulUserSessionRevoker, TEST_COGNITO_ISSUER,
+    api_test_state, count_api_request, record_cognito_subject,
+};
+
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use application::operation_context::OperationContext;
@@ -152,6 +160,7 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
 
+use fakes::postgres_pool as get_postgres_client;
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
     GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
@@ -172,8 +181,8 @@ use search_filter_service::use_cases::{
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
-use test_api::{get_opensearch_client, get_postgres_client};
+use std::sync::{Arc, Mutex};
+use test_api::get_opensearch_client;
 use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
@@ -317,193 +326,6 @@ impl ConfirmNewsletterSubscriptionUseCase for SuccessfulNewsletterConfirmation {
     }
 }
 
-const TEST_COGNITO_ISSUER: &str = "https://issuer.api-acceptance.test/pool";
-
-static COGNITO_SUBJECTS_BY_USER: OnceLock<Mutex<HashMap<UserId, CognitoSubject>>> = OnceLock::new();
-static SESSION_REVOCATION_FAILURES: OnceLock<Mutex<HashSet<CognitoSubject>>> = OnceLock::new();
-static NEWSLETTER_CONFIRMATION_TOKENS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-
-#[derive(Clone, Copy)]
-struct NewsletterC09TestAuthenticator;
-
-#[async_trait::async_trait]
-impl TokenAuthenticator for NewsletterC09TestAuthenticator {
-    async fn authenticate(
-        &self,
-        _bearer_token: &str,
-        _metadata: &RequestMetadata,
-    ) -> Result<TransportPrincipal, AuthError> {
-        Err(AuthError::InvalidCredentials)
-    }
-}
-
-#[derive(Clone, Copy)]
-struct CapturingNewsletterConfirmationEmailSender;
-
-#[async_trait::async_trait]
-impl user_service::ports::NewsletterConfirmationEmailSender
-    for CapturingNewsletterConfirmationEmailSender
-{
-    async fn send(
-        &self,
-        email: user_service::ports::NewsletterConfirmationEmail,
-    ) -> user_service::ports::NewsletterConfirmationEmailSendOutcome {
-        let tokens = NEWSLETTER_CONFIRMATION_TOKENS.get_or_init(|| Mutex::new(HashMap::new()));
-        tokens
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(email.recipient.to_string(), email.token.as_str().to_owned());
-        user_service::ports::NewsletterConfirmationEmailSendOutcome::Accepted
-    }
-}
-
-pub fn take_newsletter_confirmation_token(email: &str) -> String {
-    let tokens = NEWSLETTER_CONFIRMATION_TOKENS.get_or_init(|| Mutex::new(HashMap::new()));
-    tokens
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(email)
-        .unwrap_or_else(|| panic!("missing newsletter confirmation email test fixture"))
-}
-
-pub fn newsletter_c09_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
-    Box::pin(async {
-        let pool = get_postgres_client().await;
-        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-        let challenges = user_postgres::SqlxNewsletterConfirmationChallengesRepository::new();
-        let request = RequestNewsletterSubscriptionHandler::new(
-            unit_of_work.clone(),
-            challenges,
-            user_postgres::SqlxNewsletterProfileReader::new(pool),
-            CapturingNewsletterConfirmationEmailSender,
-            user_service::ports::OsNewsletterConfirmationTokenGenerator,
-            user_service::ports::SystemNewsletterConfirmationClock,
-        );
-        let confirm = ConfirmNewsletterSubscriptionHandler::new(
-            unit_of_work,
-            user_postgres::SqlxNewsletterConfirmationChallengesRepository::new(),
-            user_postgres::SqlxMarketingConsentIntentRepository::new(),
-            user_service::ports::SystemNewsletterConfirmationClock,
-        );
-        let authenticator: Arc<dyn TokenAuthenticator> = Arc::new(NewsletterC09TestAuthenticator);
-        app(state::AppState::new().with_newsletter(NewsletterState::new(
-            Arc::new(request),
-            Arc::new(confirm),
-            authenticator,
-        )))
-    })
-}
-
-pub fn fail_session_revocation_for(user_id: UserId) {
-    let subjects = COGNITO_SUBJECTS_BY_USER.get_or_init(|| Mutex::new(HashMap::new()));
-    let subject = match subjects.lock() {
-        Ok(subjects) => subjects.get(&user_id).cloned(),
-        Err(poisoned) => poisoned.into_inner().get(&user_id).cloned(),
-    }
-    .unwrap_or_else(|| panic!("missing Cognito identity fixture for {user_id}"));
-    let failures = SESSION_REVOCATION_FAILURES.get_or_init(|| Mutex::new(HashSet::new()));
-    match failures.lock() {
-        Ok(mut failures) => {
-            failures.insert(subject);
-        }
-        Err(poisoned) => {
-            poisoned.into_inner().insert(subject);
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct SuccessfulUserSessionRevoker;
-
-#[async_trait::async_trait]
-impl UserSessionRevoker for SuccessfulUserSessionRevoker {
-    async fn revoke_sessions(
-        &self,
-        identity: &CognitoIdentity,
-    ) -> Result<(), UserSessionRevocationError> {
-        let failures = SESSION_REVOCATION_FAILURES.get_or_init(|| Mutex::new(HashSet::new()));
-        let should_fail = match failures.lock() {
-            Ok(mut failures) => failures.remove(&identity.subject),
-            Err(poisoned) => poisoned.into_inner().remove(&identity.subject),
-        };
-        if should_fail {
-            return Err(UserSessionRevocationError::TemporarilyUnavailable {
-                source: application::error::box_error(std::io::Error::other("Cognito unavailable")),
-            });
-        }
-        Ok(())
-    }
-}
-
-static WOOCOMMERCE_INGESTION_MESSAGES: OnceLock<Mutex<Vec<ProductListingIngestionMessage>>> =
-    OnceLock::new();
-static WOOCOMMERCE_PUBLISHER_OUTCOMES: OnceLock<
-    Mutex<HashMap<ListingSourceId, ProductListingIngestionOutcome>>,
-> = OnceLock::new();
-
-fn woocommerce_messages() -> &'static Mutex<Vec<ProductListingIngestionMessage>> {
-    WOOCOMMERCE_INGESTION_MESSAGES.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-pub fn woocommerce_ingestion_messages(
-    listing_source_id: ListingSourceId,
-) -> Vec<ProductListingIngestionMessage> {
-    captured_ingestion_messages(listing_source_id)
-}
-
-pub fn captured_ingestion_messages(
-    listing_source_id: ListingSourceId,
-) -> Vec<ProductListingIngestionMessage> {
-    woocommerce_messages()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .iter()
-        .filter(|message| message.metadata.listing_source_id == listing_source_id)
-        .cloned()
-        .collect()
-}
-
-pub fn set_woocommerce_publisher_outcome(
-    listing_source_id: ListingSourceId,
-    outcome: ProductListingIngestionOutcome,
-) {
-    WOOCOMMERCE_PUBLISHER_OUTCOMES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(listing_source_id, outcome);
-}
-
-struct RecordingWoocommerceIngestionPublisher;
-
-#[async_trait::async_trait]
-impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher {
-    async fn publish(
-        &self,
-        commands: Vec<ProductListingIngestionMessage>,
-    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
-        tokio::task::yield_now().await;
-        let outcomes = WOOCOMMERCE_PUBLISHER_OUTCOMES.get_or_init(|| Mutex::new(HashMap::new()));
-        let outcomes = outcomes.lock().unwrap_or_else(|error| error.into_inner());
-        let items = commands
-            .iter()
-            .map(|command| ProductListingIngestionItemOutcome {
-                index: command.metadata.index,
-                command_id: command.metadata.command_id.clone(),
-                outcome: outcomes
-                    .get(&command.metadata.listing_source_id)
-                    .cloned()
-                    .unwrap_or(ProductListingIngestionOutcome::Accepted),
-            })
-            .collect();
-        woocommerce_messages()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .extend(commands);
-        Ok(items)
-    }
-}
-
 pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
     Box::pin(async {
         app(test_state(
@@ -511,22 +333,11 @@ pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
             ProductListingSearchCacheTestPolicy::Disabled,
         )
         .await)
-        .layer(axum::middleware::from_fn(count_api_request))
+        .layer(axum::middleware::from_fn_with_state(
+            api_test_state(),
+            count_api_request,
+        ))
     })
-}
-
-static API_REQUESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-pub fn api_request_count() -> usize {
-    API_REQUESTS.load(std::sync::atomic::Ordering::SeqCst)
-}
-
-async fn count_api_request(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    API_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    next.run(request).await
 }
 
 pub fn watchlist_api_app_with_single_connection_pool()
@@ -539,6 +350,10 @@ pub fn watchlist_api_app_with_single_connection_pool()
             .connect_with(fixture_pool.connect_options().as_ref().clone())
             .await
             .unwrap_or_else(|error| panic!("failed to create single-connection API pool: {error}"));
+        test_api::TestContext::current()
+            .expect("watchlist context")
+            .register_postgres_pool(pool.clone())
+            .expect("register single-connection pool");
         fixture_pool.close().await;
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let authenticator = Arc::new(UserAuthenticationAuthenticator::new(
@@ -952,17 +767,7 @@ pub async fn seed_user_cognito_identity(
         panic!("failed to seed Cognito identity: {error}");
     }
 
-    let subjects = COGNITO_SUBJECTS_BY_USER.get_or_init(|| Mutex::new(HashMap::new()));
-    match subjects.lock() {
-        Ok(mut subjects) => {
-            subjects.insert(user_id, identity.subject.clone());
-        }
-        Err(poisoned) => {
-            poisoned
-                .into_inner()
-                .insert(user_id, identity.subject.clone());
-        }
-    }
+    record_cognito_subject(user_id, identity.subject.clone());
     identity
 }
 
@@ -1415,6 +1220,10 @@ async fn test_state(
         authenticate_user,
     ));
     let opensearch_client = get_opensearch_client().await;
+    let product_listings_index = test_api::TestContext::current()
+        .expect("search context")
+        .product_listings_index()
+        .expect("search index");
     let auctions_state = AuctionsState::new(
         Arc::new(CreateAuctionHandler::new(
             unit_of_work.clone(),
@@ -1722,14 +1531,20 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+            OpenSearchProductListingSimilarProductListingsReader::with_index(
+                opensearch_client.clone(),
+                product_listings_index.clone(),
+            ),
             SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
             shipping.clone(),
         )),
         Arc::new(SearchProductListingsHandler::new(
-            OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
+            OpenSearchProductListingSearchReader::with_index(
+                opensearch_client.clone(),
+                product_listings_index.clone(),
+            ),
             CachedFxRateSnapshotReader::new(
                 SqlxFxRateSnapshotReader::new(pool.clone()),
                 search_cache_policy.fx_cache_config(),
@@ -1787,7 +1602,7 @@ async fn test_state(
             SqlxListingSourceReaders::new(pool.clone()),
             SqlxListingSourceReaders::new(pool.clone()),
             SubmitPartnerProductListingIngestionHandler::new(
-                RecordingWoocommerceIngestionPublisher,
+                RecordingWoocommerceIngestionPublisher::new(),
             ),
             AuthorizeProductListingRawCaptureHandler::new(
                 unit_of_work.clone(),
@@ -1898,7 +1713,7 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
             user_postgres::SqlxUserCognitoIdentityRegistryFactory::new(),
-            SuccessfulUserSessionRevoker,
+            SuccessfulUserSessionRevoker::new(),
         )),
         Arc::new(CreateAccessTokenHandler::new(
             unit_of_work.clone(),
@@ -1939,7 +1754,7 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let search_filter_reader = SqlxSearchFilterReader::new(get_postgres_client().await);
+    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let search_filters_state = SearchFiltersState::new(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
@@ -2218,7 +2033,7 @@ async fn test_state(
         .with_partner_product_listing_management(partner_product_listing_management_state)
         .with_async_partner_product_listings(AsyncPartnerProductListingsState::new(
             Arc::new(SubmitPartnerProductListingIngestionHandler::new(
-                RecordingWoocommerceIngestionPublisher,
+                RecordingWoocommerceIngestionPublisher::new(),
             )),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))

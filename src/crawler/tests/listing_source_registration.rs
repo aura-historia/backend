@@ -41,8 +41,7 @@ fn listing_source(
     }
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -72,8 +71,7 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     assert_eq!(None, cleared);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_disable_absent_sources_without_deleting_local_domain_configuration() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -117,8 +115,7 @@ async fn should_disable_absent_sources_without_deleting_local_domain_configurati
     assert_eq!(domain_count, 1);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_default_ad_hoc_listing_sources_to_crawl_disabled() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
@@ -140,8 +137,7 @@ async fn should_default_ad_hoc_listing_sources_to_crawl_disabled() {
     assert!(!enabled);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_roll_back_snapshot_when_final_disable_update_fails_and_retry_after_trigger_removal()
 {
     let pool = get_postgres_client().await;

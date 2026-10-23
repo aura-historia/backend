@@ -77,7 +77,7 @@ async fn policy_row(
         .bind(id.into_uuid()).fetch_one(pool).await.unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked_tier() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -127,7 +127,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes() {
     let pool = get_postgres_client().await;
     let create = CreateSearchFilterHandler::new(
@@ -165,7 +165,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -269,7 +269,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
     assert!(restored.embedding.is_some());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_repair_embeddings() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -365,7 +365,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
     assert_eq!(3, policy_row(&pool, filter.search_filter_id).await.1);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_changes_until_erasure()
  {
     use geo::{AddressText, CountryCode, GeographicDescription, reference::ReferenceRelease};

@@ -3,6 +3,11 @@ name = "test-api"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "aura-test-env"
+path = "src/bin/aura-test-env.rs"
+required-features = ["supervisor"]
+
 [dependencies]
 application = { workspace = true }
 test-api-macros = { workspace = true }
@@ -12,6 +17,7 @@ derive_builder = { workspace = true }
 serial_test = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 testcontainers = { workspace = true }
 sqlx = { workspace = true, optional = true }
@@ -22,6 +28,8 @@ tracing = { workspace = true }
 typed-builder = { workspace = true }
 libc = { workspace = true }
 ctrlc = { workspace = true }
+sha2 = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
 
 uuid = { workspace = true }
 
@@ -52,7 +60,10 @@ default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 aura-historia-api = ["dep:axum"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
-postgres = ["dep:sqlx"]
+postgres = ["dep:sqlx", "dep:sha2"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
+s3 = ["dep:aws-sdk-s3"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
+
+supervisor = ["postgres", "opensearch", "sqs"]

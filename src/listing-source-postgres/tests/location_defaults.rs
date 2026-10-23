@@ -194,7 +194,7 @@ async fn invalid_revisions_are_rejected_before_opening_a_transaction() {
         Err(LocationDefaultError::InvalidRevision)
     ));
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn separate_sources_select_one_location_and_changes_are_atomic_noops() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -347,7 +347,7 @@ async fn separate_sources_select_one_location_and_changes_are_atomic_noops() {
         Err(LocationDefaultError::SourceNotFound)
     ));
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn foreign_missing_retired_and_unscoped_references_fail_closed() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -411,7 +411,7 @@ async fn foreign_missing_retired_and_unscoped_references_fail_closed() {
     assert_eq!(v, read(&pool, id).await);
     assert_eq!(1, signals(&pool, id).await);
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn authoritative_geography_checks_independent_meanings_exact_points_retirement_and_pending_resolution()
  {
     let pool = get_postgres_client().await;
@@ -511,7 +511,7 @@ async fn authoritative_geography_checks_independent_meanings_exact_points_retire
         reader.get(id).await.unwrap()
     );
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_changes_have_one_winner_and_invalidation_failure_rolls_back() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -613,7 +613,7 @@ async fn member(pool: &PgPool, owner: PartyId, id: ListingSourceId) -> Principal
         ]),
     }
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn current_operator_membership_source_grant_and_scope_are_required() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -756,7 +756,7 @@ async fn assert_admin_mutations_forbidden(
     }
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn admin_policy_excludes_operator_members_and_preserves_default_contract() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -868,7 +868,7 @@ async fn admin_policy_excludes_operator_members_and_preserves_default_contract()
     }
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn delegated_admin_defaults_require_the_exact_read_or_write_capability() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -942,7 +942,7 @@ async fn wait_for_lock(pool: &PgPool) {
         }
     }).await.unwrap();
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn admin_execution_revalidates_role_after_a_concurrent_demotion() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -963,7 +963,7 @@ async fn admin_execution_revalidates_role_after_a_concurrent_demotion() {
         .await
         .unwrap();
     let request = GetLocationDefaultRequest { source_id: id };
-    let query = tokio::spawn({
+    let query = test_api::spawn_owned({
         let pool = pool.clone();
         let principal = principal.clone();
         async move { admin_get(&pool).execute(&context(principal), request).await }
@@ -983,7 +983,7 @@ async fn admin_execution_revalidates_role_after_a_concurrent_demotion() {
     );
     assert_eq!(0, signals(&pool, id).await);
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
@@ -996,7 +996,7 @@ async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
         .await
         .unwrap();
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(retirement.connection()).await.unwrap();
-    let assignment = tokio::spawn({
+    let assignment = test_api::spawn_owned({
         let pool = pool.clone();
         async move { assign(&pool).execute(&trusted(), command(id, a)).await }
     });
@@ -1017,7 +1017,7 @@ async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
         .execute(revocation.connection())
         .await
         .unwrap();
-    let assignment = tokio::spawn({
+    let assignment = test_api::spawn_owned({
         let pool = pool.clone();
         async move {
             assign(&pool)
@@ -1033,7 +1033,7 @@ async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
     ));
     assert_eq!(0, signals(&pool, id).await);
 }
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn malformed_persisted_evidence_and_geography_fail_closed() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;

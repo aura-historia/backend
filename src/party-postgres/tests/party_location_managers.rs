@@ -133,7 +133,7 @@ fn handler(pool: &PgPool) -> impl ListPartyLocationManagersUseCase {
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn lists_current_independent_reasons_filters_pages_and_grant_changes() {
     let pool = get_postgres_client().await;
     let party_id = party(&pool).await;
@@ -368,7 +368,7 @@ async fn lists_current_independent_reasons_filters_pages_and_grant_changes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn requires_current_admin_and_read_scope_and_reports_unknown_party() {
     let pool = get_postgres_client().await;
     let party_id = party(&pool).await;

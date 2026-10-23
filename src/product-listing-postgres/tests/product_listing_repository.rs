@@ -43,7 +43,7 @@ use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -161,7 +161,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert_eq!(2, persisted_identity.4);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_round_trip_flat_listing_auction_fields() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -242,7 +242,7 @@ async fn should_round_trip_flat_listing_auction_fields() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_valid_long_incompressible_url_through_canonical_repository() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -269,7 +269,7 @@ async fn should_persist_valid_long_incompressible_url_through_canonical_reposito
     assert_eq!(long_url.as_str(), persisted_url);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_install_required_indexes_without_wide_or_duplicate_btrees() {
     let pool = get_postgres_client().await;
     let (source_url_index, duplicate_raw_revision_index): (Option<String>, Option<String>) =
@@ -294,7 +294,7 @@ async fn should_install_required_indexes_without_wide_or_duplicate_btrees() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -441,7 +441,7 @@ async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
     assert_eq!(3, projection_version);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_advance_updated_strictly_monotonically_at_millisecond_precision() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -536,7 +536,7 @@ async fn should_advance_updated_strictly_monotonically_at_millisecond_precision(
     assert_eq!(canonical, updated().await.unwrap());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_round_trip_immutable_sale_observation_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -597,7 +597,7 @@ async fn should_round_trip_immutable_sale_observation_in_postgres() {
     assert_eq!(product.pricing(), loaded.value.pricing());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_enforce_paired_sale_observation_columns_in_postgres() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(
@@ -641,7 +641,7 @@ async fn should_enforce_paired_sale_observation_columns_in_postgres() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_when_product_is_missing_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -663,7 +663,7 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
     assert!(by_id.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_input() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -709,7 +709,7 @@ async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_inp
     assert_eq!("SKU  #42/Blue", loaded.value.source_listing_id().as_ref());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_map_source_listing_key_conflict_to_source_listing_already_exists() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -738,7 +738,7 @@ async fn should_map_source_listing_key_conflict_to_source_listing_already_exists
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_map_title_slug_conflict_to_product_listing_title_slug_already_exists() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -772,7 +772,7 @@ async fn should_map_title_slug_conflict_to_product_listing_title_slug_already_ex
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_map_unclassified_insert_conflict_to_generic_fallback() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -805,7 +805,7 @@ async fn should_map_unclassified_insert_conflict_to_generic_fallback() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_product_update_conflict_when_product_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -833,7 +833,7 @@ async fn should_report_product_update_conflict_when_product_row_is_missing() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_product_update_conflict_when_storage_version_is_stale() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -867,7 +867,7 @@ async fn should_report_product_update_conflict_when_storage_version_is_stale() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_commit_or_roll_back_product_event_and_assessment_together() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

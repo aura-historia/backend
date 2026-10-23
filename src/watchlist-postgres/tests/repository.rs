@@ -17,7 +17,7 @@ use watchlist_service::ports::{
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -85,7 +85,7 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_order_user_watchlist_entries_by_created_then_product_listing_id() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -136,7 +136,7 @@ async fn should_order_user_watchlist_entries_by_created_then_product_listing_id(
     assert_eq!(product_listing_ids, expected);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_and_reset_current_interval_timestamps() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -239,7 +239,7 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     assert!(reenabled_email_since.is_some_and(|value| value > old));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_count_only_active_watchlist_entries_in_transaction() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -283,7 +283,7 @@ async fn should_count_only_active_watchlist_entries_in_transaction() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_active_watch_count_and_intervals_when_product_listing_is_withdrawn() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -361,7 +361,7 @@ async fn should_keep_active_watch_count_and_intervals_when_product_listing_is_wi
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -421,7 +421,7 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
     commit(tx).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -482,7 +482,7 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     assert_eq!(2, persisted.5);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_partial_updates_without_changing_persisted_fields() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -553,17 +553,17 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     assert_eq!(2, expected.5);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_retried_notifications_patch_after_state_patch_wins() {
     run_partial_patch_race(true).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_retried_state_patch_after_notifications_patch_wins() {
     run_partial_patch_race(false).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_already_exists_when_watchlist_entry_exists() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

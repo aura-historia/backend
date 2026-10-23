@@ -4,7 +4,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const MIGRATION: &str =
     include_str!("../../../migrations/20261013130000_search_filter_matching_evidence.sql");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn backfill_resolves_policies_and_quotas_preserves_authored_intent_and_fences_versions() {
     let pool = get_postgres_client().await;
     let mut tx = pool.begin().await.unwrap();
@@ -64,7 +64,7 @@ async fn backfill_resolves_policies_and_quotas_preserves_authored_intent_and_fen
     tx.rollback().await.unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn migration_rejects_missing_required_enhanced_embeddings_without_mutating_business_state() {
     let pool = get_postgres_client().await;
     let mut tx = pool.begin().await.unwrap();
@@ -91,7 +91,7 @@ async fn migration_rejects_missing_required_enhanced_embeddings_without_mutating
     assert_eq!(0, count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn persisted_activation_requires_enhanced_capability_and_write_time_embedding() {
     let pool = get_postgres_client().await;
     let user = uuid::Uuid::now_v7();

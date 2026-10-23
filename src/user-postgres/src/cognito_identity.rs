@@ -285,7 +285,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_store_native_user_uuid_and_resolve_identity_both_directions() {
         let pool = get_postgres_client().await;
         let user_id = UserId::new();
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!("uuid", data_type);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_isolate_same_subject_by_issuer() {
         let pool = get_postgres_client().await;
         let first_user_id = UserId::new();
@@ -382,7 +382,7 @@ mod tests {
         );
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_enforce_unique_identity_tuple_and_unique_user_binding() {
         let pool = get_postgres_client().await;
         let first_user_id = UserId::new();
@@ -434,7 +434,7 @@ mod tests {
         ));
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_roll_back_uncommitted_identity_binding() {
         let pool = get_postgres_client().await;
         let user_id = UserId::new();
@@ -460,7 +460,7 @@ mod tests {
         assert_eq!(None, resolved);
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_report_non_uuid_v7_persisted_user_id_as_invalid_identity_state() {
         let pool = get_postgres_client().await;
         let invalid_user_id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
@@ -486,7 +486,7 @@ mod tests {
             Err(CognitoUserIdentityReadError::InvalidPersistedIdentity { .. })
         ));
     }
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_persist_revocation_in_the_existing_identity_read_and_roll_back_uncommitted_fences()
      {
         let pool = get_postgres_client().await;
@@ -549,7 +549,7 @@ mod tests {
         );
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_advance_cutoff_for_late_completion_and_never_move_it_backward() {
         let pool = get_postgres_client().await;
         let user_id = UserId::new();
