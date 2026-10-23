@@ -17,45 +17,42 @@ npm run build
 npm test
 npm run synth -- --context stage=dev
 npm run synth -- --context stage=prod
-# Both application stages:
+# Both application stages and the delivery foundation:
 npm run synth:all
 ```
 
 These commands do not deploy. Deployment-helper tests run from the repository root:
 
 ```sh
-node --test ci/*.test.cjs
+node --test ci/*.test.cjs ci/delivery/*.test.cjs
 ```
 
-## Coordinated releases
+## Delivery foundation
 
-**Release (CD)** handles routine forward releases with one protected approval, automatic
-DMS pause, foundation, private migrations, application deployment and verified capture
-recovery. Initial FX, bootstrap, rollback and incompatible cutovers remain dedicated
-operations. See [setup and IAM](../docs/infra.md#release-ownership-setup),
-[requirement declarations](../docs/infra.md#release-requirements), and
-[recovery](../docs/infra.md#release-recovery).
+The manual release entry runs the full candidate test suite, requires protected
+`aws-release-build` approval before a new shared build, then requires a separate
+`aws-dev` or `aws-prod` approval for the reviewed target deployment. Promotion
+reuses immutable artifacts. Routine delivery leaves DMS running.
 
-Before adoption, synthesize the independent operational state/monitor stack:
+Synthesize the independent control plane with:
 
 ```sh
-npm run cdk -- synth aura-historia-release-operations \
-  --app 'npx ts-node --prefer-ts-exts bin/releases.ts'
+npm run synth -- --app 'npx ts-node --prefer-ts-exts bin/delivery.ts'
 ```
 
-Provision it separately under approved setup, configure the bucket/account variables and
-protected reviewers, confirm alarm delivery, then run **Adopt release baseline** for the
-verified deployed source. Local synth/tests do not perform that setup or deploy a release.
+Production is enabled by default; `--context devEnabled=true` additionally provisions
+a dev deployment pipeline. This flag controls delivery and does not decommission
+existing workloads or remove their idle costs.
 
-## Container repository setup
+Bootstrap requires approved control-source key/version, workflow revision, build
+configuration digest, GitHub OIDC/environment protections, reviewer model permissions
+and target resource identities. Existing repositories and moved resources require an
+explicit ownership transition. The final split templates are not an in-place migration
+procedure. Follow the [infrastructure runbook](../docs/infra.md) before any AWS write.
 
-See [provisioning and ownership](../docs/infra.md#container-repository-setup).
-From `infra/`, synthesize the separate setup stack:
-
-```sh
-npm run cdk -- synth aura-historia-container-artifacts \
-  --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts'
-```
+The former container-artifact app describes the legacy repository ownership; do not
+deploy it alongside the delivery foundation as a competing owner. Preserve existing
+repository identities and image digests during the separately approved transition.
 
 ## Editing infrastructure assets
 

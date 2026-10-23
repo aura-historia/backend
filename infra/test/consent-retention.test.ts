@@ -17,7 +17,6 @@ test.each(STAGES)("%s consent receipt retention covers the declared recovery pat
   const app = new cdk.App({ analyticsReporting: false });
   const stacks = createApplicationStacks(app, { stage });
   const data = Template.fromStack(stacks.data);
-  const compute = Template.fromStack(stacks.compute);
   const queue = (name: string) => {
     const matches = Object.values(data.findResources("AWS::SQS::Queue"))
       .filter((resource) => resource.Properties.QueueName === name);
@@ -29,7 +28,7 @@ test.each(STAGES)("%s consent receipt retention covers the declared recovery pat
   const streams = Object.values(data.findResources("AWS::Kinesis::Stream"));
   expect(streams).toHaveLength(1);
   const kinesisDays = streams[0].Properties.RetentionPeriodHours / 24 as number;
-  const archives = Object.values(compute.findResources("AWS::S3::Bucket"))
+  const archives = Object.values(data.findResources("AWS::S3::Bucket"))
     .filter((resource) => resource.Properties.BucketName === `aura-historia-cdc-router-failures-${stage}`);
   expect(archives).toHaveLength(1);
   const archiveDays = archives[0].Properties.LifecycleConfiguration.Rules[0].ExpirationInDays as number;
