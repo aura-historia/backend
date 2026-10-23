@@ -2,9 +2,11 @@ use opensearch::indices::IndicesExistsParts;
 use test_api::*;
 
 #[aura_integration_test(services = [OpenSearch()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_run_without_errors() {}
 
 #[aura_integration_test(services = [OpenSearch()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_set_up_indices() {
     let index = test_api::TestContext::current()
         .unwrap()

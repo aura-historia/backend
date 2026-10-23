@@ -12,11 +12,13 @@ static UNIQUE_B: LazyLock<SqsQueuePair> = LazyLock::new(|| SqsQueuePair::unique(
 const SQS: Sqs = Sqs { name: "test-sqs" };
 
 #[aura_integration_test(services = [SQS], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_run_without_errors() {
     assert!(SQS.queue_url().starts_with(aws::get_endpoint_url()));
 }
 
 #[aura_integration_test(services = [SQS, &*UNIQUE_A, &*UNIQUE_B])]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_purge_only_its_source_and_dlq_including_invisible_messages() {
     let client = get_sqs_client().await;
     assert_ne!(UNIQUE_A.name, UNIQUE_B.name);
@@ -70,6 +72,7 @@ async fn should_purge_only_its_source_and_dlq_including_invisible_messages() {
 }
 
 #[aura_integration_test(services = [SQS], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_expose_production_queue_metadata_for_every_worker_visibility_class() {
     let context = test_api::TestContext::current().unwrap();
     let namespace = format!("a{}-{}-", context.run_id(), &context.test_id()[..16]);
@@ -166,6 +169,7 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
 }
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_isolate_worker_queue_from_previous_tests_cancelled_long_poll() {
     aws::get_aws_emulator(&["sqs"], &[]).await;
     let previous =
@@ -237,6 +241,7 @@ async fn should_isolate_worker_queue_from_previous_tests_cancelled_long_poll() {
 }
 
 #[aura_integration_test(services = [SQS], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_post_to_sqs() {
     let client = get_sqs_client().await;
     let _ = client
@@ -261,6 +266,7 @@ async fn should_post_to_sqs() {
 }
 
 #[aura_integration_test(services = [SQS, Sqs { name: "test-sqs-foo" }], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_create_multiple_sqs() {
     let client = get_sqs_client().await;
 

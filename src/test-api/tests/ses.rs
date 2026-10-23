@@ -43,6 +43,7 @@ async fn send(source: &str) -> String {
 }
 
 #[aura_integration_test(services = [Ses()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_capture_message_content_and_clear_it() {
     let source = test_api::TestContext::current()
         .unwrap()
@@ -69,6 +70,7 @@ async fn should_capture_message_content_and_clear_it() {
 }
 
 #[aura_integration_test(services = [Ses()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_filter_captured_messages_by_source() {
     let context = test_api::TestContext::current().unwrap();
     let source = context.sender_email().unwrap();

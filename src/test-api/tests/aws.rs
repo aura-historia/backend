@@ -4,6 +4,7 @@ use test_api::{IntegrationTestService, OpenSearch};
 use tokio::process::Command;
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
     require_unmanaged_phase();
@@ -19,6 +20,7 @@ async fn should_expose_test_host_and_port() {
 }
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
 async fn should_reap_child_resources_without_removing_another_process_fixture() {
     require_unmanaged_phase();
@@ -26,7 +28,12 @@ async fn should_reap_child_resources_without_removing_another_process_fixture() 
     OpenSearch().set_up().await;
 
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "aws_fixture_child", "--test-threads=1"])
+        .args([
+            "--ignored",
+            "--exact",
+            "aws_fixture_child",
+            "--test-threads=1",
+        ])
         .env("AURA_AWS_FIXTURE_CHILD", "1")
         .env_remove("AURA_TEST_ENV_MANAGED")
         .env_remove("AURA_TEST_ENV_CONFIG")
@@ -75,6 +82,7 @@ async fn should_reap_child_resources_without_removing_another_process_fixture() 
 }
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn aws_fixture_child() {
     if std::env::var_os("AURA_AWS_FIXTURE_CHILD").is_none() {
         return;
@@ -87,6 +95,6 @@ async fn aws_fixture_child() {
 fn require_unmanaged_phase() {
     assert!(
         test_api::environment::managed_environment().is_none(),
-        "AWS fixture lifecycle requires the separate unmanaged phase documented in test-api/README.md"
+        "AWS fixture lifecycle diagnostics require an unmanaged local run"
     );
 }

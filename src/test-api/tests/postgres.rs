@@ -7,9 +7,11 @@ const POSTGRES_WITH_SETUP: Postgres = Postgres::with_setup_script(
 );
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_run_without_errors() {}
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_create_tables_from_migrations_dir() {
     let pool = get_postgres_client().await;
 
@@ -29,6 +31,7 @@ async fn should_create_tables_from_migrations_dir() {
 }
 
 #[aura_integration_test(services = [POSTGRES_WITH_SETUP], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_run_setup_script_after_migrations() {
     let pool = get_postgres_client().await;
 
@@ -42,6 +45,7 @@ async fn should_run_setup_script_after_migrations() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_insert_and_read_row() {
     let pool = get_postgres_client().await;
 
@@ -65,6 +69,7 @@ async fn should_insert_and_read_row() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_clean_up_rows_between_tests() {
     let pool = get_postgres_client().await;
 
@@ -78,6 +83,7 @@ async fn should_clean_up_rows_between_tests() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_handle_foreign_key_relations() {
     let pool = get_postgres_client().await;
 
@@ -108,6 +114,7 @@ async fn should_handle_foreign_key_relations() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_cascade_delete_tags_when_item_is_removed() {
     let pool = get_postgres_client().await;
 
