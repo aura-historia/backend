@@ -92,6 +92,7 @@ pub fn parse_envelope(body: &str) -> Result<Vec<Box<RawValue>>, MutationInputErr
     Ok(items)
 }
 
+/// Retain validated source ID spellings for report mapping without applying legacy echo limits.
 pub fn parse_items<T: DeserializeOwned>(
     raw_items: Vec<Box<RawValue>>,
     source_id: impl Fn(&T) -> &str,
@@ -112,13 +113,17 @@ pub fn parse_items<T: DeserializeOwned>(
                 continue;
             }
         };
-        // Index is authoritative; echo only a short, printable, valid listing key.
-        source_ids[index] = safe_source_id(source_id(&product));
+        // Preserve validated original spellings: item identities use domain normalization,
+        // while legacy failure echoes still apply their limit before normalization.
+        let source_id = source_id(&product);
+        source_ids[index] = SourceListingId::try_from(source_id)
+            .ok()
+            .map(|_| source_id.to_owned());
         match into_intent(product) {
             Ok(intent) => items.push(IndexedProductListingIngestionIntent { index, intent }),
             Err(error) => failures.push(BatchFailure::invalid(
                 index,
-                source_ids[index].clone(),
+                source_ids[index].as_deref().and_then(safe_source_id),
                 if error.invalid_object_id {
                     "INVALID_OBJECT_ID"
                 } else {
@@ -207,12 +212,17 @@ pub struct AdmissionReportData {
     pub items: Vec<AdmissionItemData>,
 }
 
+/// Normalize complete item identities while bounding legacy failure echoes from original spellings.
 pub fn report(
     result: ProductListingIngestionSubmissionResult,
     mut local_failures: Vec<BatchFailure>,
     source_ids: &[Option<String>],
 ) -> AdmissionReportData {
     let mut accepted = 0;
+    let failure_source_ids = source_ids
+        .iter()
+        .map(|id| id.as_deref().and_then(safe_source_id))
+        .collect::<Vec<_>>();
     let mut seen = vec![false; result.original_input_count];
     let mut outcomes = vec![AdmissionOutcomeData::Unknown; result.original_input_count];
     for failure in &local_failures {
@@ -237,7 +247,8 @@ pub fn report(
             }
             ProductListingIngestionOutcome::Rejected { .. } => AdmissionOutcomeData::Rejected,
         };
-        if let Some(failure) = outcome_failure(item, source_ids.get(item.index).cloned().flatten())
+        if let Some(failure) =
+            outcome_failure(item, failure_source_ids.get(item.index).cloned().flatten())
         {
             local_failures.push(failure);
         } else {
@@ -249,7 +260,7 @@ pub fn report(
         if !present {
             local_failures.push(BatchFailure {
                 index,
-                source_listing_id: source_ids.get(index).cloned().flatten(),
+                source_listing_id: failure_source_ids.get(index).cloned().flatten(),
                 error: "ENQUEUE_UNCONFIRMED",
                 retryable: true,
                 kind: FailureKind::Send,
@@ -264,7 +275,11 @@ pub fn report(
             let failure = local_failures.iter().find(|failure| failure.index == index);
             AdmissionItemData {
                 index,
-                source_listing_id: source_ids.get(index).cloned().flatten(),
+                source_listing_id: source_ids
+                    .get(index)
+                    .and_then(Option::as_deref)
+                    .and_then(|id| SourceListingId::try_from(id).ok())
+                    .map(|id| id.to_string()),
                 outcome,
                 error: failure.map(|failure| failure.error),
                 retryable: failure.is_some_and(|failure| failure.retryable),

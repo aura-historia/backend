@@ -278,6 +278,41 @@ async fn should_preserve_original_positions_and_distinguish_all_admission_outcom
 }
 
 #[tokio::test]
+async fn should_return_complete_validated_source_ids_at_domain_limits_for_each_verb() {
+    let submitted_ids = [
+        "a".repeat(128),
+        "b".repeat(129),
+        "é".repeat(256),
+        format!("{}trimmed", " ".repeat(129)),
+        "line\nbreak".into(),
+    ];
+    for name in NAMES {
+        let (registry, publisher, _) = fixture();
+        let mut products = submitted_ids
+            .iter()
+            .map(|id| product(name, id))
+            .collect::<Vec<_>>();
+        products.push(product(name, &"é".repeat(257)));
+        let report = call(
+            &registry,
+            name,
+            json!({"listingSourceId":ListingSourceId::new(),"products":products}),
+            context(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["acceptedCount"], submitted_ids.len());
+        for (index, id) in submitted_ids.iter().enumerate() {
+            assert_eq!(report["items"][index]["sourceListingId"], id.trim());
+            assert_eq!(report["items"][index]["outcome"], "PUBLISHED");
+        }
+        assert_eq!(report["items"][5]["outcome"], "REJECTED");
+        assert!(report["items"][5].get("sourceListingId").is_none());
+        assert_eq!(publisher.sent.lock().unwrap()[0].len(), submitted_ids.len());
+    }
+}
+
+#[tokio::test]
 async fn should_preserve_retry_identity_and_return_generated_effective_keys() {
     let (registry, publisher, _) = fixture();
     let source = ListingSourceId::new();
@@ -371,6 +406,57 @@ async fn should_reject_envelopes_keys_and_missing_capabilities_before_publicatio
     }
     assert!(publisher.sent.lock().unwrap().is_empty());
     assert!(configuration.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn should_match_shopify_schema_and_serde_for_omitted_null_and_populated_overrides() {
+    let (registry, _, configuration) = fixture();
+    let name = "putShopifyListingSourceIngestionConfiguration";
+    let schema = serde_json::to_value(&*registry.get(name).unwrap().tool().input_schema).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    for (overrides, expected_currency, expected_language) in [
+        (json!({}), None, None),
+        (json!({"currency":null,"language":null}), None, None),
+        (
+            json!({"currency":"EUR","language":"de"}),
+            Some(money::Currency::Eur),
+            Some(localization::Language::De),
+        ),
+    ] {
+        let mut data = json!({"domain":"shop.example.test"});
+        data.as_object_mut()
+            .unwrap()
+            .extend(overrides.as_object().unwrap().clone());
+        let input = json!({"listingSourceId":ListingSourceId::new(),"configuration":data});
+        assert!(validator.is_valid(&input), "{input}");
+        call(&registry, name, input, context()).await.unwrap();
+        let calls = configuration.calls.lock().unwrap();
+        let listing_source_service::ports::ListingIngestionConfiguration::Shopify {
+            currency,
+            language,
+            ..
+        } = &calls.last().unwrap().1.configuration
+        else {
+            panic!("Shopify configuration")
+        };
+        assert_eq!(*currency, expected_currency);
+        assert_eq!(*language, expected_language);
+    }
+    for data in [
+        json!({}),
+        json!({"domain":null}),
+        json!({"domain":"shop.example.test","currency":1}),
+        json!({"domain":"shop.example.test","language":false}),
+        json!({"domain":"shop.example.test","webhookSecret":"private"}),
+    ] {
+        let input = json!({"listingSourceId":ListingSourceId::new(),"configuration":data});
+        assert!(!validator.is_valid(&input), "{input}");
+        assert!(matches!(
+            call(&registry, name, input, context()).await,
+            Err(OperationError::InvalidArguments(_))
+        ));
+    }
+    assert_eq!(configuration.calls.lock().unwrap().len(), 3);
 }
 
 #[derive(Clone)]

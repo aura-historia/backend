@@ -7,6 +7,11 @@ async fn should_return_safe_distinct_operation_errors_without_private_failure_ca
         (OperationError::NotFound, None, Some("NOT_FOUND")),
         (OperationError::Conflict(None), None, Some("CONFLICT")),
         (
+            OperationError::Conflict(Some(std::io::Error::other("private token secret").into())),
+            None,
+            Some("CONFLICT"),
+        ),
+        (
             OperationError::Unavailable(std::io::Error::other("private token secret").into()),
             None,
             Some("TEMPORARILY_UNAVAILABLE"),

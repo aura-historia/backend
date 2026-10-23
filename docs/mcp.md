@@ -271,7 +271,9 @@ parsing and feed the shared DTO decoder.
 Results retain `submissionId`, `acceptedCount` and ordered `failures`, plus the effective
 `idempotencyKey`, `originalInputCount` and one indexed `items` disposition per original input:
 `PUBLISHED`, `REJECTED`, `NOT_ATTEMPTED` or `UNKNOWN`. Only matching publisher receipts count
-as accepted. Size rejection, unsent deadline/FIFO blocking and possibly queued outcomes retain
+as accepted. Item reports retain complete validated, normalized source-local IDs; the legacy
+`failures` list retains REST's short printable ID echo rules. Size rejection, unsent
+deadline/FIFO blocking and possibly queued outcomes retain
 their distinct safe error codes and retryability. `submissionId` is correlation, not a status
 resource. Admission checks delegated `product-listings:write`; current source grants and
 business rules are checked when the worker applies the command. Queue admission never confirms

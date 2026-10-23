@@ -20,10 +20,36 @@ pub(super) fn configuration(error: PutListingSourceIngestionConfigurationError) 
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         NotFound => OperationError::NotFound,
         InvalidConfiguration => OperationError::InvalidInput,
-        ConcurrencyConflict | ShopifyDomainConflict { .. } => OperationError::Conflict(None),
+        ConcurrencyConflict => OperationError::Conflict(None),
+        ShopifyDomainConflict { source } => OperationError::Conflict(Some(source)),
         TemporarilyUnavailable { source }
         | BeginTransactionFailed(source)
         | CommitTransactionFailed(source) => OperationError::Unavailable(source),
         InvalidPersistedState { source } | Internal { source } => OperationError::Internal(source),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+
+    #[test]
+    fn should_preserve_shopify_conflict_cause_without_exposing_it_in_tool_results() {
+        let error = configuration(
+            PutListingSourceIngestionConfigurationError::ShopifyDomainConflict {
+                source: application::error::static_error("private provider token secret"),
+            },
+        );
+        assert!(matches!(error, OperationError::Conflict(Some(_))));
+        assert_eq!(
+            error.source().unwrap().to_string(),
+            "private provider token secret"
+        );
+        let result = serde_json::to_value(error.into_protocol().unwrap()).unwrap();
+        assert_eq!(result["isError"], true);
+        assert_eq!(result["content"][0]["text"], "CONFLICT");
+        assert!(!result.to_string().contains("private"));
+        assert!(!result.to_string().contains("secret"));
     }
 }
