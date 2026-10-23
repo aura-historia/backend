@@ -1,5 +1,5 @@
 //! Source-keyed queue admission and non-secret Shopify configuration.
-mod error;
+pub(super) mod error;
 #[cfg(test)]
 mod tests;
 use crate::{AccessClass, OperationDefinition, OperationError, OperationPolicy, RegistryError};

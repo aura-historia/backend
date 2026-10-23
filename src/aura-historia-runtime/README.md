@@ -100,3 +100,9 @@ location eligibility, revision checks and atomic relocation.
 batch use case over the existing create, update, upsert and withdrawal item handlers. REST and
 MCP reuse the same warm handle with PostgreSQL only. Item use cases retain authorization,
 transactions and retry behavior; transports convert the complete shared input before invoking it.
+
+`Runtime::product_listing_delivery()` supplies the existing delivery read/change use cases
+once for the warm PostgreSQL pool. REST and MCP reuse these handles; the existing ingestion
+family supplies asynchronous admission. Source authority, reference eligibility, import replay
+and optimistic version checks remain in the application services. Selecting delivery inspection
+or synchronous change requires no queue or provider configuration.

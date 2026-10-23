@@ -5,11 +5,13 @@ use application::{
     patch_field::PatchField,
 };
 use listing_source_core::ListingSourceId;
+use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 use product_listing_core::product_listing_id::ProductListingKey;
 use product_listing_service::{
     ports::ProductListingStorageVersion,
     use_cases::{ChangeProductListingDeliveryCommand, ProductListingDeliveryPatch},
 };
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shipping_core::profile::ShippingProfileId;
@@ -29,21 +31,27 @@ impl DeliveryReferenceCodec for PublicDeliveryReferences {
     }
 }
 pub use crate::shipping::imports::ImportData;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CommandData {
+    #[schemars(range(min = 1, max = i64::MAX))]
     expected_version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     import: Option<ImportData>,
     delivery: WirePatch<PatchData>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PatchData {
+    #[schemars(schema_with = "listing_delivery::integration_schema")]
     integration: Value,
+    #[schemars(schema_with = "selection_patch_schema")]
     selection: WirePatch<Value>,
+    #[schemars(schema_with = "inputs_patch_schema")]
     rate_inputs: WirePatch<Value>,
+    #[schemars(schema_with = "shipping_patch_schema")]
     shipping: WirePatch<Value>,
+    #[schemars(schema_with = "collection_patch_schema")]
     collection: WirePatch<Value>,
 }
 pub fn decode_command(
@@ -60,6 +68,14 @@ pub fn decode_command_text(
 ) -> Result<ChangeProductListingDeliveryCommand, BoxError> {
     let data: CommandData = serde_json::from_str(body).map_err(box_error)?;
     decode_data(data, key)
+}
+impl CommandData {
+    pub fn into_command(
+        self,
+        key: ProductListingKey,
+    ) -> Result<ChangeProductListingDeliveryCommand, BoxError> {
+        decode_data(self, key)
+    }
 }
 fn decode_data(
     data: CommandData,
@@ -141,7 +157,9 @@ pub fn encode_command(c: &ChangeProductListingDeliveryCommand) -> Result<Value, 
     .map_err(box_error)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Explicit tagged patches shared by public delivery commands and durable ingestion codecs.
+/// Omission and null semantics for ordinary REST patches have a separate contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
     content = "value",
@@ -169,12 +187,15 @@ fn map_patch<T, U>(
     patch.try_map(map)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeliveryData {
-    pub product_listing_id: product_listing_core::product_listing_id::ProductListingId,
-    pub expected_version: u64,
-    pub delivery: Option<Value>,
+    #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
+    product_listing_id: product_listing_core::product_listing_id::ProductListingId,
+    #[schemars(range(min = 1, max = i64::MAX))]
+    expected_version: u64,
+    #[schemars(schema_with = "optional_delivery_schema")]
+    delivery: Option<Value>,
 }
 impl TryFrom<product_listing_service::use_cases::ProductListingDeliveryView> for DeliveryData {
     type Error = BoxError;
@@ -192,12 +213,15 @@ impl TryFrom<product_listing_service::use_cases::ProductListingDeliveryView> for
         })
     }
 }
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MutationData {
-    pub product_listing_id: product_listing_core::product_listing_id::ProductListingId,
-    pub expected_version: u64,
-    pub outcome: &'static str,
+    #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
+    product_listing_id: product_listing_core::product_listing_id::ProductListingId,
+    #[schemars(range(min = 1, max = i64::MAX))]
+    expected_version: u64,
+    #[schemars(schema_with = "outcome_schema")]
+    outcome: &'static str,
 }
 impl From<product_listing_service::use_cases::ChangeProductListingDeliveryResult> for MutationData {
     fn from(
@@ -213,4 +237,65 @@ impl From<product_listing_service::use_cases::ChangeProductListingDeliveryResult
             },
         }
     }
+}
+
+/// A source-local opaque string, validated by SourceListingId rather than an internal listing ID.
+pub fn source_listing_id_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","minLength":1,"pattern":r"^[^\u0000]+$","description":"Opaque source-local listing identifier, normalized by trimming outer whitespace; 1-512 UTF-8 bytes with no NUL. This is not productListingId or its internal UUID. Identifier-looking strings retain their source-local meaning."})
+}
+fn references() -> (Schema, Schema) {
+    (
+        crate::wire::schema::object_id(PartyId::PREFIX),
+        crate::wire::schema::object_id(PartyLocationId::PREFIX),
+    )
+}
+fn patch_schema(generator: &mut SchemaGenerator, value: Schema) -> Schema {
+    let mut schema = WirePatch::<Value>::json_schema(generator);
+    if let Some(variants) = schema.get_mut("oneOf").and_then(Value::as_array_mut) {
+        for variant in variants {
+            if let Some(target) = variant.pointer_mut("/properties/value") {
+                *target = value.as_value().clone();
+            }
+        }
+    }
+    schema
+}
+fn selection_patch_schema(generator: &mut SchemaGenerator) -> Schema {
+    let terms = crate::shipping::terms::schema(generator);
+    let schema = listing_delivery::selection_schema(
+        generator,
+        crate::wire::schema::object_id(ShippingProfileId::PREFIX),
+        terms,
+    );
+    patch_schema(generator, schema)
+}
+fn inputs_patch_schema(generator: &mut SchemaGenerator) -> Schema {
+    let schema = listing_delivery::inputs_schema(generator);
+    patch_schema(generator, schema)
+}
+fn shipping_patch_schema(generator: &mut SchemaGenerator) -> Schema {
+    let (party, location) = references();
+    let schema = listing_delivery::shipping_override_schema(generator, party, location);
+    patch_schema(generator, schema)
+}
+fn collection_patch_schema(generator: &mut SchemaGenerator) -> Schema {
+    let (party, location) = references();
+    let schema = listing_delivery::collection_override_schema(generator, party, location);
+    patch_schema(generator, schema)
+}
+fn optional_delivery_schema(generator: &mut SchemaGenerator) -> Schema {
+    let (party, location) = references();
+    let terms = crate::shipping::terms::schema(generator);
+    let schema = listing_delivery::delivery_schema(
+        generator,
+        crate::wire::schema::object_id(ListingSourceId::PREFIX),
+        crate::wire::schema::object_id(ShippingProfileId::PREFIX),
+        party,
+        location,
+        terms,
+    );
+    schemars::json_schema!({"anyOf":[schema,{"type":"null"}]})
+}
+fn outcome_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","enum":["CHANGED","UNCHANGED"]})
 }
