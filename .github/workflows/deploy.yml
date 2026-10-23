@@ -1,325 +1,219 @@
-name: Release (CD)
-run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }} — ${{ inputs.ref || github.ref_name }} (${{ inputs.scope || 'routine' }})
-
+name: Release
+run-name: Release ${{ inputs.mode }} / ${{ inputs.target }} / ${{ inputs.source_sha || inputs.bundle_digest }}
 on:
-  push:
-    branches: [develop]
-    tags: ["[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]"]
-    paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - "ci/**"
-      - ".dockerignore"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "src/**"
-      - "migrations/**"
-      - "infra/**"
-      - "mjml/**"
-      - "opensearch/**"
-      - "releases/**"
   workflow_dispatch:
     inputs:
-      stage:
-        description: Stage to release
+      mode:
+        description: Build shared artifacts or promote a completed bundle
         required: true
         type: choice
-        default: dev
-        options: [dev, prod]
-      ref:
-        description: "Dev: develop or full commit SHA (blank = develop). Prod: existing YYYYMMDD-HHMM tag."
+        options: [build, promote]
+      target:
+        description: Deployment target (dev must be explicitly enabled)
+        required: true
+        type: choice
+        options: [prod, dev]
+      source_sha:
+        description: Build only — full lowercase SHA merged into protected develop
         type: string
-      scope:
-        description: "routine: coordinated forward release; foundation/all: exceptional bootstrap or reviewed rollback (no automatic migration/DMS)"
-        required: true
-        type: choice
-        default: routine
-        options: [routine, foundation, all]
-
+      bundle_digest:
+        description: Promote only — full immutable completed bundle SHA-256
+        type: string
+      manual_evidence:
+        description: Optional sanitized OpenSearch observations JSON; see docs/infra.md
+        type: string
 permissions:
   contents: read
-
-concurrency:
-  group: aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
-  cancel-in-progress: false
-
+  actions: read
+  deployments: read
 env:
-  STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
-  AWS_REGION: ${{ vars.AWS_REGION }}
   AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-  RELEASE_STATE_BUCKET: ${{ vars.RELEASE_STATE_BUCKET }}
-  RELEASE_PAUSE_BUDGET_SECONDS: ${{ vars.RELEASE_PAUSE_BUDGET_SECONDS }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DELIVERY_BUCKET: ${{ vars.DELIVERY_BUCKET }}
+  DELIVERY_CONTROL_VERSION: ${{ vars.DELIVERY_CONTROL_VERSION }}
+  DELIVERY_BUILD_PIPELINE: ${{ vars.DELIVERY_BUILD_PIPELINE }}
+  DELIVERY_DEV_ENABLED: ${{ vars.DELIVERY_DEV_ENABLED }}
+  DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
+  WORKFLOW_REVISION: ${{ github.workflow_sha }}
   GH_TOKEN: ${{ github.token }}
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
 jobs:
-  infra-test:
-    name: Resolve release and test infrastructure
-    runs-on: ubuntu-latest
+  resolve:
+    name: Pin request and check protections
+    if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
-    outputs:
-      stage: ${{ env.STAGE }}
-      commit_sha: ${{ steps.source.outputs.commit_sha }}
-      release_ref: ${{ steps.source.outputs.release_ref }}
-      lambda_matrix: ${{ steps.lambda-catalog.outputs.matrix }}
-      container_matrix: ${{ steps.container-catalog.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - name: Resolve and validate release source
-        id: source
-        env:
-          REQUESTED_REF: ${{ inputs.ref }}
-        run: node ci/release-source.cjs
-      - name: Check out the exact release
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.source.outputs.commit_sha }}
-      - name: Install CDK dependencies
-        run: npm --prefix infra ci
-      - name: Type-check CDK app
-        run: npm --prefix infra run build
-      - name: Test CDK app and deployment helpers
-        run: |
-          npm --prefix infra test
-          node --test ci/*.test.cjs
-      - name: Synthesize all stacks
-        run: npm --prefix infra run synth:all
-      - name: Read container image catalog
-        id: container-catalog
-        run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
-      - name: Read release Lambda catalog
-        id: lambda-catalog
-        run: |
-          node -e 'console.log("matrix=" + JSON.stringify({binary: require("./ci/lambda-binaries.json")}))' >> "$GITHUB_OUTPUT"
-
-  aws-push-container-images:
-    name: Publish or reuse image ${{ matrix.id }}
-    needs: [infra-test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.DEPLOY_COMMIT_SHA }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Publish tested image or reuse immutable SHA tag
-        env:
-          IMAGE_ID: ${{ matrix.id }}
-          IMAGE_BINARY: ${{ matrix.binary }}
-          IMAGE_REPOSITORY: ${{ matrix.repository }}
-          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
-          IMAGE_PLATFORM: ${{ matrix.platform }}
-        run: bash ci/publish-container.sh
-
-  aws-push-lambda:
-    name: Publish or reuse Lambda ${{ matrix.binary }}
-    needs: [infra-test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
-      BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
-      BINARY: ${{ matrix.binary }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.infra-test.outputs.lambda_matrix) }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.DEPLOY_COMMIT_SHA }}
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Check for published ZIP
-        id: artifact
-        run: |
-          exists="$(bash ci/s3-artifact-exists.sh "$BUCKET" "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip")"
-          echo "exists=$exists" >> "$GITHUB_OUTPUT"
-      - name: Install toolchain
-        if: steps.artifact.outputs.exists == 'false'
-        run: rustup show
-      - uses: Swatinem/rust-cache@v2
-        if: steps.artifact.outputs.exists == 'false'
-      - name: Cache cargo-lambda
-        if: steps.artifact.outputs.exists == 'false'
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/cargo-lambda
-          key: ${{ runner.os }}-cargo-lambda-1.9.0
-      - uses: mlugg/setup-zig@v2
-        if: steps.artifact.outputs.exists == 'false'
-        with:
-          version: 0.14.1
-      - name: Build Lambda ZIP
-        if: steps.artifact.outputs.exists == 'false'
-        working-directory: src/${{ matrix.binary }}
-        env:
-          CARGO_PROFILE_RELEASE_LTO: true
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
-        run: |
-          if ! cargo lambda --version | grep -Eq '^cargo-lambda 1\.9\.0($| )'; then
-            cargo install cargo-lambda --version 1.9.0 --locked --force
-          fi
-          cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip --bin "$BINARY"
-      - name: Upload Lambda ZIP without replacing a published artifact
-        if: steps.artifact.outputs.exists == 'false'
-        run: |
-          file="target/lambda/${BINARY}/bootstrap.zip"
-          test -s "$file"
-          aws s3api put-object --bucket "$BUCKET" \
-            --key "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip" --body "$file" \
-            --if-none-match '*' --tagging "stage=${STAGE}" >/dev/null
-
-  aws-push-mail-templates:
-    name: Publish or reuse mail templates
-    needs: [infra-test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.DEPLOY_COMMIT_SHA }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: npm --prefix mjml ci
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Compile and upload missing templates
-        shell: bash
-        env:
-          BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
-        run: |
-          set -euo pipefail
-          template_count=0
-          while IFS= read -r -d '' template; do
-            key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"
-            exists="$(bash ci/s3-artifact-exists.sh "$BUCKET" "$key")"
-            if [ "$exists" = false ]; then
-              output="dist/emails/${template%.mjml}.html"
-              mkdir -p "$(dirname "$output")"
-              mjml/node_modules/.bin/mjml "$template" -o "$output"
-              test -s "$output"
-              aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$output" \
-                --if-none-match '*' --tagging "stage=${STAGE}" >/dev/null
-            fi
-            template_count=$((template_count + 1))
-          done < <(git ls-files -z -- 'mjml/**/*.mjml')
-          test "$template_count" -gt 0
-
-  release-plan:
-    name: Prepare read-only release plan
-    needs: [infra-test, aws-push-container-images, aws-push-lambda, aws-push-mail-templates]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
     permissions:
       contents: read
       actions: read
       deployments: read
       id-token: write
     outputs:
-      plan_id: ${{ steps.plan.outputs.plan_id }}
-      gate: ${{ steps.plan.outputs.gate }}
-    env:
-      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
-      RELEASE_REF: ${{ needs.infra-test.outputs.release_ref }}
-      RELEASE_SCOPE: ${{ inputs.scope || 'routine' }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      request_id: ${{ steps.resolve.outputs.request_id }}
+      bundle_digest: ${{ steps.resolve.outputs.bundle_digest }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ env.DEPLOY_COMMIT_SHA }}
+          ref: ${{ github.workflow_sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm --prefix infra ci
       - uses: aws-actions/configure-aws-credentials@v6.3.0
+        if: inputs.mode == 'promote'
         with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.DELIVERY_READER_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - name: Resolve immutable release images
-        id: container-images
-        uses: ./.github/actions/resolve-container-images
-        with:
-          commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
-      - name: Publish CDK assets and prepare plan
-        id: plan
+      - name: Resolve immutable selection
+        id: resolve
         env:
-          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
-        run: node ci/release.cjs prepare "$RELEASE_SCOPE"
-      - uses: actions/upload-artifact@v7
+          DELIVERY_MODE: ${{ inputs.mode }}
+          DELIVERY_TARGET: ${{ inputs.target }}
+          DELIVERY_SOURCE_SHA: ${{ inputs.source_sha }}
+          DELIVERY_BUNDLE_DIGEST: ${{ inputs.bundle_digest }}
+        run: node ci/delivery/workflow.cjs resolve
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: release-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .release/
+          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery/selection.json
           include-hidden-files: true
-          retention-days: 30
           if-no-files-found: error
-
-  aws-cdk-deploy:
-    name: ${{ needs.release-plan.outputs.gate }} — ${{ needs.infra-test.outputs.stage }} / ${{ needs.infra-test.outputs.commit_sha }}
-    needs: [infra-test, release-plan]
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
-    environment:
-      name: aws-${{ needs.infra-test.outputs.stage }}
-      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          retention-days: 30
+  tests:
+    needs: resolve
+    uses: ./.github/workflows/release-tests.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+    permissions:
+      contents: read
+      packages: read
+  build:
+    name: Approve shared build / ${{ needs.resolve.outputs.source_sha }}
+    if: inputs.mode == 'build'
+    needs: [resolve, tests]
+    environment: aws-release-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 130
     permissions:
       contents: read
       actions: read
       deployments: read
       id-token: write
-    env:
-      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
-      RELEASE_REF: ${{ needs.infra-test.outputs.release_ref }}
-      RELEASE_PLAN_ID: ${{ needs.release-plan.outputs.plan_id }}
+    outputs:
+      bundle_digest: ${{ steps.wait.outputs.bundle_digest }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ env.DEPLOY_COMMIT_SHA }}
-          fetch-depth: 0
+          ref: ${{ github.workflow_sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm --prefix infra ci
       - uses: actions/download-artifact@v8
         with:
-          name: release-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .release/
+          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery
+      - uses: actions/download-artifact@v8
+        with:
+          name: delivery-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery
       - uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.DELIVERY_BUILD_REQUESTER_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - name: Revalidate approved plan and coordinate release
-        run: node ci/release.cjs execute
+      - name: Submit exact authorized shared build
+        run: node ci/delivery/workflow.cjs build
+      - name: Bounded native build monitor
+        id: wait
+        run: node ci/delivery/workflow.cjs wait-build
+  prepare:
+    name: Review cumulative target compatibility
+    if: always() && needs.tests.result == 'success' && (needs.build.result == 'success' || (inputs.mode == 'promote' && needs.build.result == 'skipped'))
+    needs: [resolve, tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    outputs:
+      report_digest: ${{ steps.summary.outputs.report_digest }}
+      verdict: ${{ steps.summary.outputs.verdict }}
+      prerequisite_digest: ${{ steps.summary.outputs.prerequisite_digest }}
+    env:
+      DELIVERY_REQUEST_ID: ${{ needs.resolve.outputs.request_id }}
+      DELIVERY_TARGET: ${{ inputs.target }}
+      DELIVERY_BUNDLE_DIGEST: ${{ needs.build.outputs.bundle_digest || needs.resolve.outputs.bundle_digest }}
+      DELIVERY_REVIEW_MODEL_ID: ${{ vars.DELIVERY_REVIEW_MODEL_ID }}
+      DELIVERY_MANUAL_COMPLETION: ${{ inputs.manual_evidence }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: actions/download-artifact@v8
+        with:
+          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery
+      - uses: actions/download-artifact@v8
+        with:
+          name: delivery-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_PLANNER_ROLE_ARN || vars.DELIVERY_DEV_PLANNER_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Prepare target report and blocking manual checklist
+        env:
+          DELIVERY_REPO_DIR: ${{ github.workspace }}
+          DELIVERY_TESTS_FILE: .delivery/tests.json
+        run: node ci/delivery/pipeline.cjs prepare
+      - name: Display exact approval identity
+        id: summary
+        run: |
+          jq -r '"report_digest=" + .reportDigest, "verdict=" + .verdict, "prerequisite_digest=" + .prerequisiteDigest' .delivery/approval.json >> "$GITHUB_OUTPUT"
+          cat .delivery/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: delivery-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+  deploy:
+    name: Approve ${{ inputs.target }} / report ${{ needs.prepare.outputs.report_digest }} / prerequisites ${{ needs.prepare.outputs.prerequisite_digest }}
+    if: needs.prepare.outputs.verdict == 'ROUTINE'
+    needs: [resolve, prepare]
+    environment:
+      name: aws-${{ inputs.target }}
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    env:
+      DELIVERY_DEPLOY_PIPELINE: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_PIPELINE || vars.DELIVERY_DEV_PIPELINE }}
+      DELIVERY_MANUAL_COMPLETION: ${{ inputs.manual_evidence }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: actions/download-artifact@v8
+        with:
+          name: delivery-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_REQUESTER_ROLE_ARN || vars.DELIVERY_DEV_REQUESTER_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Submit exact approved deployment and manual attestation
+        run: node ci/delivery/workflow.cjs deploy
