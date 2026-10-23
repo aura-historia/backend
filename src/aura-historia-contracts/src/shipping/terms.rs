@@ -4,7 +4,7 @@ use listing_source_core::ListingSourceId;
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 use shipping_core::terms::DeliveryTerms;
 use shipping_json::ShippingTermsReferenceCodec;
-struct PublicReferences;
+pub struct PublicReferences;
 impl ShippingTermsReferenceCodec for PublicReferences {
     fn decode_party(value: &str) -> Result<PartyId, BoxError> {
         value.parse().map_err(box_error)

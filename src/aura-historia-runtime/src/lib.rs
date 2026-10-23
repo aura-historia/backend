@@ -13,6 +13,7 @@ mod party_locations;
 mod postgres;
 mod private_addresses;
 pub mod product_listing_config;
+mod product_listing_delivery;
 mod product_listing_providers;
 mod public_auctions;
 mod public_listing_source_read_budget;
@@ -39,6 +40,7 @@ pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
+pub use product_listing_delivery::ProductListingDelivery;
 pub use product_listing_providers::ProductListingProviderError;
 pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
@@ -61,6 +63,7 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
     postgres: PgPool,
+    product_listing_delivery: OnceLock<ProductListingDelivery>,
     notifications: OnceLock<Notifications>,
     partner_listing_management: OnceLock<PartnerListingManagement>,
     partner_product_listing_ingestion: OnceLock<PartnerProductListingIngestion>,
@@ -86,6 +89,7 @@ impl Runtime {
     pub fn from_pool(postgres: PgPool) -> Self {
         Self {
             postgres,
+            product_listing_delivery: OnceLock::new(),
             notifications: OnceLock::new(),
             partner_listing_management: OnceLock::new(),
             partner_product_listing_ingestion: OnceLock::new(),
@@ -187,6 +191,11 @@ impl Runtime {
     pub fn watchlist(&self) -> &Watchlist {
         self.watchlist
             .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
+    }
+
+    pub fn product_listing_delivery(&self) -> &ProductListingDelivery {
+        self.product_listing_delivery
+            .get_or_init(|| ProductListingDelivery::compose(&self.postgres))
     }
 
     pub fn partner_product_listing_ingestion(
