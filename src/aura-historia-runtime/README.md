@@ -84,3 +84,10 @@ source-scoped authoritative listing use cases against the warm PostgreSQL pool. 
 reuse these handles without loading search, embedding or identity-provider configuration.
 The use cases retain current partnership grants, delegated capabilities, transaction boundaries
 and optimistic version checks.
+
+`Runtime::party_locations()` supplies the five protected location-management handles;
+`Runtime::source_location_defaults()` supplies the four operator-or-administrator default
+handles. REST and MCP reuse the same warm PostgreSQL composition without constructing a
+geocoder or loading provider configuration. Explicit grant changes and administrator-only
+default routes retain their separate composition and policies. Services own authority,
+location eligibility, revision checks and atomic relocation.

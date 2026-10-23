@@ -23,6 +23,7 @@ notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
 partnership-service = { workspace = true }
+party-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
@@ -54,10 +55,8 @@ domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
-listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
 serial_test = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }

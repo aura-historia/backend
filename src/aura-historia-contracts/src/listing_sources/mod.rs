@@ -1,5 +1,6 @@
 //! Public source search and detail contracts. Management fields have a separate owner.
 pub mod cursor;
+pub mod location_default;
 
 use listing_source_core::{ListingSourceId, ListingSourceSlugId};
 use listing_source_service::use_cases::queries::{
