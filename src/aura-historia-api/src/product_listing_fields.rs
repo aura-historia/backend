@@ -1,6 +1,6 @@
 use crate::{
     error::{ApiError, BAD_BODY_VALUE},
-    patch_value::PatchValue,
+    patch_value::{PatchValue, clearable},
     wire::parse_path_object_id,
 };
 use application::patch_field::PatchField;
@@ -55,9 +55,9 @@ impl ProductListingAuctionData {
 impl LotAuctionTimesData {
     fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
         Ok(ProductListingAuctionPatch {
-            bidding_opens: patch_value(self.bidding_opens),
-            scheduled_closes: patch_value(self.scheduled_closes),
-            reported_closed_at: patch_value(self.reported_closed_at),
+            bidding_opens: clearable(self.bidding_opens),
+            scheduled_closes: clearable(self.scheduled_closes),
+            reported_closed_at: clearable(self.reported_closed_at),
             ..Default::default()
         })
     }
@@ -114,14 +114,6 @@ fn catalogue_position_patch(
                 ApiError::bad_request(BAD_BODY_VALUE)
                     .with_detail("auction.cataloguePosition must be a positive 32-bit integer.")
             }),
-    }
-}
-
-fn patch_value<T>(value: PatchValue<T>) -> PatchField<T> {
-    match value {
-        PatchValue::Omitted => PatchField::Unchanged,
-        PatchValue::Null => PatchField::Clear,
-        PatchValue::Value(value) => PatchField::Set(value),
     }
 }
 
