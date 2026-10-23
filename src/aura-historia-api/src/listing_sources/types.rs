@@ -18,7 +18,6 @@ use listing_source_service::use_cases::commands::{
 use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceSearchSummary, SearchListingSourcesResult,
 };
-use partnership_service::ports::AdministeredListingSource;
 use party_core::{
     party::{NewParty, PartyContact},
     party_id::PartyId,
@@ -440,24 +439,6 @@ impl From<(ListingSourceId, listing_source_core::ListingSourceSlugId)>
         Self {
             listing_source_id,
             listing_source_slug_id: slug_id.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AdministeredListingSourceData {
-    listing_source_id: ListingSourceId,
-    listing_source_slug_id: String,
-    name: String,
-}
-
-impl From<AdministeredListingSource> for AdministeredListingSourceData {
-    fn from(value: AdministeredListingSource) -> Self {
-        Self {
-            listing_source_id: value.listing_source_id,
-            listing_source_slug_id: value.slug_id.to_string(),
-            name: value.name.to_string(),
         }
     }
 }

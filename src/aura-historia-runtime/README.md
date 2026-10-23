@@ -79,6 +79,12 @@ one warm pool. REST and MCP reuse this family without loading delivery, email or
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
 the existing services; transport adapters share notification DTOs and pagination conversions.
 
+`Runtime::partner_listing_management()` supplies granted-source discovery and the five existing
+source-scoped authoritative listing use cases against the warm PostgreSQL pool. REST and MCP
+reuse these handles without loading search, embedding or identity-provider configuration.
+The use cases retain current partnership grants, delegated capabilities, transaction boundaries
+and optimistic version checks.
+
 `Runtime::shipping_management()` constructs the nine profile/default use-case handles once for
 the warm pool. REST and MCP reuse the same PostgreSQL composition without loading provider settings.
 Services retain source/operator authorization, transactions, creation-key/import replay and revisions.

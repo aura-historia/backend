@@ -146,3 +146,5 @@ impl PublicListingSourceSearchCollectionData {
         }
     }
 }
+
+pub mod administered;

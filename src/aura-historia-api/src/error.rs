@@ -1259,6 +1259,12 @@ impl From<ListAdministeredListingSourcesError> for ApiError {
             ListAdministeredListingSourcesError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            ListAdministeredListingSourcesError::InvalidPageSize => {
+                ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("size")
+            }
+            ListAdministeredListingSourcesError::CursorScopeMismatch => {
+                ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("after")
+            }
             ListAdministeredListingSourcesError::TemporarilyUnavailable { .. } => {
                 ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Administered listing sources are temporarily unavailable.")

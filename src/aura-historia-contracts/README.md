@@ -77,6 +77,12 @@ REST and MCP share their constructor-based ID validation, notification defaults,
 patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
 compare schema validation with the complete input mapping, including null and omission rules.
 
+Authoritative administrator/partner listing management DTOs, query/cursor validation and mutation
+mapping live in `product_listing_management`. `product_listing_fields` owns the one Auction/lot
+patch representation and pure Auction/image conversions reused by management and ingestion.
+Their typed validation errors contain no HTTP behavior. Granted-source discovery has its distinct
+complete DTO and actor-bound page codec under `listing_sources::administered`.
+
 Shipping profile/default contracts live under `shipping::management`; `shipping::imports` owns the
 provenance DTO also re-exported by asynchronous listing ingestion. `shipping::terms::schema` exposes
 the complete authoritative terms schema with public references for other operation families.

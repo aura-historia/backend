@@ -22,6 +22,7 @@ listing-source-service = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
+partnership-service = { workspace = true }
 party-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
@@ -50,6 +51,7 @@ watchlist-service = { workspace = true }
 [dev-dependencies]
 embedding = { workspace = true }
 platform-postgres = { workspace = true }
+product-listing-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }

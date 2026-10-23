@@ -11,6 +11,7 @@ base64 = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true, features = ["data"] }
+indexmap = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
@@ -18,6 +19,7 @@ money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 partnership-core = { workspace = true }
+partnership-service = { workspace = true }
 party-core = { workspace = true }
 party-service = { workspace = true }
 product-listing-core = { workspace = true }
@@ -44,5 +46,6 @@ watchlist-service = { workspace = true }
 uuid = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
 serde_json = { workspace = true }
+serde_qs = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 time = { workspace = true, features = ["macros"] }

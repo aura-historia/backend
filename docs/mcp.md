@@ -226,6 +226,34 @@ Local tests exercise both discovery and initialize lifecycles, all twelve tools,
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 
+## Partner listing management
+
+The partner management family provides `getMyListingSources`, `listPartnerProductListings`,
+`getPartnerProductListing`, `updatePartnerProductListing`, `withdrawPartnerProductListing` and
+`restorePartnerProductListing`. The partner release owns their combined-registry publication.
+They use the shared authoritative management DTOs and the same PostgreSQL use cases as REST,
+including retained withdrawn facts, original image URLs, concurrency conflicts and current
+partnership/source authorization. The [listing contract](product-listing.md#management-inspection-and-mutation)
+owns inspection, patch and retry semantics. Partner authority does not include source/Party CRUD
+or Auction create/update.
+
+`getMyListingSources` takes `size` (default 50, 1–100) and optional opaque `after`, and returns
+`{ items, next? }`. Items retain the complete granted-source identity, slug and name. The actor
+comes from trusted delegated context. Continuations bind version, actor and bytewise ascending
+source-name/ID ordering. Every page queries current eligible grants in SQL; revocation affects
+later calls. This live traversal is not a snapshot. The development REST operation uses the same
+page contract; clients follow `next` until absent.
+
+Listing operations combine their REST path, query and body fields in one object. Every listing
+operation requires `listingSourceId`, with `productListingId` on detail/mutations. List preserves
+`query`, `sourceListingId`, `lifecycle`, `availability`, `auctionId`, `sort`, `order`, `size` and
+`searchAfter`, including the existing filter/source-bound search cursor. Management reads require
+`product-listings:read`; mutations require `product-listings:write`, and each use case independently
+rechecks current source grants. Update and lifecycle mutations require the full `expectedVersion`.
+MCP withdrawal returns the service's identity/version/`CHANGED` or `UNCHANGED` result; REST DELETE
+retains its HTTP `204` response. No mutation automatically retries; after an ambiguous response,
+refetch and reconcile state/version before another command.
+
 ## Own account, addresses and browsing destination
 
 The account family acts only for the user in the validated delegated context. Read operations

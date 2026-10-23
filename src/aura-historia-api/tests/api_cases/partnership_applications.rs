@@ -500,11 +500,16 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
         json_response(listing_sources_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, listing_sources_status);
-    assert!(listing_sources_body.as_array().is_some_and(|items| {
-        items
-            .iter()
-            .any(|item| item["listingSourceId"] == json!(listing_source_id))
-    }));
+    assert!(
+        listing_sources_body["items"]
+            .as_array()
+            .is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item["listingSourceId"] == json!(listing_source_id))
+            })
+    );
+    assert!(listing_sources_body.get("next").is_none());
 
     let applicant_notifications_token = seed_access_token_for(
         applicant_user_id,
@@ -610,7 +615,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
         json_response(listing_sources_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, listing_sources_status);
-    assert_eq!(Some(0), listing_sources_body.as_array().map(Vec::len));
+    assert_eq!(json!({"items": []}), listing_sources_body);
 
     let applicant_notifications_token = seed_access_token_for(
         applicant_user_id,

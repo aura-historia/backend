@@ -6,6 +6,7 @@
 
 mod access_token_authentication;
 mod notifications;
+mod partner_listing_management;
 mod party_locations;
 mod postgres;
 mod private_addresses;
@@ -26,6 +27,7 @@ mod user_profile;
 mod watchlist;
 
 pub use notifications::Notifications;
+pub use partner_listing_management::PartnerListingManagement;
 pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
@@ -53,6 +55,7 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 pub struct Runtime {
     postgres: PgPool,
     notifications: OnceLock<Notifications>,
+    partner_listing_management: OnceLock<PartnerListingManagement>,
     party_locations: OnceLock<PartyLocations>,
     source_location_defaults: OnceLock<SourceLocationDefaults>,
     user_profile: OnceLock<UserProfile>,
@@ -75,6 +78,7 @@ impl Runtime {
         Self {
             postgres,
             notifications: OnceLock::new(),
+            partner_listing_management: OnceLock::new(),
             party_locations: OnceLock::new(),
             source_location_defaults: OnceLock::new(),
             user_profile: OnceLock::new(),
@@ -172,6 +176,11 @@ impl Runtime {
     pub fn watchlist(&self) -> &Watchlist {
         self.watchlist
             .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
+    }
+
+    pub fn partner_listing_management(&self) -> &PartnerListingManagement {
+        self.partner_listing_management
+            .get_or_init(|| PartnerListingManagement::compose(&self.postgres))
     }
 
     pub fn shipping_management(&self) -> &ShippingManagement {
