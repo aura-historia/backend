@@ -1,12 +1,11 @@
-pub(crate) use aura_historia_contracts::values::{
-    LocalizedTextData, PriceData, ProductListingPriceData,
-};
+pub(crate) use aura_historia_contracts::values::LocalizedTextData;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
     use application::patch_field::PatchField;
+    use aura_historia_contracts::values::{PriceData, ProductListingPriceData};
     use serde::Deserialize;
     use serde_json::Value;
 

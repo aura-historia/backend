@@ -160,3 +160,7 @@ where
 fn catalogue_position_patch_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({"anyOf":[{"type":"integer","minimum":1,"maximum":u32::MAX},{"type":"null"}]})
 }
+
+pub fn image_urls_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type":"array", "items":crate::wire::schema::url(generator)})
+}

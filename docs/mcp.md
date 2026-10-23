@@ -226,6 +226,33 @@ Local tests exercise both discovery and initialize lifecycles, all twelve tools,
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 
+## Synchronous partner listing batches
+
+The family provides `postPartnerProductListings`, `patchPartnerProductListings`,
+`putPartnerProductListings` and `deletePartnerProductListings`. Each takes
+`{ listingSourceId, products }`, combining the existing REST path and complete item array.
+Create, patch, upsert and withdrawal items use the same shared contracts as REST, including
+localized text, unsigned source-currency values, price intent, URLs/images, availability and
+all Auction/lot patches. The maximum is 100; empty authenticated batches are valid.
+Discovery requires `product-listings:write`. The existing item services independently check
+current delegated capability and Partnership/source grants for every attempted item.
+
+Results contain `status` (`COMPLETED`, `PARTIAL_SUCCESS`, `FAILED`), `inputCount`,
+`succeededCount`, `failedCount`, `successes` and `failures`. Counts account for every input.
+Both arrays retain the original zero-based `index`, `listingSourceId` and submitted
+`sourceListingId`, including repeated keys. Successful entries include the resulting listing
+identity and `CREATED`/`UPDATED`/`WITHDRAWN` outcome; creates retain the title slug and
+updates/withdrawals report whether state changed. Failures use safe `FORBIDDEN`, `NOT_FOUND`,
+`CONFLICT`, `INVALID_INPUT`, `TEMPORARILY_UNAVAILABLE` or `INTERNAL_ERROR` categories without
+technical causes or private provider content. An all-failed report remains `FAILED`.
+Malformed structural or conversion input fails the whole call before any item executes.
+
+The [listing contract](product-listing.md#synchronous-integration-batches) owns sequential
+execution, per-item transactions, continuation and retry behavior. These commands have no
+batch idempotency guarantee and are never automatically retried. A lost response can follow
+committed earlier items; reconcile authoritative state before resubmission. The partner
+release owns combined-registry publication.
+
 ## Partner listing management
 
 The partner management family provides `getMyListingSources`, `listPartnerProductListings`,

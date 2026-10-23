@@ -95,3 +95,9 @@ Protected party-location management DTOs and pure command/view mappings live in
 patch null rules and bounded location pages. Management `GeographyData`/`PositionData` remain
 separate from public `GeographicSearchData`. The [location contract tests](tests/location_management.rs)
 check actual JSON against schemas, including nullable clears and retained evidence.
+
+Source-keyed integration item DTOs and HTTP-free conversions live in `partner_product_listings`.
+Synchronous `prepare_batch` validates every item before exposing command values; asynchronous
+adapters reuse individual converters while retaining their independent per-item validation.
+The same family owns indexed synchronous mutation reports and full create/update/upsert/withdraw
+fields, reusing `product_listing_fields` for Auction/lot and image representations.

@@ -95,3 +95,8 @@ handles. REST and MCP reuse the same warm PostgreSQL composition without constru
 geocoder or loading provider configuration. Explicit grant changes and administrator-only
 default routes retain their separate composition and policies. Services own authority,
 location eligibility, revision checks and atomic relocation.
+
+`Runtime::partner_product_listing_batches()` composes the ordered synchronous integration
+batch use case over the existing create, update, upsert and withdrawal item handlers. REST and
+MCP reuse the same warm handle with PostgreSQL only. Item use cases retain authorization,
+transactions and retry behavior; transports convert the complete shared input before invoking it.

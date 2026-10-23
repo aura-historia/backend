@@ -42,6 +42,7 @@ pub async fn delete_products(
         |product| {
             product
                 .into_product_key(listing_source_id)
+                .map_err(super::types::mutation_input_error)
                 .map(ProductListingIngestionIntent::Withdraw)
         },
     );

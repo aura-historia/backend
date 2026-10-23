@@ -1,9 +1,9 @@
-use super::batch_response::BatchResponse;
+use super::batch_response::{BatchResponse, batch_input_error};
 use super::types::{
-    CreateProductListingData, parse_listing_source_id, parse_partner_product_batch,
+    CreateProductListingData, mutation_input_error, parse_listing_source_id,
+    parse_partner_product_batch, prepare_batch,
 };
 use crate::auth::protected_context;
-use crate::error::ApiError;
 use crate::state::PartnerProductListingsState;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -30,28 +30,17 @@ pub async fn create_products(
         Err(error) => return error.into_response(),
     };
 
-    let mapped = match products
-        .into_iter()
-        .map(|product| {
-            let raw_source_listing_id = product.source_listing_id.clone();
-            product
-                .into_command(listing_source_id)
-                .map(|command| (raw_source_listing_id, command))
-        })
-        .collect::<Result<Vec<_>, ApiError>>()
-    {
-        Ok(mapped) => mapped,
-        Err(error) => return error.into_response(),
+    let prepared = match prepare_batch(listing_source_id, products) {
+        Ok(prepared) => prepared,
+        Err(error) => return mutation_input_error(error).into_response(),
     };
-
-    let mut response = BatchResponse::new(listing_source_id);
-    for (source_listing_id, command) in mapped {
-        response.record(
-            source_listing_id,
-            state.create.execute(&context, command).await,
-        );
+    match state.batches.create(&context, prepared.commands).await {
+        Ok(result) => {
+            BatchResponse::from_result(listing_source_id, prepared.source_listing_ids, result)
+                .into_response()
+        }
+        Err(error) => batch_input_error(error).into_response(),
     }
-    response.into_response()
 }
 
 #[cfg(test)]
@@ -68,6 +57,7 @@ mod tests {
     use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+    use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesHandler;
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
         CreateProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
@@ -310,12 +300,45 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn should_preserve_authenticated_empty_maximum_and_oversized_batch_behavior()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut use_case = MockCreateUseCase::new();
+        use_case
+            .expect_execute()
+            .times(100)
+            .returning(|_, _| Ok(created()));
+        let app = app(use_case);
+        let source = ListingSourceId::new();
+        let path = format!("/v1/listing-sources/{source}/product-listings");
+        assert_eq!(
+            StatusCode::UNAUTHORIZED,
+            request(&app, &path, "[]".to_owned(), false).await?.status()
+        );
+        let empty = request(&app, &path, "[]".to_owned(), true).await?;
+        assert_eq!(StatusCode::OK, empty.status());
+        assert_eq!(json!([]), body_json(empty).await?);
+        let item = product("same");
+        let oversized = format!("[{}]", vec![item.clone(); 101].join(","));
+        assert_eq!(
+            StatusCode::BAD_REQUEST,
+            request(&app, &path, oversized, true).await?.status()
+        );
+        let maximum = format!("[{}]", vec![item; 100].join(","));
+        let maximum = request(&app, &path, maximum, true).await?;
+        assert_eq!(StatusCode::OK, maximum.status());
+        assert_eq!(json!([]), body_json(maximum).await?);
+        Ok(())
+    }
+
     fn app(create: MockCreateUseCase) -> Router {
         let state = PartnerProductListingsState::new(
-            Arc::new(create),
-            Arc::new(MockUpdateUseCase::new()),
-            Arc::new(MockUpsertUseCase::new()),
-            Arc::new(MockWithdrawUseCase::new()),
+            Arc::new(PartnerProductListingBatchesHandler::new(
+                Arc::new(create),
+                Arc::new(MockUpdateUseCase::new()),
+                Arc::new(MockUpsertUseCase::new()),
+                Arc::new(MockWithdrawUseCase::new()),
+            )),
             Arc::new(authenticator()),
         );
         Router::new()
