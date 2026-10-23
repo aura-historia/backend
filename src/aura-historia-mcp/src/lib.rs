@@ -1,5 +1,6 @@
 //! Bounded, stateless MCP transport. Families inject typed operations using shared contracts.
 mod admission;
+mod arguments;
 mod authentication;
 mod bounded_json;
 mod config;

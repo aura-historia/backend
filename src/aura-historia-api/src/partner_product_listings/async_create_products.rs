@@ -44,7 +44,6 @@ pub async fn create_products(
         |product| {
             product
                 .into_command(listing_source_id)
-                .map_err(super::types::mutation_input_error)
                 .map(ProductListingIngestionIntent::Create)
         },
     );

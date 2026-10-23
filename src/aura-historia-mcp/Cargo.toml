@@ -49,6 +49,7 @@ uuid = { workspace = true, features = ["v4"] }
 watchlist-service = { workspace = true }
 
 [dev-dependencies]
+aws-sdk-sqs = { workspace = true }
 embedding = { workspace = true }
 platform-postgres = { workspace = true }
 product-listing-postgres = { workspace = true }
@@ -59,6 +60,8 @@ jsonschema = { version = "0.59.0", default-features = false }
 localization = { workspace = true }
 money = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+# Match the workspace JSON precision setting in focused MCP tests too.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 serial_test = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 sqlx = { workspace = true }

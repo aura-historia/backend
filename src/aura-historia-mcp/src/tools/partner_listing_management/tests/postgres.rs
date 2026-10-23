@@ -266,7 +266,7 @@ async fn should_preserve_authoritative_patches_version_conflicts_and_retained_li
             f.context.clone()
         )
         .await,
-        OperationError::Conflict
+        OperationError::Conflict(None)
     ));
     let detail = call(
         &f.registry,

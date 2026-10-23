@@ -148,3 +148,5 @@ impl PublicListingSourceSearchCollectionData {
 }
 
 pub mod administered;
+
+pub mod shopify;

@@ -3,7 +3,7 @@ use application::operation_context::CredentialCapability;
 use rmcp::model::{CallToolResult, JsonObject, MetaObject, Tool, ToolAnnotations};
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub struct OperationPolicy {
 }
 
 type OperationFuture = Pin<Box<dyn Future<Output = Result<CallToolResult, OperationError>> + Send>>;
-type Handler = dyn Fn(Value, InvocationContext) -> OperationFuture + Send + Sync;
+type Handler = dyn Fn(Box<RawValue>, InvocationContext) -> OperationFuture + Send + Sync;
 
 #[derive(Clone)]
 pub struct OperationDefinition {
@@ -116,10 +116,12 @@ impl OperationDefinition {
     }
     pub(crate) async fn call(
         &self,
-        input: Value,
+        input: impl Serialize,
         context: InvocationContext,
     ) -> Result<CallToolResult, OperationError> {
-        (self.handler)(input, context).await
+        let raw = serde_json::value::to_raw_value(&input)
+            .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
+        (self.handler)(raw, context).await
     }
 }
 
@@ -238,7 +240,7 @@ where
     Arc::new(move |arguments, context| {
         let handler = Arc::clone(&handler);
         Box::pin(async move {
-            let input = serde_json::from_value(arguments)
+            let input = crate::arguments::decode(arguments)
                 .map_err(|error| OperationError::InvalidArguments(Box::new(error)))?;
             let limit = context.max_response_bytes;
             let value = handler(input, context).await?;

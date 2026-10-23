@@ -256,6 +256,50 @@ batch idempotency guarantee and are never automatically retried. A lost response
 committed earlier items; reconcile authoritative state before resubmission. The partner
 release owns combined-registry publication.
 
+## Asynchronous partner ingestion and Shopify configuration
+
+The ingestion family defines `postAsyncPartnerProductListings`,
+`patchAsyncPartnerProductListings`, `putAsyncPartnerProductListings` and
+`deleteAsyncPartnerProductListings`. The partner release owns their combined-registry
+publication. Each accepts `listingSourceId`, optional `idempotencyKey` and `products` with
+up to 100 complete shared synchronous item DTOs. Parse the whole envelope before publication;
+invalid items, including duplicate DTO fields, reject only their original positions. Ordinary
+synchronous DTO decoding rejects malformed later items before any write. Ambiguous JSON-RPC
+or parameter fields are rejected before admission; the original argument bytes survive SDK
+parsing and feed the shared DTO decoder.
+
+Results retain `submissionId`, `acceptedCount` and ordered `failures`, plus the effective
+`idempotencyKey`, `originalInputCount` and one indexed `items` disposition per original input:
+`PUBLISHED`, `REJECTED`, `NOT_ATTEMPTED` or `UNKNOWN`. Only matching publisher receipts count
+as accepted. Item reports retain complete validated, normalized source-local IDs; the legacy
+`failures` list retains REST's short printable ID echo rules. Size rejection, unsent
+deadline/FIFO blocking and possibly queued outcomes retain
+their distinct safe error codes and retryability. `submissionId` is correlation, not a status
+resource. Admission checks delegated `product-listings:write`; current source grants and
+business rules are checked when the worker applies the command. Queue admission never confirms
+a committed listing mutation.
+
+Explicit keys use the same REST value grammar: 1–128 visible ASCII bytes excluding comma.
+Omission generates a returned effective key; a key lost with the first reply is unrecoverable.
+Async tools carry `idempotentHint: false`. Follow the existing
+[retry identity contract](product-listing.md#retry-identity): retain the actor, source, effective
+key, complete original ordered batch, content, operation, indices and count. Stable identities
+do not guarantee exactly-once execution. No automatic retry or polling resource is introduced.
+
+`putShopifyListingSourceIngestionConfiguration` accepts `listingSourceId` and a
+`configuration` object with complete `domain`, optional `currency` and `language` fields.
+Omitted/null overrides are cleared; the result is `{ "created": boolean }`. The existing
+partnership use case checks `listing-sources:write` and current source grants synchronously.
+WooCommerce configuration is excluded because it requires a webhook secret.
+
+Runtime ingestion dependencies reuse one SDK publisher per warm service family. Each MCP
+submission scopes publication to its request deadline with 500 ms reserved to encode the
+admission report. Infrastructure injects `PRODUCT_LISTING_INGESTION_QUEUE_URL` and permits
+only `sqs:SendMessage` to that FIFO queue; workers retain their existing execution authority.
+The [family fixtures](../src/aura-historia-mcp/src/tools/partner_product_listing_ingestion/tests.rs)
+and [raw transport fixtures](../src/aura-historia-mcp/tests/transport/admission.rs) exercise these
+local contracts.
+
 ## Partner listing management
 
 The partner management family provides `getMyListingSources`, `listPartnerProductListings`,
@@ -550,7 +594,8 @@ ADC construction remains lazy until an embedding is requested. Lambda prepares i
 `AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON` privately before starting threads; native execution
 uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
-REST while retaining only the MCP runtime's existing PostgreSQL secret-read IAM permission.
+REST. The ingestion family additionally uses the configured FIFO queue and narrowly scoped
+queue publication permission described above.
 
 ## Shipping management
 

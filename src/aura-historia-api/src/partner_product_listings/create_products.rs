@@ -49,8 +49,8 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
-    use crate::partner_product_listings::types::MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE;
     use application::operation_context::{CredentialCapability, OperationContext};
+    use aura_historia_contracts::partner_product_listings::MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};

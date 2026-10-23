@@ -418,3 +418,61 @@ async fn should_accept_authenticated_empty_and_one_hundred_and_reject_oversized_
     }
     assert_eq!(400, items.calls.lock().unwrap().len());
 }
+
+#[tokio::test]
+async fn should_reject_a_later_duplicate_field_before_any_sync_write_through_raw_http() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    struct Gate;
+    #[async_trait::async_trait]
+    impl crate::AdmissionGate for Gate {
+        async fn admit(
+            &self,
+            _: crate::AdmissionRequest<'_>,
+        ) -> Result<Principal, crate::AdmissionRejection> {
+            Ok(context().operation.principal)
+        }
+    }
+    for name in NAMES {
+        let (registry, items) = fixture();
+        let source = ListingSourceId::new();
+        let valid = input_product(name, "valid");
+        let duplicate = valid
+            .to_string()
+            .replacen("{", r#"{"sourceListingId":"ambiguous","#, 1);
+        let body = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{name}","arguments":{{"listingSourceId":"{source}","products":[{valid},{duplicate}]}}}}}}"#
+        );
+        let app = crate::router(
+            crate::TransportConfig {
+                allowed_hosts: vec!["mcp.example.test".into()],
+                ..Default::default()
+            },
+            registry,
+            Arc::new(Gate),
+        )
+        .unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1")
+                    .header("host", "mcp.example.test")
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json, text/event-stream")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::OK, response.status());
+        let response: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(-32602, response["error"]["code"], "{name}: {response}");
+        assert!(items.calls.lock().unwrap().is_empty());
+    }
+}

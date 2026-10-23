@@ -27,7 +27,7 @@ pub(super) fn add(error: WatchProductListingError) -> OperationError {
     match error {
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         UserNotFound | ProductListingNotFound => OperationError::NotFound,
-        AlreadyExists | ProductListingUnavailable => OperationError::Conflict,
+        AlreadyExists | ProductListingUnavailable => OperationError::Conflict(None),
         WatchlistQuotaExceeded { .. } => OperationError::WatchlistQuotaExceeded,
         error @ (TemporarilyUnavailable { .. }
         | UserTierEntitlementsLockFailed { .. }
@@ -43,7 +43,7 @@ pub(super) fn remove(error: UnwatchProductListingError) -> OperationError {
     match error {
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         NotFound => OperationError::NotFound,
-        ConcurrencyConflict => OperationError::Conflict,
+        ConcurrencyConflict => OperationError::Conflict(None),
         error @ (TemporarilyUnavailable { .. }
         | BeginTransactionFailed(_)
         | CommitTransactionFailed(_)) => OperationError::Unavailable(Box::new(error)),
@@ -57,7 +57,7 @@ pub(super) fn update(error: UpdateWatchlistProductListingError) -> OperationErro
         Presentation(error) => details(error),
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         NotFound | UserNotFound | ProductListingNotFound => OperationError::NotFound,
-        ConcurrencyConflict | ProductListingUnavailable => OperationError::Conflict,
+        ConcurrencyConflict | ProductListingUnavailable => OperationError::Conflict(None),
         WatchlistQuotaExceeded { .. } => OperationError::WatchlistQuotaExceeded,
         error @ (TemporarilyUnavailable { .. }
         | UserTierEntitlementsLockFailed { .. }

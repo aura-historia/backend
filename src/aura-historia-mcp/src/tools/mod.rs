@@ -7,3 +7,5 @@ pub mod saved_searches;
 pub mod shipping;
 pub mod source_location_defaults;
 pub mod watchlist;
+
+pub mod partner_product_listing_ingestion;

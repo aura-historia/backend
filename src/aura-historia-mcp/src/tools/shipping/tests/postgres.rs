@@ -63,7 +63,7 @@ async fn should_share_shipping_revision_creation_retry_lifecycle_evidence_and_pa
     let mut conflict = creation(source, "first");
     conflict["content"] = content(9500);
     assert_error(&registry, "createShippingProfile", conflict, &ctx, |e| {
-        matches!(e, OperationError::Conflict)
+        matches!(e, OperationError::Conflict(None))
     })
     .await;
     let details = json!({"listingSourceId":source,"shippingProfileId":id});
@@ -87,7 +87,7 @@ async fn should_share_shipping_revision_creation_retry_lifecycle_evidence_and_pa
         "replaceShippingProfile",
         replacement,
         &ctx,
-        |e| matches!(e, OperationError::Conflict),
+        |e| matches!(e, OperationError::Conflict(None)),
     )
     .await;
     let observed:String=sqlx::query_scalar("SELECT evidence->0->>'reference' FROM shipping_profile_evidence WHERE shipping_profile_id=$1 AND management_revision=2").bind(id.as_str().unwrap().parse::<ShippingProfileId>().unwrap().into_uuid()).fetch_one(&pool).await.unwrap();
@@ -120,7 +120,7 @@ async fn should_share_shipping_revision_creation_retry_lifecycle_evidence_and_pa
         )
         .await["eligibility"]
     );
-    assert_error(&registry,"assignShippingDefault",json!({"listingSourceId":source,"shippingProfileId":id,"expectedRevision":assigned["revision"]}),&ctx,|e|matches!(e,OperationError::Conflict)).await;
+    assert_error(&registry,"assignShippingDefault",json!({"listingSourceId":source,"shippingProfileId":id,"expectedRevision":assigned["revision"]}),&ctx,|e|matches!(e,OperationError::Conflict(None))).await;
     let restored=invoke(&registry,"restoreShippingProfile",json!({"listingSourceId":source,"shippingProfileId":id,"expectedRevision":retired["managementRevision"]}),&ctx).await;
     assert_eq!(json!("ACTIVE"), restored["lifecycle"]);
     let cleared = invoke(
@@ -277,7 +277,7 @@ async fn should_preserve_import_identity_exact_replay_provenance_and_current_aut
     let mut changed = input.clone();
     changed["content"] = content(9500);
     assert_error(&registry, "createShippingProfile", changed, &ctx, |e| {
-        matches!(e, OperationError::Conflict)
+        matches!(e, OperationError::Conflict(None))
     })
     .await;
     assert_error(

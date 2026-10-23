@@ -29,7 +29,9 @@ fn admin(error: AdminProductListingError) -> OperationError {
     match error {
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
         NotFound | AuctionNotFound => OperationError::NotFound,
-        ConcurrencyConflict | ListingWithdrawn | AuctionSourceMismatch => OperationError::Conflict,
+        ConcurrencyConflict | ListingWithdrawn | AuctionSourceMismatch => {
+            OperationError::Conflict(None)
+        }
         error @ (InvalidPatch { .. } | InvalidPageSize | InvalidQuery | CursorScopeMismatch) => {
             OperationError::InvalidArguments(Box::new(error))
         }

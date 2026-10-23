@@ -31,7 +31,7 @@ pub(super) fn update_profile(error: UpdateUserProfileError) -> OperationError {
             OperationError::Forbidden
         }
         UpdateUserProfileError::UserNotFound => OperationError::NotFound,
-        UpdateUserProfileError::ConcurrencyConflict => OperationError::Conflict,
+        UpdateUserProfileError::ConcurrencyConflict => OperationError::Conflict(None),
         error @ (UpdateUserProfileError::TemporarilyUnavailable { .. }
         | UpdateUserProfileError::BeginTransactionFailed(_)
         | UpdateUserProfileError::CommitTransactionFailed(_)) => {
@@ -52,7 +52,7 @@ pub(super) fn address(error: AddressBookError) -> OperationError {
             OperationError::NotFound
         }
         AddressBookError::Conflict | AddressBookError::Resolution(ResolutionError::Conflict) => {
-            OperationError::Conflict
+            OperationError::Conflict(None)
         }
         AddressBookError::InvalidInput
         | AddressBookError::Resolution(ResolutionError::InvalidInput) => {
