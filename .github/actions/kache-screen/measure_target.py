@@ -28,37 +28,47 @@ def crate_of(path):
     return stem.rsplit("-", 1)[0]
 
 
+def kind_of(path, info):
+    if path.suffix in (".rlib", ".rmeta", ".so"):
+        return "library"
+    if path.suffix == ".d":
+        return "dep-info"
+    if path.name.startswith(("build_script_", "build-script-")):
+        return "build-script"
+    if not path.suffix and info.st_mode & 0o111:
+        return "executable"
+    return "other"
+
+
+def owner_of(relative, path, names, libraries, packages):
+    """Support Cargo's deps/ layout and the build/<package>/<hash>/ layout."""
+    top = relative.parts[0]
+    if top == "build" and len(relative.parts) >= 3:
+        package = relative.parts[1]
+        if package not in packages and "-" in package:
+            package = package.rsplit("-", 1)[0]
+        return "workspace" if package in packages else "external"
+    if top == "deps":
+        owned = libraries if path.suffix in (".rlib", ".rmeta", ".so") else names
+        return "workspace" if crate_of(path) in owned else "external"
+    return "cargo"
+
+
 def classify(target, names, libraries, packages):
     categories, seen = {}, set()
     debug = target / "debug"
     for path in debug.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
+        relative = path.relative_to(debug)
+        if relative.parts[0] in (".fingerprint", "incremental") or len(relative.parts) == 1:
+            continue
         info = path.stat()
         if (info.st_dev, info.st_ino) in seen:
             continue
         seen.add((info.st_dev, info.st_ino))
-        relative = path.relative_to(debug)
-        top = relative.parts[0]
-        if top == "deps":
-            owned = libraries if path.suffix in (".rlib", ".rmeta", ".so") else names
-            owner = "workspace" if crate_of(path) in owned else "external"
-            if path.suffix in (".rlib", ".rmeta", ".so"):
-                kind = "library"
-            elif path.suffix == ".d":
-                kind = "dep-info"
-            elif not path.suffix and info.st_mode & 0o111:
-                kind = "executable"
-            else:
-                kind = "other"
-        elif top == "build":
-            owner = "workspace" if relative.parts[1].rsplit("-", 1)[0] in packages else "external"
-            kind = "build-script"
-        elif top == ".fingerprint":
-            owner, kind = "cargo", "fingerprint"
-        else:
-            owner, kind = "cargo", top if len(relative.parts) > 1 else "uplifted"
-        entry = categories.setdefault(f"{owner}/{kind}", {"files": [], "bytes": 0})
+        name = f"{owner_of(relative, path, names, libraries, packages)}/{kind_of(path, info)}"
+        entry = categories.setdefault(name, {"files": [], "bytes": 0})
         entry["files"].append(str(path))
         entry["bytes"] += info.st_size
     return categories

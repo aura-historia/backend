@@ -55,6 +55,8 @@ jobs:
 
   kache-populate:
     name: Screen kache population
+    # Completed in run 39950816384; this rerun repairs only the baseline measurement.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -69,6 +71,8 @@ jobs:
 
   kache-reuse:
     name: Screen kache fresh-runner reuse
+    # Completed in run 39950816384; this rerun repairs only the baseline measurement.
+    if: false
     needs: kache-populate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
