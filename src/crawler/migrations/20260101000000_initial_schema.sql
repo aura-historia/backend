@@ -167,7 +167,8 @@ CREATE TABLE crawler_review_pages (
             'SEED',
             'TRIGGERING_REPAIR_PAGE',
             'TRIGGERING_GENERATION_PAGE',
-            'REVIEWER_ADDED'
+            'REVIEWER_ADDED',
+            'WAITING_PAGE'
         )
     ),
     html_hash      TEXT        NOT NULL,

@@ -45,6 +45,15 @@ impl ScraperServiceImpl {
                 )
                 .await);
         }
+        if let Some(review_id) = self
+            .join_pending_product_schema_review(ctx.listing_source_id, ctx.url, ctx.html)
+            .await?
+        {
+            return Err(ScraperError::PendingSchemaReview {
+                url: ctx.url.clone(),
+                review_id,
+            });
+        }
 
         let (generated_schema, reapplied, evaluation) = self
             .generate_single_schema_for_page(

@@ -48,7 +48,6 @@ struct ScrapeDomainContext {
     lock_manager: Arc<LocalLockManager>,
     command_tx: mpsc::Sender<QueuedRawCapture>,
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
-    schema_pending_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     domain_id: crate::CrawlerDomainId,
     batch_time_budget: Duration,
 }
@@ -524,13 +523,6 @@ async fn should_skip_candidate(candidate: &ScraperCandidate, ctx: &ScrapeDomainC
         debug!("Skipping URL — ListingSource LLM budget already exhausted in this batch");
         return true;
     }
-    drop(exhausted);
-
-    let pending = ctx.schema_pending_listing_sources.lock().await;
-    if pending.contains(&candidate.listing_source_id) {
-        debug!("Skipping URL because ListingSource has pending schema review in this batch");
-        return true;
-    }
     false
 }
 
@@ -771,7 +763,7 @@ async fn handle_scrape_error(
             persist_non_http_failure(candidate, ctx, &error, &error_message).await;
             None
         };
-    record_batch_error_state(candidate, ctx, &error).await;
+    record_batch_error_state(ctx, &error).await;
 
     ScrapeCandidateOutcome {
         errored: true,
@@ -1003,11 +995,7 @@ async fn persist_non_http_failure(
     }
 }
 
-async fn record_batch_error_state(
-    candidate: &ScraperCandidate,
-    ctx: &ScrapeDomainContext,
-    error: &ScraperError,
-) {
+async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperError) {
     if let ScraperError::LlmBudgetExceeded {
         listing_source_id,
         max_calls,
@@ -1022,15 +1010,6 @@ async fn record_batch_error_state(
                 "LLM call budget exhausted for ListingSource; skipping remaining URLs in batch"
             );
         }
-    } else if let ScraperError::PendingSchemaReview { .. } = error {
-        let mut pending = ctx.schema_pending_listing_sources.lock().await;
-        if pending.insert(candidate.listing_source_id) {
-            info!(
-                listing_source_id = %candidate.listing_source_id,
-                "ProductListing schema review pending for ListingSource; skipping remaining URLs in batch"
-            );
-        }
-        warn!(error = %error, "Scraper run failed");
     } else if matches!(
         error,
         ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
@@ -1348,7 +1327,6 @@ impl CrawlerCronJob {
             mpsc::channel::<QueuedRawCapture>(self.config.effective_push_queue_capacity());
 
         let budget_exhausted_listing_sources = Arc::new(Mutex::new(HashSet::new()));
-        let schema_pending_listing_sources = Arc::new(Mutex::new(HashSet::new()));
 
         let mut unique_listing_source_ids = HashSet::new();
         let mut total = 0usize;
@@ -1383,8 +1361,6 @@ impl CrawlerCronJob {
                     let domain_tx = command_tx.clone();
                     let budget_exhausted_listing_sources =
                         Arc::clone(&budget_exhausted_listing_sources);
-                    let schema_pending_listing_sources =
-                        Arc::clone(&schema_pending_listing_sources);
                     let batch_time_budget = self.config.scraper_domain_batch_time_budget;
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain);
@@ -1398,7 +1374,6 @@ impl CrawlerCronJob {
                                 lock_manager,
                                 command_tx: domain_tx,
                                 budget_exhausted_listing_sources,
-                                schema_pending_listing_sources,
                                 domain_id: domain,
                                 batch_time_budget,
                             };
@@ -2058,7 +2033,6 @@ mod tests {
             lock_manager: Arc::new(LocalLockManager::new()),
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id: crate::CrawlerDomainId::new(),
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         }
@@ -2083,7 +2057,6 @@ mod tests {
             lock_manager: Arc::clone(&lock_manager),
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
@@ -2109,7 +2082,6 @@ mod tests {
             lock_manager,
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
@@ -2161,7 +2133,6 @@ mod tests {
             lock_manager,
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
@@ -2201,7 +2172,6 @@ mod tests {
             lock_manager,
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
         };
@@ -2913,7 +2883,6 @@ mod tests {
                 lock_manager: Arc::new(LocalLockManager::new()),
                 command_tx,
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-                schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
@@ -2975,7 +2944,6 @@ mod tests {
                 lock_manager: Arc::new(LocalLockManager::new()),
                 command_tx,
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-                schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
@@ -3023,7 +2991,6 @@ mod tests {
                 lock_manager: Arc::new(LocalLockManager::new()),
                 command_tx,
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-                schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             },
@@ -3060,7 +3027,6 @@ mod tests {
             lock_manager: Arc::new(LocalLockManager::new()),
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget,
         }
@@ -3244,13 +3210,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_remaining_listing_source_candidates_when_schema_review_is_pending() {
+    async fn should_scrape_remaining_listing_source_candidates_when_schema_review_is_pending() {
         let listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://example.com/product/1").unwrap();
         let second_url = url::Url::parse("https://example.com/product/2").unwrap();
 
         let first_url_for_candidates = first_url.clone();
         let second_url_for_candidates = second_url.clone();
+        let waiting_url = first_url.clone();
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -3285,16 +3252,25 @@ mod tests {
                 Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
             });
 
+        // The first page waits on the pending review; a cached schema still extracts the second.
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().once().returning(|request| {
-            let url = request.url;
-            Box::pin(async move {
-                scrape_outcome(Err(ScraperError::PendingSchemaReview {
-                    url,
-                    review_id: crate::CrawlerReviewId::new(),
-                }))
-            })
-        });
+        scraper_service
+            .expect_scrape()
+            .times(2)
+            .returning(move |request| {
+                let url = request.url;
+                let waits = url == waiting_url;
+                Box::pin(async move {
+                    if waits {
+                        scrape_outcome(Err(ScraperError::PendingSchemaReview {
+                            url,
+                            review_id: crate::CrawlerReviewId::new(),
+                        }))
+                    } else {
+                        scrape_outcome(Ok(None))
+                    }
+                })
+            });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),

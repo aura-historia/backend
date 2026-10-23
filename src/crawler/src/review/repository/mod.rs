@@ -73,7 +73,7 @@ pub enum ReviewRepositoryError {
     RedirectedToNonProductPage(String),
     #[error("review page not found: {0}")]
     ReviewPageNotFound(CrawlerReviewPageId),
-    #[error("review page {0} was not added by a reviewer and cannot be removed")]
+    #[error("review page {0} is a seed or triggering page of the review and cannot be removed")]
     NotReviewerAddedPage(CrawlerReviewPageId),
 }
 
@@ -81,6 +81,11 @@ pub enum ReviewRepositoryError {
 /// every page, seed pages included, one by one from the same throttled shop within the review
 /// API's 30-second request deadline, so reviewer pages may only add a few fetches.
 pub const MAX_REVIEWER_ADDED_PAGES: usize = 4;
+
+/// Upper bound on the pages that wait on one pending review. They show the reviewer the template
+/// variants that need the schema, but every matrix refresh refetches them too; further failing
+/// pages still wait on the review without being attached.
+pub const MAX_WAITING_PAGES: usize = 6;
 
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
@@ -157,13 +162,14 @@ impl CrawlerReviewRepository {
             "SELECT EXISTS (SELECT 1 FROM crawler_reviews r \
              JOIN crawler_review_pages p ON p.review_id = r.review_id \
              WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
-               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = $3 AND p.role <> $4)",
+               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = $3 AND p.role <> ALL($4))",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
         .bind(url)
-        // A reviewer adds pages to test the candidate; rejecting the review is no verdict on them.
-        .bind(PAGE_ROLE_REVIEWER_ADDED)
+        // Reviewer-added and waiting pages only test the candidate; rejecting the review is no
+        // verdict on them.
+        .bind([PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE])
         .fetch_one(&self.pool)
         .await
     }
@@ -540,7 +546,7 @@ impl CrawlerReviewRepository {
                 let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
                     "SELECT review_id FROM crawler_reviews \
                      WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
-                     ORDER BY created DESC LIMIT 1",
+                     ORDER BY created DESC LIMIT 1 FOR UPDATE",
                 )
                 .bind(uuid::Uuid::from(*listing_source_id))
                 .fetch_one(&mut *transaction)
@@ -548,7 +554,9 @@ impl CrawlerReviewRepository {
                 (crawler_review_id_from_uuid(review_id)?, false)
             }
         };
-        if is_new {
+        if !is_new {
+            attach_waiting_pages(&mut transaction, review_id, &pages).await?;
+        } else {
             for page in &pages {
                 insert_review_page(
                     &mut transaction,
@@ -562,6 +570,40 @@ impl CrawlerReviewRepository {
         }
         transaction.commit().await?;
         Ok(review_id)
+    }
+
+    /// Attaches a page that failed every cached schema to the ListingSource's pending
+    /// product-schema review as a waiting page and returns that review, or `None` when no
+    /// product-schema review is pending. The page is attached once per URL and only while the
+    /// review holds fewer than [`MAX_WAITING_PAGES`] waiting pages; it waits on the review either
+    /// way.
+    pub async fn join_pending_schema_review(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        raw_html: &str,
+    ) -> Result<Option<CrawlerReviewId>, ReviewRepositoryError> {
+        let mut transaction = self.pool.begin().await?;
+        let Some(review_id) = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT review_id FROM crawler_reviews \
+             WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
+             ORDER BY created DESC LIMIT 1 FOR UPDATE",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_optional(&mut *transaction)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let review_id = crawler_review_id_from_uuid(review_id)?;
+        let page = SchemaReviewPageInput {
+            url: url.to_string(),
+            role: PAGE_ROLE_WAITING_PAGE.to_owned(),
+            raw_html: raw_html.to_owned(),
+        };
+        attach_waiting_pages(&mut transaction, review_id, std::slice::from_ref(&page)).await?;
+        transaction.commit().await?;
+        Ok(Some(review_id))
     }
 
     /// Checks, before the page is fetched, that `url` may be added to the review.
@@ -620,8 +662,9 @@ impl CrawlerReviewRepository {
         Ok(page)
     }
 
-    /// Removes a page a reviewer added, for example once the shop has deleted it and every
-    /// live matrix refresh would fail on it, and drops the cached schema matrix.
+    /// Removes a page a reviewer added or a page waiting on the review, for example once the shop
+    /// has deleted it and every live matrix refresh would fail on it, and drops the cached schema
+    /// matrix. Seed and triggering pages stay.
     pub async fn remove_reviewer_page(
         &self,
         review_page_id: CrawlerReviewPageId,
@@ -639,7 +682,10 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::ReviewPageNotFound(review_page_id))?;
         let review_id = crawler_review_id_from_uuid(page.try_get("review_id")?)?;
         let role: String = page.try_get("role")?;
-        if role != PAGE_ROLE_REVIEWER_ADDED {
+        if !matches!(
+            role.as_str(),
+            PAGE_ROLE_REVIEWER_ADDED | PAGE_ROLE_WAITING_PAGE
+        ) {
             return Err(ReviewRepositoryError::NotReviewerAddedPage(review_page_id));
         }
         let status: String = page.try_get("status")?;
@@ -1148,6 +1194,64 @@ async fn persist_approved_schema_edit(
 }
 
 /// Drops the cached schema matrix after the review's page set changed.
+/// Attaches `pages` to the pending review `review_id` as waiting pages, whatever role they were
+/// collected under: once per page under the reviewer-page identity, up to [`MAX_WAITING_PAGES`].
+/// Drops the cached schema matrix when a page was attached, so the next refresh covers it. The
+/// caller holds the review row lock.
+async fn attach_waiting_pages(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    pages: &[SchemaReviewPageInput],
+) -> Result<(), sqlx::Error> {
+    let stored = sqlx::query_as::<_, (String, String)>(
+        "SELECT url, role FROM crawler_review_pages WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut waiting_pages = stored
+        .iter()
+        .filter(|(_, role)| role == PAGE_ROLE_WAITING_PAGE)
+        .count();
+    let mut identities = stored
+        .iter()
+        .filter_map(|(url, _)| ReviewPageIdentity::of_stored(url))
+        .collect::<Vec<_>>();
+    let mut attached = 0_usize;
+    for page in pages {
+        if waiting_pages >= MAX_WAITING_PAGES {
+            break;
+        }
+        let Some(identity) = ReviewPageIdentity::of_stored(&page.url) else {
+            continue;
+        };
+        if identities.contains(&identity) {
+            continue;
+        }
+        insert_review_page(
+            transaction,
+            review_id,
+            &page.url,
+            PAGE_ROLE_WAITING_PAGE,
+            &page.raw_html,
+        )
+        .await?;
+        identities.push(identity);
+        waiting_pages += 1;
+        attached += 1;
+    }
+    if attached > 0 {
+        drop_cached_schema_matrix(transaction, review_id).await?;
+        info!(
+            review_id = %review_id,
+            attached_pages = attached,
+            waiting_pages,
+            "Attached pages waiting on a pending product schema review"
+        );
+    }
+    Ok(())
+}
+
 async fn insert_review_page(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,

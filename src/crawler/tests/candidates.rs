@@ -746,6 +746,92 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
 }
 
 // ---------------------------------------------------------------------------
+// get_candidates — a pending product-schema review parks only a source without schemas
+// ---------------------------------------------------------------------------
+
+async fn insert_pending_product_schema_review(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+) {
+    sqlx::query(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
+         VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', 'manual_schema_required', '{\"schemas\": []}'::jsonb)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(listing_source_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn insert_cached_product_schemas(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated) \
+         VALUES ($1, '[]'::jsonb, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_return_candidate_when_schema_review_is_pending_and_schemas_are_cached() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-review.example.com")
+            .await;
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://scraper-review.example.com/p/1",
+    )
+    .await;
+    insert_cached_product_schemas(&pool, listing_source_id).await;
+    insert_pending_product_schema_review(&pool, listing_source_id).await;
+
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.url.as_str() == "https://scraper-review.example.com/p/1"),
+        "a pending review must not park a source whose cached schemas can still extract pages"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_not_return_candidate_when_schema_review_is_pending_without_cached_schemas()
+{
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-initial.example.com")
+            .await;
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://scraper-initial.example.com/p/1",
+    )
+    .await;
+    insert_pending_product_schema_review(&pool, listing_source_id).await;
+
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert!(
+        candidates
+            .iter()
+            .all(|c| c.listing_source_id != listing_source_id),
+        "a source without cached schemas waits on its initial schema review"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — URL scraped < 1 day ago is NOT returned
 // ---------------------------------------------------------------------------
 
