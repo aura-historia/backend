@@ -4,7 +4,7 @@ use listing_source_core::ListingSourceId;
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 use shipping_core::terms::DeliveryTerms;
 use shipping_json::ShippingTermsReferenceCodec;
-struct PublicReferences;
+pub struct PublicReferences;
 impl ShippingTermsReferenceCodec for PublicReferences {
     fn decode_party(value: &str) -> Result<PartyId, BoxError> {
         value.parse().map_err(box_error)
@@ -27,4 +27,13 @@ pub fn decode(
 }
 pub fn encode(value: &DeliveryTerms) -> Result<serde_json::Value, BoxError> {
     shipping_json::encode::<PublicReferences>(value)
+}
+
+/// Complete public terms schema uses the authoritative codec with public TypeID references.
+pub fn schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    shipping_json::terms_schema(
+        generator,
+        crate::wire::schema::object_id(PartyId::PREFIX),
+        crate::wire::schema::object_id(PartyLocationId::PREFIX),
+    )
 }

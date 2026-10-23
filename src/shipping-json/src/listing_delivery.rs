@@ -14,21 +14,29 @@ pub trait DeliveryReferenceCodec: ShippingTermsReferenceCodec {
     fn decode_profile(value: &str) -> Result<ShippingProfileId, BoxError>;
     fn encode_profile(value: ShippingProfileId) -> String;
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum IntegrationData {
     Source {},
-    Provider { method: String },
+    Provider {
+        #[schemars(schema_with = "provider_method_schema")]
+        method: String,
+    },
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum SelectionData {
     InheritSourceDefault {},
-    Explicit { profile_id: String },
-    Inline { terms: serde_json::Value },
+    Explicit {
+        profile_id: String,
+    },
+    Inline {
+        #[schemars(with = "TermsData")]
+        terms: serde_json::Value,
+    },
     SuppressInheritance {},
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
     content = "value",
@@ -36,11 +44,13 @@ enum SelectionData {
     deny_unknown_fields
 )]
 enum OverrideData<T> {
+    #[schemars(transform = allow_null_unit_payload)]
     Inherit,
+    #[schemars(transform = allow_null_unit_payload)]
     Clear,
     Replace(T),
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct InputsData {
     #[serde(deserialize_with = "required")]
@@ -48,15 +58,17 @@ struct InputsData {
     #[serde(deserialize_with = "required")]
     variants: RequiredNullable<Vec<String>>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ClassesData {
     codes: Vec<String>,
+    #[schemars(schema_with = "fact_completeness_schema")]
     completeness: String,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct DeliveryData {
+    #[schemars(schema_with = "delivery_version_schema")]
     schema: String,
     source_id: String,
     integration: IntegrationData,
@@ -246,6 +258,85 @@ pub fn encode<C: DeliveryReferenceCodec>(
             "collection":encode_collection::<C>(&v.overrides().collection)?,
         }),
     )
+}
+
+/// Schema generated from the integration codec's DTO rather than a parallel transport model.
+pub fn integration_schema(generator: &mut SchemaGenerator) -> Schema {
+    generator.subschema_for::<IntegrationData>()
+}
+pub fn provider_method_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","enum":[ListingIngestionMethod::Shopify.as_str(),ListingIngestionMethod::Woocommerce.as_str()]})
+}
+
+/// Serde accepts either omitted content or explicit null for adjacent unit variants.
+pub fn allow_null_unit_payload(schema: &mut Schema) {
+    if let Some(properties) = schema
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        properties.insert("value".into(), serde_json::json!({"type":"null"}));
+    }
+}
+
+fn delivery_version_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","const":"LISTING_DELIVERY_V1"})
+}
+fn fact_completeness_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","enum":[FactCompleteness::Complete.as_str(), FactCompleteness::Partial.as_str()]})
+}
+/// The existing delivery DTOs own schema vocabulary; adapters supply their object references.
+pub fn selection_schema(generator: &mut SchemaGenerator, profile: Schema, terms: Schema) -> Schema {
+    let result = generator.subschema_for::<SelectionData>();
+    super::schema::references(generator, &[("profile_id", profile), ("terms", terms)]);
+    result
+}
+pub fn inputs_schema(generator: &mut SchemaGenerator) -> Schema {
+    generator.subschema_for::<InputsData>()
+}
+pub fn shipping_override_schema(
+    generator: &mut SchemaGenerator,
+    party: Schema,
+    location: Schema,
+) -> Schema {
+    let result = generator.subschema_for::<OverrideData<PolicyData>>();
+    super::schema::references(
+        generator,
+        &[("party_id", party), ("party_location_id", location)],
+    );
+    result
+}
+pub fn collection_override_schema(
+    generator: &mut SchemaGenerator,
+    party: Schema,
+    location: Schema,
+) -> Schema {
+    let result = generator.subschema_for::<OverrideData<CollectionData>>();
+    super::schema::references(
+        generator,
+        &[("party_id", party), ("party_location_id", location)],
+    );
+    result
+}
+pub fn delivery_schema(
+    generator: &mut SchemaGenerator,
+    source: Schema,
+    profile: Schema,
+    party: Schema,
+    location: Schema,
+    terms: Schema,
+) -> Schema {
+    let result = generator.subschema_for::<DeliveryData>();
+    super::schema::references(
+        generator,
+        &[
+            ("source_id", source),
+            ("profile_id", profile),
+            ("terms", terms),
+            ("party_id", party),
+            ("party_location_id", location),
+        ],
+    );
+    result
 }
 
 #[cfg(test)]

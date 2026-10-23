@@ -522,7 +522,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
       resources: [logGroupArnPattern],
     }),
   );
-  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
+  for (const producer of [functions.auraHistoriaApi, functions.auraHistoriaMcp, functions.shopify]) {
     producer.addToRolePolicy(new iam.PolicyStatement({
       actions: ["sqs:SendMessage"],
       resources: [props.queues.productListingIngestion.queue.queueArn],

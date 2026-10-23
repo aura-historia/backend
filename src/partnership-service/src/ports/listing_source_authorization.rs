@@ -9,6 +9,17 @@ pub struct AdministeredListingSource {
     pub name: ListingSourceName,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdministeredListingSourcePosition {
+    pub name: ListingSourceName,
+    pub listing_source_id: ListingSourceId,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdministeredListingSourcePage {
+    pub items: Vec<AdministeredListingSource>,
+    pub next: Option<AdministeredListingSourcePosition>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceAuthorizationError {
     #[error("temporary listing source authorization failure")]
@@ -38,5 +49,7 @@ pub trait ListingSourceAuthorization: Send + Sync {
     async fn list_sources_user_administers(
         &self,
         user_id: UserId,
-    ) -> Result<Vec<AdministeredListingSource>, SourceAuthorizationError>;
+        size: u32,
+        after: Option<&AdministeredListingSourcePosition>,
+    ) -> Result<AdministeredListingSourcePage, SourceAuthorizationError>;
 }

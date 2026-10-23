@@ -17,10 +17,13 @@ fxrate-service = { workspace = true }
 geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
+listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
+partnership-service = { workspace = true }
+party-core = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
@@ -32,6 +35,7 @@ search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+shipping-core = { workspace = true }
 shipping-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
@@ -45,17 +49,23 @@ uuid = { workspace = true, features = ["v4"] }
 watchlist-service = { workspace = true }
 
 [dev-dependencies]
+opensearch = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+product-listing-ingestion-lambda = { workspace = true }
+product-listing-ingestion-sqs = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 embedding = { workspace = true }
 platform-postgres = { workspace = true }
+product-listing-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
 jsonschema = { version = "0.59.0", default-features = false }
-listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-party-core = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+# Match the workspace JSON precision setting in focused MCP tests too.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 serial_test = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 sqlx = { workspace = true }

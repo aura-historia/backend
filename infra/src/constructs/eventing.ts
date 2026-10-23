@@ -408,7 +408,7 @@ function createSqsEventSources(
   }
   ingestionMapping.addResourceDependency(consumerPolicy.node.defaultChild as iam.CfnPolicy);
   // First creation must establish durable consumption before creating producer functions.
-  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
+  for (const producer of [functions.auraHistoriaApi, functions.auraHistoriaMcp, functions.shopify]) {
     (producer.node.defaultChild as lambda.CfnFunction).addResourceDependency(ingestionMapping);
   }
 

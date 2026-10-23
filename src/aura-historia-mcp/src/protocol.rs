@@ -1,4 +1,4 @@
-use crate::{InvocationContext, Registry};
+use crate::{InvocationContext, Registry, http::message::RawToolArguments};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     model::{
@@ -77,7 +77,22 @@ impl ServerHandler for ProtocolHandler {
             .cloned()
             .ok_or_else(|| ErrorData::internal_error("Request context unavailable", None))?;
         let _cancel_on_drop = metadata.cancellation.clone().drop_guard();
-        let arguments = serde_json::Value::Object(params.arguments.unwrap_or_default());
+        let raw = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<RawToolArguments>())
+            .filter(|raw| raw.name == params.name)
+            .ok_or_else(|| ErrorData::internal_error("Request arguments unavailable", None))?;
+        // The raw decoder and SDK must dispatch the same immutable call identity.
+        let projected: serde_json::Value = serde_json::from_str(raw.arguments.get())
+            .map_err(|_| ErrorData::internal_error("Request arguments unavailable", None))?;
+        if projected != serde_json::Value::Object(params.arguments.unwrap_or_default()) {
+            return Err(ErrorData::internal_error(
+                "Request arguments disagree",
+                None,
+            ));
+        }
+        let arguments = raw.arguments.clone();
         tokio::select! {
             _ = context.ct.cancelled() => Err(ErrorData::internal_error("Request cancelled", None)),
             _ = metadata.cancellation.cancelled() => Err(ErrorData::internal_error("Request cancelled", None)),

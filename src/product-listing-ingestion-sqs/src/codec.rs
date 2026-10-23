@@ -7,6 +7,7 @@ use application::{
     operation_context::{CorrelationId, RequestId},
     patch_field::PatchField,
 };
+use aura_historia_contracts::product_listing_delivery::WirePatch;
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -457,18 +458,6 @@ struct WirePricing {
     price_estimate_max: Option<WirePrice>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "state",
-    content = "value",
-    rename_all = "SCREAMING_SNAKE_CASE",
-    deny_unknown_fields
-)]
-pub(crate) enum WirePatch<T> {
-    Unchanged,
-    Clear,
-    Set(T),
-}
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WireAuction {
     auction_id: WirePatch<String>,
@@ -639,11 +628,7 @@ pub(crate) fn map_patch<T, U>(
     patch: WirePatch<T>,
     f: impl FnOnce(T) -> Result<U>,
 ) -> Result<PatchField<U>> {
-    Ok(match patch {
-        WirePatch::Unchanged => PatchField::Unchanged,
-        WirePatch::Clear => PatchField::Clear,
-        WirePatch::Set(value) => PatchField::Set(f(value)?),
-    })
+    patch.try_map(f)
 }
 fn auction(a: WireAuction) -> Result<ProductListingAuctionPatch> {
     let patch = ProductListingAuctionPatch {

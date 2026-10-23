@@ -12084,19 +12084,35 @@ paths:
   /v1/me/listing-sources:
     get:
       summary: List caller-administered ListingSources
-      description: Delegated Aura access tokens require `listing-sources:read`; missing scope returns `403 FORBIDDEN`.
+      description: >-
+        Live keyset page of the authenticated caller's currently granted sources, ordered by
+        source name (bytewise ascending) and unique ListingSource ID ascending. Every page
+        rechecks active partnership membership, source/operator eligibility and delegated
+        `listing-sources:read` capability. Continuations are versioned and bound to this actor
+        and ordering; they do not provide a snapshot. Unknown input fields are rejected.
       operationId: getMyListingSources
       tags:
         - ListingSources
+      parameters:
+        - in: query
+          name: size
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: after
+          description: Opaque next continuation from a preceding page for this authenticated caller.
+          schema: { type: string, maxLength: 4096 }
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AdministeredListingSourceData"
+                $ref: "#/components/schemas/AdministeredListingSourcesPageData"
+        "400":
+          description: Invalid size or continuation, including a continuation for another actor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
         "401":
           description: Problem response
           content:
@@ -24457,6 +24473,18 @@ components:
         updated:
           type: string
           format: date-time
+    AdministeredListingSourcesPageData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AdministeredListingSourceData"
+        next:
+          type: string
+          description: Opaque actor-bound continuation, absent when the page is complete. Pass as after.
     AdministeredListingSourceData:
       type: object
       required:

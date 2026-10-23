@@ -622,8 +622,10 @@ async fn should_approve_existing_source_and_expose_granted_source_authorization(
         authorization.can_write_source(user_id, source_id).await,
         Ok(true)
     ));
-    let administered = authorization.list_sources_user_administers(user_id).await;
-    assert!(matches!(administered, Ok(sources) if sources.len() == 1));
+    let administered = authorization
+        .list_sources_user_administers(user_id, 50, None)
+        .await;
+    assert!(matches!(administered, Ok(sources) if sources.items.len() == 1));
 
     let dissolved =
         sqlx::query("UPDATE partnerships SET business_state = 'DISSOLVED' WHERE party_id = $1")
@@ -635,10 +637,12 @@ async fn should_approve_existing_source_and_expose_granted_source_authorization(
         authorization.can_write_source(user_id, source_id).await,
         Ok(false)
     ));
-    let administered_after_dissolution = authorization.list_sources_user_administers(user_id).await;
+    let administered_after_dissolution = authorization
+        .list_sources_user_administers(user_id, 50, None)
+        .await;
     assert!(matches!(
         administered_after_dissolution,
-        Ok(sources) if sources.is_empty()
+        Ok(sources) if sources.items.is_empty()
     ));
     assert_eq!(1, count(&pool, "parties").await);
     assert_eq!(1, count(&pool, "listing_sources").await);

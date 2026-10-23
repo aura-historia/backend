@@ -51,7 +51,11 @@ pub async fn update_admin_product_listing(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let command = parse_id(&raw_id).and_then(|id| parse_body::<UpdateData>(body)?.into_command(id));
+    let command = parse_id(&raw_id).and_then(|id| {
+        parse_body::<UpdateData>(body)?
+            .into_command(id)
+            .map_err(ApiError::from)
+    });
     let command = match command {
         Ok(command) => command,
         Err(error) => return error.into_response(),

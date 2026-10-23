@@ -76,3 +76,35 @@ Watchlist entry, mutation, list query and paged personalized-detail contracts li
 REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
 patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
 compare schema validation with the complete input mapping, including null and omission rules.
+
+Authoritative administrator/partner listing management DTOs, query/cursor validation and mutation
+mapping live in `product_listing_management`. `product_listing_fields` owns the one Auction/lot
+patch representation and pure Auction/image conversions reused by management and ingestion.
+Their typed validation errors contain no HTTP behavior. Granted-source discovery has its distinct
+complete DTO and actor-bound page codec under `listing_sources::administered`.
+
+Shipping profile/default contracts live under `shipping::management`; `shipping::imports` owns the
+provenance DTO also re-exported by asynchronous listing ingestion. `shipping::terms::schema` exposes
+the complete authoritative terms schema with public references for other operation families.
+[Shipping fixtures](tests/shipping_management.rs) compare both schema directions with actual codecs,
+including public TypeIDs versus persisted UUIDs, required nulls, complete terms and import metadata.
+
+Protected party-location management DTOs and pure command/view mappings live in
+`party_locations::management`; source-default references and applicability evidence live in
+`listing_sources::location_default`. REST and MCP preserve their full fields, revision codecs,
+patch null rules and bounded location pages. Management `GeographyData`/`PositionData` remain
+separate from public `GeographicSearchData`. The [location contract tests](tests/location_management.rs)
+check actual JSON against schemas, including nullable clears and retained evidence.
+
+Source-keyed integration item DTOs and HTTP-free conversions live in `partner_product_listings`.
+Synchronous `prepare_batch` validates every item before exposing command values; asynchronous
+adapters reuse individual converters while retaining their independent per-item validation.
+The same family owns indexed synchronous mutation reports and full create/update/upsert/withdraw
+fields, reusing `product_listing_fields` for Auction/lot and image representations.
+
+`product_listing_delivery` owns the shared source-keyed delivery command, pure codec and
+read/change result mappings. The ingestion adapter retains compatibility delegates to that
+single owner. Delivery schemas use the shipping codec's DTOs, public reference schemas,
+`shipping::terms::schema` and `shipping::imports::ImportData`; they preserve tagged patch
+states independently of ordinary listing patch omission/null. The [delivery contract tests](tests/product_listing_delivery.rs)
+cover full terms, references, imports, versions, explicit nulls and serialized outcomes.

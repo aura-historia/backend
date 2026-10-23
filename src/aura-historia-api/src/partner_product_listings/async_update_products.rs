@@ -536,4 +536,55 @@ mod tests {
         .await;
         assert_eq!(mixed.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn should_preserve_rest_failure_echo_limits_and_complete_admission_response() {
+        let app = app(
+            Publisher {
+                size: true,
+                ..Default::default()
+            },
+            true,
+        );
+        let short = "a".repeat(128);
+        let long = "b".repeat(129);
+        let body = json!([
+            {"sourceListingId":short},
+            {"sourceListingId":long},
+            {"sourceListingId":"é".repeat(256)},
+            {"sourceListingId":format!("{}trimmed", " ".repeat(129))},
+            {"sourceListingId":"line\nbreak"},
+            {"sourceListingId":long,"images":null},
+            {"sourceListingId":short,"images":null}
+        ])
+        .to_string();
+        let response = request(
+            &app,
+            &path(ListingSourceId::new()),
+            &body,
+            Some("echo-parity"),
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()["idempotency-key"], "echo-parity");
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+        let body = report(response).await;
+        assert_eq!(
+            body,
+            json!({
+                "submissionId": body["submissionId"],
+                "acceptedCount":0,
+                "failures":[
+                    {"index":0,"sourceListingId":short,"error":"PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE","retryable":false},
+                    {"index":1,"error":"PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE","retryable":false},
+                    {"index":2,"error":"PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE","retryable":false},
+                    {"index":3,"error":"PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE","retryable":false},
+                    {"index":4,"error":"PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE","retryable":false},
+                    {"index":5,"error":"BAD_BODY_VALUE","retryable":false},
+                    {"index":6,"sourceListingId":short,"error":"BAD_BODY_VALUE","retryable":false}
+                ]
+            })
+        );
+    }
 }

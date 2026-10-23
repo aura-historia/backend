@@ -1,4 +1,4 @@
-use aura_historia_mcp::{RotatingMcpRouter, TransportConfig, mcp_router};
+use aura_historia_mcp::{McpDependencies, RotatingMcpRouter, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, RotatingRuntime, Runtime};
 use platform_lambda_bootstrap::materialize_google_application_credentials_from_env;
 use platform_observability::{LoggingConfig, init_with_directives};
@@ -34,7 +34,8 @@ fn main() -> Result<(), MainError> {
             } else {
                 let address = transport.bind_addr;
                 let runtime = Runtime::from_env().await?;
-                let app = mcp_router(transport, &listing_config, &runtime)?;
+                let dependencies = McpDependencies::from_env(&listing_config).await?;
+                let app = mcp_router(transport, &runtime, dependencies)?;
                 let listener = tokio::net::TcpListener::bind(address).await?;
                 axum::serve(listener, app)
                     .with_graceful_shutdown(shutdown())

@@ -8,6 +8,26 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - **Breaking change:** detail by ID/slug and the watchlist update response keep effective terms in a read representation without `schema`, null assertions, dispatch origins or collection sites. A converted value appears as `display_price` beside the source `price`, with one shared `display` valuation only when a value was converted. `userState.shipping` keeps a minimal `destination` and lists self-contained `options` naming their service and rate; `charge` appears only when calculable.
 - Listing reads no longer return `listingRevision`, `sourceRevision`, `defaultRevision`, `profile`, `listingEvidence`, `evaluatedAt`, `shippingReasons`, `collectionReasons`, `notices`, `reasons`, `applicability`, `selectedZone`, `serviceIndex`, `bindingQuote` or `completeLandedCost`. Absent optional values are omitted instead of serialized as null, and `item.shipping` is omitted when nothing is asserted. MCP tools share these shapes and generated output schemas. Shipping management, delivery configuration, import and write protocols are unchanged. See [shipping](shipping.md#shipping-on-listing-reads) and [OpenAPI](swagger.yaml).
 
+## 2026-10-23 — Complete partner MCP catalogue (#2255)
+
+- Compose the 36 selected partner tools with the existing 38 public and private-user tools in one 74-operation catalogue. Clients must follow `tools/list` continuation across both pages. Partner tools retain current delegated scopes and service-owned source/party authority, complete shared contracts, version checks and explicit partial/admission outcomes. WooCommerce secret configuration remains excluded. See the [partner manifest](../src/aura-historia-mcp/partner-operations.json) and [workflow and retry contract](mcp.md#partner-workflow).
+
+## 2026-10-23 — Listing delivery MCP family (#2254)
+
+- Define source-keyed delivery inspection, versioned change and single-command asynchronous submission through the existing application services. Shared contracts preserve every delivery field, public reference, import, version and outcome. Admission retains the full source-local identity and shared retry/uncertainty report without claiming committed mutation. See the [delivery tool contract](mcp.md#listing-delivery-management).
+
+## 2026-10-23 — Partner ingestion MCP family (#2253)
+
+- Define four asynchronous listing admission tools and non-secret Shopify configuration through the existing application use cases. Admission reports preserve original positions, effective retry keys and published/rejected/not-attempted/unknown outcomes; queue admission is distinct from committed state. Raw MCP arguments retain strict DTO duplicate-field validation. REST response bodies and key headers remain stable. WooCommerce configuration remains excluded. See the [ingestion contract](mcp.md#asynchronous-partner-ingestion-and-shopify-configuration).
+
+## 2026-10-23 — Shared synchronous partner listing batches (#2252)
+
+- Add the four synchronous partner batch MCP family operations with complete shared REST item contracts. Results explicitly distinguish completed, partial and failed execution and retain original indices, source IDs, successful identities and safe per-item failures. All input conversion precedes writes; items execute sequentially in independent transactions. See the [batch contract](mcp.md#synchronous-partner-listing-batches).
+
+## 2026-10-23 — Granted listing-source pages (#2249)
+
+- **Breaking development change:** `GET /v1/me/listing-sources` (`getMyListingSources`) returns `{ items, next? }` instead of an array. It accepts `size` (default 50, range 1–100) and opaque `after`; callers must follow `next` until absent to enumerate every eligible source. Every page rechecks current grants and delegated `listing-sources:read`; continuations are bound to the authenticated actor and stable source-name/ID ordering. The browser source selector must consume this page contract.
+
 ## 2026-10-21 — Authenticated MCP and Aura OAuth (#2228)
 
 - The stable MCP endpoint now exposes 38 operations: the existing 12 public tools plus 9 own-account/address/destination, 7 saved-search/match-feedback, 4 watchlist and 6 notification tools. Protected families retain complete shared REST contracts, independent read/write scopes, ownership, quotas, pagination and version conflicts. Mutations preserve their existing retry semantics and are never automatically retried. See the [MCP contract](mcp.md) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).

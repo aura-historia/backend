@@ -1,7 +1,9 @@
 mod headers;
+pub(crate) mod message;
 mod response;
 
 use headers::*;
+use message::{DecodedMessage, decode_message};
 pub(crate) use response::deadline_response;
 use response::{finalize_response, protocol_error};
 
@@ -14,7 +16,7 @@ use crate::{
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     Router,
-    body::{Body, Bytes, to_bytes},
+    body::{Body, to_bytes},
     extract::{Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
@@ -174,6 +176,7 @@ async fn admitted_request(
         body,
         method,
         id,
+        arguments,
     } = message;
     if let Err(response) = validate_message_headers(&parts.headers, &body, &method, &id) {
         return *response;
@@ -210,6 +213,9 @@ async fn admitted_request(
     }
     let correlation = context.operation.correlation_id.as_str().to_owned();
     parts.extensions.insert(context);
+    if let Some(arguments) = arguments {
+        parts.extensions.insert(arguments);
+    }
     if Instant::now() >= deadline {
         return deadline_response();
     }
@@ -323,13 +329,6 @@ fn validate_http_request(request: &Request, config: &TransportConfig) -> Result<
     Ok(())
 }
 
-struct DecodedMessage {
-    bytes: Bytes,
-    body: Value,
-    method: String,
-    id: Value,
-}
-
 async fn read_message(body: Body, limit: usize) -> Result<DecodedMessage, Box<Response>> {
     let bytes = match to_bytes(body, limit).await {
         Ok(bytes) => bytes,
@@ -355,50 +354,6 @@ async fn read_message(body: Body, limit: usize) -> Result<DecodedMessage, Box<Re
         }
     };
     decode_message(bytes)
-}
-
-fn decode_message(bytes: Bytes) -> Result<DecodedMessage, Box<Response>> {
-    let body: Value = match serde_json::from_slice(&bytes) {
-        Ok(body) => body,
-        Err(_) => {
-            return Err(Box::new(protocol_error(
-                StatusCode::BAD_REQUEST,
-                -32700,
-                "Invalid JSON",
-                Value::Null,
-            )));
-        }
-    };
-    let Some(method) = body
-        .get("method")
-        .and_then(Value::as_str)
-        .filter(|_| body.get("jsonrpc") == Some(&json!("2.0")))
-    else {
-        return Err(Box::new(protocol_error(
-            StatusCode::BAD_REQUEST,
-            -32600,
-            "Expected one JSON-RPC request or notification",
-            Value::Null,
-        )));
-    };
-    let method = method.to_owned();
-    let id = body.get("id").cloned().unwrap_or(Value::Null);
-    if body.get("id").is_some()
-        && serde_json::from_value::<rmcp::model::RequestId>(id.clone()).is_err()
-    {
-        return Err(Box::new(protocol_error(
-            StatusCode::BAD_REQUEST,
-            -32600,
-            "Invalid JSON-RPC request ID",
-            Value::Null,
-        )));
-    }
-    Ok(DecodedMessage {
-        bytes,
-        body,
-        method,
-        id,
-    })
 }
 
 async fn admit(

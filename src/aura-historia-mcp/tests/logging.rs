@@ -20,6 +20,14 @@ fn should_keep_protocol_payloads_out_of_binary_logs_even_with_verbose_environmen
         .env("POSTGRES_PASSWORD", "fixture-password")
         .env("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem")
         .env("STAGE", "ephemeral")
+        .env(
+            "PRODUCT_LISTING_INGESTION_QUEUE_URL",
+            "http://127.0.0.1:9/fixture.fifo",
+        )
+        .env("AWS_REGION", "eu-central-1")
+        .env("AWS_ACCESS_KEY_ID", "fixture")
+        .env("AWS_SECRET_ACCESS_KEY", "fixture")
+        .env("AWS_EC2_METADATA_DISABLED", "true")
         .env("OAUTH_ISSUER_URL", "https://api.stage.aura-historia.com")
         .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
         .env("MCP_BIND_ADDR", address.to_string())

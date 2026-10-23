@@ -157,6 +157,27 @@ The admin directory supports source/source-local identity; the partner directory
 
 Later accepted ingestion can overwrite eligible management corrections, and upsert can restore a withdrawal. These operations do not establish permanent overrides or immediate permanent takedowns. After a lost response, refetch and reconcile state/version before another command.
 
+## Synchronous integration batches
+
+Source-keyed collection POST/PATCH/PUT/DELETE accept at most 100 items, including an
+empty array after authentication. Both REST and MCP deserialize and convert the complete
+batch before the first mutation: a malformed later item causes zero writes. Asynchronous
+admission deliberately validates individual items independently, as described below.
+
+The shared service processes original order, including repeated source-local listing IDs.
+Each item uses its existing authorization and transaction; a database or business failure
+is reported for that item and execution continues. Prior successful commits remain in
+place. There is no whole-batch transaction, automatic retry or generic idempotency key.
+After an ambiguous timeout, inspect current state before deciding what to submit again.
+
+REST retains its failure-list contract: an authenticated empty or fully successful batch
+returns `200 []`; partial success returns `200` with failed source keys and existing error
+codes. If every item fails, the first item's complete HTTP error determines the response.
+MCP reports original zero-based indices, submitted source IDs, successful listing identities
+and individual safe failures; its explicit status distinguishes completion, partial success
+and all-failed execution. The [MCP contract](mcp.md#synchronous-partner-listing-batches) owns
+that envelope. Exact REST item fields and statuses remain in [OpenAPI](swagger.yaml).
+
 ## Asynchronous ingestion submission
 
 **Typed intent → confirmed FIFO admission → atomic command application and receipt → downstream work.** Admission is never business completion.

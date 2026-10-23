@@ -275,10 +275,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(data.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
   });
 
-  test("limits command ingress IAM to two publishers and one source-only consumer", () => {
+  test("limits command ingress IAM to three publishers and one source-only consumer", () => {
     const sourceName = `product-listing-ingestion-queue-${stage}.fifo`;
     const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
-    const producerNames = [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`];
+    const producerNames = [`aura-historia-api-${stage}`, `aura-historia-mcp-${stage}`, `shopify-lambda-${stage}`];
     const consumer = ingressFunction(compute, `product-listing-ingestion-lambda-${stage}`);
     const expectedQueueUrl = { "Fn::Sub": [
       "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
@@ -304,7 +304,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .flatMap(([id, policy]) => policy.Properties.PolicyDocument.Statement
         .filter((statement: { Resource: unknown }) => JSON.stringify(statement.Resource) === JSON.stringify(sourceArn))
         .map((statement: { Action: unknown }) => ({ id, action: statement.Action })));
-    expect(ingressGrants).toHaveLength(3);
+    expect(ingressGrants).toHaveLength(4);
     expect(ingressGrants).toEqual(expect.arrayContaining([
       ...producerNames.map((name) => ({ id: ingressFunction(compute, name).policyId, action: "sqs:SendMessage" })),
       { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
@@ -349,7 +349,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       ScalingConfig: { MaximumConcurrency: 2 },
     });
     expect(mapping.DependsOn).toContain(consumer.policyId);
-    for (const name of [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`]) {
+    for (const name of [`aura-historia-api-${stage}`, `aura-historia-mcp-${stage}`, `shopify-lambda-${stage}`]) {
       expect(ingressFunction(compute, name).resource.DependsOn).toContain(mappingId);
     }
     const logGroups = Object.entries(compute.findResources("AWS::Logs::LogGroup"))

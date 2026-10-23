@@ -37,7 +37,7 @@ pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
         ShippingDestination(error) => crate::shipping_error::destination(error),
         AuthenticatedActorRequired | ActorMayNotManageSearchFilter => OperationError::Forbidden,
         UserNotFound => OperationError::NotFound,
-        SearchFilterAlreadyExists => OperationError::Conflict,
+        SearchFilterAlreadyExists => OperationError::Conflict(None),
         SearchFilterQuotaExceeded { .. } => OperationError::SearchFilterQuotaExceeded,
         SearchFilterFeatureRestricted { .. } => OperationError::SearchFilterRestrictedFeature,
         error @ PersistedSearchFilterStateInvalid { .. } => {
@@ -67,7 +67,7 @@ pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
         InvalidSearchFilterPatch => OperationError::InvalidInput,
         SearchFilterQuotaExceeded { .. } => OperationError::SearchFilterQuotaExceeded,
         SearchFilterFeatureRestricted { .. } => OperationError::SearchFilterRestrictedFeature,
-        SearchFilterConcurrencyConflict => OperationError::Conflict,
+        SearchFilterConcurrencyConflict => OperationError::Conflict(None),
         error @ PersistedSearchFilterStateInvalid { .. } => {
             OperationError::Internal(box_error(error))
         }
