@@ -351,6 +351,41 @@ async fn should_keep_one_original_item_full_identity_effective_keys_and_stable_r
     );
     assert!(services.writes.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn should_match_submission_key_schema_and_runtime_for_omission_null_and_values() {
+    let (registry, _, publisher) = fixture(ChangeOutcome::Unchanged);
+    let schema = serde_json::to_value(&registry.get(SUBMIT).unwrap().tool().input_schema).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let source = ListingSourceId::new();
+    for key in [None, Some(Value::Null), Some(json!("explicit-key"))] {
+        let mut args = input(source, "opaque");
+        if let Some(key) = &key {
+            args["idempotencyKey"] = key.clone();
+        }
+        assert!(validator.is_valid(&args), "{args}");
+        let report = call(&registry, SUBMIT, args, context()).await.unwrap();
+        match key {
+            Some(Value::String(key)) => assert_eq!(report["idempotencyKey"], key),
+            _ => assert!(
+                report["idempotencyKey"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("generated-")
+            ),
+        }
+    }
+    for key in [json!(1), json!({}), json!([]), json!(true)] {
+        let mut args = input(source, "opaque");
+        args["idempotencyKey"] = key;
+        assert!(!validator.is_valid(&args));
+        assert!(matches!(
+            call(&registry, SUBMIT, args, context()).await,
+            Err(OperationError::InvalidArguments(_))
+        ));
+    }
+    assert_eq!(publisher.0.lock().unwrap().len(), 3);
+}
 #[tokio::test]
 async fn should_keep_unknown_unsent_and_rejected_admission_distinct_from_committed_mutation() {
     let (registry, services, publisher) = fixture(ChangeOutcome::Unchanged);

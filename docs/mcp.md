@@ -636,6 +636,10 @@ integration, selection, rate inputs, tagged patches, whole-component overrides,
 public profile/Party/location references and import provenance. The
 [listing contract](product-listing.md#listing-delivery-assertions) and
 [shipping contract](shipping.md) own their semantics.
+Delivery commands reject duplicate fields, including nested terms, overrides and rate
+inputs, before invoking a use case.
+Tagged unit patches and component overrides accept omitted or explicitly null `value`
+payloads, matching the shared codec.
 
 The synchronous change returns `CHANGED` or `UNCHANGED` and the resulting version.
 Existing use cases recheck current source authority and referenced dependencies,

@@ -8,7 +8,7 @@ use serde::{
     },
 };
 use serde_json::{Error, Value, value::RawValue};
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 pub(crate) fn decode<T: DeserializeOwned>(raw: Box<RawValue>) -> Result<T, Error> {
     // RawValue containers defer their children. Check the complete JSON first so that
@@ -36,7 +36,11 @@ impl<'de> Deserialize<'de> for Object<'de> {
             }
             fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Object<'de>, M::Error> {
                 let mut entries = Vec::new();
+                let mut keys = HashSet::new();
                 while let Some((key, raw)) = map.next_entry::<String, &'de RawValue>()? {
+                    if !keys.insert(key.clone()) {
+                        return Err(serde::de::Error::custom("duplicate argument object field"));
+                    }
                     // Number's internal map visits arise only from scalar decoding below.
                     // A caller object must not become a scalar inside an opaque Value.
                     if key == "$serde_json::private::Number" {
@@ -239,6 +243,14 @@ mod tests {
             assert!(decode::<Flattened>(raw(input)).is_err());
         }
         assert!(decode::<Value>(raw(r#"{"$serde_json::private::Number":"52.125"}"#)).is_err());
+    }
+
+    #[test]
+    fn should_reject_duplicate_fields_inside_opaque_values() {
+        let input = r#"{"coordinate":52.125,"amount":1,"cursor":{"nested":{"kind":"SOURCE","kind":"SOURCE"}}}"#;
+        assert!(decode::<Numbers>(raw(input)).is_err());
+        assert!(decode::<Flattened>(raw(input)).is_err());
+        assert!(decode::<Value>(raw(input)).is_err());
     }
 
     #[test]

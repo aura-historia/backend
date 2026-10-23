@@ -272,3 +272,166 @@ async fn should_recheck_grants_for_reads_equal_changes_and_later_application_aft
         Err(ProductListingDeliveryError::Forbidden)
     ));
 }
+
+#[aura_integration_test(services=[SCHEMA], isolated=true)]
+async fn should_recheck_membership_and_source_operator_for_reads_and_equal_changes() {
+    let pool = get_postgres_client().await;
+    let (party, source) = source(&pool).await;
+    let ctx = context();
+    let Principal::DelegatedUser { user_id, .. } = ctx.operation.principal else {
+        panic!("delegated")
+    };
+    grant(&pool, user_id, party, source).await;
+    let runtime = Runtime::from_pool(pool.clone());
+    let id = create(&runtime, source, "painting", &ctx).await;
+    let registry = registry(&runtime, Publisher::default());
+    call(
+        &registry,
+        CHANGE,
+        prohibition(source, "painting", 1),
+        ctx.clone(),
+    )
+    .await
+    .unwrap();
+    let partnership: uuid::Uuid = sqlx::query_scalar(
+        "DELETE FROM partnership_members WHERE user_id=$1 RETURNING partnership_id",
+    )
+    .bind(user_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for operator_changed in [false, true] {
+        if operator_changed {
+            sqlx::query("INSERT INTO partnership_members(partnership_id,user_id) VALUES($1,$2)")
+                .bind(partnership)
+                .bind(user_id.into_uuid())
+                .execute(&pool)
+                .await
+                .unwrap();
+            let (other, _) = self::source(&pool).await;
+            sqlx::query(
+                "UPDATE listing_sources SET operator_party_id=$1 WHERE listing_source_id=$2",
+            )
+            .bind(other)
+            .bind(source.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert!(matches!(
+            call(
+                &registry,
+                GET,
+                json!({"listingSourceId":source,"sourceListingId":"painting"}),
+                ctx.clone()
+            )
+            .await,
+            Err(OperationError::Forbidden)
+        ));
+        assert!(matches!(
+            call(
+                &registry,
+                CHANGE,
+                prohibition(source, "painting", 2),
+                ctx.clone()
+            )
+            .await,
+            Err(OperationError::Forbidden)
+        ));
+    }
+    let version: i64 =
+        sqlx::query_scalar("SELECT version FROM product_listings WHERE product_listing_id=$1")
+            .bind(id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(version, 2);
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated=true)]
+async fn should_replay_exact_committed_imports_with_current_version_after_authority_checks() {
+    let pool = get_postgres_client().await;
+    let (party, source) = source(&pool).await;
+    let ctx = context();
+    let Principal::DelegatedUser { user_id, .. } = ctx.operation.principal else {
+        panic!("delegated")
+    };
+    grant(&pool, user_id, party, source).await;
+    let runtime = Runtime::from_pool(pool.clone());
+    let id = create(&runtime, source, "painting", &ctx).await;
+    let registry = registry(&runtime, Publisher::default());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../../docs/fixtures/shipping-imports.json"
+    ))
+    .unwrap();
+    let mut args = fixture["membership"].clone();
+    args["import"]["acquiredAt"] = json!(
+        time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+    );
+    args["delivery"]["value"]["selection"]["value"]["kind"] = json!("SUPPRESS_INHERITANCE");
+    args["listingSourceId"] = json!(source);
+    args["sourceListingId"] = json!("painting");
+    let result = call(&registry, CHANGE, args.clone(), ctx.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        json!({"productListingId":id,"expectedVersion":2,"outcome":"CHANGED"})
+    );
+    let receipts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM shipping_import_request_fences WHERE listing_source_id=$1",
+    )
+    .bind(source.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipts, 1);
+    call(
+        &registry,
+        CHANGE,
+        prohibition(source, "painting", 2),
+        ctx.clone(),
+    )
+    .await
+    .unwrap();
+    let retry = call(&registry, CHANGE, args.clone(), ctx.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        retry,
+        json!({"productListingId":id,"expectedVersion":3,"outcome":"UNCHANGED"})
+    );
+    let current = call(
+        &registry,
+        GET,
+        json!({"listingSourceId":source,"sourceListingId":"painting"}),
+        ctx.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(current["expectedVersion"], 3);
+    assert_eq!(
+        current["delivery"]["shipping"],
+        json!({"kind":"REPLACE","value":{"kind":"PROHIBITED"}})
+    );
+    let events: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id=$1 AND event_group='DOMAIN'")
+        .bind(id.into_uuid()).fetch_one(&pool).await.unwrap();
+    assert_eq!(events, 3);
+    let mut changed_retry = args.clone();
+    changed_retry["expectedVersion"] = json!(3);
+    assert!(matches!(
+        call(&registry, CHANGE, changed_retry, ctx.clone()).await,
+        Err(OperationError::Conflict(_))
+    ));
+    sqlx::query("DELETE FROM partnership_members WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        call(&registry, CHANGE, args, ctx).await,
+        Err(OperationError::Forbidden)
+    ));
+}

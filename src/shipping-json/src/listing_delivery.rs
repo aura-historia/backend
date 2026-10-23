@@ -44,7 +44,9 @@ enum SelectionData {
     deny_unknown_fields
 )]
 enum OverrideData<T> {
+    #[schemars(transform = allow_null_unit_payload)]
     Inherit,
+    #[schemars(transform = allow_null_unit_payload)]
     Clear,
     Replace(T),
 }
@@ -264,6 +266,16 @@ pub fn integration_schema(generator: &mut SchemaGenerator) -> Schema {
 }
 pub fn provider_method_schema(_: &mut SchemaGenerator) -> Schema {
     schemars::json_schema!({"type":"string","enum":[ListingIngestionMethod::Shopify.as_str(),ListingIngestionMethod::Woocommerce.as_str()]})
+}
+
+/// Serde accepts either omitted content or explicit null for adjacent unit variants.
+pub fn allow_null_unit_payload(schema: &mut Schema) {
+    if let Some(properties) = schema
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        properties.insert("value".into(), serde_json::json!({"type":"null"}));
+    }
 }
 
 fn delivery_version_schema(_: &mut SchemaGenerator) -> Schema {

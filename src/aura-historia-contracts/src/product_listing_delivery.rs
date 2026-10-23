@@ -167,7 +167,9 @@ pub fn encode_command(c: &ChangeProductListingDeliveryCommand) -> Result<Value, 
     deny_unknown_fields
 )]
 pub enum WirePatch<T> {
+    #[schemars(transform = listing_delivery::allow_null_unit_payload)]
     Unchanged,
+    #[schemars(transform = listing_delivery::allow_null_unit_payload)]
     Clear,
     Set(T),
 }
@@ -253,7 +255,12 @@ fn patch_schema(generator: &mut SchemaGenerator, value: Schema) -> Schema {
     let mut schema = WirePatch::<Value>::json_schema(generator);
     if let Some(variants) = schema.get_mut("oneOf").and_then(Value::as_array_mut) {
         for variant in variants {
-            if let Some(target) = variant.pointer_mut("/properties/value") {
+            if variant
+                .pointer("/properties/state/const")
+                .and_then(Value::as_str)
+                == Some("SET")
+                && let Some(target) = variant.pointer_mut("/properties/value")
+            {
                 *target = value.as_value().clone();
             }
         }

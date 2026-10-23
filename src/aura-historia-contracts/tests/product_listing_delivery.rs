@@ -235,3 +235,138 @@ fn should_preserve_null_current_view_positive_versions_and_changed_or_unchanged_
         );
     }
 }
+
+#[test]
+fn should_require_delivery_command_fields_and_reject_null_values() {
+    let schema = validator::<CommandData>(false);
+    let original = full();
+    for pointer in ["", "/delivery/value"] {
+        let fields: &[&str] = if pointer.is_empty() {
+            &["expectedVersion", "delivery"]
+        } else {
+            &[
+                "integration",
+                "selection",
+                "rateInputs",
+                "shipping",
+                "collection",
+            ]
+        };
+        for field in fields {
+            for omission in [true, false] {
+                let mut value = original.clone();
+                let object = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
+                if omission {
+                    object.remove(*field);
+                } else {
+                    object.insert((*field).into(), Value::Null);
+                }
+                assert!(
+                    !schema.is_valid(&value),
+                    "{pointer}/{field}, omission={omission}"
+                );
+                assert!(decode_command(value, key()).is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn should_require_nullable_rate_input_facts_in_schema_and_runtime() {
+    let schema = validator::<CommandData>(false);
+    for field in ["classes", "variants"] {
+        let mut value = full();
+        value["delivery"]["value"]["rateInputs"]["value"][field] = Value::Null;
+        assert!(schema.is_valid(&value));
+        assert!(decode_command(value.clone(), key()).is_ok());
+        value["delivery"]["value"]["rateInputs"]["value"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(!schema.is_valid(&value));
+        assert!(decode_command(value, key()).is_err());
+    }
+}
+
+#[test]
+fn should_accept_omitted_and_null_import_provenance_fields_in_schema_and_runtime() {
+    let schema = validator::<CommandData>(false);
+    for field in ["import", "import/objectKey", "import/observation"] {
+        for omission in [true, false] {
+            let mut value = full();
+            let (parent, name) = field.rsplit_once('/').map_or(("", field), |(p, n)| (p, n));
+            let pointer = if parent.is_empty() {
+                String::new()
+            } else {
+                format!("/{parent}")
+            };
+            let object = value
+                .pointer_mut(&pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap();
+            if omission {
+                object.remove(name);
+            } else {
+                object.insert(name.into(), Value::Null);
+            }
+            assert!(schema.is_valid(&value), "{field}, omission={omission}");
+            assert!(decode_command(value, key()).is_ok());
+        }
+    }
+}
+
+#[test]
+fn should_match_tagged_patch_payloads_for_omission_null_and_values() {
+    let schema = validator::<CommandData>(false);
+    for state in ["UNCHANGED", "CLEAR", "SET"] {
+        for payload in [None, Some(Value::Null), Some(json!({})), Some(json!(1))] {
+            let mut value = json!({"expectedVersion":1,"delivery":{"state":state}});
+            if let Some(payload) = payload {
+                value["delivery"]["value"] = payload;
+            }
+            assert_eq!(
+                schema.is_valid(&value),
+                decode_command(value.clone(), key()).is_ok(),
+                "{value}"
+            );
+        }
+    }
+    for field in ["selection", "rateInputs", "shipping", "collection"] {
+        for state in ["UNCHANGED", "CLEAR", "SET"] {
+            for payload in [None, Some(Value::Null), Some(json!({})), Some(json!(1))] {
+                let mut value = full();
+                value["delivery"]["value"][field] = json!({"state":state});
+                if let Some(payload) = payload {
+                    value["delivery"]["value"][field]["value"] = payload;
+                }
+                assert_eq!(
+                    schema.is_valid(&value),
+                    decode_command(value.clone(), key()).is_ok(),
+                    "{value}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn should_match_shipping_and_collection_override_payloads_for_omission_null_and_values() {
+    let schema = validator::<CommandData>(false);
+    for field in ["shipping", "collection"] {
+        for kind in ["INHERIT", "CLEAR", "REPLACE"] {
+            for payload in [None, Some(Value::Null), Some(json!({})), Some(json!(1))] {
+                let mut value = full();
+                value["delivery"]["value"][field] = json!({"state":"SET","value":{"kind":kind}});
+                if let Some(payload) = payload {
+                    value["delivery"]["value"][field]["value"]["value"] = payload;
+                }
+                assert_eq!(
+                    schema.is_valid(&value),
+                    decode_command(value.clone(), key()).is_ok(),
+                    "{value}"
+                );
+            }
+        }
+    }
+}
