@@ -15,6 +15,11 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 fn should_verify_generic_oauth_and_real_hybrid_mcp() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["mcp_oauth::cases::", "--ignored", "--nocapture"])
+        // This parent owns no lease; the child batch allocates its own bounded contexts.
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_RUN_ID")
+        .env_remove("NEXTEST_TEST_GLOBAL_SLOT")
+        .env_remove("NEXTEST_EXECUTION_MODE")
         .env("STAGE", "ephemeral")
         .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
         .output()

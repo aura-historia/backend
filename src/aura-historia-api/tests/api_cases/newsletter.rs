@@ -5,7 +5,7 @@ use test_api::{IntegrationTestService, aura_integration_test};
 use user_core::access_token::Scope;
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_request_newsletter_confirmation_anonymously() {
     let response = reqwest::Client::new()
         .put(format!(
@@ -34,7 +34,7 @@ async fn should_request_newsletter_confirmation_anonymously() {
     assert!(response.bytes().await.unwrap_or_default().is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -67,7 +67,7 @@ async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_route_anonymous_newsletter_confirmation_without_authentication() {
     let response = reqwest::Client::new()
         .post(format!(
@@ -90,7 +90,7 @@ async fn should_route_anonymous_newsletter_confirmation_without_authentication()
     assert!(response.bytes().await.unwrap_or_default().is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_newsletter_request_body() {
     let response = reqwest::Client::new()
         .put(format!(
@@ -115,7 +115,7 @@ async fn should_reject_invalid_newsletter_request_body() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_map_transport_oversized_newsletter_body_to_bad_body_value() {
     for (method, path) in [
         (reqwest::Method::PUT, "/v1/newsletter-subscriptions"),
@@ -124,13 +124,7 @@ async fn should_map_transport_oversized_newsletter_body_to_bad_body_value() {
             "/v1/newsletter-subscriptions/confirm",
         ),
     ] {
-        let response = reqwest::Client::new()
-            .request(method, format!("{}{}", AURA_API.base_url(), path))
-            .header("content-type", "application/json")
-            .body("x".repeat(1_048_577))
-            .send()
-            .await
-            .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
+        let response = oversized_newsletter_response(method, path).await;
         let status = response.status();
         assert_eq!(
             Some("no-store"),
@@ -153,7 +147,77 @@ async fn should_map_transport_oversized_newsletter_body_to_bad_body_value() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, &NEWSLETTER_C09_API])]
+async fn oversized_newsletter_response(method: reqwest::Method, path: &str) -> reqwest::Response {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const MAX_RESPONSE_BYTES: usize = 16_384;
+    let base_url = AURA_API.base_url();
+    let address = base_url
+        .strip_prefix("http://")
+        .expect("local API HTTP URL");
+    // Wait for the Content-Length rejection before uploading: an eager body can race
+    // Hyper closing the connection with unread request bytes.
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 1048577\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n"
+    );
+    let raw = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut stream = tokio::net::TcpStream::connect(address).await?;
+        stream.write_all(request.as_bytes()).await?;
+        let mut raw = Vec::new();
+        stream
+            .take((MAX_RESPONSE_BYTES + 1) as u64)
+            .read_to_end(&mut raw)
+            .await?;
+        std::io::Result::Ok(raw)
+    })
+    .await
+    .unwrap_or_else(|error| panic!("newsletter {method} {path} timed out: {error:?}"))
+    .unwrap_or_else(|error| panic!("newsletter {method} {path} I/O failed: {error:?}"));
+    assert!(
+        raw.len() <= MAX_RESPONSE_BYTES,
+        "newsletter response too large"
+    );
+
+    let header_end = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("complete newsletter response headers");
+    let mut lines = std::str::from_utf8(&raw[..header_end])
+        .expect("newsletter response header text")
+        .split("\r\n");
+    let status = lines
+        .next()
+        .and_then(|line| line.strip_prefix("HTTP/1.1 "))
+        .and_then(|line| line.split_once(' '))
+        .expect("newsletter HTTP/1.1 status")
+        .0
+        .parse::<u16>()
+        .expect("newsletter response status code");
+    let mut response = http::Response::builder().status(status);
+    for line in lines {
+        let (name, value) = line.split_once(':').expect("newsletter response header");
+        response = response.header(name, value.trim());
+    }
+    let response = response
+        .body(raw[header_end + 4..].to_vec())
+        .expect("newsletter HTTP response");
+    // Axum's fixed JSON response is length-delimited; reject truncated or differently
+    // framed responses instead of treating wire bytes as an already decoded body.
+    assert!(
+        !response
+            .headers()
+            .contains_key(http::header::TRANSFER_ENCODING)
+    );
+    let content_length = response.headers()[http::header::CONTENT_LENGTH]
+        .to_str()
+        .expect("newsletter response Content-Length text")
+        .parse::<usize>()
+        .expect("newsletter response Content-Length value");
+    assert_eq!(content_length, response.body().len());
+    response.into()
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, &NEWSLETTER_C09_API], isolated = true)]
 async fn should_commit_and_replay_real_newsletter_confirmation_and_reject_invalid_proofs() {
     use sqlx::Row;
 
@@ -257,7 +321,7 @@ async fn should_commit_and_replay_real_newsletter_confirmation_and_reject_invali
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, &NEWSLETTER_C09_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, &NEWSLETTER_C09_API], isolated = true)]
 async fn should_roll_back_newsletter_consent_and_intent_when_proof_completion_fails() {
     use sqlx::Row;
 
@@ -371,7 +435,7 @@ async fn post_real_confirmation(token: &str) -> reqwest::Response {
         .unwrap_or_else(|error| panic!("failed to confirm newsletter proof through HTTP: {error}"))
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_supplied_newsletter_bearer_token() {
     let response = reqwest::Client::new()
         .put(format!(

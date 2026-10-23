@@ -42,7 +42,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const DUMMY_CLIENT_SECRET_SHORT: &str = "dummy-client-secret-short";
 const DUMMY_CLIENT_SECRET_HASH: &str = "dummy-client-secret-long-token-hash";
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_legacy_null_resources_and_reject_foreign_persisted_identifiers() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -82,7 +82,7 @@ async fn should_preserve_legacy_null_resources_and_reject_foreign_persisted_iden
     result.unwrap_or_else(|error| panic!("legacy resource contract failed: {error}"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_consume_authorization_code_once_and_allow_one_concurrent_consumer() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -142,7 +142,7 @@ async fn should_consume_authorization_code_once_and_allow_one_concurrent_consume
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_consume_third_party_exchange_code_once_and_allow_one_concurrent_consumer() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -198,7 +198,7 @@ async fn should_consume_third_party_exchange_code_once_and_allow_one_concurrent_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_oauth_client_secret_hash_only_for_authentication() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -227,7 +227,7 @@ async fn should_read_oauth_client_secret_hash_only_for_authentication() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -278,7 +278,7 @@ async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_classify_duplicate_oauth_writes_as_conflicts() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -327,7 +327,7 @@ async fn should_classify_duplicate_oauth_writes_as_conflicts() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_invalid_persisted_redirect_uris() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -364,7 +364,7 @@ async fn should_reject_invalid_persisted_redirect_uris() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_search_oauth_clients_with_bounded_deterministic_cursor() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

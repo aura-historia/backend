@@ -5,27 +5,14 @@ use aws_sdk_sqs::Client;
 use aws_sdk_sqs::types::{DeleteMessageBatchRequestEntry, QueueAttributeName};
 use derive_builder::Builder;
 use std::collections::HashMap;
-use tokio::sync::OnceCell;
 use tracing::debug;
 
-/// A lazily-initialized, globally shared SQS client for integration testing.
+/// Creates an owned Floci client on the calling runtime.
 ///
-/// This `OnceCell` ensures that the client is only created once during the test lifecycle,
-/// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
-static SQS_CLIENT: OnceCell<Client> = OnceCell::const_new();
-
-/// Returns a shared `aws_sdk_sqs::Client` for interacting with Floci.
-///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, Floci endpoint).
-///
-/// # Returns
-///
-/// A reference to a lazily-initialized `Client` instance.
-pub async fn get_sqs_client() -> &'static Client {
-    let client = SQS_CLIENT
-        .get_or_init(|| async { Client::new(get_aws_config().await) })
-        .await;
+/// Clone it within that runtime to share its connection pool. Obtain another client after
+/// the runtime stops, including during fixture cleanup.
+pub async fn get_sqs_client() -> Client {
+    let client = Client::new(get_aws_config().await);
     debug!("Successfully initialized SQS-Client.");
     client
 }
@@ -41,11 +28,20 @@ pub struct Sqs {
 
 impl Sqs {
     pub fn queue_url(&self) -> String {
-        queue_url(self.name)
+        queue_url(&scoped_queue_name(self.name))
     }
 
     pub fn dead_letter_queue_url(&self) -> String {
-        queue_url(&format!("dead-letter-{}", self.name))
+        queue_url(&scoped_queue_name(&format!("dead-letter-{}", self.name)))
+    }
+}
+
+fn scoped_queue_name(name: &str) -> String {
+    match crate::TestContext::current() {
+        Some(context) => context
+            .resolve_queue_name(name, false)
+            .expect("scoped SQS name"),
+        None => name.to_owned(),
     }
 }
 
@@ -114,10 +110,26 @@ impl WorkerSqs {
         use QueueAttributeName as A;
         let fifo = self.scope == "marketing-consent-sync";
         let suffix = if fifo { ".fifo" } else { "" };
-        let mut pair = SqsQueuePair::new(
-            format!("aura-worker-{}-test{suffix}", self.scope),
-            format!("aura-worker-{}-dlq-test{suffix}", self.scope),
-        );
+        let (name, dead_letter_name) = if let Some(context) = crate::TestContext::current() {
+            use std::hash::{Hash, Hasher};
+            let mut hash = std::collections::hash_map::DefaultHasher::new();
+            self.scope.hash(&mut hash);
+            let label = format!("{:016x}", hash.finish());
+            (
+                context
+                    .resolve_queue_name(&format!("{label}-q"), fifo)
+                    .expect("scoped worker queue"),
+                context
+                    .resolve_queue_name(&format!("{label}-dlq"), fifo)
+                    .expect("scoped worker DLQ"),
+            )
+        } else {
+            (
+                format!("aura-worker-{}-test{suffix}", self.scope),
+                format!("aura-worker-{}-dlq-test{suffix}", self.scope),
+            )
+        };
+        let mut pair = SqsQueuePair::new(name, dead_letter_name);
         pair.max_receive_count = 5;
         pair.attributes = HashMap::from([
             (A::MessageRetentionPeriod, "604800".to_owned()),
@@ -187,15 +199,24 @@ impl IntegrationTestService for Sqs {
     }
 
     async fn set_up(&self) {
-        SqsQueuePair::new(self.name, format!("dead-letter-{}", self.name))
-            .set_up()
-            .await;
+        SqsQueuePair::new(
+            scoped_queue_name(self.name),
+            scoped_queue_name(&format!("dead-letter-{}", self.name)),
+        )
+        .set_up()
+        .await;
     }
 
     async fn tear_down(&self) {
-        SqsQueuePair::new(self.name, format!("dead-letter-{}", self.name))
-            .tear_down()
-            .await;
+        if crate::TestContext::current().is_some() {
+            return;
+        }
+        SqsQueuePair::new(
+            scoped_queue_name(self.name),
+            scoped_queue_name(&format!("dead-letter-{}", self.name)),
+        )
+        .tear_down()
+        .await;
     }
 }
 
@@ -210,6 +231,9 @@ impl IntegrationTestService for WorkerSqs {
     }
 
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         // A new queue incarnation prevents a cancelled receive from hiding the next test's jobs.
         for url in [self.queue_url(), self.dead_letter_queue_url()] {
             get_sqs_client()
@@ -230,6 +254,18 @@ impl IntegrationTestService for SqsQueuePair {
     }
 
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            context
+                .register_queue(&self.name)
+                .expect("register owned queue");
+            context
+                .register_queue(&self.dead_letter_name)
+                .expect("register owned DLQ");
+            context
+                .persist_resources()
+                .await
+                .expect("persist scoped queues");
+        }
         let sqs_client = get_sqs_client().await;
 
         let dead_letter_queue_url = sqs_client
@@ -304,6 +340,9 @@ impl IntegrationTestService for SqsQueuePair {
     }
 
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         let client = get_sqs_client().await;
         // Use purge_queue to remove ALL messages, including those with active visibility
         // timeouts (invisible messages that drain_queue cannot reach). In Floci used

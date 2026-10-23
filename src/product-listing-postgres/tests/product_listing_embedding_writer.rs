@@ -16,7 +16,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_store_embedding_append_enrichment_event_and_advance_current_event_without_aggregate_version()
  {
     let result: Result<(), Box<dyn std::error::Error>> = async {
@@ -59,7 +59,7 @@ async fn should_store_embedding_append_enrichment_event_and_advance_current_even
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_duplicate_and_stale_without_second_embedding_event() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
     let pool = get_postgres_client().await;
@@ -97,7 +97,7 @@ async fn should_report_duplicate_and_stale_without_second_embedding_event() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_first_embedding_when_duplicate_completions_overlap() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -133,7 +133,7 @@ async fn should_keep_first_embedding_when_duplicate_completions_overlap() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_late_embedding_completion_after_new_image_revision_commits() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -169,7 +169,7 @@ async fn should_reject_late_embedding_completion_after_new_image_revision_commit
     assert!(result.is_ok(), "reversed embedding completion: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_apply_embedding_after_unrelated_newer_event_without_invalidating_image_source() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

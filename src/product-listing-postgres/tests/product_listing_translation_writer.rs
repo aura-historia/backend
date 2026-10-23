@@ -13,7 +13,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_store_all_translations_append_enrichment_event_and_advance_current_event_without_aggregate_version()
  {
     let result: Result<(), Box<dyn std::error::Error>> = async {
@@ -83,7 +83,7 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_curre
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_duplicate_without_second_event_when_same_source_is_redelivered() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -117,7 +117,7 @@ async fn should_report_duplicate_without_second_event_when_same_source_is_redeli
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_first_translation_when_same_source_redelivery_has_different_text() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -182,7 +182,7 @@ async fn should_keep_first_translation_when_same_source_redelivery_has_different
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_concurrent_same_source_translation_attempts() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -230,7 +230,7 @@ async fn should_serialize_concurrent_same_source_translation_attempts() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_stale_without_writing_when_content_source_event_advanced() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

@@ -44,8 +44,7 @@ async fn insert_pending_review(
     Ok(review_id)
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_onboard_enabled_source_then_preserve_domain_while_disabled_and_reenable_it() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -94,8 +93,7 @@ async fn should_onboard_enabled_source_then_preserve_domain_while_disabled_and_r
     assert_eq!(candidates[0].domain_id, configured.domain_id);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_surface_invalid_persisted_v4_domain_id() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -126,8 +124,7 @@ async fn should_surface_invalid_persisted_v4_domain_id() {
     ));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_domain_claimed_by_another_listing_source() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -152,8 +149,7 @@ async fn should_reject_domain_claimed_by_another_listing_source() {
     ));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_register_a_concurrent_same_source_domain_once() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -181,8 +177,7 @@ async fn should_register_a_concurrent_same_source_domain_once() {
     assert_ne!(first.created, second.created);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -214,8 +209,7 @@ async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity()
     ));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_ip_literal_crawler_domain() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -239,8 +233,7 @@ async fn should_reject_ip_literal_crawler_domain() {
     ));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_repeated_www_prefix_and_mismatched_raw_sql_crawl_root() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -283,8 +276,7 @@ async fn should_reject_repeated_www_prefix_and_mismatched_raw_sql_crawl_root() {
     }
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_reviews_with_an_invalid_domain_shape_or_owner() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
@@ -340,8 +332,7 @@ async fn should_reject_reviews_with_an_invalid_domain_shape_or_owner() {
     );
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_remove_pending_url_pattern_review_and_preserve_product_schema_review_when_domain_removed()
  {
     let pool = get_postgres_client().await;

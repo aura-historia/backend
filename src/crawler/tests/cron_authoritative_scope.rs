@@ -14,29 +14,39 @@ use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
 use crawler::{CrawlerDomainId, scraper};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
-use serial_test::serial;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 use test_api::*;
+use tokio::sync::{oneshot, watch};
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-struct AbsentAuthoritativeSource;
+struct AbsentAuthoritativeSource {
+    calls: Arc<AtomicUsize>,
+}
 
 #[async_trait]
 impl ListingSourceRegistrationSource for AbsentAuthoritativeSource {
     async fn fetch_registered_listing_sources(
         &self,
     ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(vec![])
     }
 }
 
 struct NoWorkSpider {
     started: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Drop for NoWorkSpider {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::SeqCst);
+    }
 }
 
 #[async_trait]
@@ -95,8 +105,110 @@ fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredLi
     }
 }
 
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[derive(Clone, Default)]
+struct SchedulerProbe {
+    spider_started: Arc<AtomicBool>,
+    scraper_started: Arc<AtomicBool>,
+    raw_capture_started: Arc<AtomicBool>,
+    sync_calls: Arc<AtomicUsize>,
+    stopped: Arc<AtomicBool>,
+}
+
+fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob {
+    let spider_candidates = SpiderCandidateServiceImpl::new(pool.clone());
+    let scraper_candidates =
+        scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone());
+    let registration = ListingSourceRegistrationService::new(
+        Box::new(AbsentAuthoritativeSource {
+            calls: Arc::clone(&probe.sync_calls),
+        }),
+        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
+    );
+    CrawlerCronJob::new(
+        CrawlerCronConfig {
+            spider_interval: Duration::from_millis(1),
+            scraper_interval: Duration::from_millis(1),
+            spider_concurrency: 1,
+            scraper_concurrency: 1,
+            ..CrawlerCronConfig::default()
+        },
+        Arc::new(LocalLockManager::new()),
+        Box::new(spider_candidates),
+        Box::new(NoWorkSpider {
+            started: Arc::clone(&probe.spider_started),
+            stopped: Arc::clone(&probe.stopped),
+        }),
+        Box::new(scraper_candidates),
+        Box::new(NoWorkScraper {
+            started: Arc::clone(&probe.scraper_started),
+        }),
+        registration,
+        Box::new(NoWorkRawCapture {
+            started: Arc::clone(&probe.raw_capture_started),
+        }),
+    )
+}
+
+struct SchedulerStop(watch::Sender<bool>);
+
+impl Drop for SchedulerStop {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
+fn spawn_scheduler(probe: SchedulerProbe) -> (SchedulerStop, oneshot::Receiver<()>) {
+    let context = TestContext::current().expect("crawler scheduler context");
+    let (stop, mut stopping) = watch::channel(false);
+    let shutdown_stop = stop.clone();
+    let stop = SchedulerStop(stop);
+    let (join_sender, join_receiver) = oneshot::channel::<std::thread::JoinHandle<()>>();
+    let stopped = Arc::clone(&probe.stopped);
+    context
+        .on_shutdown(async move {
+            // Cleanup runs in reverse order; the caller may still own its stop guard.
+            shutdown_stop.send_replace(true);
+            let thread = join_receiver.await?;
+            tokio::task::spawn_blocking(move || thread.join())
+                .await?
+                .map_err(|_| std::io::Error::other("crawler scheduler thread panicked"))?;
+            if !stopped.load(Ordering::SeqCst) {
+                return Err(
+                    std::io::Error::other("crawler scheduler workers outlived shutdown").into(),
+                );
+            }
+            Ok(())
+        })
+        .expect("register scheduler thread before spawning");
+    let (finished, completion) = oneshot::channel();
+    let thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("crawler scheduler runtime");
+        runtime.block_on(context.scope(async move {
+            let pool = get_postgres_client().await;
+            let job = build_scheduler(pool.clone(), &probe);
+            tokio::select! {
+                _ = job.run_loop() => {},
+                _ = stopping.changed() => {},
+            }
+            pool.close().await;
+        }));
+        // run_loop drops its three internal JoinHandles when cancelled. Its dedicated
+        // runtime must end those workers before context cleanup removes their database.
+        drop(runtime);
+        let _ = finished.send(());
+    });
+    if let Err(thread) = join_sender.send(thread) {
+        drop(stop);
+        let _ = thread.join();
+        panic!("crawler scheduler shutdown ownership was lost");
+    }
+    (stop, completion)
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
@@ -148,36 +260,8 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
             .len()
     );
 
-    let registration = ListingSourceRegistrationService::new(
-        Box::new(AbsentAuthoritativeSource),
-        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
-    );
-    let spider_started = Arc::new(AtomicBool::new(false));
-    let scraper_started = Arc::new(AtomicBool::new(false));
-    let raw_capture_started = Arc::new(AtomicBool::new(false));
-    let job = CrawlerCronJob::new(
-        CrawlerCronConfig {
-            spider_interval: Duration::from_millis(1),
-            scraper_interval: Duration::from_millis(1),
-            spider_concurrency: 1,
-            scraper_concurrency: 1,
-            ..CrawlerCronConfig::default()
-        },
-        Arc::new(LocalLockManager::new()),
-        Box::new(spider_candidates),
-        Box::new(NoWorkSpider {
-            started: Arc::clone(&spider_started),
-        }),
-        Box::new(scraper_candidates),
-        Box::new(NoWorkScraper {
-            started: Arc::clone(&scraper_started),
-        }),
-        registration,
-        Box::new(NoWorkRawCapture {
-            started: Arc::clone(&raw_capture_started),
-        }),
-    );
-    let scheduler = tokio::spawn(job.run_loop());
+    let probe = SchedulerProbe::default();
+    let (stop, completion) = spawn_scheduler(probe.clone());
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     let enabled = loop {
@@ -198,13 +282,14 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
-    scheduler.abort();
-    let _ = scheduler.await;
+    drop(stop);
+    completion.await.expect("crawler scheduler runtime stopped");
 
+    assert!(probe.stopped.load(Ordering::SeqCst));
     assert!(!enabled);
-    assert!(!spider_started.load(Ordering::SeqCst));
-    assert!(!scraper_started.load(Ordering::SeqCst));
-    assert!(!raw_capture_started.load(Ordering::SeqCst));
+    assert!(!probe.spider_started.load(Ordering::SeqCst));
+    assert!(!probe.scraper_started.load(Ordering::SeqCst));
+    assert!(!probe.raw_capture_started.load(Ordering::SeqCst));
     assert!(
         SpiderCandidateServiceImpl::new(pool.clone())
             .get_candidates(1, &[])
@@ -219,4 +304,43 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
             .unwrap_or_else(|error| panic!("select disabled scraper candidate: {error}"))
             .is_empty()
     );
+}
+
+async fn spawn_waiting_scheduler_caller(observing: SchedulerProbe) -> OwnedTask<()> {
+    let (ready, started) = oneshot::channel();
+    let caller = spawn_owned(async move {
+        let (stop, completion) = spawn_scheduler(observing.clone());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // Initial sync plus the spider/scraper admission calls prove the inner loops run.
+            while observing.sync_calls.load(Ordering::SeqCst) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("scheduler inner loops started");
+        ready.send(()).expect("scheduler caller still waiting");
+        completion.await.expect("crawler scheduler runtime stopped");
+        drop(stop);
+    });
+    started.await.expect("scheduler caller started");
+    caller
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_join_scheduler_workers_when_the_caller_is_cancelled() {
+    let probe = SchedulerProbe::default();
+    let caller = spawn_waiting_scheduler_caller(probe.clone()).await;
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !probe.stopped.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled caller stopped scheduler workers");
+
+    // Keep a second caller running as the test body ends. Reverse cleanup order must
+    // stop/join its scheduler before the earlier caller-abort callback is polled.
+    drop(spawn_waiting_scheduler_caller(SchedulerProbe::default()).await);
 }

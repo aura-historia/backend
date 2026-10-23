@@ -175,7 +175,7 @@ async fn events(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn admin_mutations_coalesce_preserve_originals_and_retain_lifecycle() {
     let pool = get_postgres_client().await;
     let id = seed(&pool, None, "SKU-42").await;
@@ -302,7 +302,7 @@ async fn admin_mutations_coalesce_preserve_originals_and_retain_lifecycle() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn admin_image_reordering_commits_one_event_and_advances_embedding_source() {
     let pool = get_postgres_client().await;
     let id = seed(&pool, None, "Ordered-images").await;
@@ -372,7 +372,7 @@ async fn admin_image_reordering_commits_one_event_and_advances_embedding_source(
     assert_eq!(3, events(&pool, id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn admin_directory_uses_source_scope_literals_and_timestamp_ties() {
     use application::pagination::Cursor;
     use domain_primitives::sort::SortOrder;
@@ -551,7 +551,7 @@ impl<R: ProductListingRepository> ProductListingRepository for RacingRepository<
         self.inner.update(product, version, event, effects).await
     }
 }
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn racing_admin_sessions_preserve_typed_cas_conflict() {
     let pool = get_postgres_client().await;
     let id = seed(&pool, None, "Race").await;
@@ -594,7 +594,7 @@ async fn racing_admin_sessions_preserve_typed_cas_conflict() {
     assert_eq!(2, events(&pool, id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn update_append_and_commit_failures_rollback_state_and_event() {
     let pool = get_postgres_client().await;
     let id = seed(&pool, None, "Failure-2038").await;
@@ -657,7 +657,7 @@ async fn update_append_and_commit_failures_rollback_state_and_event() {
         .unwrap();
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn auction_patches_preserve_lot_facts_and_reject_cross_source_references_atomically() {
     use auction_core::AuctionId;
     use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
@@ -740,7 +740,7 @@ async fn auction_patches_preserve_lot_facts_and_reject_cross_source_references_a
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn withdrawal_and_restore_preserve_sale_observations_watchlist_and_later_ingestion_precedence()
  {
     use product_listing_service::use_cases::{

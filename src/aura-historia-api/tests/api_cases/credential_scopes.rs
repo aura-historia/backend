@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use test_api::{IntegrationTestService, aura_integration_test};
 use user_core::access_token::Scope;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_resource_read_scopes_for_private_collections() {
     let admin_id = seed_user("ADMIN").await;
     let user_id = seed_user("USER").await;

@@ -114,7 +114,7 @@ async fn account(pool: &sqlx::PgPool, user_id: UserId) -> (String, Option<String
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn associates_customer_and_records_receipt_with_tier_change() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, UserTier::Free, None).await;
@@ -136,7 +136,7 @@ async fn associates_customer_and_records_receipt_with_tier_change() {
     assert_eq!(1, receipts);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn delayed_events_and_replaced_subscription_deletion_use_current_state() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, UserTier::Pro, Some("cus_1")).await;
@@ -183,7 +183,7 @@ async fn delayed_events_and_replaced_subscription_deletion_use_current_state() {
     assert_eq!(before, account(&pool, user_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn event_identity_conflicts_fail_without_mutating_user() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, UserTier::Free, Some("cus_1")).await;
@@ -206,7 +206,7 @@ async fn event_identity_conflicts_fail_without_mutating_user() {
     assert_eq!(before, account(&pool, user_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_application_does_not_consume_receipt() {
     let pool = get_postgres_client().await;
     let state = provider(None, UserTier::Pro);
@@ -236,7 +236,7 @@ async fn failed_application_does_not_consume_receipt() {
     assert_eq!("PRO", account(&pool, user_id).await.0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn unchanged_tier_still_fences_an_older_in_flight_provider_read() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, UserTier::Pro, Some("cus_1")).await;

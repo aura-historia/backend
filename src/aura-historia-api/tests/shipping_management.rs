@@ -79,7 +79,7 @@ async fn request(
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
     let p = get_postgres_client().await;
     let owner = PartyId::new();

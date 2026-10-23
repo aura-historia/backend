@@ -17,6 +17,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Event sources, routes and completion semantics | [Event flow](events/flow.md) |
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
+| Local tests, CI lanes and fixture diagnostics | [Testing and CI](ci.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
 | OAuth consent, shared resource and credential binding | [OAuth](oauth.md) |

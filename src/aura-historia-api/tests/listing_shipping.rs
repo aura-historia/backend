@@ -458,7 +458,7 @@ async fn select_country(book: &Book, owner: UserId, postal: Option<&str>, versio
     .await
     .unwrap();
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn listings_return_generic_terms_and_selected_destination_personalization() {
     let (_, router, book, owner, _, id) = fixture().await;
     let path = format!("/v1/product-listings/{id}");
@@ -547,7 +547,7 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
         request(&router, &path, Some("invalid")).await.0
     );
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn current_profile_changes_overrides_observation_age_and_suspension_are_reflected() {
     let (p, router, book, owner, profile, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
@@ -656,7 +656,7 @@ async fn current_profile_changes_overrides_observation_age_and_suspension_are_re
         ));
     }
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn current_location_eligibility_and_postal_exclusions_preserve_collection_privacy() {
     use shipping_core::{
         coverage::*, inputs::Applicability, terms::*, time::CollectionArrangement,
@@ -821,9 +821,10 @@ impl embedding::EmbeddingGenerator for NoDiscoveryEmbedding {
         unreachable!("country discovery needs no text embedding")
     }
 }
-#[aura_integration_test(services=[SCHEMA, test_api::OpenSearch()])]
-async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves_index_membership()
-{
+#[aura_integration_test(services=[SCHEMA, test_api::OpenSearch()], isolated = true)]
+async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves_index_membership(
+    context: test_api::TestContext,
+) {
     use application::transaction::{Transaction, UnitOfWork};
     use product_listing_postgres::{
         SqlxProductListingSearchFilterMatchSourceReaderFactory,
@@ -838,7 +839,8 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     };
     let (p, _, book, owner, profile, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
-    let client = test_api::get_opensearch_client().await.clone();
+    let client = test_api::get_opensearch_client().await;
+    let index = context.product_listings_index().expect("search index");
     let shipping = ShippingEnrichment::new(
         Arc::new(AssessDeliveryHandler::new(
             SqlxUnitOfWork::new(p.clone()),
@@ -848,7 +850,10 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         Arc::new(fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone())),
     );
     let search = SearchProductListingsHandler::new(
-        product_listing_opensearch::OpenSearchProductListingSearchReader::new(client.clone()),
+        product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
+            client.clone(),
+            index.clone(),
+        ),
         fxrate_postgres::SqlxFxRateSnapshotReader::new(p.clone()),
         NoDiscoveryEmbedding,
         product_listing_postgres::SqlxListingSourceSummaryReader::new(p.clone()),
@@ -915,21 +920,23 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         tx.commit().await.unwrap();
         source
     }
-    async fn old_rate_membership(client: &opensearch::OpenSearch) -> Value {
-        client.search(opensearch::SearchParts::Index(&["product-listings"]))
+    async fn old_rate_membership(client: &opensearch::OpenSearch, index: &str) -> Value {
+        client.search(opensearch::SearchParts::Index(&[index]))
             .body(json!({"query":{"bool":{"filter":[product_listing_opensearch::shipping_query::country_offer_query(CountryCode::DEU,None,Some(money::Price::new(8000_u64.into(),money::Currency::Eur)))],"must_not":[{"term":{"projectionDeleted":true}}]}}}))
             .send().await.unwrap().error_for_status_code().unwrap().json().await.unwrap()
     }
     // Public title is unrelated to shipping; supply it so this is an ordinary search hit.
     sqlx::query("UPDATE product_listings SET title_text='Gallery painting',title_language='en' WHERE product_listing_id=$1").bind(id.into_uuid()).execute(&p).await.unwrap();
     drain(&project, &p).await;
-    let writer =
-        product_listing_opensearch::OpenSearchProductListingSearchProjection::new(client.clone());
+    let writer = product_listing_opensearch::OpenSearchProductListingSearchProjection::with_index(
+        client.clone(),
+        index.clone(),
+    );
     writer.upsert(&source(&p, id).await, None).await.unwrap();
-    test_api::refresh_index("product-listings").await;
+    test_api::refresh_index(&index).await;
     assert_eq!(
         1,
-        old_rate_membership(&client).await["hits"]["total"]["value"]
+        old_rate_membership(&client, &index).await["hits"]["total"]["value"]
     );
     let (status, before) = request(&router, "/v1/product-listings", Some("owner")).await;
     assert_eq!(StatusCode::OK, status, "{before}");
@@ -990,14 +997,14 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     // PostgreSQL is current while indexed membership/counts retain the old predicate.
     assert_eq!(
         1,
-        old_rate_membership(&client).await["hits"]["total"]["value"]
+        old_rate_membership(&client, &index).await["hits"]["total"]["value"]
     );
     drain(&project, &p).await;
     writer.upsert(&source(&p, id).await, None).await.unwrap();
-    test_api::refresh_index("product-listings").await;
+    test_api::refresh_index(&index).await;
     assert_eq!(
         0,
-        old_rate_membership(&client).await["hits"]["total"]["value"]
+        old_rate_membership(&client, &index).await["hits"]["total"]["value"]
     );
     let (_, caught_up) = request(&router, "/v1/product-listings", Some("owner")).await;
     assert_eq!(current["total"], caught_up["total"]);
@@ -1008,7 +1015,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn search_country_is_independent_of_browsing_and_current_shipping_during_projection_lag() {
     let ((p, router, book, owner, profile, _), indexed) = fixture_with_projection().await;
     let path = "/v1/product-listings?shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=EUR";
@@ -1210,13 +1217,13 @@ async fn project_gallery(pool: &PgPool, index: &mut IndexedFixture) {
     }
     panic!("bounded shipping projection did not converge");
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn profile_change_discovers_old_listing_on_next_periodic_evaluation_without_canonical_events()
 {
     periodic_shipping_change(false).await;
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn fx_change_alone_does_not_discover_old_listing_outside_the_updated_window() {
     periodic_shipping_change(true).await;
 }
@@ -1437,7 +1444,7 @@ async fn capture_shipping_fx(pool: &PgPool, usd_units: i64) -> fxrate_core::FxRa
     id
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_continuation() {
     let (pool, router, book, owner, _, id) = fixture().await;
     select_country(&book, owner, None, 1).await;

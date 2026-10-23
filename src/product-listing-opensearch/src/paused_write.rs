@@ -9,7 +9,6 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::oneshot,
-    task::JoinHandle,
     time::timeout,
 };
 
@@ -19,7 +18,7 @@ pub(super) struct PausedWrite {
     pub(super) client: OpenSearch,
     received: oneshot::Receiver<()>,
     release: oneshot::Sender<()>,
-    forwarded: JoinHandle<Result<StatusCode, TestError>>,
+    forwarded: test_api::OwnedTask<Result<StatusCode, TestError>>,
 }
 
 impl PausedWrite {
@@ -31,7 +30,7 @@ impl PausedWrite {
         ))?);
         let (received_tx, received) = oneshot::channel();
         let (release, release_rx) = oneshot::channel();
-        let forwarded = tokio::spawn(async move {
+        let forwarded = test_api::spawn_owned(async move {
             timeout(Duration::from_secs(120), async move {
                 let (mut socket, _) = listener.accept().await?;
                 let mut bytes = Vec::new();

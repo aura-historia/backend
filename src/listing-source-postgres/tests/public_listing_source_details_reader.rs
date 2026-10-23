@@ -10,7 +10,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_find_exact_slug_with_public_projection() {
     let pool = get_postgres_client().await;
     let source_id = uuid::Uuid::now_v7();
@@ -41,7 +41,7 @@ async fn should_find_exact_slug_with_public_projection() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_for_unknown_or_deleted_exact_slug() {
     let pool = get_postgres_client().await;
     assert!(read(&pool, "unknown-source").await.is_none());
@@ -68,7 +68,7 @@ async fn should_return_none_for_unknown_or_deleted_exact_slug() {
     assert!(read(&pool, "deleted-source").await.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_show_renamed_source_and_operator_at_immutable_slug() {
     let pool = get_postgres_client().await;
     let source_id = uuid::Uuid::now_v7();

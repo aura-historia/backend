@@ -5,7 +5,7 @@ use user_service::ports::{NewsletterProfile, NewsletterProfileReader};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_newsletter_profile_when_user_exists() {
     let pool = get_postgres_client().await;
     let user_id = UserId::new();
@@ -38,7 +38,7 @@ async fn should_read_newsletter_profile_when_user_exists() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_when_user_does_not_exist() {
     let profile = SqlxNewsletterProfileReader::new(get_postgres_client().await)
         .find_by_user_id(UserId::new())

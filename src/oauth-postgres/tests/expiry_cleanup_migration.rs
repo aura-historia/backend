@@ -17,7 +17,7 @@ const FUTURE_THIRD_PARTY_EXCHANGE_CODE: &str = "01890a5d-ac96-774b-bf1d-d5586c63
 const EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID: Uuid =
     Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f7a);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_batch() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -135,7 +135,7 @@ async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_ba
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_reject_null_cleanup_batch_size() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -156,7 +156,7 @@ async fn should_reject_null_cleanup_batch_size() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_not_cascade_an_expired_access_token_with_more_expired_exchange_codes_than_batch_size()
  {
     let result: Result<(), Box<dyn std::error::Error>> = async {
@@ -235,7 +235,7 @@ async fn should_not_cascade_an_expired_access_token_with_more_expired_exchange_c
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_share_expired_rows_between_concurrent_cleanup_transactions() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -293,7 +293,7 @@ async fn should_share_expired_rows_between_concurrent_cleanup_transactions() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
 async fn should_restore_expired_rows_when_cleanup_transaction_rolls_back() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

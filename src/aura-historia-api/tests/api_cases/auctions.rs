@@ -14,7 +14,7 @@ use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use user_core::access_token::{AccessTokenId, Scope};
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_get_and_update_auction_as_administrator() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -149,7 +149,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -414,7 +414,7 @@ async fn issue_auction_test_token(
     (access_token_id, token)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_enforce_auction_read_scope_after_api_issuance_and_updates() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -485,7 +485,7 @@ async fn should_enforce_auction_read_scope_after_api_issuance_and_updates() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_forbid_non_admin_auction_reads_even_with_scope_without_caching() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -522,7 +522,7 @@ async fn should_forbid_non_admin_auction_reads_even_with_scope_without_caching()
     .await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_returned_size() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -644,7 +644,7 @@ async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_return
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_and_page_admin_auctions_with_scoped_deterministic_sort() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -870,7 +870,7 @@ async fn should_filter_and_page_admin_auctions_with_scoped_deterministic_sort() 
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_page_public_scheduled_auctions_with_scoped_json_cursors_and_anonymous_caching() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -1025,7 +1025,7 @@ async fn should_page_public_scheduled_auctions_with_scoped_json_cursors_and_anon
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anonymously() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
@@ -1117,7 +1117,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     assert_eq!(json!([]), catalogue_body["items"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hidden_catalogue_data()
  {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)

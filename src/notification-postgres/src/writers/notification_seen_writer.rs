@@ -122,7 +122,7 @@ mod tests {
             .unwrap()
     }
 
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn identical_seen_state_succeeds_without_advancing_freshness() {
         let pool = get_postgres_client().await;
         let writer = SqlxNotificationSeenWriter::new(pool.clone());

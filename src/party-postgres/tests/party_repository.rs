@@ -13,7 +13,7 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_and_find_party_by_id_and_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -54,7 +54,7 @@ async fn should_insert_and_find_party_by_id_and_slug() {
     assert_eq!("insert-find", name_search);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_retain_slug_when_renaming_party_and_replace_contact() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -116,7 +116,7 @@ async fn should_retain_slug_when_renaming_party_and_replace_contact() {
     assert_eq!("renamed party", name_search);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_parties_with_the_same_name_using_disambiguated_slugs() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -138,7 +138,7 @@ async fn should_insert_parties_with_the_same_name_using_disambiguated_slugs() {
     assert_ne!(first.party.slug_id(), second.party.slug_id());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_concurrency_conflict_for_stale_party_update() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -177,7 +177,7 @@ async fn should_report_concurrency_conflict_for_stale_party_update() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_invalid_persisted_party_state() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -210,7 +210,7 @@ async fn should_reject_invalid_persisted_party_state() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_wrong_version_persisted_party_id() {
     let pool = get_postgres_client().await;
     let party_id = uuid::Uuid::new_v4();
@@ -237,7 +237,7 @@ async fn should_reject_wrong_version_persisted_party_id() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_invalid_persisted_party_name() {
     let pool = get_postgres_client().await;
     let party_id = PartyId::new();
@@ -271,7 +271,7 @@ async fn should_reject_invalid_persisted_party_name() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_enforce_party_name_and_slug_schema_constraints() {
     let pool = get_postgres_client().await;
 
@@ -303,7 +303,7 @@ async fn should_enforce_party_name_and_slug_schema_constraints() {
     assert!(blank_slug.is_err());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_install_and_maintain_normalized_party_and_listing_source_names() {
     let pool = get_postgres_client().await;
     let raw_party_name = "\u{2003}Mu\u{308}ller\tKunst\u{00a0}Handel\u{202f}\u{3000}";
@@ -416,7 +416,7 @@ async fn should_install_and_maintain_normalized_party_and_listing_source_names()
     assert_eq!("renamed operator", renamed_party_name_search);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_delete_unused_party_after_locking_and_leave_unrelated_party() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -474,7 +474,7 @@ async fn should_delete_unused_party_after_locking_and_leave_unrelated_party() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_listing_source_and_active_or_dissolved_partnership_blockers() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -553,7 +553,7 @@ async fn should_report_listing_source_and_active_or_dissolved_partnership_blocke
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_and_direct_delete_of_party_with_restrictive_references() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

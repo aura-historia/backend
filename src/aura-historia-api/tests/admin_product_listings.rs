@@ -247,7 +247,7 @@ async fn version(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn all_admin_endpoints_enforce_persisted_role_and_delegated_capability_without_partner_grants()
  {
     let (app, id, pool) = fixture().await;
@@ -318,7 +318,7 @@ async fn all_admin_endpoints_enforce_persisted_role_and_delegated_capability_wit
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn composed_admin_router_validates_fields_versions_lifecycle_and_privileged_images() {
     let (app, id, pool) = fixture().await;
     let path = format!("/v1/admin/product-listings/{id}");

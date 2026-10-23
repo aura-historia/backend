@@ -93,7 +93,7 @@ pub(super) fn processor(pool: &sqlx::PgPool) -> impl ProcessProductListingIngest
 
 // Captured publication is deliberately not SQS delivery: execute only after asserting no
 // authoritative listing, event, receipt, or raw write occurred at HTTP admission.
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn rest_partial_admission_codec_and_postgres_execution_are_separate() {
     let result: TestResult = async {
     let (source, token) = auth().await;
@@ -263,7 +263,7 @@ async fn rest_partial_admission_codec_and_postgres_execution_are_separate() {
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn rest_rejects_whole_request_and_checks_auth_even_for_empty_or_invalid_arrays() {
     let result: TestResult = async {
         let (source, token) = auth().await;

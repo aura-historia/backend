@@ -473,7 +473,7 @@ async fn verify_watchlist() -> TestResult {
     Ok(())
 }
 
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+#[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_real_watchlist_authorization_quota_paging_and_mutation_behavior() {
     let result = verify_watchlist().await;
     assert!(result.is_ok(), "{result:?}");

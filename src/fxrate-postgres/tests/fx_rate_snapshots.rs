@@ -47,7 +47,7 @@ async fn insert(
     Ok(result)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_idempotently_and_rehydrate_persisted_snapshots() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -149,7 +149,7 @@ async fn should_insert_idempotently_and_rehydrate_persisted_snapshots() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_select_distinct_historical_snapshots_in_one_batch() {
     let pool = get_postgres_client().await;
     let at = OffsetDateTime::UNIX_EPOCH;
@@ -230,7 +230,7 @@ async fn should_select_distinct_historical_snapshots_in_one_batch() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_retroactive_or_tied_canonical_capture_except_duplicate_source_event() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

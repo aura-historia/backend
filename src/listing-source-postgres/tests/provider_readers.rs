@@ -8,7 +8,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_require_the_operator_partnership_exact_source_grant_for_provider_reads() {
     let pool = get_postgres_client().await;
     let source_id = ListingSourceId::new();

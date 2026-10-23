@@ -313,7 +313,7 @@ async fn version(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
         .unwrap()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn every_endpoint_requires_source_grant_and_matching_delegated_capability() {
     let f = fixture().await;
     for token in [
@@ -405,7 +405,7 @@ async fn every_endpoint_requires_source_grant_and_matching_delegated_capability(
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn cross_source_ids_are_indistinguishable_from_missing_listings() {
     let f = fixture().await;
     let before = f.current_version().await;
@@ -445,7 +445,7 @@ async fn cross_source_ids_are_indistinguishable_from_missing_listings() {
     assert_eq!(1, events(&f.pool, f.other_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn invalid_foreign_state_is_not_exposed_but_invalid_owned_state_fails_closed() {
     let f = fixture().await;
     for id in [f.id, f.other_id] {
@@ -493,7 +493,7 @@ async fn invalid_foreign_state_is_not_exposed_but_invalid_owned_state_fails_clos
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursors() {
     let f = fixture().await;
     let withdrawn = seed_listing(&f.pool, f.source, "Withdrawn/key with spaces").await;
@@ -677,7 +677,7 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
     assert!(page.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn versioned_mutations_preserve_noops_and_explicit_lifecycle_semantics() {
     let f = fixture().await;
     let (_, initial) = request(&f.app, "GET", &f.detail(), Some("partner"), Value::Null).await;
@@ -875,7 +875,7 @@ async fn versioned_mutations_preserve_noops_and_explicit_lifecycle_semantics() {
     assert_eq!(5, f.current_version().await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn rejects_malformed_ids_versions_fields_and_directory_input() {
     let f = fixture().await;
     for body in [
@@ -999,7 +999,7 @@ async fn rejects_malformed_ids_versions_fields_and_directory_input() {
     assert_eq!(1, events(&f.pool, f.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn dissolved_or_operator_incompatible_partnership_grants_deny_every_route() {
     let f = fixture().await;
     for state in ["DISSOLVED", "ACTIVE"] {
@@ -1108,7 +1108,7 @@ impl<R: ProductListingRepository> ProductListingRepository for RacingRepository<
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn independent_management_sessions_surface_cas_race_as_conflict() {
     let f = fixture().await;
     let reader = SqlxAdminProductListingReader::new(f.pool.clone());
@@ -1154,7 +1154,7 @@ async fn independent_management_sessions_surface_cas_race_as_conflict() {
     assert_eq!(2, events(&f.pool, f.id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn auction_references_require_the_immutable_listing_source_and_directory_matches_membership()
 {
     let f = fixture().await;
@@ -1255,7 +1255,7 @@ impl partnership_service::ports::ListingSourceAuthorization for FaultyAuthorizat
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn authorization_dependencies_fail_closed_without_exposing_causes_or_touching_listings() {
     let f = fixture().await;
     for temporary in [true, false] {

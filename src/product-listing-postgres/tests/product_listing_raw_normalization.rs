@@ -53,7 +53,7 @@ use time::macros::datetime;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_update() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-preserves-auction-source").await;
@@ -165,7 +165,7 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
     assert_eq!(25_000, price_amount);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_process_stream_in_order_and_ignore_duplicate_late_wakeup() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-source").await;
@@ -304,7 +304,7 @@ async fn should_process_stream_in_order_and_ignore_duplicate_late_wakeup() {
     assert_eq!(3, event_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_ignore_delete_without_bound_product_listing() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-delete-source").await;
@@ -362,7 +362,7 @@ async fn should_ignore_delete_without_bound_product_listing() {
     assert_eq!("IGNORED", result_code);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_fail_unsupported_stored_schema_without_advancing_progress() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-schema-source").await;
@@ -414,7 +414,7 @@ async fn should_fail_unsupported_stored_schema_without_advancing_progress() {
     assert_eq!(0, head_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reconcile_healthy_stream_when_unsupported_stream_is_blocked_without_cdc() {
     let pool = get_postgres_client().await;
     let blocked_source = seed_listing_source(&pool, "raw-normalization-blocked-source").await;
@@ -507,7 +507,7 @@ async fn should_reconcile_healthy_stream_when_unsupported_stream_is_blocked_with
     assert_eq!(1, event_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reach_later_healthy_stream_after_blocked_reconciliation_page() {
     let pool = get_postgres_client().await;
     let first_blocked_source =
@@ -623,7 +623,7 @@ async fn should_reach_later_healthy_stream_after_blocked_reconciliation_page() {
     assert_eq!(0, blocked_result_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_continue_capped_stream_across_keyset_cursor_and_reach_later_stream() {
     let pool = get_postgres_client().await;
     let capped_source = seed_listing_source(&pool, "raw-normalization-capped-source").await;
@@ -823,7 +823,7 @@ async fn should_continue_capped_stream_across_keyset_cursor_and_reach_later_stre
     assert_eq!(1, later_normalization_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_list_pending_streams_oldest_first_with_oldest_pending_capture_time() {
     let pool = get_postgres_client().await;
     let first_source = seed_listing_source(&pool, "raw-normalization-pending-first").await;
@@ -898,7 +898,7 @@ async fn should_list_pending_streams_oldest_first_with_oldest_pending_capture_ti
     assert!(first_page.streams[0].oldest_pending_at < second_page.streams[0].oldest_pending_at);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_changed_derived_source_listing_id_without_second_listing() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-identity-source").await;
@@ -981,7 +981,7 @@ async fn should_reject_changed_derived_source_listing_id_without_second_listing(
     assert_eq!(Some("SOURCE_LISTING_ID_MISMATCH".to_owned()), error_code);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
     use product_listing_postgres::{
         SqlxNormalizationDiagnosticCaseStore, SqlxNormalizationDiagnosticCaseWriterFactory,
@@ -1182,7 +1182,7 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
     assert_eq!(0, remaining);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_normalize_valid_long_incompressible_url() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-long-url-source").await;
@@ -1236,7 +1236,7 @@ async fn should_normalize_valid_long_incompressible_url() {
     assert_eq!(long_url, persisted_url);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_serialize_reversed_duplicate_wakeups_with_concurrent_reconciliation() {
     let result = concurrent_normalization(3).await;
     assert!(
@@ -1245,7 +1245,7 @@ async fn should_serialize_reversed_duplicate_wakeups_with_concurrent_reconciliat
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reconcile_remaining_revisions_after_concurrent_capped_wakeups() {
     let result = concurrent_normalization(1).await;
     assert!(

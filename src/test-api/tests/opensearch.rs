@@ -1,12 +1,18 @@
 use opensearch::indices::IndicesExistsParts;
 use test_api::*;
 
-#[aura_integration_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_run_without_errors() {}
 
-#[aura_integration_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn should_set_up_indices() {
-    for index in ["product-listings"] {
+    let index = test_api::TestContext::current()
+        .unwrap()
+        .product_listings_index()
+        .unwrap();
+    for index in [&*index] {
         let exists_response = get_opensearch_client()
             .await
             .indices()

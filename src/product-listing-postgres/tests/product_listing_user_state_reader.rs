@@ -15,7 +15,7 @@ use time::{Duration, OffsetDateTime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier_limit() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
@@ -115,7 +115,7 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
     assert!(!safe_state.search_filter.matched);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_default_state_when_user_has_no_watchlist_or_matches() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
@@ -142,7 +142,7 @@ async fn should_return_default_state_when_user_has_no_watchlist_or_matches() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_unknown_user_instead_of_defaulting_state() {
     let pool = get_postgres_client().await;
 
@@ -161,7 +161,7 @@ async fn should_reject_unknown_user_instead_of_defaulting_state() {
     ));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_all_unseen_notification_ids_newest_first_without_cross_product_leakage() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "PRO", false).await;
@@ -260,7 +260,7 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_user_state_for_many_products_in_one_batched_lookup() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "PRO", false).await;

@@ -179,7 +179,7 @@ async fn seed_consented_user(pool: &sqlx::PgPool, id: uuid::Uuid, address: &str)
     tx.commit().await.expect("commit consent");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn signed_unknown_event_commits_exact_byte_receipt_and_retries_idempotently() {
     let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
     let timestamp = now();
@@ -232,7 +232,7 @@ async fn signed_unknown_event_commits_exact_byte_receipt_and_retries_idempotentl
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn invalid_proof_and_invalid_payload_never_commit_receipts() {
     let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
     let timestamp = now();
@@ -258,7 +258,7 @@ async fn invalid_proof_and_invalid_payload_never_commit_receipts() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn signed_withdrawal_changes_only_the_exact_users_consent_and_commits_receipt() {
     let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
     let pool = get_postgres_client().await;
@@ -300,7 +300,7 @@ async fn signed_withdrawal_changes_only_the_exact_users_consent_and_commits_rece
     assert_eq!(Some(email), stored.3);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn unrelated_list_and_hard_bounce_are_receipted_without_withdrawing_consent() {
     let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
     let pool = get_postgres_client().await;
@@ -338,7 +338,7 @@ async fn unrelated_list_and_hard_bounce_are_receipted_without_withdrawing_consen
     assert_eq!(1, revision);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn lambda_base64_event_preserves_signed_bytes_and_commits_the_receipt() {
     let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
     let timestamp = now();
@@ -385,7 +385,7 @@ async fn lambda_base64_event_preserves_signed_bytes_and_commits_the_receipt() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn oversized_body_and_provider_read_failure_return_retryable_errors_without_receipts() {
     let timestamp = now();
     let app = webhook_app(Err(MarketingEmailConsentError::ReadUnavailable)).await;

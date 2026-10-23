@@ -12,7 +12,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_lock_and_read_only_the_canonical_product_listing_lifecycle() {
     let result = lifecycle_guard_flow().await;
     assert!(

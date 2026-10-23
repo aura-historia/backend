@@ -44,7 +44,7 @@ async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId
         .unwrap();
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_insert_and_find_removed_schema_for_listing_source() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
@@ -70,7 +70,7 @@ async fn should_insert_and_find_removed_schema_for_listing_source() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_update_removed_schema_for_only_target_listing_source() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
@@ -118,7 +118,7 @@ async fn should_update_removed_schema_for_only_target_listing_source() {
     );
 }
 
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_delete_removed_schema_when_parent_listing_source_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);

@@ -1,3 +1,5 @@
+pub(crate) mod tls;
+
 use crate::IntegrationTestService;
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
@@ -21,8 +23,7 @@ const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres
 const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
 const IMAGE_PULL_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
 const HOST_GATEWAY: &str = "host.docker.internal";
-const POSTGRES_TLS_ROOT_CERTIFICATE: &str = "/tmp/aura-historia-postgres-tls/ca.crt";
-const POSTGRES_TLS_ENTRYPOINT: &str = "set -eu\nmkdir -p /tmp/aura-historia-postgres-tls\nopenssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj /CN=AuraHistoriaTestCA -keyout /tmp/aura-historia-postgres-tls/ca.key -out /tmp/aura-historia-postgres-tls/ca.crt\nopenssl req -newkey rsa:2048 -nodes -sha256 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal -keyout /tmp/aura-historia-postgres-tls/server.key -out /tmp/aura-historia-postgres-tls/server.csr\nprintf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal\\nextendedKeyUsage=serverAuth\\n' > /tmp/aura-historia-postgres-tls/server.ext\nopenssl x509 -req -in /tmp/aura-historia-postgres-tls/server.csr -CA /tmp/aura-historia-postgres-tls/ca.crt -CAkey /tmp/aura-historia-postgres-tls/ca.key -CAcreateserial -out /tmp/aura-historia-postgres-tls/server.crt -days 1 -sha256 -extfile /tmp/aura-historia-postgres-tls/server.ext\nchown postgres:postgres /tmp/aura-historia-postgres-tls/server.crt /tmp/aura-historia-postgres-tls/server.key\nchmod 0600 /tmp/aura-historia-postgres-tls/server.key\nexec /usr/local/bin/docker-entrypoint.sh postgres -c fsync=off -c wal_level=logical -c ssl=on -c ssl_cert_file=/tmp/aura-historia-postgres-tls/server.crt -c ssl_key_file=/tmp/aura-historia-postgres-tls/server.key";
+use self::tls::{POSTGRES_TLS_ENTRYPOINT, POSTGRES_TLS_ROOT_CERTIFICATE};
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
 
@@ -164,6 +165,15 @@ where
 /// container is ever started. The container handle is intentionally leaked — it lives for
 /// the entire test-suite binary and is cleaned up by the `atexit` handler.
 async fn ensure_container_started() {
+    if let Some(config) = crate::environment::managed_environment() {
+        let endpoint = config
+            .postgres
+            .as_ref()
+            .expect("managed profile has no Postgres");
+        POSTGRES_HOST_PORT.get_or_init(|| endpoint.port);
+        POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| endpoint.root_certificate.clone());
+        return;
+    }
     POSTGRES_CONTAINER_STARTED
         .get_or_init(|| async {
             install_cleanup();
@@ -260,7 +270,7 @@ fn copy_from_container(
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
     Command::new("docker")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", "-v", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -282,6 +292,11 @@ fn install_cleanup() {
     });
 }
 
+pub(crate) async fn base_options() -> PgConnectOptions {
+    ensure_container_started().await;
+    fixture_postgres_connect_options()
+}
+
 /// Returns a fresh [`PgPool`] connected to the test Postgres container.
 ///
 /// A **new pool is created on every call** and is owned by the caller. This is intentional:
@@ -301,6 +316,9 @@ fn install_cleanup() {
 /// A newly created [`PgPool`] that the caller should drop before its Tokio runtime shuts down
 /// (i.e. before the test function returns).
 pub async fn get_postgres_client() -> PgPool {
+    if let Some(context) = crate::TestContext::current() {
+        return context.postgres_pool().await.expect("scoped Postgres pool");
+    }
     ensure_container_started().await;
 
     let pool = PgPool::connect_with(fixture_postgres_connect_options())
@@ -500,6 +518,13 @@ impl IntegrationTestService for Postgres {
 
     /// Starts the Postgres container and applies migrations according to the selected lifecycle.
     async fn set_up(&self) {
+        if let Some(context) = crate::TestContext::current() {
+            context
+                .prepare_postgres(self)
+                .await
+                .expect("prepare isolated Postgres baseline");
+            return;
+        }
         ensure_container_started().await;
 
         if self.migrate_once {
@@ -531,6 +556,9 @@ impl IntegrationTestService for Postgres {
     /// Table definitions (DDL) are intentionally kept intact so that the next test's
     /// `set_up` can rely on `CREATE TABLE IF NOT EXISTS` being a no-op.
     async fn tear_down(&self) {
+        if crate::TestContext::current().is_some() {
+            return;
+        }
         let started = Instant::now();
         let mut conn = open_connection().await;
 
@@ -648,51 +676,72 @@ mod tests {
 
     #[tokio::test]
     async fn should_connect_to_the_fixture_with_verified_tls() {
-        ensure_container_started().await;
-        let mut connection = open_connection().await;
-        let encrypted: bool =
-            sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-                .fetch_one(&mut connection)
-                .await
-                .expect("should read the fixture connection TLS state");
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let mut connection = open_connection().await;
+                let encrypted: bool =
+                    sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+                        .fetch_one(&mut connection)
+                        .await
+                        .expect("should read the fixture connection TLS state");
 
-        assert!(encrypted);
+                assert!(encrypted);
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn should_reject_the_production_rds_bundle_for_the_fixture() {
-        ensure_container_started().await;
-        let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
-            .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
+                    .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
 
-        assert!(
-            postgres_connect_options(&production_bundle)
-                .connect()
-                .await
-                .is_err()
-        );
+                assert!(
+                    postgres_connect_options(&production_bundle)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn should_reject_wrong_hostname_and_missing_root_certificate() {
-        ensure_container_started().await;
-        let root_certificate = get_postgres_tls_root_certificate_path();
-        let missing_certificate = std::env::temp_dir().join(format!(
-            "aura-historia-missing-postgres-ca-{}",
-            std::process::id()
-        ));
+        let reservation = crate::reserve_exclusive()
+            .await
+            .expect("reserve raw PostgreSQL fixture");
+        reservation
+            .scope(async {
+                ensure_container_started().await;
+                let root_certificate = get_postgres_tls_root_certificate_path();
+                let missing_certificate = std::env::temp_dir().join(format!(
+                    "aura-historia-missing-postgres-ca-{}",
+                    std::process::id()
+                ));
 
-        assert!(
-            postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
-                .connect()
-                .await
-                .is_err()
-        );
-        assert!(
-            postgres_connect_options(&missing_certificate)
-                .connect()
-                .await
-                .is_err()
-        );
+                assert!(
+                    postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+                assert!(
+                    postgres_connect_options(&missing_certificate)
+                        .connect()
+                        .await
+                        .is_err()
+                );
+            })
+            .await;
     }
 }

@@ -4,28 +4,43 @@ use test_api::{IntegrationTestService, OpenSearch};
 use tokio::process::Command;
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
-    let container = get_aws_emulator(&["opensearch"], &[]).await;
-
-    let host_ip = container.get_host().await.unwrap().to_string();
-    let host_port = container.get_host_port_ipv4(4566).await.unwrap();
-
-    assert_eq!(host_ip, "localhost");
-    assert!(host_port > 0, "a random port should be assigned");
-
-    assert_eq!(format!("http://{host_ip}:{host_port}"), get_endpoint_url());
+    require_unmanaged_phase();
+    get_aws_emulator(&["opensearch"], &[]).await;
+    let endpoint = url::Url::parse(get_endpoint_url()).unwrap();
+    assert_eq!(endpoint.host_str(), Some("localhost"));
+    assert!(endpoint.port().unwrap() > 0);
+    aws_sdk_opensearch::Client::new(test_api::aws::get_aws_config().await)
+        .list_domain_names()
+        .send()
+        .await
+        .expect("published Floci endpoint must accept real SDK requests");
 }
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
 async fn should_reap_child_resources_without_removing_another_process_fixture() {
+    require_unmanaged_phase();
     test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
     OpenSearch().set_up().await;
 
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "aws_fixture_child", "--test-threads=1"])
+        .args([
+            "--ignored",
+            "--exact",
+            "aws_fixture_child",
+            "--test-threads=1",
+        ])
         .env("AURA_AWS_FIXTURE_CHILD", "1")
+        .env_remove("AURA_TEST_ENV_MANAGED")
+        .env_remove("AURA_TEST_ENV_CONFIG")
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_RUN_ID")
+        .env_remove("NEXTEST_TEST_GLOBAL_SLOT")
+        .env_remove("NEXTEST_EXECUTION_MODE")
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
@@ -67,10 +82,19 @@ async fn should_reap_child_resources_without_removing_another_process_fixture() 
 }
 
 #[tokio::test]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
 async fn aws_fixture_child() {
     if std::env::var_os("AURA_AWS_FIXTURE_CHILD").is_none() {
         return;
     }
+    require_unmanaged_phase();
     test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
     OpenSearch().set_up().await;
+}
+
+fn require_unmanaged_phase() {
+    assert!(
+        test_api::environment::managed_environment().is_none(),
+        "AWS fixture lifecycle diagnostics require an unmanaged local run"
+    );
 }

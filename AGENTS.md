@@ -42,7 +42,9 @@
 
 ## Validation
 
-Start with focused checks and tests for changed crates. Use `--locked` so validation does not update dependencies. Library tests can use real local infrastructure; check their fixtures and Docker/Floci requirements before running them. Use isolated test resources and test credentials, never deployed services or live credentials.
+Start with a focused package or test, for example `cargo test --locked -p product-listing-postgres --all-features --test public_catalogue_overview`. Use `--locked` so validation does not update dependencies. Plain Cargo tests start their own local fixtures. Integration and some library tests require Linux, Docker and the Docker CLI; use fake test credentials and isolated local services.
+
+For parallel tests with shared services, use the lane commands in [docs/ci.md](docs/ci.md). That guide covers lane assignment, Nextest installation, explicit doctests and reproducing CI locally. The [fixture guide](src/test-api/README.md) owns context, worker shutdown and cleanup requirements. Fixture diagnostics under `src/test-api/tests/` are ignored by default; run a selected diagnostic explicitly with `--ignored --test-threads=1`.
 
 Run broader validation when the change warrants it:
 
@@ -51,7 +53,7 @@ cargo fmt --all -- --check
 cargo check --locked --workspace
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 cargo depgraph-check check
-cargo test --locked --workspace --lib --all-features
+cargo test --locked --workspace --all-features
 npm --prefix infra test
 npm --prefix infra run synth:all
 ```

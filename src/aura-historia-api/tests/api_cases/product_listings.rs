@@ -47,7 +47,12 @@ use test_api::{
 use time::{Duration, OffsetDateTime, UtcOffset};
 use url::Url;
 
-const PRODUCTS_INDEX: &str = "product-listings";
+fn products_index() -> String {
+    test_api::TestContext::current()
+        .expect("search context")
+        .product_listings_index()
+        .expect("search index")
+}
 static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_failed_search_embedding);
 static AURA_API_WITH_SEARCH_CACHES: AuraHistoriaApi =
@@ -59,7 +64,7 @@ static AURA_API_WITH_FX_ROLLOVER_SEARCH_CACHES: AuraHistoriaApi =
 static AURA_API_WITH_ASSESSMENT_SEARCH_CACHES: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_product_listing_search_caches);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_product_details_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -111,12 +116,12 @@ async fn should_get_product_details_by_id() {
     );
 }
 
-#[aura_integration_test(services = [
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE,
     BUSINESS_SCHEMA,
     OPENSEARCH,
     &AURA_API_WITH_SEARCH_CACHES,
     &AURA_API_WITH_SHORT_TTL_SEARCH_CACHES
-])]
+], isolated = true)]
 async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_cache() {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
@@ -246,11 +251,11 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
     panic!("public source cache did not refresh after its configured TTL");
 }
 
-#[aura_integration_test(services = [
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE,
     BUSINESS_SCHEMA,
     OPENSEARCH,
     &AURA_API_WITH_ASSESSMENT_SEARCH_CACHES
-])]
+], isolated = true)]
 async fn should_apply_same_content_source_assessment_corrections_with_warm_search_inputs() {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
@@ -338,7 +343,7 @@ async fn should_apply_same_content_source_assessment_corrections_with_warm_searc
     assert!(body["items"][0]["item"]["contentPolicy"].is_null());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_apply_listing_source_referral_policy_changes_to_product_listing_reads_without_reprojection()
  {
     let product_listing_id = seed_product().await;
@@ -500,7 +505,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     assert_product_view_urls(&similar_body[0]["item"], raw_url, aura_url);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_product_details_by_title_slug_equivalently_to_id() {
     let product_listing_id = seed_product().await;
 
@@ -554,7 +559,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
     assert_eq!(id_cache_control, slug_cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_ids() {
     let first_product_listing_id = seed_product().await;
     let second_product_listing_id = seed_product().await;
@@ -576,7 +581,7 @@ async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_product_title_slug() {
     let (response, _) = get_json("/v1/product-listings/by-slug/listing--abcdef".to_owned()).await;
     let (status, body) = json_response(response).await;
@@ -589,7 +594,7 @@ async fn should_reject_invalid_product_title_slug() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_product_title_slug() {
     let (response, _) =
         get_json("/v1/product-listings/by-slug/missing-listing-a1b2c3".to_owned()).await;
@@ -603,7 +608,7 @@ async fn should_return_not_found_for_missing_product_title_slug() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_withdrawn_product_by_id_or_title_slug() {
     let product_listing_id = seed_product().await;
     let title_slug = ProductListingSlugId::from_title_and_suffix(
@@ -636,7 +641,7 @@ async fn should_return_not_found_for_withdrawn_product_by_id_or_title_slug() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id() {
     let user_id = api_support::seed_user_with_tier("USER", user_core::tier::UserTier::Free).await;
     let token = api_support::seed_access_token_for(user_id, HashSet::new()).await;
@@ -741,7 +746,7 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_source_scoped_product_management_details_private() {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
@@ -771,7 +776,7 @@ async fn should_keep_source_scoped_product_management_details_private() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_product_listing_history_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -806,7 +811,7 @@ async fn should_get_product_listing_history_by_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_project_history_using_persisted_historical_snapshot() {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
@@ -885,7 +890,7 @@ async fn should_project_history_using_persisted_historical_snapshot() {
     assert_eq!(baseline, json_response(response).await.1);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let listing_source_id = api_support::seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
@@ -1059,7 +1064,7 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     assert!(auction["current"]["reportedClosedAt"].is_string());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_pending_similar_products_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -1084,7 +1089,7 @@ async fn should_return_pending_similar_products_by_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(
@@ -1179,7 +1184,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_snapshot_is_captured()
  {
     let products = [
@@ -1253,11 +1258,11 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     assert!(product_listing_ids(&fresh_body).is_empty());
 }
 
-#[aura_integration_test(services = [
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE,
     BUSINESS_SCHEMA,
     OPENSEARCH,
     &AURA_API_WITH_FX_ROLLOVER_SEARCH_CACHES
-])]
+], isolated = true)]
 async fn should_keep_search_cursor_fx_pinned_after_cached_latest_selection_refreshes() {
     let products = [
         search_document(
@@ -1349,7 +1354,7 @@ async fn should_keep_search_cursor_fx_pinned_after_cached_latest_selection_refre
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_sold_display_when_fx_snapshot_changes() {
     let captured_at = OffsetDateTime::now_utc() + Duration::days(730);
     let sale_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
@@ -1401,7 +1406,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_matching_product_search_summary() {
     let target = search_document(
         "Renaissance walnut cabinet",
@@ -1445,7 +1450,7 @@ async fn should_return_matching_product_search_summary() {
     assert!(body["items"][0].get("userState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     let target = search_document(
         "Ornate candle holder",
@@ -1485,7 +1490,7 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     assert!(body["total"].is_null());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API_WITH_FAILED_EMBEDDING])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API_WITH_FAILED_EMBEDDING], isolated = true)]
 async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
     let target = search_document(
         "Vintage brass lamp",
@@ -1508,7 +1513,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
     assert_eq!(vec![target.0], product_listing_ids(&body));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_intersect_product_search_filters() {
     let target = search_document_with_source(
         "Filter cabinet",
@@ -1572,7 +1577,7 @@ async fn should_intersect_product_search_filters() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_projected_product_listings_from_default_search() {
     let active = search_document(
         "Lifecycle fixture",
@@ -1595,7 +1600,7 @@ async fn should_return_projected_product_listings_from_default_search() {
     assert_eq!(vec![active.0], product_listing_ids(&body));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_product_search_by_availability() {
     let available = search_document(
         "Availability fixture",
@@ -1624,7 +1629,7 @@ async fn should_filter_product_search_by_availability() {
     assert_eq!(json!("SOLD_OUT"), body["items"][0]["item"]["availability"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_product_search_by_created_date_range() {
     let january = search_document(
         "Date fixture",
@@ -1652,7 +1657,7 @@ async fn should_filter_product_search_by_created_date_range() {
     assert_eq!(vec![january.0], product_listing_ids(&body));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_product_listing_ids() {
     let product_listing_id = ProductListingId::new();
     for invalid_id in [
@@ -1672,7 +1677,7 @@ async fn should_reject_noncanonical_product_listing_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_object_ids_in_product_search_query_and_cursor() {
     let listing_source_id = ListingSourceId::new();
     for invalid_id in [
@@ -1715,7 +1720,7 @@ async fn should_reject_noncanonical_object_ids_in_product_search_query_and_curso
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_optional_product_authentication() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -1743,7 +1748,7 @@ async fn should_reject_invalid_optional_product_authentication() {
     assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_product_search_sort() {
     let (response, _) =
         get_json("/v1/product-listings?language=en&currency=USD&sort=invalid&order=asc".to_owned())
@@ -1762,8 +1767,8 @@ async fn get_json(path: String) -> (reqwest::Response, String) {
     get_json_from(AURA_API.base_url(), &path).await
 }
 
-async fn get_json_from(base_url: &str, path: &str) -> (reqwest::Response, String) {
-    let url = format!("{base_url}{path}");
+async fn get_json_from(base_url: impl AsRef<str>, path: &str) -> (reqwest::Response, String) {
+    let url = format!("{}{path}", base_url.as_ref());
     let response = reqwest::Client::new()
         .get(&url)
         .send()
@@ -1812,13 +1817,13 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
 
 async fn index_existing_listing_source_document(document: Value) {
     let client = get_opensearch_client().await;
-    ensure_canonical_product_listing_mapping(client).await;
+    ensure_canonical_product_listing_mapping(&client).await;
     let product_listing_id = document["productListingId"]
         .as_str()
         .unwrap_or_else(|| panic!("search fixture has no productListingId"))
         .to_owned();
     let response = client
-        .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_listing_id))
+        .index(IndexParts::IndexId(&products_index(), &product_listing_id))
         .body(document)
         .send()
         .await
@@ -1831,7 +1836,7 @@ async fn index_existing_listing_source_document(document: Value) {
             .unwrap_or_else(|error| panic!("failed to read index failure: {error}"));
         panic!("failed to index search fixture: {status}: {body}");
     }
-    refresh_index(PRODUCTS_INDEX).await;
+    refresh_index(&products_index()).await;
 }
 
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
@@ -1840,14 +1845,14 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     seed_current_fx_snapshot(&pool).await;
     seed_search_listing_sources(&pool, &documents).await;
     let client = get_opensearch_client().await;
-    ensure_canonical_product_listing_mapping(client).await;
+    ensure_canonical_product_listing_mapping(&client).await;
     for document in documents {
         let product_listing_id = document["productListingId"]
             .as_str()
             .unwrap_or_else(|| panic!("search fixture has no productListingId"))
             .to_owned();
         let response = client
-            .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_listing_id))
+            .index(IndexParts::IndexId(&products_index(), &product_listing_id))
             .body(document)
             .send()
             .await
@@ -1861,7 +1866,7 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
             panic!("failed to index search fixture: {status}: {body}");
         }
     }
-    refresh_index(PRODUCTS_INDEX).await;
+    refresh_index(&products_index()).await;
 }
 
 async fn seed_search_listing_sources(pool: &sqlx::PgPool, documents: &[Value]) {
@@ -1904,7 +1909,7 @@ async fn seed_search_listing_sources(pool: &sqlx::PgPool, documents: &[Value]) {
 async fn ensure_canonical_product_listing_mapping(client: &opensearch::OpenSearch) {
     let response = client
         .indices()
-        .put_mapping(IndicesPutMappingParts::Index(&[PRODUCTS_INDEX]))
+        .put_mapping(IndicesPutMappingParts::Index(&[&products_index()]))
         .body(json!({
             "properties": {
                 "availability": { "type": "keyword" }
@@ -2008,7 +2013,7 @@ fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_include_current_shipping_across_all_listing_read_endpoints() {
     use application::operation_context::{OperationContext, Principal};
     use shipping_service::{ports::ShippingDefaultRevision, use_cases::*};

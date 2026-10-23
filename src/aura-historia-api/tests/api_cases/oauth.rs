@@ -275,7 +275,7 @@ async fn exchange_third_party_code_response(
     json_response(response).await
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_create_list_get_update_and_delete_oauth_client() {
     let OAuthAdmin {
         client,
@@ -510,7 +510,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion() {
     let OAuthAdmin {
         client,
@@ -563,7 +563,7 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     let OAuthAdmin {
         client,
@@ -696,7 +696,7 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_authentication_for_admin_oauth_client_collection_and_item_routes() {
     let client = reqwest::Client::new();
     let routes = [
@@ -759,7 +759,7 @@ async fn should_require_authentication_for_admin_oauth_client_collection_and_ite
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
     let OAuthAdmin {
         client,
@@ -810,7 +810,7 @@ async fn should_reject_noncanonical_admin_oauth_client_path_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
     let OAuthAdmin {
         client,
@@ -841,7 +841,7 @@ async fn should_return_bad_body_for_malformed_admin_oauth_client_create() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
     let OAuthAdmin {
         client,
@@ -898,7 +898,7 @@ async fn should_reject_noncanonical_oauth_client_ids_in_protocol_bodies() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_oauth_client_query_ids() {
     let OAuthAdmin {
         client,
@@ -946,7 +946,7 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_bad_query_for_malformed_admin_oauth_client_search_after_shape() {
     let token = admin_read_token().await;
     let response = reqwest::Client::new()
@@ -974,7 +974,7 @@ async fn should_return_bad_query_for_malformed_admin_oauth_client_search_after_s
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_oauth_client_cursors() {
     let token = admin_read_token().await;
     let client = reqwest::Client::new();
@@ -1007,7 +1007,7 @@ async fn should_reject_noncanonical_admin_oauth_client_cursors() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_admin_oauth_client() {
     let admin_token = admin_read_token().await;
     let client = reqwest::Client::new();
@@ -1036,7 +1036,7 @@ async fn should_return_not_found_for_missing_admin_oauth_client() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_role_and_delegated_read_for_oauth_client_detail() {
     let client = reqwest::Client::new();
     let client_id = OAuthClientId::new();
@@ -1083,7 +1083,7 @@ async fn should_require_admin_role_and_delegated_read_for_oauth_client_detail() 
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user() {
     let OAuthAdmin {
         client: admin_client,
@@ -1163,7 +1163,7 @@ async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user(
     assert_eq!(0, issued_tokens);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store() {
     let user_id = seed_user("USER").await;
     let cognito_access_token = api_support::cognito_access_token_for_test_user(user_id);
@@ -1250,7 +1250,7 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_oauth_client_creation_for_non_admin() {
     let user_id = seed_user("USER").await;
     let access_token = seed_access_token_for(
@@ -1287,7 +1287,7 @@ async fn should_reject_oauth_client_creation_for_non_admin() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_oauth_client_creation_for_admin_without_delegated_write() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(admin_id, Default::default()).await;
@@ -1314,7 +1314,7 @@ async fn should_reject_oauth_client_creation_for_admin_without_delegated_write()
     assert!(body.get("detail").is_none(), "{body}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_require_admin_role_and_delegated_write_for_oauth_client_update() {
     let OAuthAdmin {
         client,
@@ -1359,7 +1359,7 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_update()
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_validate_admin_oauth_client_update_and_report_not_found() {
     let OAuthAdmin {
         client,
@@ -1439,7 +1439,7 @@ async fn should_validate_admin_oauth_client_update_and_report_not_found() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
     let token = cognito_access_token_for_test_user(seed_user("ADMIN").await);
     let client = reqwest::Client::new();
@@ -1492,7 +1492,7 @@ async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_paginate_and_filter_admin_oauth_clients() {
     let OAuthAdmin {
         client,
@@ -1599,7 +1599,7 @@ async fn should_paginate_and_filter_admin_oauth_clients() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_oauth_client_list_without_delegated_read_capability() {
     let user_id = api_support::seed_user("ADMIN").await;
     let token = api_support::seed_access_token_for(user_id, Default::default()).await;
@@ -1620,7 +1620,7 @@ async fn should_reject_admin_oauth_client_list_without_delegated_read_capability
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_admin_oauth_client_list_for_non_admin_with_delegated_read() {
     let user_id = api_support::seed_user("USER").await;
     let token = api_support::seed_access_token_for(
@@ -1639,7 +1639,7 @@ async fn should_reject_admin_oauth_client_list_for_non_admin_with_delegated_read
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_stop_a_delegated_admin_from_registering_or_approving_an_oauth_client() {
     let OAuthAdmin {
         client,
@@ -1738,7 +1738,7 @@ async fn should_stop_a_delegated_admin_from_registering_or_approving_an_oauth_cl
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     let OAuthAdmin {
         client,
@@ -1750,7 +1750,7 @@ async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     assert!(!code.is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_exchange_authorization_code_for_access_token() {
     let OAuthAdmin {
         client,
@@ -1770,7 +1770,7 @@ async fn should_exchange_authorization_code_for_access_token() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     let OAuthAdmin {
         client,
@@ -1810,7 +1810,7 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_sequential_authorization_code_replay() {
     let OAuthAdmin {
         client,
@@ -1826,7 +1826,7 @@ async fn should_reject_sequential_authorization_code_replay() {
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, second.0);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_only_one_concurrent_authorization_code_redemption() {
     let OAuthAdmin {
         client,
@@ -1850,7 +1850,7 @@ async fn should_allow_only_one_concurrent_authorization_code_redemption() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_allow_only_one_concurrent_third_party_exchange() {
     let OAuthAdmin {
         client,
@@ -1879,7 +1879,7 @@ async fn should_allow_only_one_concurrent_third_party_exchange() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_introspect_and_revoke_oauth_access_token() {
     let OAuthAdmin {
         client,

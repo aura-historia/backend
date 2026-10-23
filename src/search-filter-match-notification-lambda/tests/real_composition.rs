@@ -19,7 +19,7 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn concurrent_replay_observes_committed_selection_before_creating_notifications() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -41,7 +41,7 @@ async fn concurrent_replay_observes_committed_selection_before_creating_notifica
             .fetch_one(&mut *selection).await?;
         let generator = compose_search_filter_match_notification_use_case(pool.clone());
         let job = job_body(user, filter, listing, origin)?;
-        let replay = tokio::spawn(async move {
+        let replay = test_api::spawn_owned(async move {
             handler(event("concurrent-replay", job), generator.as_ref()).await
         });
         wait_for_blocked(&pool, blocker, 1).await?;
@@ -57,7 +57,7 @@ async fn concurrent_replay_observes_committed_selection_before_creating_notifica
     assert!(result.is_ok(), "concurrent terminal selection: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn last_notification_selection_enqueues_digest_without_hourly_maintenance() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -104,7 +104,7 @@ async fn last_notification_selection_enqueues_digest_without_hourly_maintenance(
     assert!(result.is_ok(), "normal notification completion: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn last_filter_with_no_matches_enqueues_previously_selected_members_atomically() {
     let result: TestResult = async {
         use application::transaction::{Transaction, UnitOfWork};
@@ -151,7 +151,7 @@ async fn last_filter_with_no_matches_enqueues_previously_selected_members_atomic
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn overlapping_filter_and_suppressed_selection_completion_cannot_miss_finalization() {
     let result: TestResult = async {
         use application::transaction::{Transaction, UnitOfWork};
@@ -180,7 +180,7 @@ async fn overlapping_filter_and_suppressed_selection_completion_cannot_miss_fina
         assert!(notification_postgres::SqlxSavedSearchDigestStoreFactory.in_transaction(&mut tx)
             .finalize_for_user(user, end).await?.is_none());
         let job = job_body(user, last, withdrawn, withdrawn_origin)?;
-        let selection = tokio::spawn(async move { handler(event("suppressed-last", job), generator.as_ref()).await });
+        let selection = test_api::spawn_owned(async move { handler(event("suppressed-last", job), generator.as_ref()).await });
         // Selection cannot yet observe the matcher's uncommitted terminal marker.
         // It must wait for the group, then read readiness with a fresh snapshot.
         wait_for_blocked(&pool, blocker, 1).await?;
@@ -204,7 +204,7 @@ async fn digest_delivery_count(pool: &sqlx::PgPool, user: UserId) -> Result<i64,
         .bind(user.as_uuid()).fetch_one(pool).await
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_finalizes_once() {
     let result: TestResult = async {
         use notification_service::ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome};
@@ -256,7 +256,7 @@ async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_f
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn zero_matches_and_legacy_matches_produce_no_new_digest() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -299,7 +299,7 @@ async fn zero_matches_and_legacy_matches_produce_no_new_digest() {
     assert!(result.is_ok(), "zero/legacy cutover: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn interrupted_run_finalizes_successes_and_late_members_are_carried_to_next_run() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -344,7 +344,7 @@ async fn interrupted_run_finalizes_successes_and_late_members_are_carried_to_nex
     assert!(result.is_ok(), "partial run and late arrivals: {result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn digest_delivery_rechecks_filter_preference_and_fences_individual_email() {
     let result: TestResult = async {
         use notification_service::ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome};
@@ -397,7 +397,7 @@ fn digest_maintenance(
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn free_monthly_quota_selects_ten_matches_before_creating_one_email() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -428,7 +428,7 @@ async fn free_monthly_quota_selects_ten_matches_before_creating_one_email() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn finalization_rollback_retains_members_and_delivery_uses_snapshots_with_current_guards() {
     let result: TestResult = async {
         use application::transaction::UnitOfWork;
@@ -477,7 +477,7 @@ async fn finalization_rollback_retains_members_and_delivery_uses_snapshots_with_
         "finalization rollback/current delivery guards: {result:?}"
     );
 }
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn newer_run_cannot_enroll_members_from_an_unfinished_older_group() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -521,7 +521,7 @@ async fn newer_run_cannot_enroll_members_from_an_unfinished_older_group() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn digest_claim_rejects_snapshot_identity_corruption_and_preserves_delivery_target() {
     let result: TestResult = async {
         use notification_service::ports::notification_delivery_repository::{
@@ -631,7 +631,7 @@ async fn terminal_filter(
     Ok(())
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn missing_match_is_retried_then_committed_match_creates_one_notification_and_intent() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -663,7 +663,7 @@ async fn missing_match_is_retried_then_committed_match_creates_one_notification_
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn overlapping_invocations_insert_only_one_match_notification_and_delivery_intent() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -681,13 +681,13 @@ async fn overlapping_invocations_insert_only_one_match_notification_and_delivery
         let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *barrier)
             .await?;
-        let first = tokio::spawn({
+        let first = test_api::spawn_owned({
             let use_case = use_case.clone();
             let body = body.clone();
             async move { handler(event("first", body), use_case.as_ref()).await }
         });
         wait_for_blocked(&pool, blocker, 1).await?;
-        let second = tokio::spawn({
+        let second = test_api::spawn_owned({
             let use_case = use_case.clone();
             async move { handler(event("second", body), use_case.as_ref()).await }
         });
@@ -705,7 +705,7 @@ async fn overlapping_invocations_insert_only_one_match_notification_and_delivery
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn withdrawn_listing_suppresses_historical_match_notification() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;

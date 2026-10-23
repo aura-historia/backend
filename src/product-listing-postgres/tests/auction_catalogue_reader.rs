@@ -17,7 +17,7 @@ use time::{OffsetDateTime, macros::datetime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_only_active_assigned_listings_in_catalogue_position_order_across_pages() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "catalogue-order-source").await;
@@ -98,7 +98,7 @@ async fn should_return_only_active_assigned_listings_in_catalogue_position_order
     assert!(second_page.cursor.search_after.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_item() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "catalogue-full-source").await;
@@ -169,7 +169,7 @@ async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_
     assert_eq!(Some(scheduled_close), lot.scheduled_closes);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_an_empty_page_for_an_existing_auction_without_active_assigned_listings() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "catalogue-empty-source").await;

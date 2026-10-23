@@ -14,7 +14,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_compose_public_search_and_slug_detail_from_the_same_business_pool() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;

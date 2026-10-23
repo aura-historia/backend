@@ -143,7 +143,7 @@ async fn count_applications(pool: &PgPool) -> i64 {
         .unwrap_or_else(|error| panic!("count partnership applications: {error}"))
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_insert_and_find_application_by_id_and_applicant() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -196,7 +196,7 @@ async fn should_insert_and_find_application_by_id_and_applicant() {
     assert_eq!(1, count_applications(&pool).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_store_existing_listing_source_proposal_id_as_raw_uuid_text() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -219,7 +219,7 @@ async fn should_store_existing_listing_source_proposal_id_as_raw_uuid_text() {
     assert_ne!(listing_source_id.to_string(), stored_listing_source_id);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_find_application_for_update() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -243,7 +243,7 @@ async fn should_find_application_for_update() {
     commit(transaction).await;
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_update_application_increment_version_and_persist_approval_result() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -285,7 +285,7 @@ async fn should_update_application_increment_version_and_persist_approval_result
     assert_eq!(1, count_applications(&pool).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_application_version() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;
@@ -329,7 +329,7 @@ async fn should_reject_stale_application_version() {
     assert_eq!(1, count_applications(&pool).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_hide_application_insert_and_update_after_transaction_rollback() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;

@@ -41,8 +41,7 @@ async fn insert_domain(
     domain_id
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_insert_and_update_url_for_its_same_owner() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -88,8 +87,7 @@ async fn should_insert_and_update_url_for_its_same_owner() {
     assert_eq!(count, 1);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_mark_owned_url_as_scraped() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -129,8 +127,7 @@ async fn should_mark_owned_url_as_scraped() {
     assert_eq!(scraped.2, CrawlerDisposition::Active.as_str());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_transition_owned_url_to_dormant_without_reactivation() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -176,8 +173,7 @@ async fn should_transition_owned_url_to_dormant_without_reactivation() {
     assert_eq!(row.1, *domain_id.as_uuid());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_dormant_sold_url_absorbing_during_rediscovery_and_active_update() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -237,8 +233,7 @@ async fn should_keep_dormant_sold_url_absorbing_during_rediscovery_and_active_up
     assert!(row.1.is_none());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_upsert_valid_url_batch_for_one_owned_domain() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -275,8 +270,7 @@ async fn should_upsert_valid_url_batch_for_one_owned_domain() {
     }));
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_batch_when_url_and_class_lengths_differ() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -311,8 +305,7 @@ async fn should_reject_batch_when_url_and_class_lengths_differ() {
     assert_eq!(count, 0);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -347,8 +340,7 @@ async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
     assert_eq!(count, 0);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_delete_urls_when_their_domain_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -383,8 +375,7 @@ async fn should_delete_urls_when_their_domain_is_deleted() {
     assert_eq!(count, 0);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_new_url_when_domain_belongs_to_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -409,8 +400,7 @@ async fn should_reject_new_url_when_domain_belongs_to_another_listing_source() {
     assert_eq!(count, 0);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own_the_url_host() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -446,8 +436,7 @@ async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own
     assert_eq!(row.2, "product");
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_duplicate_canonical_domain_for_same_source() {
     let pool = get_postgres_client().await;
     let source = ListingSourceId::new();
@@ -470,8 +459,7 @@ async fn should_reject_duplicate_canonical_domain_for_same_source() {
     assert!(duplicate.is_err());
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -514,8 +502,7 @@ async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source(
     assert_eq!(fresh_count, 0);
 }
 
-#[serial_test::serial]
-#[aura_integration_test(services = [POSTGRES])]
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_accept_bare_and_www_domain_equivalence_but_reject_other_subdomains() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());

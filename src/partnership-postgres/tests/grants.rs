@@ -79,7 +79,7 @@ async fn partnership_updated(pool: &PgPool, partnership_id: PartnershipId) -> ti
         .unwrap_or_else(|error| panic!("load partnership freshness: {error}"))
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_add_and_remove_listing_source_grants_idempotently() {
     let pool = get_postgres_client().await;
     let (partnership_id, listing_source_id) = seed_grant_targets(&pool).await;
@@ -143,7 +143,7 @@ async fn should_add_and_remove_listing_source_grants_idempotently() {
     assert!(partnership_updated(&pool, partnership_id).await > granted);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_rollback_listing_source_grant_add_and_remove() {
     let pool = get_postgres_client().await;
     let (partnership_id, listing_source_id) = seed_grant_targets(&pool).await;

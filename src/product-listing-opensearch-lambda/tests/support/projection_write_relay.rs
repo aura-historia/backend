@@ -10,7 +10,6 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::oneshot,
-    task::JoinHandle,
     time::timeout,
 };
 
@@ -25,7 +24,7 @@ pub(super) struct ProjectionWriteRelay {
     pub(super) client: OpenSearch,
     received: oneshot::Receiver<()>,
     release: Option<oneshot::Sender<()>>,
-    forwarded: JoinHandle<TestResult<StatusCode>>,
+    forwarded: test_api::OwnedTask<TestResult<StatusCode>>,
 }
 
 impl ProjectionWriteRelay {
@@ -50,7 +49,7 @@ impl ProjectionWriteRelay {
         } else {
             (None, ResponseMode::Drop)
         };
-        let forwarded = tokio::spawn(async move {
+        let forwarded = test_api::spawn_owned(async move {
             timeout(Duration::from_secs(30), async move {
                 let (mut socket, _) = listener.accept().await?;
                 let request = read_request(&mut socket).await?;

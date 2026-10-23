@@ -216,7 +216,7 @@ async fn should_preserve_source_image_evidence_and_capture_validated_images_afte
     assert_raw_capture_image_projection(&scraped);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_cached_schema_image_evidence_in_raw_revision() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "crawler-image-evidence").await;

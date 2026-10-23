@@ -81,7 +81,7 @@ async fn inspect(
     Ok(resolution)
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn own_crud_pagination_and_private_cache_isolation() {
     let (pool, h, a, b) = fixture().await;
     let one = h.create(&a, create("Synthetic One")).await.unwrap();
@@ -182,7 +182,7 @@ async fn own_crud_pagination_and_private_cache_isolation() {
     assert_ne!(first, new.id);
     assert_eq!(1, new.version);
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn independent_creates_allow_duplicates_and_fence_updates_and_preferences() {
     let (_pool, h, a, _) = fixture().await;
     let (l, r) = tokio::join!(
@@ -258,7 +258,7 @@ async fn independent_creates_allow_duplicates_and_fence_updates_and_preferences(
         BrowsingDestination::None
     ));
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn explicit_destinations_and_delegated_scope_are_authorized() {
     let (pool, h, a, b) = fixture().await;
     let id = h
@@ -340,7 +340,7 @@ async fn explicit_destinations_and_delegated_scope_are_authorized() {
         Err(AddressBookError::Forbidden)
     ));
 }
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let (pool, h, a, b) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
@@ -520,7 +520,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     assert_eq!((true, None, None), state);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_removed() {
     let (pool, h, a, _) = fixture().await;
     let first = h
@@ -606,7 +606,7 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account() {
     use user_service::use_cases::commands::delete_user::{
         DeleteUserCommand, DeleteUserHandler, DeleteUserUseCase,
@@ -666,7 +666,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
@@ -829,7 +829,7 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     assert_eq!(explicit, h.destination(&a).await.unwrap().destination);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn erasure_remains_possible_after_counter_exhaustion() {
     let (pool, h, a, _) = fixture().await;
     let id = h
@@ -869,7 +869,7 @@ async fn erasure_remains_possible_after_counter_exhaustion() {
     assert!(erased);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
     let (pool, h, a, b) = fixture().await;
     let first = h
@@ -925,7 +925,7 @@ async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
     assert_eq!(1, version, "failed rebind must roll back the address edit");
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_attempts() {
     let (pool, h, a, _) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
@@ -995,7 +995,7 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
     );
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn provider_profile_rebinding_erases_the_final_old_private_input() {
     let (pool, h, a, _) = fixture().await;
     let id = h
@@ -1032,7 +1032,7 @@ async fn provider_profile_rebinding_erases_the_final_old_private_input() {
     assert_eq!((true, None, None), state);
 }
 
-#[aura_integration_test(services=[SCHEMA])]
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn creation_and_resolution_roll_back_and_address_identity_remains_immutable() {
     let (pool, h, a, _) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")

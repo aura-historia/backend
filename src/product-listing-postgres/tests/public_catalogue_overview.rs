@@ -193,7 +193,7 @@ async fn seed_geography(
     .unwrap_or_else(|error| panic!("failed to seed listing geography: {error}"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_nothing_before_the_first_refresh() {
     assert_eq!(None, stored_overview().await);
 }
@@ -208,7 +208,7 @@ async fn age_stored_overview(pool: &sqlx::PgPool, age: &str) {
     .unwrap_or_else(|error| panic!("failed to age stored overview: {error}"));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_refresh_only_once_the_stored_calculation_is_due() {
     let pool = get_postgres_client().await;
     let first = read_overview().await;
@@ -227,7 +227,7 @@ async fn should_refresh_only_once_the_stored_calculation_is_due() {
     assert!(aged.as_of < refreshed.as_of);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_replace_a_newer_calculation_stored_concurrently() {
     let pool = get_postgres_client().await;
     read_overview().await;
@@ -242,7 +242,7 @@ async fn should_not_replace_a_newer_calculation_stored_concurrently() {
             .await
             .unwrap_or_else(|error| panic!("failed to lock stored overview: {error}"));
 
-    let pending = tokio::spawn(refresh());
+    let pending = test_api::spawn_owned(refresh());
     let mut waiting = false;
     for _ in 0..200 {
         waiting = sqlx::query_scalar(
@@ -281,7 +281,7 @@ async fn should_not_replace_a_newer_calculation_stored_concurrently() {
     assert!(stored.as_of > stale.overview.as_of);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_zero_counts_at_calculation_time_for_empty_catalogue() {
     let pool = get_postgres_client().await;
     let before = database_now(&pool).await;
@@ -304,7 +304,7 @@ async fn should_return_zero_counts_at_calculation_time_for_empty_catalogue() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_count_only_active_listings_and_sources_with_live_listings() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -331,7 +331,7 @@ async fn should_count_only_active_listings_and_sources_with_live_listings() {
     assert_eq!(1, overview.sources_indexed);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_union_original_title_and_description_languages_without_multiplying_counts() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -381,7 +381,7 @@ async fn should_union_original_title_and_description_languages_without_multiplyi
     assert_eq!(5, overview.live_objects);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_count_distinct_advertised_inventory_countries_of_live_listings() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -406,7 +406,7 @@ async fn should_count_distinct_advertised_inventory_countries_of_live_listings()
     assert_eq!(6, overview.live_objects);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_count_live_listings_created_in_the_seven_days_ending_at_as_of() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
@@ -438,7 +438,7 @@ async fn should_count_live_listings_created_in_the_seven_days_ending_at_as_of() 
     assert_eq!(6, overview.live_objects);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_read_inventory_country_from_the_effective_geography_projection() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;

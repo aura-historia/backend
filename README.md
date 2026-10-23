@@ -16,21 +16,6 @@
   <a href="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates"><img src="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates/badge.svg" alt="Dependabot" /></a>
 </p>
 
-<p align="center">
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=alert_status" alt="Quality Gate" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=coverage" alt="Coverage" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=ncloc" alt="Lines of Code" /></a>
-</p>
-
-<p align="center">
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=bugs" alt="Bugs" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=code_smells" alt="Code Smells" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=vulnerabilities" alt="Vulnerabilities" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=sqale_rating" alt="Maintainability" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=reliability_rating" alt="Reliability" /></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=aura-historia_backend"><img src="https://sonarcloud.io/api/project_badges/measure?project=aura-historia_backend&metric=security_rating" alt="Security" /></a>
-</p>
-
 ---
 
 ## Overview
@@ -60,7 +45,7 @@ cargo test --locked --workspace --tests --all-features
 ```
 
 The test fixtures start Floci automatically; no emulator account or license token is required.
-See [integration test infrastructure](src/test-api/README.md) for requirements and benchmarks.
+See [local testing and CI](docs/ci.md) for focused commands and parallel lanes, and the [fixture guide](src/test-api/README.md) for service ownership and cleanup.
 
 ## Architecture and contracts
 

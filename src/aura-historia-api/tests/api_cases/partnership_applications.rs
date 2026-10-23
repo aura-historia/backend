@@ -45,7 +45,7 @@ async fn seed_approved_partnership_application(
     )
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_submission_that_references_a_missing_listing_source() {
     let user_id = seed_user("USER").await;
     let token = partnership_applications_token(user_id).await;
@@ -75,7 +75,7 @@ async fn should_reject_submission_that_references_a_missing_listing_source() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_listing_source_ids_in_submission_body() {
     let user_id = seed_user("USER").await;
     let token = partnership_applications_token(user_id).await;
@@ -118,7 +118,7 @@ async fn should_reject_noncanonical_listing_source_ids_in_submission_body() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_get_admin_partnership_application_detail_with_approval_references() {
     let applicant_user_id = seed_user("USER").await;
     let (application_id, approved_partnership_id, approved_listing_source_id) =
@@ -181,7 +181,7 @@ async fn should_get_admin_partnership_application_detail_with_approval_reference
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_partnership_application_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -222,7 +222,7 @@ async fn should_reject_noncanonical_admin_partnership_application_detail_ids() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_missing_admin_partnership_application_detail() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -253,7 +253,7 @@ async fn should_return_not_found_for_missing_admin_partnership_application_detai
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_non_admin_partnership_application_detail_access() {
     let user_id = seed_user("USER").await;
     let token = partnership_applications_token(user_id).await;
@@ -279,7 +279,7 @@ async fn should_reject_non_admin_partnership_application_detail_access() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_mark_submitted_partnership_application_in_review_as_admin() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -321,7 +321,7 @@ async fn should_mark_submitted_partnership_application_in_review_as_admin() {
     assert!(body["approvedListingSourceId"].is_null());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_conflict_when_marking_non_submitted_partnership_application_in_review() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -355,7 +355,7 @@ async fn should_return_conflict_when_marking_non_submitted_partnership_applicati
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_marking_missing_partnership_application_in_review() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -386,7 +386,7 @@ async fn should_return_not_found_when_marking_missing_partnership_application_in
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_non_admin_mark_in_review() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -420,7 +420,7 @@ async fn should_reject_non_admin_mark_in_review() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_remove_legacy_mark_in_review_route() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -447,7 +447,7 @@ async fn should_remove_legacy_mark_in_review_route() {
     assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_approve_an_in_review_partnership_application_on_the_admin_decision_route() {
     let applicant_user_id = seed_user("USER").await;
     let listing_source_id = seed_listing_source().await;
@@ -529,7 +529,7 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
     }));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_an_in_review_partnership_application_on_the_admin_decision_route() {
     let applicant_user_id = seed_user("USER").await;
     let party_name = "Rejected Proposed Party";
@@ -635,7 +635,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     }));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_an_arbitrary_partnership_application_decision_value() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -667,7 +667,7 @@ async fn should_reject_an_arbitrary_partnership_application_decision_value() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_a_partnership_application_decision_outside_in_review() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -717,7 +717,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
     assert_eq!(json!("SUBMITTED"), detail_body["state"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_for_a_missing_admin_partnership_application_decision() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -749,7 +749,7 @@ async fn should_return_not_found_for_a_missing_admin_partnership_application_dec
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_non_admin_partnership_application_decision() {
     let applicant_user_id = seed_user("USER").await;
     let application_id = seed_partnership_application(
@@ -791,7 +791,7 @@ async fn should_reject_non_admin_partnership_application_decision() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_list_filtered_admin_partnership_application_summaries_without_secrets() {
     let applicant_user_id = seed_user("USER").await;
     let other_applicant_user_id = seed_user("USER").await;
@@ -880,7 +880,7 @@ async fn should_list_filtered_admin_partnership_application_summaries_without_se
     assert!(body["items"][0]["updated"].as_str().is_some());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps() {
     let applicant_user_id = seed_user("USER").await;
     let created = datetime!(2026-05-05 12:00 UTC);
@@ -967,7 +967,7 @@ async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps
     assert!(second_body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_empty_admin_partnership_application_collection() {
     let admin_id = seed_user("ADMIN").await;
     let token = partnership_applications_token(admin_id).await;
@@ -996,7 +996,7 @@ async fn should_return_empty_admin_partnership_application_collection() {
     assert!(body.get("searchAfter").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_queries_and_non_admin_collection_access() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = partnership_applications_token(admin_id).await;
