@@ -269,7 +269,7 @@ strong_id = { version = "0.4.0", default-features = false, features = ["typeid"]
 syn = "3.0.1"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
-testcontainers = "0.24.0"
+testcontainers = "0.28.0"
 thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.52.3", default-features = false }
