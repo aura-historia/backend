@@ -179,7 +179,8 @@ mod tests {
             .flatten()
             .unwrap_or_else(|| panic!("valid test destination")),
             attribution: None,
-            evaluated_at: time::OffsetDateTime::UNIX_EPOCH,
+            display: None,
+            price_preview: None,
         }
     }
 

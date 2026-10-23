@@ -1,5 +1,6 @@
 //! Current shipping enrichment for public listing reads. Buyer state never enters item data.
 mod conversion;
+mod preview;
 
 use crate::{
     use_cases::{
@@ -18,10 +19,12 @@ use product_listing_core::{
     listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
 };
 use shipping_core::assessment::{EffectiveDeliveryTerms, ShippingAssessment};
-use shipping_core::pricing::{ChargeBasis, ShippingPrice};
+use shipping_core::{
+    pricing::{ChargeBasis, ShippingPrice},
+    terms::ShippingServiceCode,
+};
 use shipping_service::assessment::{
-    AssertionEvidence, AssessDeliveryRequest, AssessDeliveryUseCase, AssessListingRequest,
-    DeliveryAssessmentView, ProfileAssessmentBasis,
+    AssessDeliveryRequest, AssessDeliveryUseCase, AssessListingRequest, DeliveryAssessmentView,
 };
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
@@ -50,6 +53,7 @@ pub enum ShippingReadError {
     ),
 }
 
+/// Requested-currency values of convertible advertised rates, keyed by their terms position.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShippingDisplay {
     pub currency: Currency,
@@ -57,29 +61,46 @@ pub struct ShippingDisplay {
     pub captured_at: OffsetDateTime,
     pub rates: Vec<ConvertedShippingRate>,
 }
+impl ShippingDisplay {
+    pub fn price(&self, zone_index: usize, service_index: usize) -> Option<ShippingPrice> {
+        self.rates
+            .iter()
+            .find(|r| r.zone_index == zone_index && r.service_index == service_index)
+            .map(|r| r.price)
+    }
+    fn zone(&self, zone_index: usize) -> Self {
+        Self {
+            currency: self.currency,
+            fx_rate_id: self.fx_rate_id,
+            captured_at: self.captured_at,
+            rates: self
+                .rates
+                .iter()
+                .filter(|r| r.zone_index == zone_index)
+                .cloned()
+                .collect(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConvertedShippingRate {
     pub zone_index: usize,
     pub service_index: usize,
     pub price: ShippingPrice,
-    pub basis: Option<ChargeBasis>,
 }
 
+/// Destination-independent listing shipping shared by every viewer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdvertisedShipping {
-    pub display: Option<ShippingDisplay>,
     pub effective: EffectiveDeliveryTerms,
-    pub shipping_reasons: Vec<shipping_core::assessment::AssessmentReason>,
-    pub collection_reasons: Vec<shipping_core::assessment::AssessmentReason>,
-    pub listing_revision: u64,
-    pub source_revision: u64,
-    pub default_revision: Option<u64>,
-    pub profile: Option<ProfileAssessmentBasis>,
-    pub listing_evidence: Option<AssertionEvidence>,
+    /// Assessment without a destination or purchase inputs.
+    pub assessment: ShippingAssessment,
+    pub display: Option<ShippingDisplay>,
+    /// Geographic provider retention deadline that caps shared caching; never serialized.
     pub geographic_valid_until: Option<OffsetDateTime>,
+    /// Internal assessment time; bounds which retention deadlines still apply.
     pub evaluated_at: OffsetDateTime,
-    pub notices: Vec<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,7 +109,19 @@ pub struct PersonalizedShipping {
     /// Minimal area facts only; never a street address, point or saved-address identity.
     pub destination: GeographicDescription,
     pub attribution: Option<DestinationAttribution>,
-    pub evaluated_at: OffsetDateTime,
+    /// Requested-currency rates of the assessed zone's services.
+    pub display: Option<ShippingDisplay>,
+    pub price_preview: Option<ShippingPricePreview>,
+}
+
+/// One advertised rate of a service that applies to the assessed destination; never a total.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShippingPricePreview {
+    pub service: ShippingServiceCode,
+    pub basis: ChargeBasis,
+    pub price: ShippingPrice,
+    /// The requested-currency value when the advertised price is convertible.
+    pub display_price: Option<ShippingPrice>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +139,22 @@ pub struct ShippingEnrichment {
 struct ShippingView {
     advertised: AdvertisedShipping,
     personalized: Option<PersonalizedShipping>,
+}
+impl ShippingView {
+    /// Adds requested-currency values and the private preview of the assessed zone.
+    fn convert(&mut self, conversion: &mut ShippingConversion) -> Result<(), FxRateSnapshotError> {
+        let display = conversion.display(&self.advertised.effective)?;
+        if let Some(personalized) = &mut self.personalized {
+            personalized.display = personalized
+                .assessment
+                .selected_zone
+                .map(|zone| display.zone(zone));
+            personalized.price_preview =
+                preview::price_preview(&personalized.assessment, personalized.display.as_ref());
+        }
+        self.advertised.display = Some(display);
+        Ok(())
+    }
 }
 impl ShippingEnrichment {
     pub fn new(
@@ -168,7 +217,7 @@ impl ShippingEnrichment {
             };
             let mut conversion = ShippingConversion::new(snapshot, currency);
             for view in shipping.values_mut() {
-                view.advertised.display = Some(conversion.display(&view.advertised.effective)?);
+                view.convert(&mut conversion)?;
             }
         }
         Ok(shipping)
@@ -246,24 +295,18 @@ fn shipping_views(view: DeliveryAssessmentView) -> HashMap<ProductListingId, Shi
                     assessment: item.assessment,
                     destination: destination.clone(),
                     attribution: attribution.clone(),
-                    evaluated_at: item.evaluated_at,
+                    display: None,
+                    price_preview: None,
                 });
             (
                 item.listing_id,
                 ShippingView {
                     advertised: AdvertisedShipping {
-                        display: None,
                         effective: item.effective,
-                        shipping_reasons: item.generic_assessment.reasons,
-                        collection_reasons: item.generic_assessment.collection.reasons,
-                        listing_revision: item.listing_revision,
-                        source_revision: item.source_revision,
-                        default_revision: item.default_revision,
-                        profile: item.profile,
-                        listing_evidence: item.listing_evidence,
+                        assessment: item.generic_assessment,
+                        display: None,
                         geographic_valid_until: item.geographic_valid_until,
                         evaluated_at: item.evaluated_at,
-                        notices: item.notices,
                     },
                     personalized,
                 },

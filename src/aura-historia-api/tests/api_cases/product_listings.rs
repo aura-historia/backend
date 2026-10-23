@@ -515,7 +515,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (id_status, mut id_body) = json_response(id_response).await;
+    let (id_status, id_body) = json_response(id_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
         id_status,
@@ -531,25 +531,16 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let (slug_status, mut slug_body) = json_response(slug_response).await;
+    let (slug_status, slug_body) = json_response(slug_response).await;
 
     assert_eq!(
         reqwest::StatusCode::OK,
         slug_status,
         "response body: {slug_body}"
     );
-    // Each lookup evaluates current shipping in its own snapshot.
-    for body in [&mut id_body, &mut slug_body] {
-        let evaluated_at = body["item"]["shipping"]
-            .as_object_mut()
-            .unwrap()
-            .remove("evaluatedAt")
-            .unwrap();
-        OffsetDateTime::parse(
-            evaluated_at.as_str().unwrap(),
-            &time::format_description::well_known::Rfc3339,
-        )
-        .unwrap();
+    // Each lookup evaluates current shipping in its own snapshot; evaluation time stays internal.
+    for body in [&id_body, &slug_body] {
+        assert!(body["item"]["shipping"].get("evaluatedAt").is_none());
     }
     assert_eq!(id_body, slug_body);
     assert_eq!(
@@ -724,7 +715,7 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
         assert!(body["item"].get("productListingTitleSlugId").is_none());
         // A token without read scopes still gets the redaction, but no private state.
         assert!(body.get("userState").is_none());
-        assert!(body["item"]["shipping"].is_null());
+        assert!(body["item"].get("shipping").is_none());
 
         let response = client
             .get(format!("{}{}", AURA_API.base_url(), path))
@@ -2177,19 +2168,42 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
             .pointer(pointer)
             .unwrap_or_else(|| panic!("missing listing at {pointer}: {body}"));
         assert_eq!(json!(id), listing["item"]["productListingId"], "{path}");
-        assert_eq!(
-            json!(profile.id),
-            listing["item"]["shipping"]["profile"]["shippingProfileId"],
-            "{path}"
-        );
-        assert_eq!(
-            "OFFERED", listing["userState"]["shipping"]["eligibility"],
-            "{path}: {body}"
+        let (public, private) = (
+            &listing["item"]["shipping"],
+            &listing["userState"]["shipping"],
         );
         assert!(
-            listing["userState"]["shipping"]["options"][0]["charge"].is_null(),
+            !public.to_string().contains(&profile.id.to_string()),
             "{path}"
         );
+        assert_eq!("OFFERED", private["eligibility"], "{path}: {body}");
+        if pointer.is_empty() {
+            // Single-listing details carry terms and self-contained options without charges.
+            assert_eq!(
+                "COVERAGE", public["terms"]["shipping"]["kind"],
+                "{path}: {body}"
+            );
+            assert_eq!(
+                "gallery-delivery", private["options"][0]["service"],
+                "{path}"
+            );
+            assert!(private["options"][0].get("charge").is_none(), "{path}");
+        } else {
+            // Every collection family, including detail-shaped envelopes, is bounded.
+            assert_eq!(
+                json!({"requiredInputs": ["DESTINATION"], "collection": {"eligibility": "OFFERED"}}),
+                *public,
+                "{path}"
+            );
+            assert_eq!(
+                json!({"service": "gallery-delivery", "basis": "PER_ITEM", "price": {"kind": "FIXED", "amount": {"amount_minor": 8000, "currency": "EUR"}}}),
+                private["pricePreview"],
+                "{path}: {body}"
+            );
+            for detail_only in ["options", "destination", "terms"] {
+                assert!(private.get(detail_only).is_none(), "{path}: {detail_only}");
+            }
+        }
         if !path.starts_with("/v1/me/") {
             let response = client
                 .get(format!("{}{path}", AURA_API.base_url()))
@@ -2201,7 +2215,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
             let anonymous = anonymous.pointer(pointer).unwrap();
             assert!(anonymous.get("userState").is_none(), "{path}");
             assert_eq!(
-                listing["item"]["shipping"]["terms"], anonymous["item"]["shipping"]["terms"],
+                listing["item"]["shipping"], anonymous["item"]["shipping"],
                 "{path}"
             );
         }
@@ -2222,7 +2236,7 @@ async fn should_include_current_shipping_across_all_listing_read_endpoints() {
             continue;
         }
         let listing = body.pointer(pointer).unwrap();
-        assert!(listing["item"]["shipping"].is_null(), "{path}: {body}");
+        assert!(listing["item"].get("shipping").is_none(), "{path}: {body}");
         assert!(listing["userState"].get("shipping").is_none(), "{path}");
     }
 }

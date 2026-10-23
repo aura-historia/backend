@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-23 — Bounded listing shipping reads (#2444)
+
+- **Breaking change:** search, similar listings, watchlist, saved-search matches and auction catalogues return a bounded `item.shipping` summary with optional `eligibility`, `requiredInputs`, `explanations` and an independent `collection` summary. `userState.shipping` adds at most one `pricePreview` (service, explicit basis and price, in the requested currency when convertible), required `attribution` and a `display` valuation only when the preview was converted. Collections no longer return terms, converted per-zone rates, options or zone/service indices, including the detail-shaped watchlist, match and catalogue items (`PersonalizedProductListingCollectionDetailsData`).
+- **Breaking change:** detail by ID/slug and the watchlist update response keep effective terms in a read representation without `schema`, null assertions, dispatch origins or collection sites. A converted value appears as `display_price` beside the source `price`, with one shared `display` valuation only when a value was converted. `userState.shipping` keeps a minimal `destination` and lists self-contained `options` naming their service and rate; `charge` appears only when calculable.
+- Listing reads no longer return `listingRevision`, `sourceRevision`, `defaultRevision`, `profile`, `listingEvidence`, `evaluatedAt`, `shippingReasons`, `collectionReasons`, `notices`, `reasons`, `applicability`, `selectedZone`, `serviceIndex`, `bindingQuote` or `completeLandedCost`. Absent optional values are omitted instead of serialized as null, and `item.shipping` is omitted when nothing is asserted. MCP tools share these shapes and generated output schemas. Shipping management, delivery configuration, import and write protocols are unchanged. See [shipping](shipping.md#shipping-on-listing-reads) and [OpenAPI](swagger.yaml).
+
 ## 2026-10-21 — Authenticated MCP and Aura OAuth (#2228)
 
 - The stable MCP endpoint now exposes 38 operations: the existing 12 public tools plus 9 own-account/address/destination, 7 saved-search/match-feedback, 4 watchlist and 6 notification tools. Protected families retain complete shared REST contracts, independent read/write scopes, ownership, quotas, pagination and version conflicts. Mutations preserve their existing retry semantics and are never automatically retried. See the [MCP contract](mcp.md) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).

@@ -67,7 +67,6 @@ impl<'a> ShippingConversion<'a> {
                             zone_index,
                             service_index,
                             price,
-                            basis: rate.basis(),
                         });
                     }
                 }
@@ -86,9 +85,8 @@ impl<'a> ShippingConversion<'a> {
 mod tests {
     use super::*;
     use fxrate_core::FxRateId;
-    use shipping_core::pricing::ChargeBasis;
-    use time::OffsetDateTime;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use shipping_core::pricing::ChargeBasis;
     use shipping_core::{
         coverage::{
             CoverageCompleteness, DeliveryArea, ReferenceCountry, ShippingCoverage, ShippingZone,
@@ -100,6 +98,7 @@ mod tests {
         terms::{DeliveryTerms, ShippingService, ShippingServiceCode, ShippingServiceTerms},
     };
     use strum::IntoEnumIterator;
+    use time::OffsetDateTime;
 
     fn snapshot() -> FxRateSnapshot {
         NewFxRateSnapshot::capture_eur(

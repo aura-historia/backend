@@ -1,6 +1,6 @@
 use super::{SavedSearchInputError, SavedSearchInputErrorKind};
 use crate::product_listings::product_data::{
-    PersonalizedProductListingDetailsData, personalized_product_details_data,
+    PersonalizedProductListingCollectionDetailsData, personalized_product_collection_details_data,
 };
 use application::pagination::Cursor;
 use domain_primitives::sort::SortOrder;
@@ -111,7 +111,7 @@ pub fn matches_cursor_value(
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchFilterMatchesData {
-    pub items: Vec<PersonalizedProductListingDetailsData>,
+    pub items: Vec<PersonalizedProductListingCollectionDetailsData>,
     #[schemars(range(max = u64::MAX))]
     pub size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -127,7 +127,7 @@ impl TryFrom<ListSearchFilterMatchesResult> for SearchFilterMatchesData {
         let items = result
             .items
             .into_iter()
-            .map(personalized_product_details_data)
+            .map(personalized_product_collection_details_data)
             .collect::<Vec<_>>();
         Ok(Self {
             size: items.len() as u64,

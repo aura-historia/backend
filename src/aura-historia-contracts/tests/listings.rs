@@ -3,15 +3,14 @@ use aura_historia_contracts::{
         presentation::ProductListingPresentationData,
         search::{ProductListingSearchData, ProductListingSearchOptionsData},
     },
-    shipping::{listing::AdvertisedShippingData, terms},
+    shipping::terms,
 };
 use localization::Language;
 use money::Currency;
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use shipping_core::{assessment::EffectiveDeliveryTerms, fixtures};
-use time::OffsetDateTime;
+use shipping_core::fixtures;
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("fixtures/listing-search.json")).unwrap()
@@ -208,131 +207,6 @@ fn should_normalize_explicit_no_shipping_destination_without_losing_other_predic
             .unwrap()
             .collection_offered()
     );
-}
-#[test]
-fn should_preserve_unsigned_shipping_revisions_required_nulls_and_public_terms_redaction() {
-    let fixture = fixtures::gallery();
-    let source = fixture.source_id;
-    let effective = EffectiveDeliveryTerms::resolve(
-        &fixture.painting,
-        Some(&fixture.source_default),
-        std::slice::from_ref(&fixture.profile),
-    );
-    let advertised =
-        AdvertisedShippingData(product_listing_service::shipping::AdvertisedShipping {
-            display: None,
-            effective,
-            shipping_reasons: vec![],
-            collection_reasons: vec![],
-            listing_revision: u64::MAX,
-            source_revision: u64::MAX,
-            default_revision: None,
-            profile: None,
-            listing_evidence: None,
-            geographic_valid_until: None,
-            evaluated_at: OffsetDateTime::UNIX_EPOCH,
-            notices: vec![],
-        });
-    let value = serde_json::to_value(&advertised).unwrap();
-    assert_eq!(u64::MAX, value["listingRevision"]);
-    assert_eq!(u64::MAX, value["sourceRevision"]);
-    for key in ["display", "defaultRevision", "profile", "listingEvidence"] {
-        assert!(value[key].is_null());
-        assert!(value.as_object().unwrap().contains_key(key));
-    }
-    assert!(value["terms"]["shipping"]["coverage"]["dispatch_origin"].is_null());
-    assert!(value["terms"]["collection"]["site"].is_null());
-    let schema = serde_json::to_value(
-        SchemaSettings::default()
-            .for_serialize()
-            .into_generator()
-            .into_root_schema_for::<AdvertisedShippingData>(),
-    )
-    .unwrap();
-    let validator = jsonschema::validator_for(&schema).unwrap();
-    assert!(
-        validator.is_valid(&value),
-        "{}",
-        validator
-            .iter_errors(&value)
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-    for key in ["display", "defaultRevision", "profile", "listingEvidence"] {
-        let mut invalid = value.clone();
-        invalid.as_object_mut().unwrap().remove(key);
-        assert!(!validator.is_valid(&invalid));
-    }
-    let decoded = terms::decode(value["terms"].clone(), source).unwrap();
-    assert_eq!(value["terms"], terms::encode(&decoded).unwrap());
-    let mut populated = advertised;
-    populated.0.default_revision = Some(u64::MAX);
-    populated.0.profile = Some(shipping_service::assessment::ProfileAssessmentBasis {
-        id: shipping_core::profile::ShippingProfileId::new(),
-        terms_revision: u64::MAX,
-        management_revision: u64::MAX,
-        lifecycle: shipping_core::profile::ShippingProfileLifecycle::Active,
-        evidence: shipping_service::assessment::AssertionEvidence {
-            verified_at: OffsetDateTime::UNIX_EPOCH,
-        },
-    });
-    populated.0.listing_evidence = Some(shipping_service::assessment::AssertionEvidence {
-        verified_at: OffsetDateTime::UNIX_EPOCH,
-    });
-    populated.0.shipping_reasons = vec![
-        shipping_core::assessment::AssessmentReason::EarlierZoneUndetermined { index: 0 },
-        shipping_core::assessment::AssessmentReason::MissingInput(
-            shipping_core::assessment::MissingInput::QualifyingAmount(
-                shipping_core::pricing::QualifyingScope::Item,
-            ),
-        ),
-    ];
-    populated.0.display = Some(product_listing_service::shipping::ShippingDisplay {
-        currency: Currency::Eur,
-        fx_rate_id: fxrate_core::FxRateId::new(),
-        captured_at: OffsetDateTime::UNIX_EPOCH,
-        rates: vec![product_listing_service::shipping::ConvertedShippingRate {
-            zone_index: 0,
-            service_index: 0,
-            price: shipping_core::pricing::ShippingPrice::Fixed(money::Price::new(
-                u64::MAX.into(),
-                Currency::Eur,
-            )),
-            basis: Some(shipping_core::pricing::ChargeBasis::PerItem),
-        }],
-    });
-    let value = serde_json::to_value(&populated).unwrap();
-    assert!(
-        validator.is_valid(&value),
-        "{}",
-        validator
-            .iter_errors(&value)
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-    assert_eq!(u64::MAX, value["profile"]["managementRevision"]);
-    assert_eq!(
-        u64::MAX,
-        value["display"]["rates"][0]["price"]["amount"]["amount_minor"]
-    );
-    let input = fixture.assessment_input();
-    let assessment = shipping_core::assessment::assess(&populated.0.effective, &input, &[]);
-    let personalized = aura_historia_contracts::shipping::listing::PersonalizedShippingData(
-        product_listing_service::shipping::PersonalizedShipping {
-            assessment,
-            destination: input.destination.unwrap(),
-            evaluated_at: OffsetDateTime::UNIX_EPOCH,
-            attribution: Some(product_listing_service::shipping::DestinationAttribution {
-                provider: "fixture".into(),
-                attribution_url: "https://provider.example/attribution".into(),
-            }),
-        },
-    );
-    let value = serde_json::to_value(&personalized).unwrap();
-    let schema=serde_json::to_value(SchemaSettings::default().for_serialize().into_generator().into_root_schema_for::<aura_historia_contracts::shipping::listing::PersonalizedShippingData>()).unwrap();
-    assert!(jsonschema::is_valid(&schema, &value));
 }
 #[derive(Deserialize, JsonSchema)]
 struct TermsSchema {

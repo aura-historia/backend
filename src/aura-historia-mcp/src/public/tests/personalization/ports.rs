@@ -332,7 +332,16 @@ impl AssessmentReader for ListingFixture {
                     revision: 1,
                     source_revision: 1,
                     operator_id: "pty_01k6k0w000e008000000000003".parse().unwrap(),
-                    delivery: ListingDelivery::inherited(self.source().listing_source_id),
+                    delivery: ListingDelivery::new(
+                        self.source().listing_source_id,
+                        Default::default(),
+                        Some(shipping_core::selection::ProfileSelection::inline(
+                            shipping_core::fixtures::gallery_terms(8_000),
+                        )),
+                        Default::default(),
+                        Default::default(),
+                    )
+                    .unwrap(),
                     evidence: None,
                     integration_current: true,
                 })

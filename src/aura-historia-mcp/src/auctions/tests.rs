@@ -223,23 +223,17 @@ fn listing() -> PersonalizedProductListingDetailsView {
 }
 fn advertised_shipping() -> product_listing_service::shipping::AdvertisedShipping {
     let fixture = shipping_core::fixtures::gallery();
+    let effective = shipping_core::assessment::EffectiveDeliveryTerms::resolve(
+        &fixture.painting,
+        Some(&fixture.source_default),
+        std::slice::from_ref(&fixture.profile),
+    );
     product_listing_service::shipping::AdvertisedShipping {
+        assessment: effective.assess(&Default::default(), &[]),
+        effective,
         display: None,
-        effective: shipping_core::assessment::EffectiveDeliveryTerms::resolve(
-            &fixture.painting,
-            Some(&fixture.source_default),
-            std::slice::from_ref(&fixture.profile),
-        ),
-        shipping_reasons: vec![],
-        collection_reasons: vec![],
-        listing_revision: u64::MAX,
-        source_revision: 2,
-        default_revision: None,
-        profile: None,
-        listing_evidence: None,
         geographic_valid_until: None,
         evaluated_at: OffsetDateTime::UNIX_EPOCH,
-        notices: vec![],
     }
 }
 fn services() -> (PublicAuctions, List, Get, Catalogue) {
@@ -444,10 +438,11 @@ async fn should_return_safe_detail_and_pass_catalogue_presentation_and_continuat
     assert_eq!("Schrank", item["item"]["title"]["text"]);
     assert_eq!("de", item["item"]["title"]["language"]);
     assert!(item["item"]["images"][0]["url"].is_null());
-    let shipping = &item["item"]["shipping"];
-    assert_eq!(u64::MAX, shipping["listingRevision"]);
-    assert!(shipping["terms"]["shipping"]["coverage"]["dispatch_origin"].is_null());
-    assert!(shipping["terms"]["collection"]["site"].is_null());
+    // Catalogue items are a collection: bounded shipping, no advertised terms or bookkeeping.
+    assert_eq!(
+        json!({"requiredInputs": ["DESTINATION"], "collection": {"eligibility": "OFFERED"}}),
+        item["item"]["shipping"]
+    );
     assert_eq!(
         "USD",
         item["item"]["pricing"]["display"]["price"]["currency"]
