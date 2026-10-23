@@ -31,8 +31,11 @@ pub enum ProductListingBatchFailureCode {
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingBatchReportData {
     pub status: ProductListingBatchStatus,
+    #[schemars(range(max = u64::MAX))]
     pub input_count: usize,
+    #[schemars(range(max = u64::MAX))]
     pub succeeded_count: usize,
+    #[schemars(range(max = u64::MAX))]
     pub failed_count: usize,
     pub successes: Vec<ProductListingBatchSuccessData>,
     pub failures: Vec<ProductListingBatchFailureData>,
@@ -40,6 +43,7 @@ pub struct ProductListingBatchReportData {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingBatchSuccessData {
+    #[schemars(range(max = u64::MAX))]
     pub index: usize,
     #[schemars(schema_with = "crate::wire::schema::listing_source_id")]
     pub listing_source_id: ListingSourceId,
@@ -74,6 +78,7 @@ pub enum ProductListingBatchMutationData {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingBatchFailureData {
+    #[schemars(range(max = u64::MAX))]
     pub index: usize,
     #[schemars(schema_with = "crate::wire::schema::listing_source_id")]
     pub listing_source_id: ListingSourceId,

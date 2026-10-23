@@ -7,8 +7,8 @@ owns hosting, certificates, Origin/CORS and stage verification. Native and Lambd
 points share one registry and authenticate each request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
-The shared registry contains 38 operations: 12 public, 9 account, 7 saved-search, 4 watchlist
-and 6 notification operations. Ten public operations forward validated delegated context.
+The shared registry contains 74 operations: the existing 12 public and 26 private-user
+operations, plus 36 partner operations. Ten public operations forward validated delegated context.
 
 ## Protocol compatibility
 
@@ -56,8 +56,9 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
 four mutation/retry/open-world annotations. The
-[public operation manifest](../src/aura-historia-mcp/public-operations.json) and
-[authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json)
+[public operation manifest](../src/aura-historia-mcp/public-operations.json),
+[authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json) and
+[partner operation manifest](../src/aura-historia-mcp/partner-operations.json)
 record disjoint subsets of the same endpoint and registry. Together they record the selected
 allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
@@ -78,7 +79,8 @@ that exceeds the limit fails explicitly; collection pagination belongs in the
 shared use case and must never become transport truncation.
 
 The registry rejects duplicate IDs, lists tools lexically by operation ID,
-and returns at most 50 definitions with an explicit continuation cursor. Its
+and returns at most 50 definitions with an explicit continuation cursor. Read both pages
+(currently 50 and 24 tools), passing `nextCursor` as `cursor` until it is absent. Its
 manifest includes `aura.historia/operationId`, `aura.historia/access` and
 `aura.historia/requiredScopes` metadata. Protected tools remain discoverable.
 Health and readiness are HTTP-only `/health` and `/ready` probes, outside the
@@ -253,15 +255,13 @@ not prove that no write occurred. Reconcile authoritative state before resubmitt
 The [listing contract](product-listing.md#synchronous-integration-batches) owns sequential
 execution, per-item transactions, continuation and retry behavior. These commands have no
 batch idempotency guarantee and are never automatically retried. A lost response can follow
-committed earlier items; reconcile authoritative state before resubmission. The partner
-release owns combined-registry publication.
+committed earlier items; reconcile authoritative state before resubmission.
 
 ## Asynchronous partner ingestion and Shopify configuration
 
 The ingestion family defines `postAsyncPartnerProductListings`,
 `patchAsyncPartnerProductListings`, `putAsyncPartnerProductListings` and
-`deleteAsyncPartnerProductListings`. The partner release owns their combined-registry
-publication. Each accepts `listingSourceId`, optional `idempotencyKey` and `products` with
+`deleteAsyncPartnerProductListings`. Each accepts `listingSourceId`, optional `idempotencyKey` and `products` with
 up to 100 complete shared synchronous item DTOs. Parse the whole envelope before publication;
 invalid items, including duplicate DTO fields, reject only their original positions. Ordinary
 synchronous DTO decoding rejects malformed later items before any write. Ambiguous JSON-RPC
@@ -277,10 +277,14 @@ deadline/FIFO blocking and possibly queued outcomes retain
 their distinct safe error codes and retryability. `submissionId` is correlation, not a status
 resource. Admission checks delegated `product-listings:write`; current source grants and
 business rules are checked when the worker applies the command. Queue admission never confirms
-a committed listing mutation.
+a committed listing mutation. A publisher failure before any send retains the shared per-item
+`PRODUCT_LISTING_INGESTION_INTERNAL_ERROR` rejection report for prepared items; `UNKNOWN`
+means publication may already have happened.
 
 Explicit keys use the same REST value grammar: 1–128 visible ASCII bytes excluding comma.
 Omission generates a returned effective key; a key lost with the first reply is unrecoverable.
+A lost generated key prevents an identity-preserving retry; a fresh key submits new commands
+and may duplicate work.
 Async tools carry `idempotentHint: false`. Follow the existing
 [retry identity contract](product-listing.md#retry-identity): retain the actor, source, effective
 key, complete original ordered batch, content, operation, indices and count. Stable identities
@@ -304,7 +308,7 @@ local contracts.
 
 The partner management family provides `getMyListingSources`, `listPartnerProductListings`,
 `getPartnerProductListing`, `updatePartnerProductListing`, `withdrawPartnerProductListing` and
-`restorePartnerProductListing`. The partner release owns their combined-registry publication.
+`restorePartnerProductListing`.
 They use the shared authoritative management DTOs and the same PostgreSQL use cases as REST,
 including retained withdrawn facts, original image URLs, concurrency conflicts and current
 partnership/source authorization. The [listing contract](product-listing.md#management-inspection-and-mutation)
@@ -469,6 +473,33 @@ discovery contracts or operational logs. The [family acceptance tests](../src/au
 exercise production composition, current grants, paging, evidence and revision behavior
 against isolated local PostgreSQL.
 
+## Partner workflow
+
+Use a delegated Aura token with the required scopes and current partner authority. A scope
+grant alone does not grant access to a source or party. The complete selected workflow is:
+
+| Step | Tools and continuation |
+| --- | --- |
+| Discover sources | `getMyListingSources`; pass `next` as `after` until absent. |
+| Inspect or manage listings | `listPartnerProductListings` / `getPartnerProductListing`; retain the source and returned internal `productListingId`, complete `expectedVersion` and any `searchAfter`. |
+| Ingest source inventory | The four synchronous or four asynchronous batch tools; use source-local `sourceListingId` values and retain the complete ordered submission for recovery. |
+| Manage locations/defaults | Party-location tools, then source-location-default tools; retain revisions and use an eligible operator-owned active location. |
+| Manage shipping/defaults | Shipping-profile tools, then shipping-default tools; retain creation/import keys and management revisions. |
+| Manage delivery | Read/change/submit delivery using `listingSourceId` plus source-local `sourceListingId`, current version and public profile/location references. |
+
+The [local partner acceptance fixture](../src/aura-historia-mcp/tests/partner_release.rs)
+uses the production registry and authentication gate, official SDK clients, native HTTP and
+the Lambda adapter. It validates all 74 tool schemas across both pages, invokes every partner
+operation against isolated PostgreSQL, and applies controlled admitted commands through the
+existing ingestion codec and worker use case. Scope changes affect the next HTTP request;
+current source grants and memberships remain service checks, including at async application.
+The fixture covers publisher rejection, unknown/unsent outcomes and exact retry identity.
+It establishes local evidence; deployment and live acceptance require separate executed evidence.
+
+`putWoocommerceListingSourceIngestionConfiguration` is explicitly excluded because it
+accepts a plaintext `webhookSecret`. It has no callable handler. Source/party CRUD, partner
+auction authoring and ingestion-status tools are also outside this catalogue.
+
 ## Generic OAuth acceptance and stage smoke
 
 Register one fixed confidential client per environment with an exact HTTPS callback and a
@@ -565,6 +596,7 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | Environment variable | Meaning |
 | --- | --- |
 | `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy |
+| `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required FIFO queue URL for partner submissions; startup constructs the reusable publisher without sending messages |
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
@@ -594,13 +626,16 @@ ADC construction remains lazy until an embedding is requested. Lambda prepares i
 `AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON` privately before starting threads; native execution
 uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
-REST. The ingestion family additionally uses the configured FIFO queue and narrowly scoped
-queue publication permission described above.
+REST. `McpDependencies::from_env` constructs listing and ingestion providers; library callers
+may inject typed dependencies. Native startup constructs these once; Lambda retains them
+with the router for each credential version. The ingestion family additionally uses the FIFO
+queue and narrowly scoped publication permission described above. Each submission installs
+its invocation deadline with 500 ms reserved for its admission report.
 
 ## Shipping management
 
-The [shipping operation manifest](../src/aura-historia-mcp/shipping-operations.json)
-defines the nine profile and source-default operations, using the existing REST operation IDs.
+The [partner operation manifest](../src/aura-historia-mcp/partner-operations.json)
+includes the nine shipping profile and source-default operations, using existing REST operation IDs.
 Reads require `listing-sources:read`; mutations require `listing-sources:write`. Current account,
 operator partnership membership, source grants and referenced-party/location eligibility remain
 service checks on every call, including creation-key and import replays. Delegated context reaches
@@ -656,4 +691,3 @@ remain explicit; no admission outcome claims a committed mutation. Retry only th
 actor/source, effective key and unchanged command, including version and import fields.
 The optional generated key makes the submission's idempotency annotation false.
 There is no status resource or automatic retry. Publication reserves 500 ms for the report.
-The family exposes module-local registration; the partner release owns catalogue publication.

@@ -209,6 +209,7 @@ fn encode_cursor(value: AdminProductListingSearchCursor) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct SearchResponse {
     items: Vec<SummaryData>,
+    #[schemars(range(max = u64::MAX))]
     size: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]

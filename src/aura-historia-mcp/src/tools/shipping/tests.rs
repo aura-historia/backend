@@ -95,12 +95,18 @@ async fn should_publish_all_nine_operations_with_matching_schemas_scopes_and_ret
     ));
     let registry = registry(&runtime);
     let manifest: Value =
-        serde_json::from_str(include_str!("../../../shipping-operations.json")).unwrap();
-    assert_eq!(9, manifest["operations"].as_array().unwrap().len());
+        serde_json::from_str(include_str!("../../../partner-operations.json")).unwrap();
+    let entries: Vec<_> = manifest["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["family"] == "shipping")
+        .collect();
+    assert_eq!(9, entries.len());
     let source = ListingSourceId::new();
     let profile = ShippingProfileId::new();
     let user = UserId::new();
-    for entry in manifest["operations"].as_array().unwrap() {
+    for entry in entries {
         let name = entry["operationId"].as_str().unwrap();
         let op = registry.get(name).unwrap();
         assert_eq!(entry["name"], op.name());
