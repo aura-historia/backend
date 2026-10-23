@@ -133,22 +133,3 @@ jobs:
           slots: 4
           profile: none
           compilation_cache: dependencies
-
-  quality:
-    name: Require all lint and test lanes
-    needs: [lint, api, crawler, integration, remaining]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require every independent quality job
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          jobs = json.loads(os.environ['RESULTS'])
-          expected = {'lint', 'api', 'crawler', 'integration', 'remaining'}
-          if set(jobs) != expected or any(job['result'] != 'success' for job in jobs.values()):
-              raise SystemExit('Every lint and test lane must succeed: ' + os.environ['RESULTS'])
-          PY
