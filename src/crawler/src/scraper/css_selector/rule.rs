@@ -2,6 +2,9 @@ use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use visible_text::{TextBoundaries, visible_text};
+
+mod visible_text;
 
 macro_rules! local_string_newtype {
     ($name:ident) => {
@@ -105,6 +108,27 @@ pub enum ExtractionCardinality {
     All,
 }
 
+/// The values a rule extracted from a page and the matched elements it skipped.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RuleExtraction {
+    pub(crate) values: Vec<String>,
+    /// Matched elements without a value: no image URL candidate, or no attribute of an
+    /// attribute rule. Only the `images` rule skips elements
+    /// ([`ExtractionRule::apply_image_url_candidate_groups`]), because galleries mix image
+    /// links with navigation or placeholder anchors such as `href="#"`; every other rule
+    /// fails on an element without a value.
+    pub(crate) skipped_elements: usize,
+}
+
+/// What cardinality `all` does with a matched element that holds no value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ElementWithoutValue {
+    /// Fails the rule.
+    Fails,
+    /// Skips and counts the element (see [`RuleExtraction::skipped_elements`]).
+    Skipped,
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ExtractionError {
@@ -145,65 +169,124 @@ impl ExtractionRule {
     ///   non-empty value is found.
     /// - **`All` cardinality**: takes all matched elements per selector.
     ///
+    /// Text extraction separates lines at `<br>` and block boundaries, and table cells
+    /// with a space, wherever markup whitespace does not already separate them.
+    ///
     /// Returns `Err(NoElementMatched)` only when *no* selector produced any
     /// usable value.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
+        self.extract(html, TextBoundaries::Separate, ElementWithoutValue::Fails)
+            .map(|extraction| extraction.values)
+    }
+
+    /// Applies this rule like [`Self::apply`], except that text joins its nodes as written
+    /// instead of separating lines at `<br>` and block boundaries. A captured listing
+    /// identity must not change with how text is laid out: a changed identity captures the
+    /// product again as a new listing.
+    pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
+        self.extract(html, TextBoundaries::Ignore, ElementWithoutValue::Fails)
+            .map(|extraction| extraction.values)
+    }
+
+    /// Applies this rule as the `images` rule: with cardinality `all`, whatever its
+    /// configured cardinality, so every gallery element yields its ordered image URL
+    /// candidates as one group. A matched element without a value (no image URL
+    /// candidate, or no attribute of an attribute rule) is skipped and counted; the rule
+    /// fails with the first skipped element's error only when it skips every element it
+    /// matched.
+    pub(crate) fn apply_image_url_candidate_groups(
+        &self,
+        html: &Html,
+    ) -> Result<RuleExtraction, ExtractionError> {
+        let mut all_images_rule = self.clone();
+        all_images_rule.cardinality = ExtractionCardinality::All;
+        all_images_rule.extract(html, TextBoundaries::Separate, ElementWithoutValue::Skipped)
+    }
+
+    fn extract(
+        &self,
+        html: &Html,
+        boundaries: TextBoundaries,
+        without_value: ElementWithoutValue,
+    ) -> Result<RuleExtraction, ExtractionError> {
         let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
 
-        let mut results: Vec<String> = Vec::new();
+        let mut extraction = RuleExtraction::default();
+        let mut first_skipped_error = None;
 
         for css_selector in all_selectors {
             let parsed = parse_selector(css_selector)?;
             let elements = html.select(&parsed);
 
             match self.cardinality {
-                ExtractionCardinality::First => match &self.extract {
-                    ExtractionKind::Text => {
-                        if let Some(value) =
-                            extract_first_non_empty_text(elements, css_selector.as_ref())?
-                        {
-                            results.push(value);
-                        }
-                    }
-                    ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => {
-                        let mut elements = elements.peekable();
-                        if let Some(element) = elements.next() {
-                            results.push(extract_from_element(
-                                &element,
-                                &self.extract,
-                                css_selector.as_ref(),
-                            )?);
-                        }
-                    }
-                },
+                ExtractionCardinality::First => {
+                    extraction.values.extend(self.first_value(
+                        elements,
+                        css_selector,
+                        boundaries,
+                    )?);
+                }
                 ExtractionCardinality::All => {
-                    for el in elements {
-                        results.push(extract_from_element(
-                            &el,
+                    for element in elements {
+                        match extract_from_element(
+                            &element,
                             &self.extract,
-                            css_selector.as_ref(),
-                        )?);
+                            css_selector,
+                            boundaries,
+                        ) {
+                            Ok(value) => extraction.values.push(value),
+                            Err(error) if without_value == ElementWithoutValue::Skipped => {
+                                extraction.skipped_elements += 1;
+                                first_skipped_error.get_or_insert(error);
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                 }
             }
         }
 
-        if results.is_empty() {
-            return Err(ExtractionError::NoElementMatched {
-                selector: self.selector.to_string(),
-            });
+        if extraction.values.is_empty() {
+            return Err(
+                first_skipped_error.unwrap_or_else(|| ExtractionError::NoElementMatched {
+                    selector: self.selector.to_string(),
+                }),
+            );
         }
 
-        Ok(results)
+        Ok(extraction)
     }
 
-    pub(crate) fn apply_image_url_candidate_groups(
+    /// How many of the elements `selector` (this rule's primary or an additional
+    /// selector) matches the rule can take a value from, as the schema review matrix
+    /// counts matches. A text rule counts only elements with visible text: `first`
+    /// cardinality skips a blank element, so a rule that matches only blank elements
+    /// misses. Attribute and image URL rules count every element.
+    pub(crate) fn match_count(&self, html: &Html, selector: &Selector) -> usize {
+        let elements = html.select(selector);
+        match self.extract {
+            ExtractionKind::Text => elements.filter(has_visible_text).count(),
+            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => elements.count(),
+        }
+    }
+
+    /// The value of the first element `css_selector` matched; a text rule takes the first
+    /// non-empty text instead.
+    fn first_value(
         &self,
-        html: &Html,
-    ) -> Result<Vec<String>, ExtractionError> {
-        let mut all_images_rule = self.clone();
-        all_images_rule.cardinality = ExtractionCardinality::All;
-        all_images_rule.apply(html)
+        mut elements: scraper::html::Select<'_, '_>,
+        css_selector: &CssSelector,
+        boundaries: TextBoundaries,
+    ) -> Result<Option<String>, ExtractionError> {
+        match &self.extract {
+            ExtractionKind::Text => {
+                extract_first_non_empty_text(elements, css_selector, boundaries)
+            }
+            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => elements
+                .next()
+                .map(|element| extract_from_element(&element, kind, css_selector, boundaries))
+                .transpose(),
+        }
     }
 }
 
@@ -217,9 +300,11 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
 fn extract_first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
     selector_str: &str,
+    boundaries: TextBoundaries,
 ) -> Result<Option<String>, ExtractionError> {
     for element in elements {
-        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str)?;
+        let value =
+            extract_from_element(&element, &ExtractionKind::Text, selector_str, boundaries)?;
         if !value.is_empty() {
             return Ok(Some(value));
         }
@@ -232,9 +317,10 @@ fn extract_from_element(
     element: &scraper::ElementRef<'_>,
     kind: &ExtractionKind,
     selector_str: &str,
+    boundaries: TextBoundaries,
 ) -> Result<String, ExtractionError> {
     match kind {
-        ExtractionKind::Text => Ok(visible_text(element).trim().to_owned()),
+        ExtractionKind::Text => Ok(visible_text(element, boundaries).trim().to_owned()),
         ExtractionKind::Attribute { name } => {
             let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
                 ExtractionError::MissingAttribute {
@@ -244,113 +330,32 @@ fn extract_from_element(
             })?;
             Ok(attr_value.to_owned())
         }
-        ExtractionKind::ImageUrl => extract_image_url_from_element(element, selector_str),
-    }
-}
-
-/// Elements whose subtree is never rendered as text. Inline `<style>` and `<script>`
-/// blocks are descendants of ordinary containers, so a plain descendant text join
-/// would leak CSS rules and script source into extracted values.
-const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"];
-
-/// Elements whose text a shop has superseded. Sale prices keep the old amount in a
-/// struck-through element next to the current one as a bare text node, which no CSS
-/// selector can target, so the old amount is dropped from the containing element's text.
-///
-/// The skip applies to every text rule, not only to prices: a rule does not know which
-/// product field it extracts, so struck-through words inside description or title prose
-/// are dropped too. When nothing but struck-through text remains, such as a sold item
-/// whose whole title is struck through, the full text is kept instead.
-const STRUCK_THROUGH_ELEMENTS: [&str; 3] = ["del", "s", "strike"];
-
-/// Joins the text nodes below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees and
-/// descendant [`STRUCK_THROUGH_ELEMENTS`] subtrees.
-fn visible_text(element: &scraper::ElementRef<'_>) -> String {
-    // Only descendants are struck-through candidates: a rule that selects `del` itself
-    // still extracts its text, while a selected non-text element never does.
-    if NON_TEXT_ELEMENTS.contains(&element.value().name()) {
-        return String::new();
-    }
-    let mut text = VisibleText::default();
-    push_visible_text(element, false, &mut text);
-    text.into_value()
-}
-
-fn push_visible_text(
-    element: &scraper::ElementRef<'_>,
-    inside_struck_through: bool,
-    text: &mut VisibleText,
-) {
-    for child in element.children() {
-        match child.value() {
-            scraper::Node::Text(value) => text.push(value, inside_struck_through),
-            scraper::Node::Element(child_element) => {
-                let name = child_element.name();
-                if NON_TEXT_ELEMENTS.contains(&name) {
-                    continue;
-                }
-                if let Some(child_element) = scraper::ElementRef::wrap(child) {
-                    let inside_struck_through =
-                        inside_struck_through || STRUCK_THROUGH_ELEMENTS.contains(&name);
-                    push_visible_text(&child_element, inside_struck_through, text);
-                }
-            }
-            _ => {}
+        ExtractionKind::ImageUrl => {
+            image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
+                selector: selector_str.to_owned(),
+                attribute: "image URL candidate".to_owned(),
+            })
         }
     }
 }
 
-/// Joined text of an element, kept with and without its struck-through descendants.
-#[derive(Default)]
-struct VisibleText {
-    without_struck_through: String,
-    with_struck_through: String,
-    after_dropped_text: bool,
+/// Whether a text rule extracts a value from `element`. One without visible text yields
+/// a blank value, which `first` cardinality skips. Line separators only ever stand
+/// between visible text, so they never make a blank element count as text.
+fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
+    !visible_text(element, TextBoundaries::Separate)
+        .trim()
+        .is_empty()
 }
 
-impl VisibleText {
-    fn push(&mut self, value: &str, struck_through: bool) {
-        self.with_struck_through.push_str(value);
-        if struck_through {
-            self.after_dropped_text = true;
-            return;
-        }
-        // `$25 <del>$50</del> ARS` must not leave the double space of the dropped amount.
-        let value = if self.after_dropped_text
-            && self.without_struck_through.ends_with(char::is_whitespace)
-        {
-            value.trim_start()
-        } else {
-            value
-        };
-        if !value.is_empty() {
-            self.after_dropped_text = false;
-        }
-        self.without_struck_through.push_str(value);
-    }
-
-    fn into_value(self) -> String {
-        if self.without_struck_through.trim().is_empty() {
-            self.with_struck_through
-        } else {
-            self.without_struck_through
-        }
-    }
-}
-
-fn extract_image_url_from_element(
-    element: &scraper::ElementRef<'_>,
-    selector_str: &str,
-) -> Result<String, ExtractionError> {
+/// The element's image URL candidates joined into one group, or `None` when it has none.
+fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Option<String> {
     let candidates = image_url_candidates_for_element(element);
     if candidates.is_empty() {
-        return Err(ExtractionError::MissingAttribute {
-            selector: selector_str.to_owned(),
-            attribute: "image URL candidate".to_owned(),
-        });
+        return None;
     }
 
-    Ok(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
+    Some(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
 }
 
 fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<String> {
@@ -1557,6 +1562,165 @@ mod tests {
                 "/uploads/photo-100x100.jpg"
             ]
         );
+    }
+
+    /// A gallery whose matched elements include elements without a value, which the
+    /// `images` rule skips (#2099).
+    mod image_elements_without_candidate {
+        use super::*;
+
+        const GALLERY_SELECTOR: &str = r#"div.product-image-grid a[rel^="lightbox"]"#;
+
+        fn image_url(index: usize) -> String {
+            format!("https://files.ekmcdn.com/shop/images/side-table-({index})-5702-p.jpg")
+        }
+
+        /// Harrison Antique Furniture's gallery of a product with eight photos: eight
+        /// image links followed by twelve empty `href="#"` slots of the same lightbox.
+        fn gallery_with_placeholder_anchors() -> Html {
+            let image_links = (1..=8).map(|index| {
+                format!(
+                    r#"<div><a href="{}" rel="lightbox[1] mousezoom[1]" target="_blank"></a></div>"#,
+                    image_url(index)
+                )
+            });
+            let placeholders = (9..=20).map(|index| {
+                format!(
+                    r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-largeimg="" target="_blank"></a></div>"##
+                )
+            });
+            Html::parse_document(&format!(
+                r#"<html><body><div class="product-image-grid">{}</div></body></html>"#,
+                image_links.chain(placeholders).collect::<String>()
+            ))
+        }
+
+        #[test]
+        fn should_count_skipped_anchors_when_extracting_image_url_candidate_groups() {
+            let r = rule(
+                GALLERY_SELECTOR,
+                image_url_kind(),
+                ExtractionCardinality::First,
+            );
+
+            let images = r
+                .apply_image_url_candidate_groups(&gallery_with_placeholder_anchors())
+                .unwrap();
+
+            assert_eq!(images.values, (1..=8).map(image_url).collect::<Vec<_>>());
+            assert_eq!(images.skipped_elements, 12);
+        }
+
+        #[test]
+        fn should_take_images_of_additional_selector_when_primary_matches_only_placeholders() {
+            let doc = html(
+                r##"<div class="thumbs"><a href="#" rel="lightbox"></a></div>
+                <div class="gallery"><img src="/uploads/photo.jpg"></div>"##,
+            );
+            let r = rule_with_additional(
+                ".thumbs a",
+                vec![".gallery img"],
+                image_url_kind(),
+                ExtractionCardinality::All,
+            );
+
+            let images = r.apply_image_url_candidate_groups(&doc).unwrap();
+
+            assert_eq!(images.values, vec!["/uploads/photo.jpg"]);
+            assert_eq!(images.skipped_elements, 1);
+        }
+
+        #[test]
+        fn should_skip_gallery_images_without_the_attribute_of_an_attribute_rule() {
+            let doc = html(
+                r#"<div class="gallery"><img src="a.jpg"><img alt="no-src"><img src="c.jpg"></div>"#,
+            );
+            let r = rule(
+                "div.gallery img",
+                attr_kind("src"),
+                ExtractionCardinality::All,
+            );
+
+            let images = r.apply_image_url_candidate_groups(&doc).unwrap();
+
+            assert_eq!(images.values, vec!["a.jpg", "c.jpg"]);
+            assert_eq!(images.skipped_elements, 1);
+        }
+
+        /// Only the `images` rule skips: the same rule applied to another field still
+        /// fails on an element without a value.
+        #[test]
+        fn should_fail_other_fields_on_an_element_without_a_value() {
+            let r = rule(
+                GALLERY_SELECTOR,
+                image_url_kind(),
+                ExtractionCardinality::All,
+            );
+
+            let err = r.apply(&gallery_with_placeholder_anchors()).unwrap_err();
+
+            assert!(
+                matches!(&err, ExtractionError::MissingAttribute { attribute, .. } if attribute == "image URL candidate"),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
+        fn should_fail_when_no_matched_element_has_an_image_url_candidate() {
+            let doc = html(
+                r##"<div class="thumbs"><a href="#" rel="lightbox"></a><a href="#" rel="lightbox"></a></div>"##,
+            );
+            let r = rule_with_additional(
+                ".missing",
+                vec![".thumbs a"],
+                image_url_kind(),
+                ExtractionCardinality::All,
+            );
+
+            let err = r.apply_image_url_candidate_groups(&doc).unwrap_err();
+
+            assert!(
+                matches!(
+                    &err,
+                    ExtractionError::MissingAttribute { selector, attribute }
+                        if selector == ".thumbs a" && attribute == "image URL candidate"
+                ),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
+        fn should_fail_when_no_matched_gallery_image_has_the_attribute_of_an_attribute_rule() {
+            let doc = html(r#"<div class="gallery"><img alt="no-src"></div>"#);
+            let r = rule(
+                "div.gallery img",
+                attr_kind("src"),
+                ExtractionCardinality::All,
+            );
+
+            let err = r.apply_image_url_candidate_groups(&doc).unwrap_err();
+
+            assert!(
+                matches!(
+                    &err,
+                    ExtractionError::MissingAttribute { selector, attribute }
+                        if selector == "div.gallery img" && attribute == "src"
+                ),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
+        fn should_fail_first_cardinality_when_first_element_has_no_image_url_candidate() {
+            let doc = html(
+                r##"<div class="thumbs"><a href="#" rel="lightbox"></a><a href="/uploads/photo.jpg" rel="lightbox"></a></div>"##,
+            );
+            let r = rule(".thumbs a", image_url_kind(), ExtractionCardinality::First);
+
+            let err = r.apply(&doc).unwrap_err();
+
+            assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+        }
     }
 
     #[rstest]

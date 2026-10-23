@@ -655,6 +655,7 @@ function renderCoverageSummary(matrix) {
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
+      ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
       ${renderPlausibilitySummary(matrix)}
     </div>`;
 }
@@ -761,6 +762,44 @@ function currentCandidatePagesWithOptionalMisses(matrix) {
     return (candidate.pages || []).filter(page => optionalFieldMisses(page).length > 0);
 }
 
+// Fields whose rule skipped matched elements without an image URL (no image URL candidate, or
+// no attribute of an attribute rule) on the page (`skipped_element_count`, set for the `images`
+// rule only). Many skips show a loose selector.
+function fieldsWithSkippedElements(page) {
+    return (page?.fields || []).filter(field => field.skipped_element_count > 0);
+}
+
+function skippedElementCount(page) {
+    return fieldsWithSkippedElements(page).reduce((sum, field) => sum + field.skipped_element_count, 0);
+}
+
+function matchedElementCount(field) {
+    return [field.selector_match_count || 0, ...(field.additional_selector_match_counts || [])]
+        .reduce((sum, count) => sum + count, 0);
+}
+
+function currentCandidatePagesWithSkippedElements(matrix) {
+    const candidate = selectedCandidate(matrix);
+    if (!candidate) return [];
+    return (candidate.pages || []).filter(page => skippedElementCount(page) > 0);
+}
+
+function renderSkippedElementSummary(pagesWithSkips) {
+    if (!pagesWithSkips.length) return '';
+    const pageWord = pagesWithSkips.length === 1 ? 'page' : 'pages';
+    const perPage = pagesWithSkips.map(page =>
+        `${escapeHtml(displayName(page.role))} (${skippedElementCount(page)})`
+    ).join('; ');
+    return `<div class="muted">Selected schema skipped matched elements without an image URL, a sign of a loose selector, on ${pagesWithSkips.length} ${pageWord}: ${perPage}</div>`;
+}
+
+function renderSkippedElements(fields) {
+    if (!fields.length) return '';
+    return `<div class="muted">Matched elements without an image URL were skipped: ${
+        fields.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code> skipped ${field.skipped_element_count} of ${matchedElementCount(field)}`).join(', ')
+    }</div>`;
+}
+
 function pageReferenceKey(reference) {
     if (!reference || typeof reference !== 'object') return '';
     if (reference.kind === 'persisted' && reference.review_page_id) {
@@ -793,6 +832,7 @@ function renderCurrentExtractedData(matrix) {
     const page = selectedMatrixPage(candidate);
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
+    const skips = fieldsWithSkippedElements(page);
     const findings = pageFindings(page);
     const checkPlural = findings.length === 1 ? '' : 's';
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
@@ -800,8 +840,8 @@ function renderCurrentExtractedData(matrix) {
     return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
-        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}</td>
+        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
+        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}${renderSkippedElements(skips)}</td>
       </tr>
     </tbody></table></div>`;
 }

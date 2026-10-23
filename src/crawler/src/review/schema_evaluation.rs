@@ -3,9 +3,11 @@ use crate::review::model::{
     CrawlerReviewPage, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ApplySchemaError, ProductCssSelectorSchema, SchemaExtraction,
+};
+use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
-use crate::scraper::scraper_service::extraction::engine::apply_schema_to_document;
 use scraper::{Html, Selector};
 
 /// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
@@ -209,7 +211,8 @@ pub(crate) fn selector_field_is_soft(field: &SelectorFieldEvaluation) -> bool {
     !field.required && field.error.is_none() && field.field != "images"
 }
 
-/// Primary and every additional selector matched nothing.
+/// Primary and every additional selector matched nothing; for a text rule, nothing with
+/// visible text (see [`ExtractionRule::match_count`]).
 pub(crate) fn selector_field_matched_nothing(field: &SelectorFieldEvaluation) -> bool {
     field.selector_match_count == Some(0)
         && field
@@ -251,14 +254,18 @@ fn evaluate_schema_page(
     page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
     let html = Html::parse_document(page.raw_html);
-    let apply_result = apply_schema_to_document(schema, &html);
-    let fields = evaluate_schema_fields(schema, page.raw_html);
+    let extraction = schema.extract(&html);
+    let fields = evaluate_schema_fields(
+        schema,
+        &html,
+        skipped_image_elements(schema, &html, &extraction),
+    );
 
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
     // apply error; every finding stays listed for the reviewer.
-    let (apply_ok, extracted, error, plausibility_findings) = match apply_result {
-        Ok(extracted) => {
+    let (apply_ok, extracted, error, plausibility_findings) = match extraction {
+        Ok(SchemaExtraction { raw: extracted, .. }) => {
             let findings = PlausibilityFindings::of(&extracted);
             let rejection = findings.rejection_reason();
             (rejection.is_none(), Some(extracted), rejection, findings)
@@ -290,9 +297,28 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
     page.apply_ok && page.extracted.is_some()
 }
 
+/// The `images` elements the page's extraction skipped for having no value, or `None`
+/// when the `images` rule fails. A page that fails on another rule may not reach its
+/// `images` rule, so the rule is applied on its own for such a page.
+fn skipped_image_elements(
+    schema: &ProductCssSelectorSchema,
+    html: &Html,
+    extraction: &Result<SchemaExtraction, ApplySchemaError>,
+) -> Option<usize> {
+    match extraction {
+        Ok(extraction) => Some(extraction.skipped_image_elements),
+        Err(ApplySchemaError::Images(_)) => None,
+        Err(_) => schema
+            .apply_image_url_candidate_groups(html)
+            .ok()
+            .map(|images| images.skipped_elements),
+    }
+}
+
 fn evaluate_schema_fields(
     schema: &ProductCssSelectorSchema,
-    html: &str,
+    html: &Html,
+    skipped_image_elements: Option<usize>,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
     // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
@@ -314,23 +340,36 @@ fn evaluate_schema_fields(
         fields.push(evaluate_rule("price_estimate_max", rule, html, false));
     }
     fields.push(evaluate_rule("state", &schema.state, html, true));
-    fields.push(evaluate_rule("images", &schema.images, html, false));
+    fields.push(evaluate_images_rule(schema, html, skipped_image_elements));
     for (field, rule) in &schema.raw_attributes {
         fields.push(evaluate_rule(field, rule, html, false));
     }
     fields
 }
 
+/// Evaluates the `images` rule as runtime extraction applies it, with the count of
+/// matched elements it skipped for having no value ([`skipped_image_elements`]). A
+/// failed images rule fails the page, whose error the page evaluation already carries.
+fn evaluate_images_rule(
+    schema: &ProductCssSelectorSchema,
+    html: &Html,
+    skipped_element_count: Option<usize>,
+) -> SelectorFieldEvaluation {
+    SelectorFieldEvaluation {
+        skipped_element_count,
+        ..evaluate_rule("images", &schema.images, html, false)
+    }
+}
+
 fn evaluate_rule(
     field: &str,
-    rule: &crate::scraper::css_selector::rule::ExtractionRule,
-    html: &str,
+    rule: &ExtractionRule,
+    html: &Html,
     required: bool,
 ) -> SelectorFieldEvaluation {
-    let document = Html::parse_document(html);
     let selector = rule.selector.to_string();
-    let selector_match_count = match Selector::parse(&selector) {
-        Ok(parsed) => Some(document.select(&parsed).count()),
+    let parsed = match Selector::parse(&selector) {
+        Ok(parsed) => parsed,
         Err(err) => {
             let error = format!("{err:?}");
             return SelectorFieldEvaluation {
@@ -340,17 +379,18 @@ fn evaluate_rule(
                 additional_selector_match_counts: Vec::new(),
                 error: Some(error),
                 required,
+                skipped_element_count: None,
             };
         }
     };
-
-    let mut additional_selector_match_counts = Vec::new();
-    for additional in &rule.additional_selectors {
-        match Selector::parse(additional.as_ref()) {
-            Ok(parsed) => additional_selector_match_counts.push(document.select(&parsed).count()),
-            Err(_) => additional_selector_match_counts.push(0),
-        }
-    }
+    let selector_match_count = Some(rule.match_count(html, &parsed));
+    let additional_selector_match_counts = rule
+        .additional_selectors
+        .iter()
+        .map(|additional| {
+            Selector::parse(additional.as_ref()).map_or(0, |parsed| rule.match_count(html, &parsed))
+        })
+        .collect();
 
     SelectorFieldEvaluation {
         field: field.to_string(),
@@ -359,6 +399,7 @@ fn evaluate_rule(
         additional_selector_match_counts,
         error: None,
         required,
+        skipped_element_count: None,
     }
 }
 
@@ -366,9 +407,7 @@ fn evaluate_rule(
 mod tests {
     use super::*;
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
-    use crate::scraper::css_selector::rule::{
-        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
-    };
+    use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
     use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
 
     fn text_rule(selector: &str) -> ExtractionRule {
@@ -503,6 +542,224 @@ mod tests {
             .find(|field| field.field == "price")
             .unwrap_or_else(|| panic!("price field must stay visible in the matrix"));
         assert_eq!(price_field.selector_match_count, Some(0));
+    }
+
+    /// A text rule takes no usable value from an element without visible text, so the
+    /// matrix does not count such an element as a match. Extraction is unchanged.
+    mod blank_text_matches {
+        use super::*;
+
+        fn product_page(price_html: &str) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: "https://example.com/product".to_string(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: format!(
+                    "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1>{price_html}<span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>"
+                ),
+            }
+        }
+
+        fn matrix_for_price(price: ExtractionRule, price_html: &str) -> SchemaMatrix {
+            let schema = ProductCssSelectorSchema {
+                price: Some(price),
+                ..schema("h1")
+            };
+            evaluate_schema_matrix_for_inputs(&[schema], &[product_page(price_html)])
+        }
+
+        fn price_field(matrix: &SchemaMatrix) -> &SelectorFieldEvaluation {
+            matrix.candidates[0].pages[0]
+                .fields
+                .iter()
+                .find(|field| field.field == "price")
+                .unwrap_or_else(|| panic!("price field must stay visible in the matrix"))
+        }
+
+        fn extracted_price(matrix: &SchemaMatrix) -> Option<&str> {
+            matrix.candidates[0].pages[0]
+                .extracted
+                .as_ref()
+                .and_then(|raw| raw.price.as_deref())
+        }
+
+        fn missing_on_the_page(field: &str, selector: &str) -> OptionalRuleTotalMiss {
+            OptionalRuleTotalMiss {
+                schema_index: 0,
+                field: field.to_string(),
+                selector: selector.to_string(),
+                page_count: 1,
+            }
+        }
+
+        #[test]
+        fn should_count_a_price_rule_as_missing_when_its_only_match_is_empty() {
+            let matrix = matrix_for_price(text_rule(".price"), "<span class=\"price\"></span>");
+
+            assert_eq!(price_field(&matrix).selector_match_count, Some(0));
+            assert_eq!(
+                optional_rules_missing_on_every_page(&matrix),
+                vec![missing_on_the_page("price", ".price")]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(extracted_price(&matrix), None);
+        }
+
+        #[test]
+        fn should_count_a_price_rule_as_missing_when_its_only_match_is_whitespace() {
+            let matrix =
+                matrix_for_price(text_rule(".price"), "<p class=\"price\">\n\t&nbsp; </p>");
+
+            assert_eq!(price_field(&matrix).selector_match_count, Some(0));
+            assert_eq!(
+                optional_rules_missing_on_every_page(&matrix),
+                vec![missing_on_the_page("price", ".price")]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(extracted_price(&matrix), None);
+        }
+
+        #[test]
+        fn should_count_a_price_rule_as_matched_when_a_blank_match_precedes_a_non_empty_one() {
+            let matrix = matrix_for_price(
+                text_rule(".price"),
+                "<p class=\"price\"> </p><p class=\"price\">£450</p>",
+            );
+
+            assert_eq!(price_field(&matrix).selector_match_count, Some(1));
+            assert!(optional_rules_missing_on_every_page(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(extracted_price(&matrix), Some("£450"));
+        }
+
+        #[test]
+        fn should_count_a_price_rule_as_missing_when_its_additional_selector_matches_only_blank() {
+            let price = ExtractionRule {
+                additional_selectors: vec![CssSelector::from(".sale-price")],
+                ..text_rule(".price")
+            };
+
+            let matrix = matrix_for_price(price, "<span class=\"sale-price\"> </span>");
+
+            assert_eq!(price_field(&matrix).additional_selector_match_counts, [0]);
+            assert_eq!(
+                optional_rules_missing_on_every_page(&matrix),
+                vec![missing_on_the_page("price", ".price")]
+            );
+        }
+
+        #[test]
+        fn should_count_a_price_rule_as_matched_when_its_additional_selector_has_text() {
+            let price = ExtractionRule {
+                additional_selectors: vec![CssSelector::from(".sale-price")],
+                ..text_rule(".price")
+            };
+
+            let matrix = matrix_for_price(
+                price,
+                "<span class=\"price\"> </span><span class=\"sale-price\">£450</span>",
+            );
+
+            let field = price_field(&matrix);
+            assert_eq!(field.selector_match_count, Some(0));
+            assert_eq!(field.additional_selector_match_counts, [1]);
+            assert!(optional_rules_missing_on_every_page(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(extracted_price(&matrix), Some("£450"));
+        }
+
+        #[test]
+        fn should_count_estimate_rules_as_missing_when_their_only_matches_are_blank() {
+            let schema = ProductCssSelectorSchema {
+                price_estimate_min: Some(text_rule("#estimate-min")),
+                price_estimate_max: Some(text_rule("#estimate-max")),
+                ..schema("h1")
+            };
+            let page =
+                product_page("<span id=\"estimate-min\"></span><span id=\"estimate-max\"> </span>");
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &[page]);
+
+            assert_eq!(
+                optional_rules_missing_on_every_page(&matrix),
+                vec![
+                    missing_on_the_page("price_estimate_min", "#estimate-min"),
+                    missing_on_the_page("price_estimate_max", "#estimate-max"),
+                ]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// An attribute rule extracts the blank value, which the `BLANK` check reports.
+        #[test]
+        fn should_leave_a_blank_price_attribute_to_the_blank_check() {
+            let price = ExtractionRule {
+                selector: CssSelector::from("meta[itemprop='price']"),
+                additional_selectors: Vec::new(),
+                extract: ExtractionKind::Attribute {
+                    name: "content".into(),
+                },
+                cardinality: ExtractionCardinality::First,
+            };
+
+            let matrix = matrix_for_price(price, "<meta itemprop=\"price\" content=\"\">");
+
+            assert_eq!(price_field(&matrix).selector_match_count, Some(1));
+            assert!(optional_rules_missing_on_every_page(&matrix).is_empty());
+            assert_eq!(
+                matrix.candidates[0].pages[0]
+                    .plausibility_findings
+                    .as_slice(),
+                [finding(PlausibilityField::Price, PlausibilityCheck::Blank)]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// Every text rule counts the same way, not only the prices.
+        #[test]
+        fn should_count_other_text_rules_as_missing_when_their_only_matches_are_blank() {
+            let schema = ProductCssSelectorSchema {
+                description: Some(ExtractionRule {
+                    cardinality: ExtractionCardinality::All,
+                    ..text_rule(".description")
+                }),
+                raw_attributes: [("rawMeasurements".to_string(), text_rule("#measurements"))]
+                    .into(),
+                ..schema("h1")
+            };
+            let page = product_page(
+                "<div class=\"description\"> </div><div class=\"description\"><p></p></div><span id=\"measurements\">\n</span>",
+            );
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &[page]);
+
+            assert_eq!(
+                optional_rules_missing_on_every_page(&matrix),
+                vec![
+                    missing_on_the_page("description", ".description"),
+                    missing_on_the_page("rawMeasurements", "#measurements"),
+                ]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_count_a_title_rule_without_its_blank_matches() {
+            let page = SchemaReviewPageInput {
+                url: "https://example.com/product".to_string(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: "<html><body><span id=\"product-id\">SKU</span><h1> </h1><h1>Title</h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
+            };
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &[page]);
+            let title = matrix.candidates[0].pages[0]
+                .fields
+                .iter()
+                .find(|field| field.field == "title")
+                .unwrap_or_else(|| panic!("title field must be in the matrix"));
+
+            assert_eq!(title.selector_match_count, Some(1));
+            assert!(matrix.candidates[0].pages[0].apply_ok);
+        }
     }
 
     #[test]
@@ -990,6 +1247,172 @@ mod tests {
                 "/images/primary.jpg\u{1f}/images/fallback-800x600.jpg".to_string(),
             ])
         );
+    }
+
+    /// The `images` field reports how many matched gallery elements the rule skipped
+    /// for having no image URL candidate.
+    mod skipped_image_elements {
+        use super::*;
+
+        fn gallery_schema() -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("#gallery a"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::ImageUrl,
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            }
+        }
+
+        fn gallery_page(anchors: &str) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: "https://example.com/product".to_string(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: format!(
+                    "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><div id=\"gallery\">{anchors}</div></body></html>"
+                ),
+            }
+        }
+
+        fn field<'a>(page: &'a SchemaPageEvaluation, name: &str) -> &'a SelectorFieldEvaluation {
+            page.fields
+                .iter()
+                .find(|field| field.field == name)
+                .unwrap_or_else(|| panic!("{name} field must be in the matrix"))
+        }
+
+        #[test]
+        fn should_cover_page_and_count_anchors_without_image_url_candidate() {
+            let pages = vec![gallery_page(
+                "<a href=\"/images/1.jpg\"></a><a href=\"/images/2.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a><a href=\"#\"></a>",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(page.apply_ok);
+            assert_eq!(
+                page.extracted.as_ref().map(|raw| raw.images.clone()),
+                Some(vec![
+                    "/images/1.jpg".to_string(),
+                    "/images/2.jpg".to_string()
+                ])
+            );
+            let images = field(page, "images");
+            assert_eq!(images.selector_match_count, Some(5));
+            assert_eq!(images.skipped_element_count, Some(3));
+            assert_eq!(field(page, "title").skipped_element_count, None);
+            assert!(
+                schema_matrix_deterministic_approval_ok(&matrix),
+                "skipped elements are review information and do not block approval"
+            );
+        }
+
+        #[test]
+        fn should_count_gallery_images_without_the_attribute_of_an_attribute_rule() {
+            let schema = ProductCssSelectorSchema {
+                images: ExtractionRule {
+                    selector: CssSelector::from("#gallery img"),
+                    additional_selectors: Vec::new(),
+                    extract: ExtractionKind::Attribute { name: "src".into() },
+                    cardinality: ExtractionCardinality::All,
+                },
+                ..schema("h1")
+            };
+            let pages = vec![gallery_page(
+                "<img src=\"/images/1.jpg\"><img data-src=\"/images/2.jpg\"><img src=\"/images/3.jpg\">",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(page.apply_ok);
+            let images = field(page, "images");
+            assert_eq!(images.selector_match_count, Some(3));
+            assert_eq!(images.skipped_element_count, Some(1));
+        }
+
+        #[test]
+        fn should_count_skipped_anchors_when_the_page_fails_before_its_images_rule() {
+            let schema = ProductCssSelectorSchema {
+                title: text_rule("h2"),
+                ..gallery_schema()
+            };
+            let pages = vec![gallery_page(
+                "<a href=\"/images/1.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a>",
+            )];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(!page.apply_ok);
+            assert_eq!(
+                page.error.as_deref(),
+                Some(
+                    "failed to extract `title`: no element matched selector `h2` (or any additional selectors)"
+                )
+            );
+            assert_eq!(field(page, "images").skipped_element_count, Some(2));
+        }
+
+        /// Pairs one gallery's extraction with another gallery's HTML, so the count shows
+        /// whether it came from the extraction or from applying the `images` rule again.
+        #[test]
+        fn should_apply_the_images_rule_again_only_when_another_rule_failed_the_page() {
+            let html_of = |anchors: &str| Html::parse_document(&gallery_page(anchors).raw_html);
+            let two_skipped =
+                html_of("<a href=\"/images/1.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a>");
+            let none_skipped = html_of("<a href=\"/images/1.jpg\"></a>");
+            let all_skipped = html_of("<a href=\"#\"></a>");
+            let applies = gallery_schema();
+            let fails_on_title = ProductCssSelectorSchema {
+                title: text_rule("h2"),
+                ..gallery_schema()
+            };
+
+            let applied = applies.extract(&two_skipped);
+            assert!(applied.is_ok());
+            assert_eq!(
+                skipped_image_elements(&applies, &none_skipped, &applied),
+                Some(2),
+                "an applied page reports its extraction's count"
+            );
+
+            let title_failed = fails_on_title.extract(&two_skipped);
+            assert!(matches!(title_failed, Err(ApplySchemaError::Title(_))));
+            assert_eq!(
+                skipped_image_elements(&fails_on_title, &none_skipped, &title_failed),
+                Some(0),
+                "a page another rule failed applies the images rule again"
+            );
+
+            let images_failed = applies.extract(&all_skipped);
+            assert!(matches!(images_failed, Err(ApplySchemaError::Images(_))));
+            assert_eq!(
+                skipped_image_elements(&applies, &two_skipped, &images_failed),
+                None,
+                "a page the images rule failed has no count"
+            );
+        }
+
+        #[test]
+        fn should_fail_page_without_a_count_when_every_anchor_lacks_an_image_url_candidate() {
+            let pages = vec![gallery_page("<a href=\"#\"></a><a href=\"#\"></a>")];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let page = &matrix.candidates[0].pages[0];
+
+            assert!(!page.apply_ok);
+            assert_eq!(
+                page.error.as_deref(),
+                Some(
+                    "failed to extract `images`: element matched by `#gallery a` does not have attribute `image URL candidate`"
+                )
+            );
+            assert_eq!(field(page, "images").skipped_element_count, None);
+        }
     }
 
     #[test]
