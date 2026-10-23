@@ -238,6 +238,14 @@ async function admit(env = process.env, options = {}) {
       api,
     );
     if (
+      live.health.dmsStatus !== approved.inventory.dmsBaseline.status ||
+      !["running", "stopped", "ready"].includes(live.health.dmsStatus) ||
+      live.health.tablesErrored !== 0
+    )
+      throw new Error(
+        "Approved capture lifecycle/health changed before admission",
+      );
+    if (
       database.ledger_fingerprint !== approved.report.migrationLedgerDigest ||
       digest(database.schema) !== digest(approved.inventory.database.schema) ||
       inspection.identity(live) !== inspection.identity(approved.inventory.aws)

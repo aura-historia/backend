@@ -132,6 +132,69 @@ test("worker immutable version advances on the same function while redirect and 
     ),
     "partner-bus",
   );
+  const fxReference = {
+    "Fn::Join": [
+      "",
+      [
+        "arn:",
+        { Ref: "AWS::Partition" },
+        ":lambda:",
+        { Ref: "AWS::Region" },
+        ":",
+        { Ref: "AWS::AccountId" },
+        ":function:fxrate-lambda-prod",
+      ],
+    ],
+  };
+  const plan = {
+    stackName: "application-prod-compute",
+    template: {
+      Resources: {
+        FxSchedule: {
+          Type: "AWS::Scheduler::Schedule",
+          Properties: { Target: { Arn: fxReference } },
+        },
+        PartnerRule: { Type: "AWS::Events::Rule", Properties: { Targets: [] } },
+      },
+    },
+  };
+  execution.verifyConsumerArtifacts(
+    { target: "prod", region: "eu-central-1", account: "123456789012" },
+    fixture.bundle(),
+    [plan],
+    {
+      stacks: {
+        "application-prod-compute": {
+          resources: [
+            { logicalId: "FxSchedule", physicalId: "fx" },
+            {
+              logicalId: "PartnerRule",
+              physicalId: "partner-bus|partner-rule",
+            },
+          ],
+        },
+      },
+      activation: [
+        {
+          id: "arn:scheduler:default/fx",
+          group: "default",
+          target: {
+            arn: "arn:aws:lambda:eu-central-1:123456789012:function:fxrate-lambda-prod",
+          },
+        },
+        {
+          id: "arn:events:rule/partner-bus/partner-rule",
+          bus: "partner-bus",
+          targets: [],
+        },
+      ],
+    },
+    () => {
+      throw new Error(
+        "Protected FX must retain baseline bytes instead of consuming candidate artifact",
+      );
+    },
+  );
 });
 
 test("prepare through native admission, candidate migration and verified worker rollout shares exact evidence", async () => {
@@ -210,6 +273,13 @@ test("prepare through native admission, candidate migration and verified worker 
       DELIVERY_REPORT_DIGEST: prepared.approval.reportDigest,
       DELIVERY_EXECUTION_ID: "native-execution",
     };
+    scenario.setDmsStatus("stopped");
+    await assert.rejects(
+      execution.admit(nativeEnv, { store, api, stateStore }),
+      /capture lifecycle/,
+    );
+    assert.equal(scenario.environment.state, "READY");
+    scenario.setDmsStatus("running");
     await execution.admit(nativeEnv, { store, api, stateStore });
     assert.equal(scenario.environment.state, "IN_PROGRESS");
     assert.equal(

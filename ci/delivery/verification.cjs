@@ -173,7 +173,10 @@ function verifyConsumerArtifacts(ctx, bundle, plans, live, api) {
           );
       } else if (resource.Type === "AWS::Scheduler::Schedule") {
         const schedule = live.activation.find(
-          (item) => item.id === physical || item.id.endsWith(`/${physical}`),
+          (item) =>
+            item.group ===
+              inspection.schedulerGroup(plan.template, { logicalId: id }) &&
+            (item.id === physical || item.id.endsWith(`/${physical}`)),
         );
         if (
           !schedule ||
@@ -194,8 +197,10 @@ function verifyConsumerArtifacts(ctx, bundle, plans, live, api) {
       } else if (resource.Type === "AWS::Events::Rule") {
         const rule = live.activation.find(
           (item) =>
-            item.id === physical ||
-            item.id.endsWith(`/${physical.split("|").at(-1)}`),
+            item.bus ===
+              (physical.includes("|") ? physical.split("|")[0] : "default") &&
+            (item.id === physical ||
+              item.id.endsWith(`/${physical.split("|").at(-1)}`)),
         );
         if (!rule) throw new Error("Missing deployed rule targets");
         for (const target of resource.Properties.Targets || [])

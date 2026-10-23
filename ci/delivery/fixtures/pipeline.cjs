@@ -664,6 +664,9 @@ function pipelineFixture(directory) {
     get environment() {
       return environment;
     },
+    setDmsStatus(value) {
+      task.Status = value;
+    },
     setPhase(value) {
       phase = value;
       deployedAt = new Date().toISOString();
