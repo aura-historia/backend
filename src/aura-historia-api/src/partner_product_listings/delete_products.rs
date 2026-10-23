@@ -1,13 +1,14 @@
+use super::batch_response::{BatchResponse, batch_input_error};
 use super::types::{
-    PartnerProductFailureData, WithdrawProductListingData, parse_listing_source_id,
-    parse_partner_product_batch,
+    WithdrawProductListingData, mutation_input_error, parse_listing_source_id,
+    parse_partner_product_batch, prepare_batch,
 };
 use crate::auth::protected_context;
-use crate::error::ApiError;
 use crate::state::PartnerProductListingsState;
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
+#[cfg(test)]
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 pub async fn delete_products(
@@ -29,46 +30,17 @@ pub async fn delete_products(
         Err(error) => return error.into_response(),
     };
 
-    let mapped = match products
-        .into_iter()
-        .map(|product| {
-            let raw_source_listing_id = product.source_listing_id.clone();
-            product
-                .into_product_key(listing_source_id)
-                .map(|product_key| (raw_source_listing_id, product_key))
-        })
-        .collect::<Result<Vec<_>, ApiError>>()
-    {
-        Ok(mapped) => mapped,
-        Err(error) => return error.into_response(),
+    let prepared = match prepare_batch(listing_source_id, products) {
+        Ok(prepared) => prepared,
+        Err(error) => return mutation_input_error(error).into_response(),
     };
-
-    let mut failures = Vec::new();
-    let mut first_error = None;
-    let mut successes = 0;
-    for (source_listing_id, product_key) in mapped {
-        match state.withdraw.execute_by_key(&context, product_key).await {
-            Ok(_) => successes += 1,
-            Err(error) => {
-                let error = ApiError::from(error);
-                let error_code = error.code();
-                first_error.get_or_insert(error);
-                failures.push(PartnerProductFailureData::new(
-                    listing_source_id,
-                    source_listing_id,
-                    error_code,
-                ));
-            }
+    match state.batches.withdraw(&context, prepared.commands).await {
+        Ok(result) => {
+            BatchResponse::from_result(listing_source_id, prepared.source_listing_ids, result)
+                .into_response()
         }
+        Err(error) => batch_input_error(error).into_response(),
     }
-
-    if successes == 0
-        && let Some(error) = first_error
-    {
-        return error.into_response();
-    }
-
-    (StatusCode::OK, Json(failures)).into_response()
 }
 
 #[cfg(test)]
@@ -84,6 +56,7 @@ mod tests {
     use domain_primitives::change_outcome::ChangeOutcome;
     use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
+    use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesHandler;
 
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
@@ -206,12 +179,68 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn should_preserve_authenticated_empty_maximum_and_oversized_batch_behavior()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut use_case = MockWithdrawUseCase::new();
+        use_case
+            .expect_execute_by_key()
+            .times(100)
+            .returning(|_, _| Ok(withdrawn()));
+        let app = app(use_case);
+        let source = ListingSourceId::new();
+        let path = format!("/v1/listing-sources/{source}/product-listings");
+        assert_eq!(
+            StatusCode::UNAUTHORIZED,
+            request(&app, &path, "[]", false).await?.status()
+        );
+        let empty = request(&app, &path, "[]", true).await?;
+        assert_eq!(StatusCode::OK, empty.status());
+        assert_eq!(json!([]), body_json(empty).await?);
+        let item = r#"{"sourceListingId":"same"}"#.to_owned();
+        let oversized = format!("[{}]", vec![item.clone(); 101].join(","));
+        assert_eq!(
+            StatusCode::BAD_REQUEST,
+            request(&app, &path, &oversized, true).await?.status()
+        );
+        let maximum = format!("[{}]", vec![item; 100].join(","));
+        let maximum = request(&app, &path, &maximum, true).await?;
+        assert_eq!(StatusCode::OK, maximum.status());
+        assert_eq!(json!([]), body_json(maximum).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_later_conversion_failure_before_any_item_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut use_case = MockWithdrawUseCase::new();
+        use_case.expect_execute_by_key().never();
+        let app = app(use_case);
+        let source = ListingSourceId::new();
+        let response = request(
+            &app,
+            &format!("/v1/listing-sources/{source}/product-listings"),
+            &format!(
+                "[{},{}]",
+                r#"{"sourceListingId":"same"}"#.to_owned(),
+                r#"{"sourceListingId":"   "}"#
+            ),
+            true,
+        )
+        .await?;
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!("BAD_BODY_VALUE", body_json(response).await?["error"]);
+        Ok(())
+    }
+
     fn app(withdraw: MockWithdrawUseCase) -> Router {
         let state = PartnerProductListingsState::new(
-            Arc::new(MockCreateUseCase::new()),
-            Arc::new(MockUpdateUseCase::new()),
-            Arc::new(MockUpsertUseCase::new()),
-            Arc::new(withdraw),
+            Arc::new(PartnerProductListingBatchesHandler::new(
+                Arc::new(MockCreateUseCase::new()),
+                Arc::new(MockUpdateUseCase::new()),
+                Arc::new(MockUpsertUseCase::new()),
+                Arc::new(withdraw),
+            )),
             Arc::new(authenticator()),
         );
         Router::new()

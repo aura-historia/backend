@@ -162,12 +162,11 @@ use woocommerce_service::WoocommerceWebhookIntake;
 
 use fakes::postgres_pool as get_postgres_client;
 use product_listing_service::use_cases::{
-    AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetSimilarProductListingsHandler, ProductListingIngestionItemOutcome,
-    ProductListingIngestionMessage, ProductListingIngestionOutcome, SearchProductListingsHandler,
-    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
-    UpsertProductListingHandler, WithdrawProductListingHandler,
+    AuthorizeProductListingRawCaptureHandler, GetAuctionCatalogueHandler, GetProductListingHandler,
+    GetProductListingHistoryHandler, GetSimilarProductListingsHandler,
+    ProductListingIngestionItemOutcome, ProductListingIngestionMessage,
+    ProductListingIngestionOutcome, SearchProductListingsHandler,
+    SubmitPartnerProductListingIngestionHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -1566,34 +1565,9 @@ async fn test_state(
         SqlxFxRateSnapshotReader::new(pool.clone()),
     )));
 
+    let runtime = aura_historia_runtime::Runtime::from_pool(pool.clone());
     let partner_product_listings_state = PartnerProductListingsState::new(
-        Arc::new(CreateProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxAuctionReferenceValidatorFactory::new(),
-        )),
-        Arc::new(UpdateProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxAuctionReferenceValidatorFactory::new(),
-        )),
-        Arc::new(UpsertProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxAuctionReferenceValidatorFactory::new(),
-        )),
-        Arc::new(WithdrawProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-        )),
+        runtime.partner_product_listing_batches().batches.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -1612,7 +1586,6 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let runtime = aura_historia_runtime::Runtime::from_pool(pool.clone());
     let public_listing_sources = runtime.public_listing_sources();
     let listing_sources_state = ListingSourcesState::new(
         Arc::new(create_listing_source),

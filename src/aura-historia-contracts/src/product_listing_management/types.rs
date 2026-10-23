@@ -37,7 +37,7 @@ pub struct UpdateData {
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: PatchValue<Url>,
     #[serde(default)]
-    #[schemars(schema_with = "image_urls_schema")]
+    #[schemars(schema_with = "crate::product_listing_fields::image_urls_schema")]
     images: PatchValue<Vec<Url>>,
     #[serde(default)]
     #[schemars(with = "ProductListingAuctionData")]
@@ -214,7 +214,7 @@ pub struct DetailsData {
     description: Option<LocalizedTextData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
-    #[schemars(schema_with = "image_urls_schema")]
+    #[schemars(schema_with = "crate::product_listing_fields::image_urls_schema")]
     images: Vec<Url>,
     auction: Option<AuctionData>,
     sale_observation: Option<SaleObservationData>,
@@ -290,8 +290,4 @@ fn non_nullable_patch<T>(
             format!("Body field '{field}' must not be null."),
         )),
     }
-}
-
-fn image_urls_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-    schemars::json_schema!({"type":"array", "items":crate::wire::schema::url(generator)})
 }

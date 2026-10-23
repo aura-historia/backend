@@ -1,5 +1,4 @@
 use crate::error::{ApiError, INVALID_OBJECT_ID};
-use crate::patch_value::PatchValue;
 pub(crate) use aura_historia_contracts::wire::{measurement_unit, user_role, user_tier};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashSet;
@@ -113,21 +112,6 @@ where
         .collect()
 }
 
-fn deserialize_patch_code<'de, T, D>(
-    deserializer: D,
-    parse: fn(&str) -> Option<T>,
-    expected: Option<&'static [&'static str]>,
-) -> Result<PatchValue<T>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |value| {
-        parse(&value)
-            .map(PatchValue::Value)
-            .ok_or_else(|| invalid_code(&value, expected))
-    })
-}
-
 fn invalid_code<E>(value: &str, expected: Option<&'static [&'static str]>) -> E
 where
     E: serde::de::Error,
@@ -139,32 +123,6 @@ where
 }
 
 pub(crate) use aura_historia_contracts::wire::{currency, language};
-
-pub(crate) mod listing_availability {
-    use super::*;
-    use product_listing_core::listing_availability::ListingAvailability;
-
-    fn parse(value: &str) -> Option<ListingAvailability> {
-        ListingAvailability::from_code(value)
-    }
-
-    pub(crate) mod option {
-        pub(crate) use aura_historia_contracts::wire::listing::availability_option::deserialize;
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<PatchValue<ListingAvailability>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, parse, None)
-        }
-    }
-}
 
 pub(crate) mod partnership_application_state {
     use super::*;

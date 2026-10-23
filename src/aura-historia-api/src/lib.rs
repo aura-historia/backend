@@ -16,7 +16,6 @@ pub mod partner_product_listings;
 pub(crate) mod partnership_applications;
 pub(crate) mod partnerships;
 pub(crate) mod patch_value;
-mod product_listing_fields;
 mod product_listing_management;
 pub mod product_listings;
 pub(crate) mod public_overview;
@@ -48,7 +47,7 @@ use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
     SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionEventAppenderFactory,
-    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
+    SqlxAuctionRepositoryFactory,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
@@ -155,9 +154,8 @@ use product_listing_postgres::{
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
-    AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+    AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
+    SubmitPartnerProductListingIngestionHandler,
 };
 
 use sqlx::PgPool;
@@ -1448,33 +1446,7 @@ async fn app_state_from_config_and_runtime(
         ),
     );
     let public_product_listings = runtime.public_product_listings(listing_dependencies);
-    let create_product = CreateProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let update_product = UpdateProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let upsert_product = UpsertProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let withdraw_product = WithdrawProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-    );
+    let partner_batches = runtime.partner_product_listing_batches();
     let submit_product_listing_ingestion =
         Arc::new(SubmitPartnerProductListingIngestionHandler::new(
             ScopedSqsProductListingIngestionPublisher::new(ingestion_publisher),
@@ -1562,10 +1534,7 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let partner_product_listings_state = PartnerProductListingsState::new(
-        Arc::new(create_product),
-        Arc::new(update_product),
-        Arc::new(upsert_product),
-        Arc::new(withdraw_product),
+        partner_batches.batches.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let listing_sources_state = ListingSourcesState::new(

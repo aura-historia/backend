@@ -22,3 +22,5 @@ pub mod watchlist;
 
 pub mod product_listing_fields;
 pub mod product_listing_management;
+
+pub mod partner_product_listings;
