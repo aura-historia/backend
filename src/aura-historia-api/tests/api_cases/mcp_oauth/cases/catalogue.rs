@@ -13,8 +13,12 @@ async fn should_publish_the_disjoint_manifests_as_the_actual_production_registry
         "../../../../../aura-historia-mcp/authenticated-operations.json"
     ))
     .unwrap();
+    let partner: Value = serde_json::from_str(include_str!(
+        "../../../../../aura-historia-mcp/partner-operations.json"
+    ))
+    .unwrap();
     let mut expected = BTreeMap::new();
-    for manifest in [&public, &protected] {
+    for manifest in [&public, &protected, &partner] {
         assert_eq!(MCP_RESOURCE, manifest["endpoint"]);
         for entry in manifest["operations"].as_array().unwrap() {
             let name = entry["name"].as_str().unwrap();
@@ -31,6 +35,7 @@ async fn should_publish_the_disjoint_manifests_as_the_actual_production_registry
         tools.iter().map(|t| t["name"].as_str().unwrap()).collect()
     );
     assert_eq!(expected.len(), tools.len());
+    assert_eq!(36, partner["operations"].as_array().unwrap().len());
     assert_release_counts(&public, &protected, &tools, &expected);
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
@@ -57,7 +62,7 @@ fn assert_release_counts(
 ) {
     assert_eq!(12, public["operations"].as_array().unwrap().len());
     assert_eq!(26, protected["operations"].as_array().unwrap().len());
-    assert_eq!(38, tools.len());
+    assert_eq!(74, tools.len());
     let mut family_counts = BTreeMap::new();
     let mut access_counts = BTreeMap::new();
     for tool in tools {
@@ -75,16 +80,23 @@ fn assert_release_counts(
             ("account", 9),
             ("auctions", 3),
             ("notifications", 6),
+            ("partner_listing_management", 6),
+            ("partner_product_listing_batches", 4),
+            ("partner_product_listing_ingestion", 5),
+            ("party_locations", 5),
+            ("product_listing_delivery", 3),
             ("product_listing_history", 1),
             ("product_listings", 4),
             ("public_discovery", 4),
             ("saved_searches", 7),
             ("watchlist", 4),
+            ("shipping", 9),
+            ("source_location_defaults", 4),
         ]),
         family_counts
     );
     assert_eq!(
-        BTreeMap::from([("public", 12), ("protected", 26)]),
+        BTreeMap::from([("public", 12), ("protected", 62)]),
         access_counts
     );
     for (delegated, count) in [(true, 10), (false, 2)] {

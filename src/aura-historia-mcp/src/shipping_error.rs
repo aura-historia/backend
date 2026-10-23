@@ -24,7 +24,7 @@ pub(crate) fn destination(error: user_service::address_book::AddressBookError) -
             OperationError::Forbidden
         }
         NotFound | Resolution(ResolutionError::Missing) => OperationError::NotFound,
-        Conflict | Resolution(ResolutionError::Conflict) => OperationError::Conflict,
+        Conflict | Resolution(ResolutionError::Conflict) => OperationError::Conflict(None),
         InvalidInput | Resolution(ResolutionError::InvalidInput) => OperationError::InvalidInput,
         error @ (Storage(_)
         | Transaction(_)

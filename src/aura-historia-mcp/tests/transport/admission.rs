@@ -545,3 +545,40 @@ async fn should_reject_invalid_accept_quality_values_before_business_work() {
         );
     }
 }
+
+#[tokio::test]
+async fn should_reject_ambiguous_raw_envelopes_before_admission_or_dispatch() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let admissions = Arc::new(AtomicUsize::new(0));
+    let app = router(
+        config(),
+        Registry::new([operation(calls.clone())]).unwrap(),
+        Arc::new(CountingGate(admissions.clone())),
+    )
+    .unwrap();
+    let call = r#"{"name":"testOperation","arguments":{"value":"okay"}}"#;
+    let bodies=[
+        format!(r#"{{"jsonrpc":"2.0","jsonrpc":"2.0","id":1,"method":"tools/call","params":{call}}}"#),
+        format!(r#"{{"jsonrpc":"2.0","id":1,"id":2,"method":"tools/call","params":{call}}}"#),
+        format!(r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","method":"tools/call","params":{call}}}"#),
+        format!(r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{}},"params":{call}}}"#),
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"otherOperation","name":"testOperation","arguments":{"value":"okay"}}}"#.into(),
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"testOperation","arguments":{"value":"bad"},"arguments":{"value":"okay"}}}"#.into(),
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"testOperation","arguments":{"value":"okay"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2025-03-26","io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}"#.into(),
+    ];
+    for body in bodies {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1")
+            .header("host", "mcp.example.test")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(-32600, json_response(response).await["error"]["code"]);
+    }
+    assert_eq!(0, admissions.load(Ordering::SeqCst));
+    assert_eq!(0, calls.load(Ordering::SeqCst));
+}

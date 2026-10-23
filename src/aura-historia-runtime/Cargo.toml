@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }
 embedding = { workspace = true }
@@ -18,11 +20,14 @@ listing-source-service = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
+partnership-postgres = { workspace = true }
+partnership-service = { workspace = true }
 party-postgres = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }
+product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }

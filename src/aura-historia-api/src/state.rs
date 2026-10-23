@@ -61,11 +61,11 @@ use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
+use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesUseCase;
 use product_listing_service::use_cases::{
-    CreateProductListingUseCase, GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase,
-    GetProductListingUseCase, GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
+    GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
+    GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
     SearchProductListingsUseCase, SubmitPartnerProductListingIngestionUseCase,
-    UpdateProductListingUseCase, UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
 use product_listing_service::use_cases::{
     commands::admin_product_listings::{
@@ -831,26 +831,16 @@ impl PartiesState {
 
 #[derive(Clone)]
 pub struct PartnerProductListingsState {
-    pub(crate) create: Arc<dyn CreateProductListingUseCase>,
-    pub(crate) update: Arc<dyn UpdateProductListingUseCase>,
-    pub(crate) upsert: Arc<dyn UpsertProductListingUseCase>,
-    pub(crate) withdraw: Arc<dyn WithdrawProductListingUseCase>,
+    pub(crate) batches: Arc<dyn PartnerProductListingBatchesUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
-
 impl PartnerProductListingsState {
     pub fn new(
-        create: Arc<dyn CreateProductListingUseCase>,
-        update: Arc<dyn UpdateProductListingUseCase>,
-        upsert: Arc<dyn UpsertProductListingUseCase>,
-        withdraw: Arc<dyn WithdrawProductListingUseCase>,
+        batches: Arc<dyn PartnerProductListingBatchesUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
-            create,
-            update,
-            upsert,
-            withdraw,
+            batches,
             authenticator,
         }
     }

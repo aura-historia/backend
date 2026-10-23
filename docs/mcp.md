@@ -7,8 +7,8 @@ owns hosting, certificates, Origin/CORS and stage verification. Native and Lambd
 points share one registry and authenticate each request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
-The shared registry contains 38 operations: 12 public, 9 account, 7 saved-search, 4 watchlist
-and 6 notification operations. Ten public operations forward validated delegated context.
+The shared registry contains 74 operations: the existing 12 public and 26 private-user
+operations, plus 36 partner operations. Ten public operations forward validated delegated context.
 
 ## Protocol compatibility
 
@@ -56,8 +56,9 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 Families register `OperationDefinition::new<I, O>` with the selected existing
 API operation ID, a description, access class, required Aura scopes, and all
 four mutation/retry/open-world annotations. The
-[public operation manifest](../src/aura-historia-mcp/public-operations.json) and
-[authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json)
+[public operation manifest](../src/aura-historia-mcp/public-operations.json),
+[authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json) and
+[partner operation manifest](../src/aura-historia-mcp/partner-operations.json)
 record disjoint subsets of the same endpoint and registry. Together they record the selected
 allowlist, family mappings, access policy, annotations and exclusions. `tools/list`
 publishes each callable operation's generated `inputSchema` and `outputSchema`. A closure
@@ -78,7 +79,8 @@ that exceeds the limit fails explicitly; collection pagination belongs in the
 shared use case and must never become transport truncation.
 
 The registry rejects duplicate IDs, lists tools lexically by operation ID,
-and returns at most 50 definitions with an explicit continuation cursor. Its
+and returns at most 50 definitions with an explicit continuation cursor. Read both pages
+(currently 50 and 24 tools), passing `nextCursor` as `cursor` until it is absent. Its
 manifest includes `aura.historia/operationId`, `aura.historia/access` and
 `aura.historia/requiredScopes` metadata. Protected tools remain discoverable.
 Health and readiness are HTTP-only `/health` and `/ready` probes, outside the
@@ -226,6 +228,110 @@ Local tests exercise both discovery and initialize lifecycles, all twelve tools,
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 
+## Synchronous partner listing batches
+
+The family provides `postPartnerProductListings`, `patchPartnerProductListings`,
+`putPartnerProductListings` and `deletePartnerProductListings`. Each takes
+`{ listingSourceId, products }`, combining the existing REST path and complete item array.
+Create, patch, upsert and withdrawal items use the same shared contracts as REST, including
+localized text, unsigned source-currency values, price intent, URLs/images, availability and
+all Auction/lot patches. The maximum is 100; empty authenticated batches are valid.
+Calls require `product-listings:write`; the tools remain discoverable without credentials.
+The existing item services independently check current delegated capability and
+Partnership/source grants for every attempted item.
+
+Results contain `status` (`COMPLETED`, `PARTIAL_SUCCESS`, `FAILED`), `inputCount`,
+`succeededCount`, `failedCount`, `successes` and `failures`. Counts account for every input.
+Both arrays retain the original zero-based `index`, `listingSourceId` and submitted
+`sourceListingId`, including repeated keys. Successful entries include the resulting listing
+identity and `CREATED`/`UPDATED`/`WITHDRAWN` outcome; creates retain the title slug and
+updates/withdrawals report whether state changed. Failures use safe `FORBIDDEN`, `NOT_FOUND`,
+`CONFLICT`, `INVALID_INPUT`, `TEMPORARILY_UNAVAILABLE` or `INTERNAL_ERROR` categories without
+technical causes or private provider content. An all-failed report remains `FAILED`.
+Malformed structural or conversion input fails the whole call before any item executes.
+`TEMPORARILY_UNAVAILABLE` can include an uncertain transaction commit; a failed entry does
+not prove that no write occurred. Reconcile authoritative state before resubmitting it.
+
+The [listing contract](product-listing.md#synchronous-integration-batches) owns sequential
+execution, per-item transactions, continuation and retry behavior. These commands have no
+batch idempotency guarantee and are never automatically retried. A lost response can follow
+committed earlier items; reconcile authoritative state before resubmission.
+
+## Asynchronous partner ingestion and Shopify configuration
+
+The ingestion family defines `postAsyncPartnerProductListings`,
+`patchAsyncPartnerProductListings`, `putAsyncPartnerProductListings` and
+`deleteAsyncPartnerProductListings`. Each accepts `listingSourceId`, optional `idempotencyKey` and `products` with
+up to 100 complete shared synchronous item DTOs. Parse the whole envelope before publication;
+invalid items, including duplicate DTO fields, reject only their original positions. Ordinary
+synchronous DTO decoding rejects malformed later items before any write. Ambiguous JSON-RPC
+or parameter fields are rejected before admission; the original argument bytes survive SDK
+parsing and feed the shared DTO decoder.
+
+Results retain `submissionId`, `acceptedCount` and ordered `failures`, plus the effective
+`idempotencyKey`, `originalInputCount` and one indexed `items` disposition per original input:
+`PUBLISHED`, `REJECTED`, `NOT_ATTEMPTED` or `UNKNOWN`. Only matching publisher receipts count
+as accepted. Item reports retain complete validated, normalized source-local IDs; the legacy
+`failures` list retains REST's short printable ID echo rules. Size rejection, unsent
+deadline/FIFO blocking and possibly queued outcomes retain
+their distinct safe error codes and retryability. `submissionId` is correlation, not a status
+resource. Admission checks delegated `product-listings:write`; current source grants and
+business rules are checked when the worker applies the command. Queue admission never confirms
+a committed listing mutation. A publisher failure before any send retains the shared per-item
+`PRODUCT_LISTING_INGESTION_INTERNAL_ERROR` rejection report for prepared items; `UNKNOWN`
+means publication may already have happened.
+
+Explicit keys use the same REST value grammar: 1–128 visible ASCII bytes excluding comma.
+Omission generates a returned effective key; a key lost with the first reply is unrecoverable.
+A lost generated key prevents an identity-preserving retry; a fresh key submits new commands
+and may duplicate work.
+Async tools carry `idempotentHint: false`. Follow the existing
+[retry identity contract](product-listing.md#retry-identity): retain the actor, source, effective
+key, complete original ordered batch, content, operation, indices and count. Stable identities
+do not guarantee exactly-once execution. No automatic retry or polling resource is introduced.
+
+`putShopifyListingSourceIngestionConfiguration` accepts `listingSourceId` and a
+`configuration` object with complete `domain`, optional `currency` and `language` fields.
+Omitted/null overrides are cleared; the result is `{ "created": boolean }`. The existing
+partnership use case checks `listing-sources:write` and current source grants synchronously.
+WooCommerce configuration is excluded because it requires a webhook secret.
+
+Runtime ingestion dependencies reuse one SDK publisher per warm service family. Each MCP
+submission scopes publication to its request deadline with 500 ms reserved to encode the
+admission report. Infrastructure injects `PRODUCT_LISTING_INGESTION_QUEUE_URL` and permits
+only `sqs:SendMessage` to that FIFO queue; workers retain their existing execution authority.
+The [family fixtures](../src/aura-historia-mcp/src/tools/partner_product_listing_ingestion/tests.rs)
+and [raw transport fixtures](../src/aura-historia-mcp/tests/transport/admission.rs) exercise these
+local contracts.
+
+## Partner listing management
+
+The partner management family provides `getMyListingSources`, `listPartnerProductListings`,
+`getPartnerProductListing`, `updatePartnerProductListing`, `withdrawPartnerProductListing` and
+`restorePartnerProductListing`.
+They use the shared authoritative management DTOs and the same PostgreSQL use cases as REST,
+including retained withdrawn facts, original image URLs, concurrency conflicts and current
+partnership/source authorization. The [listing contract](product-listing.md#management-inspection-and-mutation)
+owns inspection, patch and retry semantics. Partner authority does not include source/Party CRUD
+or Auction create/update.
+
+`getMyListingSources` takes `size` (default 50, 1–100) and optional opaque `after`, and returns
+`{ items, next? }`. Items retain the complete granted-source identity, slug and name. The actor
+comes from trusted delegated context. Continuations bind version, actor and bytewise ascending
+source-name/ID ordering. Every page queries current eligible grants in SQL; revocation affects
+later calls. This live traversal is not a snapshot. The development REST operation uses the same
+page contract; clients follow `next` until absent.
+
+Listing operations combine their REST path, query and body fields in one object. Every listing
+operation requires `listingSourceId`, with `productListingId` on detail/mutations. List preserves
+`query`, `sourceListingId`, `lifecycle`, `availability`, `auctionId`, `sort`, `order`, `size` and
+`searchAfter`, including the existing filter/source-bound search cursor. Management reads require
+`product-listings:read`; mutations require `product-listings:write`, and each use case independently
+rechecks current source grants. Update and lifecycle mutations require the full `expectedVersion`.
+MCP withdrawal returns the service's identity/version/`CHANGED` or `UNCHANGED` result; REST DELETE
+retains its HTTP `204` response. No mutation automatically retries; after an ambiguous response,
+refetch and reconcile state/version before another command.
+
 ## Own account, addresses and browsing destination
 
 The account family acts only for the user in the validated delegated context. Read operations
@@ -328,6 +434,72 @@ the entire own inbox; it has no ID selection or request body. Successful mutatio
 with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
 reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
+## Party locations and source defaults
+
+The protected location-management family uses `partyId` and, for existing sites,
+`locationId` alongside the shared REST body/query fields. `createPartyLocation`,
+`correctPartyLocation` and `setPartyLocationLifecycle` require `parties:write`;
+`listPartyLocations` and `getPartyLocation` require `parties:read`. The existing use cases
+recheck explicit location-management grants or eligible active partnership membership.
+Party CRUD and manager-grant changes are excluded.
+
+Creation preserves label, every role, management geography/position, scoped evidence and
+optional `relocates: { id, revision }`. It is keyless: identical requests can create distinct
+records. Its idempotent annotation is false, and clients must reconcile after an ambiguous
+timeout before deciding whether to create again. Relocation atomically retires the old site
+and creates its replacement; repeating the old revision conflicts without recovering the
+successful result. See [command retries](command-retries.md).
+
+Correction retains `expectedRevision` and `correction: "SAME_SITE"`. Omission preserves a
+field; null clears geography, position or evidence, while label and roles reject null.
+Lifecycle changes use the existing revision and `ACTIVE`/`RETIRED` values. All management
+responses retain revision, inputRevision and evidence. Listing accepts `after` and `limit`
+(default 25, 1–100), returns `{ items, next }`, and uses the returned `next` as `after`.
+An exhausted page returns `next: null`; authority is checked again on every page.
+
+`getSourceLocationDefault` requires `listing-sources:read`. `assignSourceLocationDefault`,
+`changeSourceLocationDefaultApplicability` and `clearSourceLocationDefault` require
+`listing-sources:write`. Arguments combine `listingSourceId` with the shared REST body.
+The services require current source authority, exact source grants for eligible partnership
+operators, and an operator-owned active location for assignment/applicability changes.
+Business-association and advertised-inventory evidence retain separate scopes. Applicability
+omission preserves that meaning; null clears it. Clear remains valid after retirement and
+returns `assignment: null`, `eligibility: null` with the retained revision tombstone.
+
+Revision-checked mutations advertise idempotent effects: a repeated committed revision
+can conflict and does not replay the successful result. No mutation is automatically retried.
+Management evidence and exact inputs remain protected and are never included in public
+discovery contracts or operational logs. The [family acceptance tests](../src/aura-historia-mcp/tests/location_management.rs)
+exercise production composition, current grants, paging, evidence and revision behavior
+against isolated local PostgreSQL.
+
+## Partner workflow
+
+Use a delegated Aura token with the required scopes and current partner authority. A scope
+grant alone does not grant access to a source or party. The complete selected workflow is:
+
+| Step | Tools and continuation |
+| --- | --- |
+| Discover sources | `getMyListingSources`; pass `next` as `after` until absent. |
+| Inspect or manage listings | `listPartnerProductListings` / `getPartnerProductListing`; retain the source and returned internal `productListingId`, complete `expectedVersion` and any `searchAfter`. |
+| Ingest source inventory | The four synchronous or four asynchronous batch tools; use source-local `sourceListingId` values and retain the complete ordered submission for recovery. |
+| Manage locations/defaults | Party-location tools, then source-location-default tools; retain revisions and use an eligible operator-owned active location. |
+| Manage shipping/defaults | Shipping-profile tools, then shipping-default tools; retain creation/import keys and management revisions. |
+| Manage delivery | Read/change/submit delivery using `listingSourceId` plus source-local `sourceListingId`, current version and public profile/location references. |
+
+The [local partner acceptance fixture](../src/aura-historia-mcp/tests/partner_release.rs)
+uses the production registry and authentication gate, official SDK clients, native HTTP and
+the Lambda adapter. It validates all 74 tool schemas across both pages, invokes every partner
+operation against isolated PostgreSQL, and applies controlled admitted commands through the
+existing ingestion codec and worker use case. Scope changes affect the next HTTP request;
+current source grants and memberships remain service checks, including at async application.
+The fixture covers publisher rejection, unknown/unsent outcomes and exact retry identity.
+It establishes local evidence; deployment and live acceptance require separate executed evidence.
+
+`putWoocommerceListingSourceIngestionConfiguration` is explicitly excluded because it
+accepts a plaintext `webhookSecret`. It has no callable handler. Source/party CRUD, partner
+auction authoring and ingestion-status tools are also outside this catalogue.
+
 ## Generic OAuth acceptance and stage smoke
 
 Register one fixed confidential client per environment with an exact HTTPS callback and a
@@ -424,6 +596,7 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | Environment variable | Meaning |
 | --- | --- |
 | `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy |
+| `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required FIFO queue URL for partner submissions; startup constructs the reusable publisher without sending messages |
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
@@ -453,4 +626,68 @@ ADC construction remains lazy until an embedding is requested. Lambda prepares i
 `AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON` privately before starting threads; native execution
 uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
-REST while retaining only the MCP runtime's existing PostgreSQL secret-read IAM permission.
+REST. `McpDependencies::from_env` constructs listing and ingestion providers; library callers
+may inject typed dependencies. Native startup constructs these once; Lambda retains them
+with the router for each credential version. The ingestion family additionally uses the FIFO
+queue and narrowly scoped publication permission described above. Each submission installs
+its invocation deadline with 500 ms reserved for its admission report.
+
+## Shipping management
+
+The [partner operation manifest](../src/aura-historia-mcp/partner-operations.json)
+includes the nine shipping profile and source-default operations, using existing REST operation IDs.
+Reads require `listing-sources:read`; mutations require `listing-sources:write`. Current account,
+operator partnership membership, source grants and referenced-party/location eligibility remain
+service checks on every call, including creation-key and import replays. Delegated context reaches
+those services without changing its principal or capabilities.
+
+Arguments combine `listingSourceId`, optional `shippingProfileId` and the shared REST query/body
+fields. Profile lists retain `objectKey`, `integrationMethod`, `after` and `size` (default 21,
+accepted range 1–100), with the complete page in `result`. Profile content retains required but
+nullable `attributedPartyId`, complete terms and evidence. Public terms use prefixed party/location
+IDs; persisted UUID reference encodings remain adapter-owned. Generated schemas come from the
+same `shipping-json` DTOs that encode/decode every terms branch, money, origin and collection site.
+
+Mutations retain creation keys, expected revisions and optional import provenance. The idempotent
+annotation means repeating a command cannot apply a second effect: revision-checked retries may
+conflict rather than recover a response. Create repeats use identical content/evidence and their
+original creation key. Import repeats retain exact request keys, content and successful acquisition;
+a new key/timestamp must never be attached to old assertions to bypass current authority or ordering.
+After a conflict, refetch and reconcile. No mutation is automatically retried. The
+[shipping contract](shipping.md#incremental-typed-imports) owns import replay retention and authority;
+no shipping quote, purchase, booking or checkout tool is introduced.
+
+## Listing delivery management
+
+`getProductListingDelivery`, `changeProductListingDelivery` and
+`submitProductListingDelivery` identify a listing by public `listingSourceId` plus
+opaque `sourceListingId`. The latter is normalized by the existing constructor and
+retains up to 512 UTF-8 bytes; identifier-shaped strings keep their source-local meaning.
+Individual listing management uses the separate `productListingId` contract.
+The delivery read requires `product-listings:read` and returns the complete current
+configuration, including explicit null, and `expectedVersion`. Changes/submission require
+`product-listings:write` and retain the complete shared command: positive version,
+integration, selection, rate inputs, tagged patches, whole-component overrides,
+public profile/Party/location references and import provenance. The
+[listing contract](product-listing.md#listing-delivery-assertions) and
+[shipping contract](shipping.md) own their semantics.
+Delivery commands reject duplicate fields, including nested terms, overrides and rate
+inputs, before invoking a use case.
+Tagged unit patches and component overrides accept omitted or explicitly null `value`
+payloads, matching the shared codec.
+
+The synchronous change returns `CHANGED` or `UNCHANGED` and the resulting version.
+Existing use cases recheck current source authority and referenced dependencies,
+including semantic no-ops. Ordinary stale versions conflict; exact committed import
+retries retain the existing replay behavior and return current state after authority
+checks. Refetch and reconcile after an ambiguous response, preserving exact import
+content/keys when retrying an import.
+
+Submission reuses the [shared admission contract](#asynchronous-partner-ingestion-and-shopify-configuration)
+with `originalInputCount: 1`, original index `0`, the complete normalized source ID
+and effective idempotency key. `PUBLISHED` confirms queue custody. Current grants,
+version and business rules are checked at command application. Uncertain/unsent outcomes
+remain explicit; no admission outcome claims a committed mutation. Retry only the same
+actor/source, effective key and unchanged command, including version and import fields.
+The optional generated key makes the submission's idempotency annotation false.
+There is no status resource or automatic retry. Publication reserves 500 ms for the report.

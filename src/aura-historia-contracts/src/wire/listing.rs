@@ -75,3 +75,9 @@ pub fn availability_set_schema(_: &mut SchemaGenerator) -> Schema {
 pub fn orderability_set_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"anyOf":[{"type":"array","items":{"type":"string","enum":ListingOrderability::iter().map(ListingOrderability::as_str).collect::<Vec<_>>()}},{"type":"null"}]})
 }
+
+pub fn availability_patch<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<crate::patch_value::PatchValue<ListingAvailability>, D::Error> {
+    super::deserialize_patch_code(d, ListingAvailability::from_code)
+}

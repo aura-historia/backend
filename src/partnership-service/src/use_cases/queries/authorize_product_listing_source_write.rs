@@ -128,8 +128,13 @@ mod tests {
         async fn list_sources_user_administers(
             &self,
             _user_id: UserId,
-        ) -> Result<Vec<AdministeredListingSource>, SourceAuthorizationError> {
-            Ok(Vec::new())
+            _: u32,
+            _: Option<&crate::ports::AdministeredListingSourcePosition>,
+        ) -> Result<crate::ports::AdministeredListingSourcePage, SourceAuthorizationError> {
+            Ok(crate::ports::AdministeredListingSourcePage {
+                items: vec![],
+                next: None,
+            })
         }
     }
 

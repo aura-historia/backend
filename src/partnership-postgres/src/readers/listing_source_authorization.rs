@@ -18,6 +18,16 @@ impl TryFrom<AdministeredListingSourceRow> for AdministeredListingSource {
     type Error = SourceAuthorizationError;
 
     fn try_from(row: AdministeredListingSourceRow) -> Result<Self, Self::Error> {
+        let name = ListingSourceName::try_from(row.name.as_str()).map_err(|source| {
+            SourceAuthorizationError::InvalidReadModel {
+                source: box_error(source),
+            }
+        })?;
+        if name.as_ref() != row.name {
+            return Err(SourceAuthorizationError::InvalidReadModel {
+                source: application::error::static_error("noncanonical administered-source name"),
+            });
+        }
         Ok(Self {
             listing_source_id: ListingSourceId::try_from(row.listing_source_id).map_err(
                 |error| SourceAuthorizationError::InvalidReadModel {
@@ -29,11 +39,7 @@ impl TryFrom<AdministeredListingSourceRow> for AdministeredListingSource {
                     source: box_error(error),
                 }
             })?,
-            name: ListingSourceName::try_from(row.name).map_err(|error| {
-                SourceAuthorizationError::InvalidReadModel {
-                    source: box_error(error),
-                }
-            })?,
+            name,
         })
     }
 }
@@ -81,31 +87,62 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
     async fn list_sources_user_administers(
         &self,
         user_id: UserId,
-    ) -> Result<Vec<AdministeredListingSource>, SourceAuthorizationError> {
+        size: u32,
+        after: Option<&AdministeredListingSourcePosition>,
+    ) -> Result<AdministeredListingSourcePage, SourceAuthorizationError> {
+        if !(1..=100).contains(&size) {
+            return Err(SourceAuthorizationError::Internal {
+                source: application::error::static_error("invalid administered-source page size"),
+            });
+        }
         let rows = sqlx::query_as::<_, AdministeredListingSourceRow>(
-            "SELECT DISTINCT s.listing_source_id, s.listing_source_slug_id, s.name \
-             FROM partnership_members member \
-             JOIN partnership_listing_source_grants source_grant \
-               ON source_grant.partnership_id = member.partnership_id \
-             JOIN listing_sources s \
-               ON s.listing_source_id = source_grant.listing_source_id \
-             JOIN partnerships partnership \
-               ON partnership.partnership_id = source_grant.partnership_id \
-              AND partnership.party_id = s.operator_party_id \
-              AND partnership.business_state = 'ACTIVE' \
-             WHERE member.user_id = $1 \
-             ORDER BY s.name",
+            r#"SELECT s.listing_source_id, s.listing_source_slug_id, s.name
+               FROM listing_sources s
+               WHERE EXISTS (
+                   SELECT 1 FROM partnership_members member
+                   JOIN partnership_listing_source_grants source_grant
+                     ON source_grant.partnership_id = member.partnership_id
+                   JOIN partnerships partnership
+                     ON partnership.partnership_id = member.partnership_id
+                   WHERE member.user_id = $1
+                     AND source_grant.listing_source_id = s.listing_source_id
+                     AND partnership.party_id = s.operator_party_id
+                     AND partnership.business_state = 'ACTIVE'
+               )
+                 AND ($2::text IS NULL OR (s.name COLLATE "C", s.listing_source_id) > ($2 COLLATE "C", $3::uuid))
+               ORDER BY s.name COLLATE "C" ASC, s.listing_source_id ASC
+               LIMIT $4"#,
         )
         .bind(user_id.into_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|source| SourceAuthorizationError::TemporarilyUnavailable {
-            source: box_error(source),
-        })?;
-        rows.into_iter()
-            .map(AdministeredListingSource::try_from)
-            .collect()
+        .bind(after.map(|position| position.name.as_ref()))
+        .bind(after.map(|position| position.listing_source_id.into_uuid()))
+        .bind(i64::from(size) + 1)
+        .fetch_all(&self.pool).await
+        .map_err(|source| SourceAuthorizationError::TemporarilyUnavailable { source: box_error(source) })?;
+        administered_sources_page(rows, size)
     }
+}
+
+fn administered_sources_page(
+    rows: Vec<AdministeredListingSourceRow>,
+    size: u32,
+) -> Result<AdministeredListingSourcePage, SourceAuthorizationError> {
+    let mut items = rows
+        .into_iter()
+        .map(AdministeredListingSource::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let next = if items.len() > size as usize {
+        items.pop();
+        items
+            .last()
+            .map(|source| AdministeredListingSourcePosition {
+                name: source.name.clone(),
+                listing_source_id: source.listing_source_id,
+            })
+    } else {
+        None
+    };
+    Ok(AdministeredListingSourcePage { items, next })
 }
 
 #[cfg(test)]
@@ -128,5 +165,14 @@ mod tests {
     #[test]
     fn should_reject_wrong_version_listing_source_id() {
         assert!(AdministeredListingSource::try_from(row(uuid::Uuid::new_v4())).is_err());
+    }
+    #[test]
+    fn should_reject_noncanonical_name_before_constructing_a_continuation() {
+        let mut persisted = row(uuid::Uuid::now_v7());
+        persisted.name = " Source ".into();
+        assert!(matches!(
+            AdministeredListingSource::try_from(persisted),
+            Err(SourceAuthorizationError::InvalidReadModel { .. })
+        ));
     }
 }

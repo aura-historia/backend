@@ -111,11 +111,13 @@ enum AreaData {
     Anywhere {},
     Domestic {},
     Country {
+        #[schemars(schema_with = "schema::country")]
         code: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
     },
     Subdivision {
+        #[schemars(schema_with = "schema::subdivision")]
         code: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
@@ -123,6 +125,7 @@ enum AreaData {
     Postal {
         #[schemars(schema_with = "schema::postal_version")]
         version: String,
+        #[schemars(schema_with = "schema::country")]
         country: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
@@ -171,6 +174,7 @@ struct ThresholdData {
 struct MoneyData {
     #[schemars(range(max = u64::MAX))]
     amount_minor: u64,
+    #[schemars(schema_with = "schema::money_currency")]
     currency: String,
 }
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -295,8 +299,10 @@ enum SiteData {
     },
     Asserted {
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::geography")]
         geography: RequiredNullable<serde_json::Value>,
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::position")]
         position: RequiredNullable<serde_json::Value>,
     },
 }
@@ -826,34 +832,10 @@ pub mod listing_delivery;
 /// its reference representation, just as it does when encoding and decoding the values.
 pub fn terms_schema(generator: &mut SchemaGenerator, party: Schema, location: Schema) -> Schema {
     let schema = generator.subschema_for::<TermsData>();
-    fn references(value: &mut serde_json::Value, party: &Schema, location: &Schema) {
-        match value {
-            serde_json::Value::Object(object) => {
-                if let Some(properties) = object
-                    .get_mut("properties")
-                    .and_then(serde_json::Value::as_object_mut)
-                {
-                    for (name, schema) in [("party_id", party), ("party_location_id", location)] {
-                        if let Some(value) = properties.get_mut(name) {
-                            *value = serde_json::to_value(schema).expect("schema is JSON");
-                        }
-                    }
-                }
-                for value in object.values_mut() {
-                    references(value, party, location);
-                }
-            }
-            serde_json::Value::Array(values) => {
-                for value in values {
-                    references(value, party, location);
-                }
-            }
-            _ => {}
-        }
-    }
-    for definition in generator.definitions_mut().values_mut() {
-        references(definition, &party, &location);
-    }
+    schema::references(
+        generator,
+        &[("party_id", party), ("party_location_id", location)],
+    );
     schema
 }
 

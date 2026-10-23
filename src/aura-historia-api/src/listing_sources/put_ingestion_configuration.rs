@@ -2,10 +2,11 @@ use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, LISTING_SOURCE_INTERNAL_ERROR};
 use crate::state::ListingSourcesState;
 use crate::wire::parse_path_object_id;
+use aura_historia_contracts::listing_sources::shopify::PutShopifyConfigurationData;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use listing_source_core::{Domain, ListingSourceId, WoocommerceWebhookSecret};
+use listing_source_core::{ListingSourceId, WoocommerceWebhookSecret};
 use listing_source_service::ports::ListingIngestionConfiguration;
 use partnership_service::use_cases::commands::put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationCommand;
 use serde::Deserialize;
@@ -14,14 +15,6 @@ use serde::Deserialize;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PutWoocommerceConfigurationData {
     webhook_secret: String,
-    currency: Option<String>,
-    language: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PutShopifyConfigurationData {
-    domain: String,
     currency: Option<String>,
     language: Option<String>,
 }
@@ -85,27 +78,17 @@ pub async fn put_shopify_configuration(
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
-    let domain = match Domain::try_from(data.domain) {
+    let configuration = match data.into_configuration() {
         Ok(value) => value,
-        Err(_) => return no_store(invalid_field("domain").into_response()),
+        Err(error) => {
+            return no_store(
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail(error.detail)
+                    .into_response(),
+            );
+        }
     };
-    let (currency, language) = match provider_values(data.currency, data.language) {
-        Ok(value) => value,
-        Err(error) => return no_store(error.into_response()),
-    };
-    no_store(
-        put_configuration(
-            &state,
-            &context,
-            listing_source_id,
-            ListingIngestionConfiguration::Shopify {
-                domain,
-                currency,
-                language,
-            },
-        )
-        .await,
-    )
+    no_store(put_configuration(&state, &context, listing_source_id, configuration).await)
 }
 
 async fn put_configuration(

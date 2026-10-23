@@ -16,7 +16,6 @@ pub mod partner_product_listings;
 pub(crate) mod partnership_applications;
 pub(crate) mod partnerships;
 pub(crate) mod patch_value;
-mod product_listing_fields;
 mod product_listing_management;
 pub mod product_listings;
 pub(crate) mod public_overview;
@@ -48,7 +47,7 @@ use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
     SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionEventAppenderFactory,
-    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
+    SqlxAuctionRepositoryFactory,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
@@ -93,20 +92,11 @@ use oauth_service::use_cases::{
 };
 use opensearch::{OpenSearch, SearchParts};
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
-};
 use product_listing_postgres::SqlxAdminProductListingReader;
 use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
     queries::admin_product_listings::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
-    },
-};
-use product_listing_service::use_cases::{
-    commands::partner_product_listings::PartnerProductListingMutationHandler,
-    queries::partner_product_listings::{
-        GetPartnerProductListingHandler, ListPartnerProductListingsHandler,
     },
 };
 use woocommerce_service::WoocommerceWebhookIntake;
@@ -121,10 +111,9 @@ use listing_source_service::use_cases::commands::update_listing_source::UpdateLi
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
 use partnership_postgres::{
-    SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
-    SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
-    SqlxPartnershipDetailsReaderFactory, SqlxPartnershipRepositoryFactory,
-    SqlxPartnershipSearchReaderFactory,
+    SqlxListingSourceGrantRepositoryFactory, SqlxPartnershipApplicationReaderFactory,
+    SqlxPartnershipApplicationRepositoryFactory, SqlxPartnershipDetailsReaderFactory,
+    SqlxPartnershipRepositoryFactory, SqlxPartnershipSearchReaderFactory,
 };
 use partnership_service::use_cases::{
     commands::{
@@ -133,7 +122,6 @@ use partnership_service::use_cases::{
         grant_partnership_listing_source::GrantPartnershipListingSourceHandler,
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
-        put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
         revoke_partnership_listing_source::RevokePartnershipListingSourceHandler,
         revoke_partnership_membership::RevokePartnershipMembershipHandler,
@@ -146,7 +134,6 @@ use partnership_service::use_cases::{
         get_partnership_application::GetPartnershipApplicationHandler,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
         list_admin_partnerships::ListAdminPartnershipsHandler,
-        list_administered_listing_sources::ListAdministeredListingSourcesHandler,
         list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
     },
 };
@@ -162,9 +149,7 @@ use product_listing_postgres::{
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
-    AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
-    ProductListingSearchReadExecutionPolicy, SubmitPartnerProductListingIngestionHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+    AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
 use sqlx::PgPool;
@@ -1170,10 +1155,11 @@ async fn app_state_from_config_and_runtime(
     let pool = runtime.postgres_pool().clone();
     let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-    let ingestion_publisher = SqsProductListingIngestionPublisher::new(
-        aws_sdk_sqs::Client::new(&aws_client_config),
-        ingestion_queue_url_from_env()?,
-    );
+    let ingestion_dependencies =
+        aura_historia_runtime::ProductListingIngestionDependencies::from_sqs(
+            aws_sdk_sqs::Client::new(&aws_client_config),
+            ingestion_queue_url_from_env()?,
+        );
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
         config.cognito_user_pool_id(),
@@ -1248,9 +1234,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceRepositoryFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
-        SqlxListingSourceAuthorization::new(pool.clone()),
-    );
+    let partner_management = runtime.partner_listing_management();
     let search_listing_sources = SearchListingSourcesHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceSearchReaderFactory::new(),
@@ -1458,37 +1442,9 @@ async fn app_state_from_config_and_runtime(
         ),
     );
     let public_product_listings = runtime.public_product_listings(listing_dependencies);
-    let create_product = CreateProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let update_product = UpdateProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let upsert_product = UpsertProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxAuctionReferenceValidatorFactory::new(),
-    );
-    let withdraw_product = WithdrawProductListingHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-    );
-    let submit_product_listing_ingestion =
-        Arc::new(SubmitPartnerProductListingIngestionHandler::new(
-            ScopedSqsProductListingIngestionPublisher::new(ingestion_publisher),
-        ));
+    let partner_batches = runtime.partner_product_listing_batches();
+    let partner_ingestion = runtime.partner_product_listing_ingestion(ingestion_dependencies);
+    let submit_product_listing_ingestion = partner_ingestion.submit.clone();
     let authorize_woocommerce_product = AuthorizeProductListingRawCaptureHandler::new(
         unit_of_work.clone(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
@@ -1556,26 +1512,12 @@ async fn app_state_from_config_and_runtime(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
-    let partner_management_reader = SqlxAdminProductListingReader::new(pool.clone());
-    let partner_management_mutations = Arc::new(PartnerProductListingMutationHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxListingSourceAuthorization::new(pool.clone()),
-        auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
-    ));
     let partner_product_listing_management_state = state::PartnerProductListingManagementState::new(
-        Arc::new(GetPartnerProductListingHandler::new(
-            partner_management_reader.clone(),
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        )),
-        Arc::new(ListPartnerProductListingsHandler::new(
-            partner_management_reader,
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        )),
-        partner_management_mutations.clone(),
-        partner_management_mutations.clone(),
-        partner_management_mutations,
+        partner_management.get.clone(),
+        partner_management.list.clone(),
+        partner_management.update.clone(),
+        partner_management.withdraw.clone(),
+        partner_management.restore.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
@@ -1586,37 +1528,25 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let partner_product_listings_state = PartnerProductListingsState::new(
-        Arc::new(create_product),
-        Arc::new(update_product),
-        Arc::new(upsert_product),
-        Arc::new(withdraw_product),
+        partner_batches.batches.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let listing_sources_state = ListingSourcesState::new(
         Arc::new(create_listing_source),
         Arc::new(get_listing_source),
         Arc::new(update_listing_source),
-        Arc::new(list_administered_listing_sources),
+        partner_management.sources.clone(),
         Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_ingestion_configuration(Arc::new(
-        PutListingSourceIngestionConfigurationHandler::new(
-            unit_of_work.clone(),
-            SqlxListingSourceRepositoryFactory::new(),
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        ),
-    ))
+    .with_ingestion_configuration(partner_ingestion.put_configuration.clone())
     .with_public_reads(
         Arc::clone(&public_listing_sources.search),
         Arc::clone(&public_listing_sources.get_by_slug),
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
-    use party_postgres::{
-        SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
-        SqlxPartyLocationRepositoryFactory,
-    };
+    use party_postgres::SqlxPartyLocationAccessFactory;
     use party_service::use_cases::party_locations::*;
     let location_admin =
         || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
@@ -1628,41 +1558,16 @@ async fn app_state_from_config_and_runtime(
             location_admin(),
         )),
         discovery: Some(Arc::clone(&runtime.public_party_locations().discover)),
-        create: Arc::new(CreatePartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        update: Arc::new(UpdatePartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        lifecycle: Arc::new(SetPartyLocationLifecycleHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationRepositoryFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
+        create: Arc::clone(&runtime.party_locations().create),
+        update: Arc::clone(&runtime.party_locations().update),
+        lifecycle: Arc::clone(&runtime.party_locations().lifecycle),
         grant: Arc::new(GrantPartyLocationManagementHandler::new(
             unit_of_work.clone(),
             SqlxPartyLocationAccessFactory,
             location_admin(),
         )),
-        get: Arc::new(GetPartyLocationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationReaderFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
-        list: Arc::new(ListPartyLocationsHandler::new(
-            unit_of_work.clone(),
-            SqlxPartyLocationReaderFactory,
-            SqlxPartyLocationAccessFactory,
-            location_admin(),
-        )),
+        get: Arc::clone(&runtime.party_locations().get),
+        list: Arc::clone(&runtime.party_locations().list),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     use listing_source_postgres::{
@@ -1672,107 +1577,29 @@ async fn app_state_from_config_and_runtime(
     use listing_source_service::use_cases::location_default::*;
     let product_listing_delivery_state =
         partner_product_listings::delivery::ProductListingDeliveryState {
-            change: Arc::new(
-                product_listing_service::use_cases::ChangeProductListingDeliveryHandler::new(
-                    unit_of_work.clone(),
-                    SqlxProductListingRepositoryFactory,
-                    SqlxProductListingEventAppenderFactory,
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
-                ),
-            ),
-            get: Arc::new(
-                product_listing_service::use_cases::GetProductListingDeliveryHandler::new(
-                    unit_of_work.clone(),
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReaderFactory,
-                    product_listing_postgres::delivery::SqlxProductListingDeliveryReferencesFactory,
-                ),
-            ),
+            change: runtime.product_listing_delivery().change.clone(),
+            get: runtime.product_listing_delivery().get.clone(),
             submit: submit_product_listing_ingestion,
             authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         };
+    let shipping = runtime.shipping_management();
     let shipping_state = shipping::ShippingState {
-        create: Arc::new(
-            shipping_service::use_cases::CreateShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        replace: Arc::new(
-            shipping_service::use_cases::ReplaceShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        retire: Arc::new(
-            shipping_service::use_cases::RetireShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        restore: Arc::new(
-            shipping_service::use_cases::RestoreShippingProfileHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        assign_default: Arc::new(
-            shipping_service::use_cases::AssignShippingDefaultHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        clear_default: Arc::new(
-            shipping_service::use_cases::ClearShippingDefaultHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingRepositoryFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        get: Arc::new(shipping_service::use_cases::GetShippingProfileHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::SqlxShippingReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        list: Arc::new(
-            shipping_service::use_cases::ListShippingProfilesHandler::new(
-                unit_of_work.clone(),
-                shipping_postgres::SqlxShippingReaderFactory,
-                SqlxSourceLocationAccessFactory,
-            ),
-        ),
-        get_default: Arc::new(shipping_service::use_cases::GetShippingDefaultHandler::new(
-            unit_of_work.clone(),
-            shipping_postgres::SqlxShippingReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
+        create: shipping.create.clone(),
+        replace: shipping.replace.clone(),
+        retire: shipping.retire.clone(),
+        restore: shipping.restore.clone(),
+        assign_default: shipping.assign_default.clone(),
+        clear_default: shipping.clear_default.clone(),
+        get: shipping.get.clone(),
+        list: shipping.list.clone(),
+        get_default: shipping.get_default.clone(),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let source_location_defaults_state = state::SourceLocationDefaultsState {
-        assign: Arc::new(AssignLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        clear: Arc::new(ClearLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultRepositoryFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
-        get: Arc::new(GetLocationDefaultHandler::new(
-            unit_of_work.clone(),
-            SqlxLocationDefaultReaderFactory,
-            SqlxSourceLocationAccessFactory,
-        )),
+        assign: Arc::clone(&runtime.source_location_defaults().assign),
+        clear: Arc::clone(&runtime.source_location_defaults().clear),
+        change: Arc::clone(&runtime.source_location_defaults().change),
+        get: Arc::clone(&runtime.source_location_defaults().get),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let admin_source_location_defaults_state = state::SourceLocationDefaultsState {

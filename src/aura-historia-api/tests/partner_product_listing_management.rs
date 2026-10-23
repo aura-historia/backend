@@ -1247,8 +1247,10 @@ impl partnership_service::ports::ListingSourceAuthorization for FaultyAuthorizat
     async fn list_sources_user_administers(
         &self,
         _: UserId,
+        _: u32,
+        _: Option<&partnership_service::ports::AdministeredListingSourcePosition>,
     ) -> Result<
-        Vec<partnership_service::ports::AdministeredListingSource>,
+        partnership_service::ports::AdministeredListingSourcePage,
         partnership_service::ports::SourceAuthorizationError,
     > {
         panic!("only path source authorization is needed")

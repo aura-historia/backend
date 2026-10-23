@@ -6,9 +6,14 @@
 
 mod access_token_authentication;
 mod notifications;
+mod partner_listing_management;
+mod partner_product_listing_batches;
+mod partner_product_listing_ingestion;
+mod party_locations;
 mod postgres;
 mod private_addresses;
 pub mod product_listing_config;
+mod product_listing_delivery;
 mod product_listing_providers;
 mod public_auctions;
 mod public_listing_source_read_budget;
@@ -19,13 +24,23 @@ mod public_product_listing_history;
 mod public_product_listings;
 mod rotation;
 mod saved_searches;
+mod shipping_management;
+mod source_location_defaults;
 mod user_profile;
 mod watchlist;
 
 pub use notifications::Notifications;
+pub use partner_listing_management::PartnerListingManagement;
+pub use partner_product_listing_batches::PartnerProductListingBatches;
+pub use partner_product_listing_ingestion::{
+    PartnerProductListingIngestion, ProductListingIngestionConfigError,
+    ProductListingIngestionDependencies, with_publication_deadline,
+};
+pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
+pub use product_listing_delivery::ProductListingDelivery;
 pub use product_listing_providers::ProductListingProviderError;
 pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
@@ -36,6 +51,8 @@ pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use rotation::{RotatingRuntime, RuntimeLease};
 pub use saved_searches::SavedSearches;
+pub use shipping_management::ShippingManagement;
+pub use source_location_defaults::SourceLocationDefaults;
 pub use user_profile::UserProfile;
 pub use watchlist::Watchlist;
 
@@ -46,7 +63,13 @@ use user_service::use_cases::AuthenticateAccessTokenUseCase;
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
     postgres: PgPool,
+    product_listing_delivery: OnceLock<ProductListingDelivery>,
     notifications: OnceLock<Notifications>,
+    partner_listing_management: OnceLock<PartnerListingManagement>,
+    partner_product_listing_ingestion: OnceLock<PartnerProductListingIngestion>,
+    partner_product_listing_batches: OnceLock<PartnerProductListingBatches>,
+    party_locations: OnceLock<PartyLocations>,
+    source_location_defaults: OnceLock<SourceLocationDefaults>,
     user_profile: OnceLock<UserProfile>,
     private_addresses: OnceLock<PrivateAddresses>,
     access_token_authentication: OnceLock<Arc<dyn AuthenticateAccessTokenUseCase>>,
@@ -59,13 +82,20 @@ pub struct Runtime {
     public_overview: OnceLock<PublicOverview>,
     saved_searches: OnceLock<SavedSearches>,
     watchlist: OnceLock<Watchlist>,
+    shipping_management: OnceLock<ShippingManagement>,
 }
 
 impl Runtime {
     pub fn from_pool(postgres: PgPool) -> Self {
         Self {
             postgres,
+            product_listing_delivery: OnceLock::new(),
             notifications: OnceLock::new(),
+            partner_listing_management: OnceLock::new(),
+            partner_product_listing_ingestion: OnceLock::new(),
+            partner_product_listing_batches: OnceLock::new(),
+            party_locations: OnceLock::new(),
+            source_location_defaults: OnceLock::new(),
             user_profile: OnceLock::new(),
             private_addresses: OnceLock::new(),
             access_token_authentication: OnceLock::new(),
@@ -78,6 +108,7 @@ impl Runtime {
             public_overview: OnceLock::new(),
             saved_searches: OnceLock::new(),
             watchlist: OnceLock::new(),
+            shipping_management: OnceLock::new(),
         }
     }
 
@@ -162,9 +193,47 @@ impl Runtime {
             .get_or_init(|| Watchlist::compose(&self.postgres, self.listing_shipping().clone()))
     }
 
+    pub fn product_listing_delivery(&self) -> &ProductListingDelivery {
+        self.product_listing_delivery
+            .get_or_init(|| ProductListingDelivery::compose(&self.postgres))
+    }
+
+    pub fn partner_product_listing_ingestion(
+        &self,
+        dependencies: ProductListingIngestionDependencies,
+    ) -> &PartnerProductListingIngestion {
+        self.partner_product_listing_ingestion
+            .get_or_init(|| PartnerProductListingIngestion::compose(&self.postgres, dependencies))
+    }
+
+    pub fn partner_product_listing_batches(&self) -> &PartnerProductListingBatches {
+        self.partner_product_listing_batches
+            .get_or_init(|| PartnerProductListingBatches::compose(&self.postgres))
+    }
+
+    pub fn partner_listing_management(&self) -> &PartnerListingManagement {
+        self.partner_listing_management
+            .get_or_init(|| PartnerListingManagement::compose(&self.postgres))
+    }
+
+    pub fn shipping_management(&self) -> &ShippingManagement {
+        self.shipping_management
+            .get_or_init(|| ShippingManagement::compose(&self.postgres))
+    }
+
     pub fn notifications(&self) -> &Notifications {
         self.notifications
             .get_or_init(|| Notifications::compose(&self.postgres))
+    }
+
+    pub fn party_locations(&self) -> &PartyLocations {
+        self.party_locations
+            .get_or_init(|| PartyLocations::compose(&self.postgres))
+    }
+
+    pub fn source_location_defaults(&self) -> &SourceLocationDefaults {
+        self.source_location_defaults
+            .get_or_init(|| SourceLocationDefaults::compose(&self.postgres))
     }
 
     pub fn public_overview(&self) -> &PublicOverview {

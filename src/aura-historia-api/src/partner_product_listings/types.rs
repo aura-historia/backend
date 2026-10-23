@@ -1,98 +1,12 @@
-use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
-use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
-use crate::product_listing_fields::{ProductListingAuctionData, auction_patch, product_images};
-use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
+use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE, INVALID_OBJECT_ID};
 use crate::wire::parse_path_object_id;
-use application::patch_field::PatchField;
-use listing_source_core::ListingSourceId;
-use money::Price;
-use product_listing_core::description::Description;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::ProductListingPricing;
-use product_listing_core::product_listing_id::ProductListingKey;
-use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::title::Title;
-use product_listing_service::use_cases::{
-    CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,
+pub(super) use aura_historia_contracts::partner_product_listings::{
+    CreateProductListingData, UpdateProductListingData, UpsertProductListingData,
+    WithdrawProductListingData, prepare_batch,
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use url::Url;
-
-pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct CreateProductListingData {
-    pub(super) source_listing_id: String,
-    #[serde(default)]
-    pub(super) title: Option<LocalizedTextData>,
-    #[serde(default)]
-    pub(super) description: Option<LocalizedTextData>,
-    #[serde(default)]
-    pub(super) price: Option<ProductListingPriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_min: Option<PriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_max: Option<PriceData>,
-    #[serde(default, with = "crate::wire::listing_availability::option")]
-    pub(super) availability: Option<ListingAvailability>,
-    pub(super) url: Url,
-    pub(super) images: Vec<Url>,
-    #[serde(default)]
-    auction: PatchValue<ProductListingAuctionData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct UpdateProductListingData {
-    pub(super) source_listing_id: String,
-    #[serde(default)]
-    pub(super) price: PatchValue<ProductListingPriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_min: PatchValue<PriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_max: PatchValue<PriceData>,
-    #[serde(default)]
-    #[serde(deserialize_with = "crate::wire::listing_availability::patch::deserialize")]
-    pub(super) availability: PatchValue<ListingAvailability>,
-    #[serde(default)]
-    pub(super) url: PatchValue<Url>,
-    #[serde(default)]
-    pub(super) images: PatchValue<Vec<Url>>,
-    #[serde(default)]
-    auction: PatchValue<ProductListingAuctionData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct UpsertProductListingData {
-    pub(super) source_listing_id: String,
-    #[serde(default)]
-    pub(super) title: Option<LocalizedTextData>,
-    #[serde(default)]
-    pub(super) description: Option<LocalizedTextData>,
-    #[serde(default)]
-    pub(super) price: PatchValue<ProductListingPriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_min: PatchValue<PriceData>,
-    #[serde(default)]
-    pub(super) price_estimate_max: PatchValue<PriceData>,
-    #[serde(default)]
-    #[serde(deserialize_with = "crate::wire::listing_availability::patch::deserialize")]
-    pub(super) availability: PatchValue<ListingAvailability>,
-    #[serde(default)]
-    pub(super) url: Option<Url>,
-    #[serde(default)]
-    pub(super) images: PatchValue<Vec<Url>>,
-    #[serde(default)]
-    auction: PatchValue<ProductListingAuctionData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct WithdrawProductListingData {
-    pub(super) source_listing_id: String,
-}
+use aura_historia_contracts::product_listing_management::MutationInputError;
+use listing_source_core::ListingSourceId;
+use serde::{Serialize, de::DeserializeOwned};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -115,97 +29,10 @@ pub(super) fn parse_partner_product_batch<T: DeserializeOwned>(
 
     let products: Vec<T> = serde_json::from_str(body)
         .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))?;
-    if products.len() > MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail(format!(
-            "Body cannot contain more than {MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE} products."
-        )));
-    }
+    aura_historia_contracts::partner_product_listings::validate_batch_size(products.len())
+        .map_err(mutation_input_error)?;
 
     Ok(products)
-}
-
-impl CreateProductListingData {
-    pub(super) fn into_command(
-        self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<CreateProductListingCommand, ApiError> {
-        let auction = match auction_patch(self.auction)? {
-            PatchField::Set(auction) => Some(auction),
-            PatchField::Clear | PatchField::Unchanged => None,
-        };
-        Ok(CreateProductListingCommand {
-            listing_source_id,
-            source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: self.title.map(title).transpose()?,
-            description: self.description.map(description),
-            pricing: ProductListingPricing {
-                price: self.price.map(product_listing_price),
-                price_estimate_min: self.price_estimate_min.map(price),
-                price_estimate_max: self.price_estimate_max.map(price),
-            },
-            availability: self.availability,
-            url: self.url,
-            images: product_images(self.images),
-            auction,
-        })
-    }
-}
-
-impl UpdateProductListingData {
-    pub(super) fn into_key_and_command(
-        self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<(ProductListingKey, UpdateProductListingCommand), ApiError> {
-        let product_key = ProductListingKey::new(
-            listing_source_id,
-            source_listing_id(self.source_listing_id)?,
-        );
-        let auction = auction_patch(self.auction)?;
-        let command = UpdateProductListingCommand {
-            price: clearable(self.price.map(product_listing_price)),
-            price_estimate_min: clearable(self.price_estimate_min.map(price)),
-            price_estimate_max: clearable(self.price_estimate_max.map(price)),
-            availability: clearable(self.availability),
-            url: non_nullable_patch(self.url, "url")?,
-            images: non_nullable_patch(self.images.map(product_images), "images")?,
-            auction,
-        };
-        Ok((product_key, command))
-    }
-}
-
-impl UpsertProductListingData {
-    pub(super) fn into_command(
-        self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<UpsertProductListingCommand, ApiError> {
-        let auction = auction_patch(self.auction)?;
-        Ok(UpsertProductListingCommand {
-            listing_source_id,
-            source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: self.title.map(title).transpose()?,
-            description: self.description.map(description),
-            price: clearable(self.price.map(product_listing_price)),
-            price_estimate_min: clearable(self.price_estimate_min.map(price)),
-            price_estimate_max: clearable(self.price_estimate_max.map(price)),
-            availability: clearable(self.availability),
-            url: self.url,
-            images: non_nullable_patch(self.images.map(product_images), "images")?,
-            auction,
-        })
-    }
-}
-
-impl WithdrawProductListingData {
-    pub(super) fn into_product_key(
-        self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<ProductListingKey, ApiError> {
-        Ok(ProductListingKey::new(
-            listing_source_id,
-            source_listing_id(self.source_listing_id)?,
-        ))
-    }
 }
 
 impl PartnerProductFailureData {
@@ -222,308 +49,39 @@ impl PartnerProductFailureData {
     }
 }
 
-/// Rejects a title without text after normalization, such as a blank or emoji-only title.
-fn title(
-    value: LocalizedTextData,
-) -> Result<localization::Localized<localization::Language, Title>, ApiError> {
-    let title: localization::Localized<localization::Language, Title> = value.into_localized();
-    if title.payload.as_ref().is_empty() {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE)
-            .with_body_field("title.text")
-            .with_detail("Title must contain text other than whitespace, emoji or symbols."));
+pub(super) fn mutation_input_error(error: MutationInputError) -> ApiError {
+    if error.invalid_object_id {
+        ApiError::bad_request(INVALID_OBJECT_ID)
+            .with_path_field("auctionId")
+            .with_detail(error.detail)
+    } else if error.field == "title.text" {
+        ApiError::bad_request(BAD_BODY_VALUE)
+            .with_body_field(error.field)
+            .with_detail(error.detail)
+    } else {
+        ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.detail)
     }
-    Ok(title)
-}
-
-fn description(
-    value: LocalizedTextData,
-) -> localization::Localized<localization::Language, Description> {
-    value.into_localized()
-}
-
-fn price(value: PriceData) -> Price {
-    value.into()
-}
-
-fn product_listing_price(
-    value: ProductListingPriceData,
-) -> product_listing_core::product_listing_price::ProductListingPrice {
-    value.into()
-}
-
-fn source_listing_id(value: String) -> Result<SourceListingId, ApiError> {
-    SourceListingId::try_from(value)
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CreateProductListingData, UpdateProductListingData, UpsertProductListingData,
-        WithdrawProductListingData, parse_listing_source_id, source_listing_id,
-    };
-    use crate::error::{BAD_BODY_VALUE, INVALID_OBJECT_ID};
-    use application::patch_field::PatchField;
-    use listing_source_core::ListingSourceId;
-    use product_listing_core::product_listing_id::ProductListingId;
-
+    use super::*;
     #[test]
-    fn should_reject_null_auction_in_partner_writes() {
-        let listing_source_id = ListingSourceId::new();
-        let create: CreateProductListingData = serde_json::from_str(
-            r#"{
-                "sourceListingId":"SKU-1",
-                "title":{"text":"Listing","language":"en"},
-                "description":{"text":"Description","language":"en"},
-                "url":"https://example.com/listing",
-                "images":[],
-                "auction":null
-            }"#,
-        )
-        .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
-        let update: UpdateProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"SKU-1","auction":null}"#)
-                .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
-        let upsert: UpsertProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"SKU-1","auction":null}"#)
-                .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
-
+    fn should_preserve_canonical_path_id_validation() {
+        let source = ListingSourceId::new();
         assert_eq!(
-            BAD_BODY_VALUE,
-            create
-                .into_command(listing_source_id)
-                .err()
-                .unwrap_or_else(|| panic!("null auction must fail"))
-                .code()
+            source,
+            parse_listing_source_id(&source.to_string()).unwrap()
         );
-        assert_eq!(
-            BAD_BODY_VALUE,
-            update
-                .into_key_and_command(listing_source_id)
-                .err()
-                .unwrap_or_else(|| panic!("null auction must fail"))
-                .code()
-        );
-        assert_eq!(
-            BAD_BODY_VALUE,
-            upsert
-                .into_command(listing_source_id)
-                .err()
-                .unwrap_or_else(|| panic!("null auction must fail"))
-                .code()
-        );
-    }
-
-    #[test]
-    fn should_allow_optional_title_and_description_on_create() {
-        let listing_source_id = ListingSourceId::new();
-        let cases = [
-            (
-                r#"{"sourceListingId":"SKU-1","url":"https://example.com/listing","images":[]}"#,
-                false,
-                false,
-            ),
-            (
-                r#"{"sourceListingId":"SKU-2","title":{"text":"Title","language":"en"},"url":"https://example.com/listing","images":[]}"#,
-                true,
-                false,
-            ),
-            (
-                r#"{"sourceListingId":"SKU-3","description":{"text":"Description","language":"en"},"url":"https://example.com/listing","images":[]}"#,
-                false,
-                true,
-            ),
-            (
-                r#"{"sourceListingId":"SKU-4","title":null,"description":null,"url":"https://example.com/listing","images":[]}"#,
-                false,
-                false,
-            ),
-        ];
-
-        for (body, expects_title, expects_description) in cases {
-            let data: CreateProductListingData = serde_json::from_str(body)
-                .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
-            let command = data
-                .into_command(listing_source_id)
-                .unwrap_or_else(|error| panic!("valid create command: {error}"));
-            assert_eq!(expects_title, command.title.is_some());
-            assert_eq!(expects_description, command.description.is_some());
-        }
-    }
-
-    #[test]
-    fn should_normalize_decorative_titles_on_create_and_upsert() {
-        let listing_source_id = ListingSourceId::new();
-        let create: CreateProductListingData = serde_json::from_str(
-            r#"{"sourceListingId":"SKU-1","title":{"text":"𝐀𝐧𝐫𝐢𝐜𝐡𝐭𝐞 🌿✨Kirschbaum | 3360","language":"de"},"url":"https://example.com/listing","images":[]}"#,
-        )
-        .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
-        let upsert: UpsertProductListingData = serde_json::from_str(
-            r#"{"sourceListingId":"SKU-1","title":{"text":"𝐀𝐧𝐫𝐢𝐜𝐡𝐭𝐞 🌿✨Kirschbaum | 3360","language":"de"}}"#,
-        )
-        .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
-
-        for title in [
-            create
-                .into_command(listing_source_id)
-                .unwrap_or_else(|error| panic!("valid create command: {error}"))
-                .title,
-            upsert
-                .into_command(listing_source_id)
-                .unwrap_or_else(|error| panic!("valid upsert command: {error}"))
-                .title,
-        ] {
-            assert_eq!(
-                Some("Anrichte Kirschbaum | 3360"),
-                title.as_ref().map(|title| title.payload.as_ref())
-            );
-        }
-    }
-
-    #[test]
-    fn should_reject_titles_without_text_on_create_and_upsert() {
-        let listing_source_id = ListingSourceId::new();
-        for text in ["", "   ", "🌿✨", " ★ ✿ "] {
-            let title = serde_json::json!({"text": text, "language": "en"});
-            let create: CreateProductListingData = serde_json::from_value(serde_json::json!({
-                "sourceListingId": "SKU-1",
-                "title": title,
-                "url": "https://example.com/listing",
-                "images": []
-            }))
-            .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
-            let upsert: UpsertProductListingData = serde_json::from_value(serde_json::json!({
-                "sourceListingId": "SKU-1",
-                "title": title
-            }))
-            .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
-
-            for error in [
-                create.into_command(listing_source_id).err(),
-                upsert.into_command(listing_source_id).err(),
-            ] {
-                let error = error.unwrap_or_else(|| panic!("title {text:?} must fail"));
-                assert_eq!(BAD_BODY_VALUE, error.code());
-            }
-        }
-    }
-
-    #[test]
-    fn should_map_existing_auction_id_and_listing_owned_leaf_patches() {
-        let auction_id = auction_core::AuctionId::new();
-        let data: UpdateProductListingData = serde_json::from_str(&format!(
-            r#"{{"sourceListingId":"SKU-1","auction":{{"auctionId":"{auction_id}","lotNumber":null,"timing":{{"biddingOpens":null,"reportedClosedAt":"2026-05-01T12:00:00Z"}}}}}}"#
-        ))
-        .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
-
-        let (_, command) = data
-            .into_key_and_command(ListingSourceId::new())
-            .unwrap_or_else(|error| panic!("valid update command: {error}"));
-        let PatchField::Set(auction) = command.auction else {
-            panic!("auction patch should be asserted");
-        };
-        assert_eq!(PatchField::Set(auction_id), auction.auction_id);
-        assert_eq!(PatchField::Clear, auction.lot_number);
-        assert_eq!(PatchField::Clear, auction.bidding_opens);
-        assert!(matches!(auction.reported_closed_at, PatchField::Set(_)));
-    }
-
-    #[test]
-    fn should_reject_date_only_and_timezone_less_lot_timestamps() {
-        for timestamp in ["2026-05-01", "2026-05-01T12:00:00"] {
-            assert!(serde_json::from_str::<UpdateProductListingData>(&format!(
-                r#"{{"sourceListingId":"SKU-1","auction":{{"timing":{{"biddingOpens":"{timestamp}"}}}}}}"#
-            ))
-            .is_err());
-        }
-    }
-
-    #[test]
-    fn should_clear_membership_with_null_auction_id_and_reject_retired_fields() {
-        let update: UpdateProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"SKU-1","auction":{"auctionId":null}}"#)
-                .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
-        let (_, command) = update
-            .into_key_and_command(ListingSourceId::new())
-            .unwrap_or_else(|error| panic!("valid update command: {error}"));
-        let PatchField::Set(auction) = command.auction else {
-            panic!("auction patch should be asserted");
-        };
-        assert_eq!(PatchField::Clear, auction.auction_id);
-
-        assert!(
-            serde_json::from_str::<UpdateProductListingData>(
-                r#"{"sourceListingId":"SKU-1","auction":{"sourceAuctionId":"sale-42"}}"#
-            )
-            .is_err()
-        );
-        assert!(
-            serde_json::from_str::<UpdateProductListingData>(
-                r#"{"sourceListingId":"SKU-1","auction":{"metadata":{"name":"sale"}}}"#
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn should_leave_auction_unchanged_when_partner_update_or_upsert_omits_it() {
-        let update: UpdateProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"SKU-1"}"#)
-                .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
-        let upsert: UpsertProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"SKU-1"}"#)
-                .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
-
-        let (_, update) = update
-            .into_key_and_command(ListingSourceId::new())
-            .unwrap_or_else(|error| panic!("valid update command: {error}"));
-        let upsert = upsert
-            .into_command(ListingSourceId::new())
-            .unwrap_or_else(|error| panic!("valid upsert command: {error}"));
-
-        assert_eq!(update.auction, PatchField::Unchanged);
-        assert_eq!(upsert.auction, PatchField::Unchanged);
-    }
-
-    #[test]
-    fn should_parse_source_listing_id_without_slugifying_it() {
-        let data: WithdrawProductListingData =
-            serde_json::from_str(r#"{"sourceListingId":"\u2003SKU  #42/Blue\u2002"}"#)
-                .unwrap_or_else(|error| panic!("valid request data: {error}"));
-
-        let key = data
-            .into_product_key(ListingSourceId::new())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-
-        assert_eq!(key.source_listing_id.as_ref(), "SKU  #42/Blue");
-    }
-
-    #[test]
-    fn should_parse_only_canonical_listing_source_object_ids() {
-        let listing_source_id = ListingSourceId::new();
-        assert!(matches!(
-            parse_listing_source_id(&listing_source_id.to_string()),
-            Ok(parsed) if parsed == listing_source_id
-        ));
-
-        for invalid_id in [
-            ProductListingId::new().to_string(),
-            listing_source_id.as_uuid().to_string(),
+        for invalid in [
+            product_listing_core::product_listing_id::ProductListingId::new().to_string(),
+            source.as_uuid().to_string(),
             "ls_not-a-typeid".to_owned(),
         ] {
-            let error = parse_listing_source_id(&invalid_id)
-                .err()
-                .unwrap_or_else(|| panic!("noncanonical ListingSource ID was accepted"));
-            assert_eq!(INVALID_OBJECT_ID, error.code());
+            assert_eq!(
+                INVALID_OBJECT_ID,
+                parse_listing_source_id(&invalid).unwrap_err().code()
+            );
         }
-    }
-
-    #[test]
-    fn should_reject_blank_source_listing_id_at_api_mapping() {
-        let error = source_listing_id("\u{2003}\t".to_owned())
-            .err()
-            .unwrap_or_else(|| panic!("blank source listing ID must fail"));
-
-        assert_eq!(error.code(), BAD_BODY_VALUE);
     }
 }

@@ -14,7 +14,7 @@ pub enum OperationError {
     #[error("resource not found")]
     NotFound,
     #[error("operation conflicts with current state")]
-    Conflict,
+    Conflict(#[source] Option<BoxError>),
     #[error("saved-search quota exceeded")]
     SearchFilterQuotaExceeded,
     #[error("saved-search feature requires a higher tier")]
@@ -39,7 +39,7 @@ impl OperationError {
             }
             Self::InvalidInput => "INVALID_INPUT",
             Self::NotFound => "NOT_FOUND",
-            Self::Conflict => "CONFLICT",
+            Self::Conflict(_) => "CONFLICT",
             Self::WatchlistQuotaExceeded => "WATCHLIST_QUOTA_EXCEEDED",
             Self::Forbidden => "FORBIDDEN",
             Self::SearchFilterQuotaExceeded => "SEARCH_FILTER_QUOTA_EXCEEDED",

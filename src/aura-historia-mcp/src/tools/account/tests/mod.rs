@@ -263,7 +263,7 @@ fn should_preserve_technical_error_causes_while_classifying_private_failures() {
     }
     assert!(matches!(
         errors::address(AddressBookError::Conflict),
-        OperationError::Conflict
+        OperationError::Conflict(None)
     ));
     assert!(matches!(
         errors::address(AddressBookError::NotFound),

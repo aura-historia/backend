@@ -54,6 +54,11 @@ and evidence, return current state, and recheck current authority. Conflicting r
 receipts survive source deletion. Lists are bounded summary reads; details omit evidence.
 Management responses and errors are `no-store`.
 
+Public shipping management requests/results and pure use-case mappings are shared by REST and
+[MCP](mcp.md#shipping-management). The [contract tests](../src/aura-historia-contracts/tests/shipping_management.rs)
+check complete terms schemas, required-nullable attribution and adapter-owned public versus
+persisted references; `shipping-json` remains the authoritative terms codec.
+
 PostgreSQL is authoritative. Adapter-owned `SHIP_TERMS_V1` and `LISTING_DELIVERY_V1`
 protocols require every field, including nullable assertions. Unknown fields/versions,
 invalid codes, references and bounds fail closed through domain constructors. Each adapter

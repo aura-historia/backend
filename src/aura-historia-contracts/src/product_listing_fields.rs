@@ -1,8 +1,5 @@
-use crate::{
-    error::{ApiError, BAD_BODY_VALUE},
-    patch_value::PatchValue,
-    wire::parse_path_object_id,
-};
+use crate::patch_value::{PatchValue, clearable};
+use crate::product_listing_management::MutationInputError;
 use application::patch_field::PatchField;
 use auction_core::AuctionId;
 use product_listing_core::{
@@ -10,35 +7,41 @@ use product_listing_core::{
     product_listing_image::ProductListingImage,
 };
 use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use time::OffsetDateTime;
 use url::Url;
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ProductListingAuctionData {
+pub struct ProductListingAuctionData {
     #[serde(default)]
+    #[schemars(schema_with = "crate::wire::schema::optional_auction_id")]
     auction_id: PatchValue<String>,
     #[serde(default)]
     lot_number: PatchValue<String>,
     #[serde(default)]
+    #[schemars(schema_with = "catalogue_position_patch_schema")]
     catalogue_position: PatchValue<u64>,
     #[serde(default)]
     timing: Option<LotAuctionTimesData>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LotAuctionTimesData {
     #[serde(default, deserialize_with = "patch_rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     bidding_opens: PatchValue<OffsetDateTime>,
     #[serde(default, deserialize_with = "patch_rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     scheduled_closes: PatchValue<OffsetDateTime>,
     #[serde(default, deserialize_with = "patch_rfc3339")]
+    #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     reported_closed_at: PatchValue<OffsetDateTime>,
 }
 
 impl ProductListingAuctionData {
-    fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
+    fn into_core(self) -> Result<ProductListingAuctionPatch, MutationInputError> {
         Ok(ProductListingAuctionPatch {
             auction_id: auction_id_patch(self.auction_id)?,
             lot_number: lot_number_patch(self.lot_number)?,
@@ -53,75 +56,88 @@ impl ProductListingAuctionData {
 }
 
 impl LotAuctionTimesData {
-    fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
+    fn into_core(self) -> Result<ProductListingAuctionPatch, MutationInputError> {
         Ok(ProductListingAuctionPatch {
-            bidding_opens: patch_value(self.bidding_opens),
-            scheduled_closes: patch_value(self.scheduled_closes),
-            reported_closed_at: patch_value(self.reported_closed_at),
+            bidding_opens: clearable(self.bidding_opens),
+            scheduled_closes: clearable(self.scheduled_closes),
+            reported_closed_at: clearable(self.reported_closed_at),
             ..Default::default()
         })
     }
 }
 
-pub(crate) fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
+pub fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
     values.into_iter().map(ProductListingImage::new).collect()
 }
 
-pub(crate) fn auction_patch(
+pub fn auction_patch(
     value: PatchValue<ProductListingAuctionData>,
-) -> Result<PatchField<ProductListingAuctionPatch>, ApiError> {
+) -> Result<PatchField<ProductListingAuctionPatch>, MutationInputError> {
     match value {
         PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Err(ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("auction cannot be null; omit it or clear auction.auctionId.")),
+        PatchValue::Null => Err(MutationInputError::invalid(
+            "auction",
+            "auction cannot be null; omit it or clear auction.auctionId.",
+        )),
         PatchValue::Value(value) => value.into_core().map(PatchField::Set),
     }
 }
 
-fn auction_id_patch(value: PatchValue<String>) -> Result<PatchField<AuctionId>, ApiError> {
+fn auction_id_patch(
+    value: PatchValue<String>,
+) -> Result<PatchField<AuctionId>, MutationInputError> {
     match value {
         PatchValue::Omitted => Ok(PatchField::Unchanged),
         PatchValue::Null => Ok(PatchField::Clear),
         PatchValue::Value(value) => {
-            parse_path_object_id(&value, "auctionId", "Auction").map(PatchField::Set)
+            value
+                .parse()
+                .map(PatchField::Set)
+                .map_err(|source| MutationInputError {
+                    invalid_object_id: true,
+                    ..MutationInputError::caused(
+                        "auction.auctionId",
+                        "must be a valid Auction ID",
+                        source,
+                    )
+                })
         }
     }
 }
 
-fn lot_number_patch(value: PatchValue<String>) -> Result<PatchField<LotNumber>, ApiError> {
+fn lot_number_patch(
+    value: PatchValue<String>,
+) -> Result<PatchField<LotNumber>, MutationInputError> {
     match value {
         PatchValue::Omitted => Ok(PatchField::Unchanged),
         PatchValue::Null => Ok(PatchField::Clear),
-        PatchValue::Value(value) => LotNumber::try_from(value)
-            .map(PatchField::Set)
-            .map_err(|_| {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+        PatchValue::Value(value) => LotNumber::try_from(value).map(PatchField::Set).map_err(
+            |source| {
+                MutationInputError::caused(
+                    "auction",
                     "auction.lotNumber must be nonblank, NUL-free, and at most 128 UTF-8 bytes.",
+                    source,
                 )
-            }),
+            },
+        ),
     }
 }
 
 fn catalogue_position_patch(
     value: PatchValue<u64>,
-) -> Result<PatchField<CataloguePosition>, ApiError> {
+) -> Result<PatchField<CataloguePosition>, MutationInputError> {
     match value {
         PatchValue::Omitted => Ok(PatchField::Unchanged),
         PatchValue::Null => Ok(PatchField::Clear),
         PatchValue::Value(value) => CataloguePosition::try_from(value)
             .map(PatchField::Set)
-            .map_err(|_| {
-                ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("auction.cataloguePosition must be a positive 32-bit integer.")
+            .map_err(|source| {
+                MutationInputError::caused(
+                    "auction",
+                    "auction.cataloguePosition must be a positive 32-bit integer.",
+                    source,
+                )
             }),
-    }
-}
-
-fn patch_value<T>(value: PatchValue<T>) -> PatchField<T> {
-    match value {
-        PatchValue::Omitted => PatchField::Unchanged,
-        PatchValue::Null => PatchField::Clear,
-        PatchValue::Value(value) => PatchField::Set(value),
     }
 }
 
@@ -139,4 +155,12 @@ where
                 .map_err(serde::de::Error::custom)
         }
     }
+}
+
+fn catalogue_position_patch_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"anyOf":[{"type":"integer","minimum":1,"maximum":u32::MAX},{"type":"null"}]})
+}
+
+pub fn image_urls_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type":"array", "items":crate::wire::schema::url(generator)})
 }
