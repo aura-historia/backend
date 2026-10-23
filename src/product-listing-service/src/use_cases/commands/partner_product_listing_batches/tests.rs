@@ -242,3 +242,47 @@ async fn should_authenticate_empty_batches_and_enforce_limit_before_item_calls()
             .len()
     );
 }
+
+#[tokio::test]
+async fn should_preserve_authenticated_empty_batches_without_calling_item_authorization() {
+    let items = Arc::new(Items::default());
+    let handler = handler(&items);
+    let mut context = context();
+    context.principal = Principal::DelegatedUser {
+        user_id: user_core::user_id::UserId::new(),
+        capabilities: Default::default(),
+    };
+    assert!(
+        handler
+            .create(&context, vec![])
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        handler
+            .update(&context, vec![])
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        handler
+            .upsert(&context, vec![])
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(
+        handler
+            .withdraw(&context, vec![])
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert!(items.attempts.lock().unwrap().is_empty());
+}

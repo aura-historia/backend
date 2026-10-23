@@ -30,6 +30,7 @@ const NAMES: [&str; 4] = [
     "putPartnerProductListings",
     "deletePartnerProductListings",
 ];
+const PRIVATE_COMMIT_CAUSE: &str = "private transaction failure detail";
 #[derive(Debug)]
 enum Call {
     Create(Box<CreateProductListingCommand>),
@@ -54,15 +55,17 @@ impl CreateProductListingUseCase for Items {
         _: &OperationContext,
         command: CreateProductListingCommand,
     ) -> Result<CreateProductListingResult, CreateProductListingError> {
-        let failed = command.source_listing_id.as_ref() == "fail";
+        let source_listing_id = command.source_listing_id.to_string();
         self.calls
             .lock()
             .unwrap()
             .push(Call::Create(Box::new(command)));
-        if failed {
-            Err(CreateProductListingError::SourceListingAlreadyExists)
-        } else {
-            Ok(created())
+        match source_listing_id.as_str() {
+            "uncertain" => Err(CreateProductListingError::CommitTransactionFailed(
+                application::error::static_error(PRIVATE_COMMIT_CAUSE),
+            )),
+            "fail" => Err(CreateProductListingError::SourceListingAlreadyExists),
+            _ => Ok(created()),
         }
     }
 }
@@ -82,18 +85,20 @@ impl UpdateProductListingUseCase for Items {
         key: ProductListingKey,
         command: UpdateProductListingCommand,
     ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
-        let failed = key.source_listing_id.as_ref() == "fail";
+        let source_listing_id = key.source_listing_id.to_string();
         self.calls
             .lock()
             .unwrap()
             .push(Call::Update(key, Box::new(command)));
-        if failed {
-            Err(UpdateProductListingError::NotFound)
-        } else {
-            Ok(UpdateProductListingResult {
+        match source_listing_id.as_str() {
+            "uncertain" => Err(UpdateProductListingError::CommitTransactionFailed(
+                application::error::static_error(PRIVATE_COMMIT_CAUSE),
+            )),
+            "fail" => Err(UpdateProductListingError::NotFound),
+            _ => Ok(UpdateProductListingResult {
                 product_listing_id: ProductListingId::new(),
                 outcome: ChangeOutcome::Changed,
-            })
+            }),
         }
     }
 }
@@ -104,17 +109,19 @@ impl UpsertProductListingUseCase for Items {
         _: &OperationContext,
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
-        let failed = command.source_listing_id.as_ref() == "fail";
+        let source_listing_id = command.source_listing_id.to_string();
         self.calls
             .lock()
             .unwrap()
             .push(Call::Upsert(Box::new(command)));
-        if failed {
-            Err(UpsertProductListingError::InvalidProductListing {
+        match source_listing_id.as_str() {
+            "uncertain" => Err(UpsertProductListingError::CommitTransactionFailed(
+                application::error::static_error(PRIVATE_COMMIT_CAUSE),
+            )),
+            "fail" => Err(UpsertProductListingError::InvalidProductListing {
                 source: application::error::static_error("private provider content"),
-            })
-        } else {
-            Ok(UpsertProductListingResult::Created(created()))
+            }),
+            _ => Ok(UpsertProductListingResult::Created(created())),
         }
     }
 }
@@ -132,15 +139,17 @@ impl WithdrawProductListingUseCase for Items {
         _: &OperationContext,
         key: ProductListingKey,
     ) -> Result<WithdrawProductListingResult, WithdrawProductListingError> {
-        let failed = key.source_listing_id.as_ref() == "fail";
+        let source_listing_id = key.source_listing_id.to_string();
         self.calls.lock().unwrap().push(Call::Withdraw(key));
-        if failed {
-            Err(WithdrawProductListingError::NotFound)
-        } else {
-            Ok(WithdrawProductListingResult {
+        match source_listing_id.as_str() {
+            "uncertain" => Err(WithdrawProductListingError::CommitTransactionFailed(
+                application::error::static_error(PRIVATE_COMMIT_CAUSE),
+            )),
+            "fail" => Err(WithdrawProductListingError::NotFound),
+            _ => Ok(WithdrawProductListingResult {
                 product_listing_id: ProductListingId::new(),
                 outcome: ChangeOutcome::Unchanged,
-            })
+            }),
         }
     }
 }
@@ -299,6 +308,32 @@ async fn should_report_partial_and_all_failed_batches_without_losing_original_in
     assert_eq!(16, items.calls.lock().unwrap().len());
 }
 #[tokio::test]
+async fn should_keep_commit_failures_indexed_and_continue_without_exposing_causes() {
+    let (registry, items) = fixture();
+    let source = ListingSourceId::new();
+    for name in NAMES {
+        let value = call(
+            &registry,
+            name,
+            json!({"listingSourceId":source,"products":[input_product(name,"first"),input_product(name,"uncertain"),input_product(name,"last")]}),
+            context(),
+        )
+        .await
+        .unwrap();
+        assert_eq!("PARTIAL_SUCCESS", value["status"]);
+        assert_eq!(2, value["succeededCount"]);
+        assert_eq!(1, value["failedCount"]);
+        assert_eq!(0, value["successes"][0]["index"]);
+        assert_eq!(2, value["successes"][1]["index"]);
+        assert_eq!(
+            json!([{"index":1,"listingSourceId":source,"sourceListingId":"uncertain","error":"TEMPORARILY_UNAVAILABLE"}]),
+            value["failures"]
+        );
+        assert!(!value.to_string().contains(PRIVATE_COMMIT_CAUSE));
+    }
+    assert_eq!(12, items.calls.lock().unwrap().len());
+}
+#[tokio::test]
 async fn should_reject_later_conversion_failure_before_any_item_call_for_all_four_operations() {
     let (registry, items) = fixture();
     let source = ListingSourceId::new();
@@ -310,6 +345,26 @@ async fn should_reject_later_conversion_failure_before_any_item_call_for_all_fou
             "putPartnerProductListings" => invalid["images"] = Value::Null,
             _ => invalid["sourceListingId"] = json!("   "),
         }
+        let error = registry
+            .get(name)
+            .unwrap()
+            .call(
+                json!({"listingSourceId":source,"products":[input_product(name,"first"),invalid]}),
+                context(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, OperationError::InvalidArguments(_)));
+    }
+    assert!(items.calls.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn should_reject_malformed_later_items_before_any_item_call_for_all_four_operations() {
+    let (registry, items) = fixture();
+    let source = ListingSourceId::new();
+    for name in NAMES {
+        let mut invalid = input_product(name, "later");
+        invalid["sourceListingId"] = json!(42);
         let error = registry
             .get(name)
             .unwrap()

@@ -234,8 +234,9 @@ The family provides `postPartnerProductListings`, `patchPartnerProductListings`,
 Create, patch, upsert and withdrawal items use the same shared contracts as REST, including
 localized text, unsigned source-currency values, price intent, URLs/images, availability and
 all Auction/lot patches. The maximum is 100; empty authenticated batches are valid.
-Discovery requires `product-listings:write`. The existing item services independently check
-current delegated capability and Partnership/source grants for every attempted item.
+Calls require `product-listings:write`; the tools remain discoverable without credentials.
+The existing item services independently check current delegated capability and
+Partnership/source grants for every attempted item.
 
 Results contain `status` (`COMPLETED`, `PARTIAL_SUCCESS`, `FAILED`), `inputCount`,
 `succeededCount`, `failedCount`, `successes` and `failures`. Counts account for every input.
@@ -246,6 +247,8 @@ updates/withdrawals report whether state changed. Failures use safe `FORBIDDEN`,
 `CONFLICT`, `INVALID_INPUT`, `TEMPORARILY_UNAVAILABLE` or `INTERNAL_ERROR` categories without
 technical causes or private provider content. An all-failed report remains `FAILED`.
 Malformed structural or conversion input fails the whole call before any item executes.
+`TEMPORARILY_UNAVAILABLE` can include an uncertain transaction commit; a failed entry does
+not prove that no write occurred. Reconcile authoritative state before resubmitting it.
 
 The [listing contract](product-listing.md#synchronous-integration-batches) owns sequential
 execution, per-item transactions, continuation and retry behavior. These commands have no
