@@ -1,9 +1,10 @@
+use application::pagination::{Cursor, CursoredResult};
 use application::patch_field::PatchField;
 use aura_historia_contracts::{
     listing_sources::administered::{
         AdministeredListingSourcesPageData, AdministeredListingSourcesQuery,
     },
-    product_listing_management::{SearchQuery, UpdateData, VersionData, version},
+    product_listing_management::{SearchQuery, SearchResponse, UpdateData, VersionData, version},
 };
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use partnership_service::{
@@ -137,11 +138,10 @@ fn should_preserve_complete_granted_source_page_and_omit_terminal_next() {
         .for_serialize()
         .into_generator()
         .into_root_schema_for::<AdministeredListingSourcesPageData>();
-    assert!(
-        jsonschema::validator_for(schema.as_value())
-            .unwrap()
-            .is_valid(&actual)
-    );
+    let validator = jsonschema::validator_for(schema.as_value()).unwrap();
+    assert!(validator.is_valid(&actual));
+    assert!(validator.is_valid(&json!({"items":[],"next":"opaque"})));
+    assert!(!validator.is_valid(&json!({"items":[],"next":null})));
     for (value, allowed) in [
         (json!({}), true),
         (json!({"size":1}), true),
@@ -160,4 +160,26 @@ fn should_preserve_complete_granted_source_page_and_omit_terminal_next() {
             "{value}"
         );
     }
+}
+
+#[test]
+fn should_describe_management_search_continuations_as_absent_or_string() {
+    let page = SearchResponse::from(CursoredResult {
+        items: vec![],
+        cursor: Cursor {
+            size: 21,
+            search_after: None,
+        },
+        total: None,
+    });
+    let actual = serde_json::to_value(page).unwrap();
+    assert_eq!(json!({"items":[],"size":0}), actual);
+    let schema = SchemaSettings::default()
+        .for_serialize()
+        .into_generator()
+        .into_root_schema_for::<SearchResponse>();
+    let validator = jsonschema::validator_for(schema.as_value()).unwrap();
+    assert!(validator.is_valid(&actual));
+    assert!(validator.is_valid(&json!({"items":[],"size":0,"searchAfter":"opaque"})));
+    assert!(!validator.is_valid(&json!({"items":[],"size":0,"searchAfter":null})));
 }

@@ -60,6 +60,7 @@ impl From<AdministeredListingSource> for AdministeredListingSourceData {
 pub struct AdministeredListingSourcesPageData {
     pub items: Vec<AdministeredListingSourceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub next: Option<String>,
 }
 impl From<ListAdministeredListingSourcesResult> for AdministeredListingSourcesPageData {

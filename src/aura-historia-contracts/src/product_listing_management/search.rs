@@ -211,6 +211,7 @@ pub struct SearchResponse {
     items: Vec<SummaryData>,
     size: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     search_after: Option<String>,
 }
 impl From<AdminProductListingSearchResult> for SearchResponse {

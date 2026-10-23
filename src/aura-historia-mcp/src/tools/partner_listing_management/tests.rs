@@ -559,3 +559,48 @@ fn should_publish_strict_source_identity_schemas_for_every_listing_envelope() {
         assert!(!validator.is_valid(&input), "{name} requires source");
     }
 }
+
+#[test]
+fn should_require_nullable_authoritative_detail_members_in_output_schemas() {
+    let fixture = Fixture::new();
+    let registry = Registry::new(operations(fixture.services()).unwrap()).unwrap();
+    let operation = registry.get("getPartnerProductListing").unwrap();
+    let schema = serde_json::to_value(&**operation.tool().output_schema.as_ref().unwrap()).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let detail = serde_json::to_value(DetailsData::from(fixture.detail.clone())).unwrap();
+    assert!(validator.is_valid(&detail));
+    for field in [
+        "title",
+        "price",
+        "priceEstimateMin",
+        "priceEstimateMax",
+        "availability",
+        "auctionId",
+        "description",
+        "auction",
+        "saleObservation",
+    ] {
+        let mut output = detail.clone();
+        output[field] = Value::Null;
+        assert!(validator.is_valid(&output), "{field} accepts null");
+        output.as_object_mut().unwrap().remove(field);
+        assert!(!validator.is_valid(&output), "{field} must be present");
+    }
+    for field in ["auctionId", "lotNumber", "cataloguePosition"] {
+        let mut output = detail.clone();
+        output["auction"][field] = Value::Null;
+        assert!(validator.is_valid(&output), "{field} accepts null");
+        output["auction"].as_object_mut().unwrap().remove(field);
+        assert!(!validator.is_valid(&output), "{field} must be present");
+    }
+    for field in ["biddingOpens", "scheduledCloses", "reportedClosedAt"] {
+        let mut output = detail.clone();
+        output["auction"]["timing"][field] = Value::Null;
+        assert!(validator.is_valid(&output), "{field} accepts null");
+        output["auction"]["timing"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(!validator.is_valid(&output), "{field} must be present");
+    }
+}
