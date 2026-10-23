@@ -10,7 +10,7 @@ use crate::{
     user_state::ProductListingUserState,
 };
 use application::{operation_context::OperationContext, personalized::Personalized};
-use conversion::ShippingConversion;
+use conversion::{ShippingConversion, advertised_rates};
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{FxRateSnapshotReadError, FxRateSnapshotReader};
 use geo::GeographicDescription;
@@ -143,14 +143,14 @@ struct ShippingView {
 impl ShippingView {
     /// Adds requested-currency values and the private preview of the assessed zone.
     fn convert(&mut self, conversion: &mut ShippingConversion) -> Result<(), FxRateSnapshotError> {
-        let display = conversion.display(&self.advertised.effective)?;
+        let display = conversion.display(advertised_rates(&self.advertised.effective))?;
         if let Some(personalized) = &mut self.personalized {
             personalized.display = personalized
                 .assessment
                 .selected_zone
                 .map(|zone| display.zone(zone));
-            personalized.price_preview =
-                preview::price_preview(&personalized.assessment, personalized.display.as_ref());
+            personalized.price_preview = preview::price_preview(&personalized.assessment)
+                .map(|selected| selected.with_display(personalized.display.as_ref()));
         }
         self.advertised.display = Some(display);
         Ok(())

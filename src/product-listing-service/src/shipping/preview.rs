@@ -4,8 +4,29 @@ use money::Price;
 use shipping_core::{
     assessment::{PredicateResult, ServiceAssessment, ShippingAssessment},
     pricing::{ChargeBasis, ShippingPrice},
-    terms::ShippingEligibility,
+    terms::{ShippingEligibility, ShippingServiceCode},
 };
+
+/// The previewed rate at its zone/service position in the effective terms.
+pub(super) struct SelectedPreview {
+    zone_index: usize,
+    service_index: usize,
+    service: ShippingServiceCode,
+    basis: ChargeBasis,
+    price: ShippingPrice,
+}
+impl SelectedPreview {
+    /// Attaches the requested-currency value the display holds for this rate.
+    pub(super) fn with_display(self, display: Option<&ShippingDisplay>) -> ShippingPricePreview {
+        ShippingPricePreview {
+            display_price: display
+                .and_then(|display| display.price(self.zone_index, self.service_index)),
+            service: self.service,
+            basis: self.basis,
+            price: self.price,
+        }
+    }
+}
 
 struct Candidate<'a> {
     index: usize,
@@ -19,10 +40,7 @@ struct Candidate<'a> {
 /// explicit basis; several candidates are compared only when they share that basis and have
 /// exact prices in one currency, choosing the lowest and then the first advertised.
 /// Any other choice would rank incomparable or unknown terms, so no preview is returned.
-pub(super) fn price_preview(
-    assessment: &ShippingAssessment,
-    display: Option<&ShippingDisplay>,
-) -> Option<ShippingPricePreview> {
+pub(super) fn price_preview(assessment: &ShippingAssessment) -> Option<SelectedPreview> {
     let eligibility = assessment
         .eligibility
         .filter(|eligibility| *eligibility != ShippingEligibility::NotOffered)?;
@@ -50,11 +68,12 @@ pub(super) fn price_preview(
         [only] => only,
         several => lowest_comparable(several)?,
     };
-    Some(ShippingPricePreview {
+    Some(SelectedPreview {
+        zone_index: zone,
+        service_index: chosen.index,
         service: chosen.assessment.service.code().clone(),
         basis: chosen.basis,
         price: chosen.price,
-        display_price: display.and_then(|display| display.price(zone, chosen.index)),
     })
 }
 
@@ -195,7 +214,7 @@ mod tests {
         )
     }
     fn preview_of(services: Vec<ShippingService>) -> Option<(String, ChargeBasis, ShippingPrice)> {
-        price_preview(&assessed(services), None)
+        price_preview(&assessed(services))
             .map(|p| (p.service.as_str().to_owned(), p.basis, p.price))
     }
     fn fixed_per_item(code: &str, minor: u64) -> ShippingService {
@@ -398,7 +417,9 @@ mod tests {
                 converted(1, 1, 1_320),
             ],
         };
-        let preview = price_preview(&assessment, Some(&display)).unwrap();
+        let preview = price_preview(&assessment)
+            .unwrap()
+            .with_display(Some(&display));
         assert_eq!(ShippingPrice::Fixed(eur(1_200)), preview.price);
         assert_eq!(
             Some(ShippingPrice::Fixed(Price::new(

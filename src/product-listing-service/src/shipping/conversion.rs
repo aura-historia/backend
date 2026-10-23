@@ -9,6 +9,35 @@ use shipping_core::{
 };
 use std::collections::HashMap;
 
+/// A source rate at its zone/service position in the effective terms.
+pub(super) struct AdvertisedRate {
+    pub(super) zone_index: usize,
+    pub(super) service_index: usize,
+    pub(super) price: ShippingPrice,
+}
+
+/// Every advertised rate of the effective shipping coverage, in terms order.
+pub(super) fn advertised_rates(
+    effective: &EffectiveDeliveryTerms,
+) -> impl Iterator<Item = AdvertisedRate> + '_ {
+    let zones = match effective.terms().shipping() {
+        Some(ShippingPolicy::Coverage(coverage)) => coverage.zones(),
+        _ => &[],
+    };
+    zones.iter().enumerate().flat_map(|(zone_index, zone)| {
+        zone.services()
+            .iter()
+            .enumerate()
+            .filter_map(move |(service_index, service)| {
+                service.rate().map(|rate| AdvertisedRate {
+                    zone_index,
+                    service_index,
+                    price: rate.price(),
+                })
+            })
+    })
+}
+
 /// Request-local memoization reuses conversions across profiles, inline terms and overrides.
 pub(super) struct ShippingConversion<'a> {
     snapshot: &'a FxRateSnapshot,
@@ -52,31 +81,27 @@ impl<'a> ShippingConversion<'a> {
             _ => return Ok(None),
         }))
     }
+    /// Requested-currency values of the given rates. Unknown-currency free, on-request and
+    /// externally calculated rates have none.
     pub(super) fn display(
         &mut self,
-        effective: &EffectiveDeliveryTerms,
+        rates: impl IntoIterator<Item = AdvertisedRate>,
     ) -> Result<ShippingDisplay, FxRateSnapshotError> {
-        let mut rates = Vec::new();
-        if let Some(ShippingPolicy::Coverage(coverage)) = effective.terms().shipping() {
-            for (zone_index, zone) in coverage.zones().iter().enumerate() {
-                for (service_index, service) in zone.services().iter().enumerate() {
-                    if let Some(rate) = service.rate()
-                        && let Some(price) = self.price(rate.price())?
-                    {
-                        rates.push(ConvertedShippingRate {
-                            zone_index,
-                            service_index,
-                            price,
-                        });
-                    }
-                }
+        let mut converted = Vec::new();
+        for rate in rates {
+            if let Some(price) = self.price(rate.price)? {
+                converted.push(ConvertedShippingRate {
+                    zone_index: rate.zone_index,
+                    service_index: rate.service_index,
+                    price,
+                });
             }
         }
         Ok(ShippingDisplay {
             currency: self.currency,
             fx_rate_id: self.snapshot.id(),
             captured_at: self.snapshot.captured_at(),
-            rates,
+            rates: converted,
         })
     }
 }
@@ -180,7 +205,7 @@ mod tests {
         let snapshot = snapshot();
         let mut conversion = ShippingConversion::new(&snapshot, Currency::Usd);
         for _ in 0..50 {
-            let display = conversion.display(&shared).unwrap();
+            let display = conversion.display(advertised_rates(&shared)).unwrap();
             assert_eq!(snapshot.id(), display.fx_rate_id);
             assert_eq!(snapshot.captured_at(), display.captured_at);
             assert_eq!(2, display.rates.len());
@@ -210,7 +235,11 @@ mod tests {
         let effective = EffectiveDeliveryTerms::resolve(&override_config, None, &[]);
         assert_eq!(
             ShippingPrice::Fixed(Price::new(220_u64.into(), Currency::Usd)),
-            conversion.display(&effective).unwrap().rates[0].price
+            conversion
+                .display(advertised_rates(&effective))
+                .unwrap()
+                .rates[0]
+                .price
         );
         let mut yen = ShippingConversion::new(&snapshot, Currency::Jpy);
         assert_eq!(
