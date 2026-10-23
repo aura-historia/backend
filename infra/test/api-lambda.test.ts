@@ -41,18 +41,6 @@ function apiAliasVersion(template: Template): { alias: CloudFormationResource; v
   return { alias, version, versionId };
 }
 
-function resolveCommitSha(value: unknown, sha: string): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (JSON.stringify(value) === JSON.stringify({ Ref: "CommitSHA" })) {
-    return sha;
-  }
-  const join = (value as { "Fn::Join": [string, unknown[]] })["Fn::Join"];
-  expect(join[0]).toBe("");
-  return join[1].map((part) => resolveCommitSha(part, sha)).join("");
-}
-
 function expectedApiEnvironmentKeys(): string[] {
   const keys = [
     "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
@@ -62,6 +50,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
     "COMMIT_SHA",
+    "MAIL_TEMPLATE_PREFIX",
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET",
     "NEWSLETTER_CONFIRMATION_EMAIL_FROM",
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO",
@@ -117,11 +106,11 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       Runtime: "provided.al2023",
       Timeout: 15,
     });
-    expect(JSON.stringify(functionResource.Properties.Code)).toContain(`aura-historia-api-${stage}-`);
+    expect(JSON.stringify(functionResource.Properties.Code)).toContain("AuraHistoriaApiArtifactKey");
     expect(environment.Variables.STAGE).toBe(stage);
     expect(environment.Variables.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });
-    expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-mail-templates-eu-central-1");
+    expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-release-bundles-eu-central-1");
     expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_FROM)
       .toBe(`{{resolve:ssm:/notifications/${stage}/email-from}}`);
     expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO)
@@ -205,28 +194,13 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       ([, resource]) => (resource as CloudFormationResource).Properties.FunctionName === `aura-historia-api-${stage}`,
     ) ?? [];
     const code = apiFunction(template, stage).Properties.Code as { S3Key: unknown };
-    const firstSha = "aaaaaaaa";
-    const nextSha = "bbbbbbbb";
 
     expect(alias.Properties).toMatchObject({ Name: "live", FunctionName: { Ref: functionId } });
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
-    expect(version.Properties.Description).toEqual({
-      "Fn::Join": ["", ["aura-historia-api-", { Ref: "CommitSHA" }]],
-    });
-    expect(code.S3Key).toEqual({
-      "Fn::Join": ["", [`aura-historia-api-${stage}-`, { Ref: "CommitSHA" }, ".zip"]],
-    });
-    // Same synthesized template: only the deploy-time parameter changes, never a synth-time clock or random ID.
-    const [initial, promotion, rollback, unchanged] = [firstSha, nextSha, firstSha, firstSha]
-      .map((sha) => resolveCommitSha(version.Properties.Description, sha));
-    expect(initial).toBe("aura-historia-api-aaaaaaaa");
-    expect(promotion).toBe("aura-historia-api-bbbbbbbb");
-    expect(promotion).not.toBe(initial);
-    expect(rollback).not.toBe(promotion);
-    expect(rollback).toBe(initial);
-    expect(unchanged).toBe(rollback);
-    expect(resolveCommitSha(code.S3Key, firstSha)).toBe(`aura-historia-api-${stage}-aaaaaaaa.zip`);
-    expect(resolveCommitSha(code.S3Key, nextSha)).toBe(`aura-historia-api-${stage}-bbbbbbbb.zip`);
+    expect(version.Properties.Description).toEqual({ Ref: "AuraHistoriaApiArtifactSha256" });
+    expect(code.S3Key).toEqual({ Ref: "AuraHistoriaApiArtifactKey" });
+    expect((apiFunction(template, stage).Properties.Code as Record<string, unknown>).S3ObjectVersion)
+      .toEqual({ Ref: "AuraHistoriaApiArtifactVersion" });
     // Alias references the version resource, not $LATEST or any assumed numeric version ID.
     expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [versionId, "Version"] });
     expect(version.Properties.ReservedConcurrentExecutions).toBeUndefined();
@@ -265,12 +239,9 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 
     expect(s3Statements).toHaveLength(1);
     expect(s3Statements[0].Action).toBe("s3:GetObject");
+    expect(JSON.stringify(s3Statements[0].Resource)).toContain("mail/*/mjml/newsletter/confirmation/*");
     expect(JSON.stringify(s3Statements[0].Resource)).toContain(
-      `${stage}/`,
-    );
-    expect(JSON.stringify(s3Statements[0].Resource)).toContain('{"Ref":"CommitSHA"}');
-    expect(JSON.stringify(s3Statements[0].Resource)).toContain(
-      "/mjml/newsletter/confirmation/*",
+      "mjml/newsletter/confirmation/*",
     );
     expect(JSON.stringify(s3Statements[0].Resource)).not.toContain("/mjml/*");
     expect(JSON.stringify(s3Statements[0].Resource)).not.toContain("/newsletter/*");
@@ -279,11 +250,10 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(sesStatements[0].Action).toBe("ses:SendEmail");
     expect(sesStatements[0].Resource).toHaveLength(2);
     expect(JSON.stringify(sesStatements[0].Resource)).toContain("identity/notify.aura-historia.com");
-    const [configurationSetId] = Object.keys(template.findResources("AWS::SES::ConfigurationSet"));
     expect((sesStatements[0].Resource as unknown[])[1]).toEqual({
       "Fn::Join": ["", [
         "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
-        { Ref: "AWS::AccountId" }, ":configuration-set/", { Ref: configurationSetId },
+        { Ref: "AWS::AccountId" }, ":configuration-set/", (apiFunction(template, stage).Properties.Environment as { Variables: Record<string, unknown> }).Variables.NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET,
       ]],
     });
     expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("identity/*");
@@ -365,9 +335,7 @@ test("configuration-only API updates still change the currentVersion target", ()
 
   expect(after).not.toBe(apiAliasVersion(before).versionId);
   expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [after, "Version"] });
-  expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description).toEqual({
-    "Fn::Join": ["", ["aura-historia-api-", { Ref: "CommitSHA" }]],
-  });
+  expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description).toEqual({ Ref: "AuraHistoriaApiArtifactSha256" });
 });
 
 test("grants only API session-revocation actions against the Cognito user pool", () => {

@@ -192,10 +192,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const names = Object.values(data.findResources("AWS::SQS::Queue")).map((resource) => resource.Properties.QueueName);
     expect(names.sort()).toEqual([
       ...EXPECTED_SCOPES.flatMap((scope) => [workerQueueName(scope, stage), workerQueueName(scope, stage, true)]),
+      `aura-historia-maintenance-scheduler-dlq-${stage}`, `aura-historia-periodic-matcher-delivery-${stage}`,
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
       `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(30);
+    expect(new Set(names).size).toBe(32);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -315,7 +316,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
       { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
     ]);
-    expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.initialization]));
+    expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.migration]));
     expect(consumer.resource.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(Object.keys(consumer.resource.Properties.Environment.Variables).sort()).toEqual(
       ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
@@ -330,15 +331,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const [versionId, version] = versions[0];
     expect(version.Properties).toMatchObject({
       FunctionName: { Ref: consumer.id },
-      Description: { "Fn::Join": ["", ["product-listing-ingestion-", { Ref: "CommitSHA" }]] },
+      Description: { Ref: "ProductListingIngestionLambdaArtifactSha256" },
     });
     expect(consumer.resource.Properties).toMatchObject({
       Runtime: "provided.al2023", Handler: "lib.handler", MemorySize: 512, Timeout: 45,
       ReservedConcurrentExecutions: 2, Architectures: ["x86_64"],
     });
-    expect(consumer.resource.Properties.Code.S3Key).toEqual({
-      "Fn::Join": ["", [`product-listing-ingestion-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]],
-    });
+    expect(consumer.resource.Properties.Code.S3Key).toEqual({ Ref: "ProductListingIngestionLambdaArtifactKey" });
     const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
       .filter(([, resource]) => resource.Properties.FunctionName?.Ref === versionId);
     expect(mappings).toHaveLength(1);
@@ -385,8 +384,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       MemorySize: 256, Timeout: 30, Architectures: ["x86_64"], EphemeralStorage: { Size: 512 },
       Role: { "Fn::GetAtt": ["LambdasShopifyLambdaServiceRoleDDA039B4", "Arn"] },
       Code: {
-        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
-        S3Key: { "Fn::Join": ["", [`shopify-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] },
+        S3Bucket: "aura-historia-release-bundles-eu-central-1",
+        S3Key: { Ref: "ShopifyLambdaArtifactKey" },
       },
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
@@ -445,9 +444,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     // The REST and MCP stable HTTP integrations, CDC router and cleanup target,
     // and all thirteen queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(18);
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(20);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
-    expect(aliases).toHaveLength(2);
+    expect(aliases).toHaveLength(4);
     expect(aliases.find((alias) => alias.Properties.Description === "Stable HTTP API integration target")?.Properties).toMatchObject({
       Description: "Stable HTTP API integration target",
       Name: "live",
@@ -645,7 +644,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["COMMIT_SHA", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+      ["COMMIT_SHA", "MAIL_TEMPLATE_PREFIX", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
     const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));
@@ -665,11 +664,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(sesStatements[0].Action).toBe("ses:SendEmail");
     expect(sesStatements[0].Resource).toHaveLength(2);
     expect(JSON.stringify(sesStatements[0].Resource)).toContain("identity/notify.aura-historia.com");
-    const [configurationSetId] = Object.keys(compute.findResources("AWS::SES::ConfigurationSet"));
     expect(sesStatements[0].Resource[1]).toEqual({
       "Fn::Join": ["", [
         "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
-        { Ref: "AWS::AccountId" }, ":configuration-set/", { Ref: configurationSetId },
+        { Ref: "AWS::AccountId" }, ":configuration-set/", functions[0].Properties.Environment.Variables.NOTIFICATION_EMAIL_CONFIGURATION_SET,
       ]],
     });
     expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("identity/*");
@@ -717,8 +715,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const environment = consumer.resource.Properties.Environment.Variables;
     expect(consumer.resource.Properties).toMatchObject({
       Code: {
-        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
-        S3Key: { "Fn::Join": ["", [`marketing-consent-sync-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] },
+        S3Bucket: "aura-historia-release-bundles-eu-central-1",
+        S3Key: { Ref: "MarketingConsentSyncLambdaArtifactKey" },
       },
       Handler: "lib.handler",
       MemorySize: 512,
@@ -740,7 +738,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
     expect(versions).toHaveLength(1);
     const [versionId, version] = versions[0];
-    expect(version.Properties.Description).toEqual({ "Fn::Join": ["", ["marketing-consent-sync-", { Ref: "CommitSHA" }]] });
+    expect(version.Properties.Description).toEqual({ Ref: "MarketingConsentSyncLambdaArtifactSha256" });
     const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
       .filter(([, mapping]) => mapping.Properties.FunctionName?.Ref === versionId);
     expect(mappings).toHaveLength(1);
@@ -818,7 +816,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const dataQueueAlarms = Object.values(data.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => resource.Properties.Namespace === "AWS/SQS");
     expect(dataQueueAlarms).toHaveLength(0);
-    compute.resourceCountIs("AWS::CloudWatch::Alarm", 0);
+    compute.resourceCountIs("AWS::CloudWatch::Alarm", 2);
     if (stage !== "prod") {
       expect(stacks.observability).toBeUndefined();
       return;

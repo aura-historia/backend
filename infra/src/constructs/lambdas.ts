@@ -9,6 +9,7 @@ import type * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
+import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
 import type { ApplicationParameters } from "../parameters";
 import {
   apiEnvironment,
@@ -273,6 +274,8 @@ export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
   readonly apiAlias: lambda.Alias;
   readonly mcpAlias: lambda.Alias;
+  readonly postConfirmationAlias: lambda.Alias;
+  readonly preSignUpAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
   readonly productListingIngestionVersion: lambda.Version;
@@ -337,6 +340,7 @@ export class Lambdas extends Construct {
       config: props.config,
       emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
+      mailTemplatePrefix: props.parameters.mailTemplatePrefix,
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,
@@ -357,13 +361,8 @@ export class Lambdas extends Construct {
         runtime: lambda.Runtime.PROVIDED_AL2023,
         architecture: lambda.Architecture.X86_64,
         handler: "lib.handler",
-        code: lambda.Code.fromBucket(
-          props.artifactBucket,
-          `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
-        ),
-        currentVersionOptions: key === "auraHistoriaApi" || key === "auraHistoriaMcp"
-          ? { description: `${definition.binaryName}-${props.parameters.commitSha}` }
-          : undefined,
+        code: releaseLambdaCode(cdk.Stack.of(this), props.artifactBucket, definition.binaryName),
+        currentVersionOptions: { description: lambdaArtifactParameters(cdk.Stack.of(this), definition.binaryName).sha256 },
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         reservedConcurrentExecutions: definition.reservedConcurrency?.(props.config),
@@ -387,73 +386,81 @@ export class Lambdas extends Construct {
       version: this.functions.auraHistoriaMcp.currentVersion,
       description: "Stable MCP HTTP integration target",
     });
+    this.postConfirmationAlias = new lambda.Alias(this, "PostConfirmationAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.postConfirmation.currentVersion,
+    });
+    this.preSignUpAlias = new lambda.Alias(this, "PreSignUpAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.preSignUp.currentVersion,
+    });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
-      description: `product-listing-opensearch-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-opensearch-lambda").sha256,
     });
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
-      description: `product-listing-normalization-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-normalization-lambda").sha256,
     });
     this.productListingIngestionVersion = new lambda.Version(this, "ProductListingIngestionVersion", {
       lambda: this.functions.productListingIngestion,
-      description: `product-listing-ingestion-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-ingestion-lambda").sha256,
     });
     this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
       lambda: this.functions.productContentAssessment,
-      description: `product-content-assessment-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-content-assessment-lambda").sha256,
     });
     this.productEmbeddingVersion = new lambda.Version(this, "ProductEmbeddingVersion", {
       lambda: this.functions.productEmbedding,
-      description: `product-embedding-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-embedding-lambda").sha256,
     });
     this.productTranslationVersion = new lambda.Version(this, "ProductTranslationVersion", {
       lambda: this.functions.productTranslation,
-      description: `product-translation-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-translation-lambda").sha256,
     });
     this.searchFilterMatchNotificationVersion = new lambda.Version(this, "SearchFilterMatchNotificationVersion", {
       lambda: this.functions.searchFilterMatchNotification,
-      description: `search-filter-match-notification-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "search-filter-match-notification-lambda").sha256,
     });
     this.watchlistNotificationVersion = new lambda.Version(this, "WatchlistNotificationVersion", {
       lambda: this.functions.watchlistNotification,
-      description: `watchlist-notification-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "watchlist-notification-lambda").sha256,
     });
     this.notificationDeliveryVersion = new lambda.Version(this, "NotificationDeliveryVersion", {
       lambda: this.functions.notificationDelivery,
-      description: `notification-delivery-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "notification-delivery-lambda").sha256,
     });
     this.userIdentityDeletionVersion = new lambda.Version(
       this,
       "UserIdentityDeletionVersion",
       {
         lambda: this.functions.userIdentityDeletion,
-        description: `user-identity-deletion-${props.parameters.commitSha}`,
+        description: lambdaArtifactParameters(cdk.Stack.of(this), "user-identity-deletion-lambda").sha256,
       },
     );
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
-      description: `marketing-consent-sync-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "marketing-consent-sync-lambda").sha256,
     });
     this.listingGeographyVersion = new lambda.Version(this, "ListingGeographyVersion", {
       lambda: this.functions.listingGeography,
-      description: `listing-geography-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "listing-geography-lambda").sha256,
     });
     this.listingShippingVersion = new lambda.Version(this, "ListingShippingVersion", {
       lambda: this.functions.listingShipping,
-      description: `listing-shipping-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "listing-shipping-lambda").sha256,
     });
     this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
       lambda: this.functions.geoResolution,
-      description: `geo-resolution-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "geo-resolution-lambda").sha256,
     });
     this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
       lambda: this.functions.backendCleanup,
-      description: `backend-cleanup-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "backend-cleanup-lambda").sha256,
     });
     this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
       lambda: this.functions.cdcRouter,
-      description: `cdc-router-${props.parameters.commitSha}`,
+      description: lambdaArtifactParameters(cdk.Stack.of(this), "cdc-router-lambda").sha256,
     });
     grantRuntimeAccess(props, this.functions);
   }
@@ -524,7 +531,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch, "product-listings");
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
-    resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],
+    resources: [props.mailTemplateBucket.arnForObjects("mail/*")],
   }));
   // Both senders explicitly select the managed stage-local set, not the shared identity's default.
   const sesSendResources = [
@@ -546,7 +553,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(
-      `${props.config.stage}/${props.parameters.commitSha}/mjml/newsletter/confirmation/*`,
+      "mail/*/mjml/newsletter/confirmation/*",
     )],
   }));
   functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({

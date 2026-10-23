@@ -11,7 +11,6 @@ function templates(stage: StageName, sha?: string) {
   const app = new cdk.App({ analyticsReporting: false });
   const stacks = createApplicationStacks(app, { stage });
   if (sha) {
-    (stacks.initialization!.node.findChild("CommitSHA") as cdk.CfnParameter).default = sha;
     (stacks.compute.node.findChild("CommitSHA") as cdk.CfnParameter).default = sha;
   }
   return {
@@ -98,11 +97,11 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(JSON.stringify(fxArn)).toContain(`:function:fxrate-lambda-${stage}`);
     expect(JSON.stringify(fxArn)).not.toContain("Fn::ImportValue");
     expect(JSON.stringify(initialize!.toJSON().Outputs ?? {})).not.toContain("FxRateSyncVersion");
-    initialize!.resourceCountIs("AWS::Lambda::Version", 0);
+    initialize!.resourceCountIs("AWS::Lambda::Version", 1);
     const schedulerPolicy = resources(compute, "AWS::IAM::Policy").find((policy) =>
       JSON.stringify(policy.Properties).includes("lambda:InvokeFunction") && JSON.stringify(policy.Properties).includes("sqs:SendMessage"),
     );
-    expect(JSON.stringify(schedulerPolicy?.Properties)).toContain("BackendCleanupVersion");
+    expect(JSON.stringify(schedulerPolicy?.Properties)).toContain("BackendCleanupLambda");
     expect(schedulerPolicy?.Properties.PolicyDocument.Statement).toEqual(expect.arrayContaining([
       expect.objectContaining({ Action: "lambda:InvokeFunction", Resource: expect.arrayContaining([fxArn]) }),
     ]));
@@ -124,10 +123,8 @@ describe.each(["dev", "prod"] as const)("%s FX deployment boundary", (stage) => 
       ),
     );
     expect(fxFunctions).toHaveLength(1);
-    expect(JSON.stringify(fxFunctions[0].Properties.Code)).toContain("CommitSHA");
-    expect(first.initialize!.toJSON().Parameters.CommitSHA.Default).toBe("first-sha");
-    expect(second.initialize!.toJSON().Parameters.CommitSHA.Default).toBe("second-sha");
-    first.initialize!.resourceCountIs("AWS::Lambda::Version", 0);
+    expect(fxFunctions[0].Properties.Code.S3Key).toEqual({ Ref: "FxrateLambdaArtifactKey" });
+    expect(fxFunctions[0].Properties.Code.S3ObjectVersion).toEqual({ Ref: "FxrateLambdaArtifactVersion" });
     expect(JSON.stringify(first.initialize!.toJSON().Outputs ?? {})).not.toContain("FxRateSync");
 
     const fxTarget = (template: Template) => resources(template, "AWS::Scheduler::Schedule")
@@ -150,7 +147,7 @@ describe.each(["dev", "prod"] as const)("%s FX deployment boundary", (stage) => 
   test("orders compute after initialization without a reverse dependency cycle", () => {
     const app = new cdk.App({ analyticsReporting: false });
     const stacks = createApplicationStacks(app, { stage });
-    expect(stacks.compute.dependencies).toContain(stacks.initialization);
+    expect(stacks.compute.dependencies).toContain(stacks.migration);
     const predecessors = new Set<cdk.Stack>();
     const visit = (stack: cdk.Stack): void => {
       if (predecessors.has(stack)) return;

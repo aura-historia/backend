@@ -1,5 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ses from "aws-cdk-lib/aws-ses";
 import * as sns from "aws-cdk-lib/aws-sns";
@@ -7,11 +9,11 @@ import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
   CLOUDFORMATION_STAGING_BUCKET_NAME,
-  MAIL_TEMPLATE_BUCKET_NAME,
   type StageName,
 } from "./config";
+import { constrainRoutineRoles } from "./routine-role-boundary";
 import { stageConfig } from "./config";
-import { applicationParameters, artifactCommitShaParameter } from "./parameters";
+import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { McpHttpApi } from "./constructs/mcp";
 import { Identity } from "./constructs/cognito";
@@ -25,14 +27,16 @@ import {
   importLambdaCatalog,
   Lambdas,
 } from "./constructs/lambdas";
-import { InitializationLambdas } from "./constructs/database-operations";
+import { InitializationLambdas, RoutineDatabaseOperations } from "./constructs/database-operations";
 import { addCdcAlarms, Observability } from "./constructs/observability";
 import { PeriodicMatcher } from "./constructs/periodic-matcher";
 import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
 import { scheduledEcsClusterName } from "./scheduled-ecs-config";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import { ReleaseRollout } from "./constructs/release-rollout";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
+import { WorkloadStorage } from "./constructs/workload-storage";
 import { Storage } from "./constructs/storage";
 import { importWorkerQueueCatalog, WorkerQueues } from "./constructs/worker-queues";
 
@@ -49,6 +53,8 @@ export interface ApplicationStageStacks {
   readonly network: ApplicationNetworkStack;
   readonly data: ApplicationDataStack;
   readonly initialization: ApplicationInitializationStack;
+  readonly migration: ApplicationMigrationStack;
+  readonly identity: ApplicationIdentityStack;
   readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
   readonly observability?: ApplicationObservabilityStack;
@@ -81,12 +87,23 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   initialization.addDependency(data);
   initialization.addDependency(network);
 
+  const migration = new ApplicationMigrationStack(scope, `${stackNamePrefix}-migrate`, {
+    ...baseProps, stage: props.stage, stackName: `${stackNamePrefix}-migrate`,
+    storage: data.storage, network: network.network,
+  });
+  const identity = new ApplicationIdentityStack(scope, `${stackNamePrefix}-identity`, {
+    ...baseProps, stage: props.stage, stackName: `${stackNamePrefix}-identity`,
+  });
+
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
     ...baseProps,
     stage: props.stage,
     stackName: `${stackNamePrefix}-compute`,
     storage: data.storage,
+    identity: identity.identity,
+    emailConfigurationSet: identity.emailConfigurationSet,
     queues: data.queues,
+    workloadStorage: data.workloadStorage,
     search: data.search,
     dmsCdc: data.dmsCdc,
     network: network.network,
@@ -94,13 +111,13 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   compute.addDependency(data);
   compute.addDependency(network);
   // FX is addressed by its stable name, so no cross-stack reference enforces this deployment order.
-  compute.addDependency(initialization);
+  compute.addDependency(migration);
 
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
     ...baseProps,
     stage: props.stage,
     stackName: `${stackNamePrefix}-api`,
-    identity: compute.identity,
+    identity: identity.identity,
   });
   api.addDependency(compute);
 
@@ -121,6 +138,8 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     network,
     data,
     initialization,
+    migration,
+    identity,
     compute,
     api,
     observability,
@@ -149,6 +168,7 @@ export class ApplicationDataStack extends cdk.Stack {
   readonly storage: Storage;
   readonly queues: Queues;
   readonly workerQueues: WorkerQueues;
+  readonly workloadStorage: WorkloadStorage;
   readonly search: Search;
   readonly dmsCdc: DmsCdc;
 
@@ -169,6 +189,7 @@ export class ApplicationDataStack extends cdk.Stack {
       config,
       stageName,
     });
+    this.workloadStorage = new WorkloadStorage(this, "WorkloadStorage", config);
     this.workerQueues = new WorkerQueues(this, "WorkerQueues", { config });
 
     this.search = new Search(this, "Search", {
@@ -215,11 +236,9 @@ export class ApplicationInitializationStack extends cdk.Stack {
     }
 
     this.templateOptions.description = "Aura Historia private database initialization stack";
-    const commitSha = artifactCommitShaParameter(this);
     const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
     this.initialization = new InitializationLambdas(this, "InitializationLambdas", {
       config,
-      commitSha,
       artifactBucket,
       migrationPostgres: props.storage.migrationPostgres,
       postgres: props.storage.postgres,
@@ -228,34 +247,27 @@ export class ApplicationInitializationStack extends cdk.Stack {
   }
 }
 
-export interface ApplicationComputeStackProps extends ApplicationStackProps {
-  readonly storage: Storage;
-  readonly queues: Queues;
-  readonly search: Search;
-  readonly dmsCdc?: DmsCdc;
-  readonly network?: Network;
+export class ApplicationMigrationStack extends cdk.Stack {
+  readonly operations: RoutineDatabaseOperations;
+  constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
+    super(scope, id, stackProps(props));
+    constrainRoutineRoles(this, props.stage, "migration");
+    if (!props.network || !props.storage.migrationPostgres) throw new Error("Migration operations require private PostgreSQL.");
+    this.operations = new RoutineDatabaseOperations(this, "DatabaseOperations", {
+      config: stageConfig(props.stage), network: props.network,
+      postgres: props.storage.postgres, migrationPostgres: props.storage.migrationPostgres,
+      artifactBucket: s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME),
+    });
+  }
 }
 
-export class ApplicationComputeStack extends cdk.Stack {
-  readonly lambdas: Lambdas;
+export class ApplicationIdentityStack extends cdk.Stack {
   readonly identity: Identity;
   readonly emailConfigurationSet: ses.ConfigurationSet;
-  readonly eventing: Eventing;
-  readonly periodicMatcher?: PeriodicMatcher;
-  readonly scheduledEcsCluster?: ecs.Cluster;
-
-  constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
-
     const config = stageConfig(props.stage);
-    const parameters = applicationParameters(this, config.searchFilterClassifier);
     const stageName = config.stage;
-
-    this.templateOptions.description = "Aura Historia compute stack";
-
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
-    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
-
     this.emailConfigurationSet = new ses.ConfigurationSet(this, "EmailConfigurationSet", {
       configurationSetName: config.notificationEmail.configurationSet,
       reputationMetrics: true,
@@ -282,6 +294,70 @@ export class ApplicationComputeStack extends cdk.Stack {
       ],
     });
 
+
+    const trigger = (binary: string, id: string) => lambda.Function.fromFunctionArn(this, id,
+      this.formatArn({ service: "lambda", resource: "function", resourceName: `${binary}-${stageName}:live`,
+        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }));
+    this.identity = new Identity(this, "Identity", {
+      config, stageName, emailConfigurationSet: this.emailConfigurationSet,
+      postConfirmationLambda: trigger("cognito-post-confirmation", "PostConfirmationTrigger"),
+      preSignUpLambda: trigger("cognito-pre-sign-up", "PreSignUpTrigger"),
+    });
+    this.identity.userPool.node.addDependency(emailMetrics);
+    // Initial bootstrap creates the pool before code; attach stable triggers in the second protected update.
+    const attach = new cdk.CfnParameter(this, "AttachIdentityTriggers", {
+      type: "String", default: "true", allowedValues: ["true", "false"],
+    });
+    const enabled = new cdk.CfnCondition(this, "IdentityTriggersAttached", {
+      expression: cdk.Fn.conditionEquals(attach.valueAsString, "true"),
+    });
+    const pool = this.identity.userPool.node.defaultChild as cognito.CfnUserPool;
+    pool.addPropertyOverride("LambdaConfig", cdk.Fn.conditionIf(enabled.logicalId, {
+      PostConfirmation: this.formatArn({ service: "lambda", resource: "function", resourceName: `cognito-post-confirmation-${stageName}:live`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
+      PreSignUp: this.formatArn({ service: "lambda", resource: "function", resourceName: `cognito-pre-sign-up-${stageName}:live`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
+    }, cdk.Aws.NO_VALUE));
+    for (const resource of this.node.findAll()) {
+      if (resource instanceof lambda.CfnPermission) resource.cfnOptions.condition = enabled;
+    }
+    new cdk.CfnOutput(this, "CognitoUserPoolId", { value: this.identity.userPool.userPoolId });
+    new cdk.CfnOutput(this, "CognitoUserPoolClientPublicId", { value: this.identity.publicClient.userPoolClientId });
+  }
+}
+
+export interface ApplicationComputeStackProps extends ApplicationStackProps {
+  readonly storage: Storage;
+  readonly identity: Identity;
+  readonly emailConfigurationSet: ses.ConfigurationSet;
+  readonly workloadStorage: WorkloadStorage;
+  readonly queues: Queues;
+  readonly search: Search;
+  readonly dmsCdc?: DmsCdc;
+  readonly network?: Network;
+}
+
+export class ApplicationComputeStack extends cdk.Stack {
+  readonly lambdas: Lambdas;
+  readonly identity: Identity;
+  readonly emailConfigurationSet: ses.ConfigurationSet;
+  readonly eventing: Eventing;
+  readonly periodicMatcher?: PeriodicMatcher;
+  readonly scheduledEcsCluster?: ecs.Cluster;
+
+  constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage);
+    const parameters = applicationParameters(this, config.searchFilterClassifier);
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia compute stack";
+    constrainRoutineRoles(this, props.stage, "runtime");
+
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", ARTIFACT_BUCKET_NAME);
+
+    this.emailConfigurationSet = props.emailConfigurationSet;
+
     this.lambdas = new Lambdas(this, "Lambdas", {
       config,
       emailConfigurationSet: this.emailConfigurationSet,
@@ -294,16 +370,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       network: props.network,
     });
 
-    this.identity = new Identity(this, "Identity", {
-      config,
-      emailConfigurationSet: this.emailConfigurationSet,
-      stageName,
-      postConfirmationLambda: this.lambdas.functions.postConfirmation,
-      preSignUpLambda: this.lambdas.functions.preSignUp,
-    });
-    this.identity.userPool.node.addDependency(emailMetrics);
-    this.lambdas.functions.auraHistoriaApi.node.addDependency(emailMetrics);
-    this.lambdas.functions.notificationDelivery.node.addDependency(emailMetrics);
+    new ReleaseRollout(this, "ReleaseRollout", { config, api: this.lambdas.apiAlias, mcp: this.lambdas.mcpAlias });
+    this.identity = props.identity;
     addUserPoolEnvironment(
       this.lambdas.functions,
       this.identity.userPool.userPoolId,
@@ -314,6 +382,7 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
+      workloadStorage: props.workloadStorage,
       queues: importQueueCatalog(this, "Queues", stageName),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueues", config),
       functions: this.lambdas.functions,
@@ -355,7 +424,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
     });
     this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
-      config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
+      config, deliveryDlq: props.workloadStorage.periodicMatcherDlq, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
       imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
       classifierModel: parameters.searchFilterClassifierModel,
       batchCandidates: parameters.searchFilterMatchBatchCandidates,
@@ -387,6 +456,7 @@ export class ApplicationApiStack extends cdk.Stack {
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia API stack";
+    constrainRoutineRoles(this, props.stage, "runtime");
 
     const functions = importLambdaCatalog(this, "LambdaImports", config);
     this.api = new BackendHttpApi(this, "HttpApi", {

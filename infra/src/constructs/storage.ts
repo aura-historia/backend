@@ -32,6 +32,7 @@ export interface PostgresMigrationConnectionSettings {
   readonly runtimeSecretArn: string;
   readonly migrationSecretArn: string;
   readonly replicationSecretArn: string;
+  readonly inspectionSecretArn: string;
 }
 
 export class Storage extends Construct {
@@ -41,6 +42,7 @@ export class Storage extends Construct {
   readonly adminCredentials?: rds.DatabaseSecret;
   readonly runtimeCredentials?: rds.DatabaseSecret;
   readonly migrationCredentials?: rds.DatabaseSecret;
+  readonly inspectionCredentials?: rds.DatabaseSecret;
   readonly replicationCredentials?: secretsmanager.ISecret;
 
   constructor(scope: Construct, id: string, props: StorageProps) {
@@ -113,6 +115,12 @@ export class Storage extends Construct {
       databaseName: rdsConfig.databaseName,
       adminCredentials: this.adminCredentials,
     });
+    this.inspectionCredentials = applicationCredentials(this, "PostgresInspectionCredentials", {
+      stage: props.config.stage,
+      username: "aura_inspector",
+      databaseName: rdsConfig.databaseName,
+      adminCredentials: this.adminCredentials,
+    });
     this.replicationCredentials = dmsReplicationCredentials(this, "PostgresReplicationCredentials", {
       stage: props.config.stage,
       databaseName: rdsConfig.databaseName,
@@ -137,6 +145,7 @@ export class Storage extends Construct {
       runtimeSecretArn: this.runtimeCredentials.secretArn,
       migrationSecretArn: this.migrationCredentials.secretArn,
       replicationSecretArn: this.replicationCredentials.secretArn,
+      inspectionSecretArn: this.inspectionCredentials.secretArn,
     };
   }
 }
