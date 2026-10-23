@@ -293,6 +293,24 @@ mod tests {
 
             assert_eq!(separated_text_of(markup), "Height 53 cm\nWidth 65 cm");
         }
+
+        /// The widest boundary between two text nodes decides their separator, so a cell
+        /// boundary next to a block boundary starts a new line instead of adding a space.
+        #[rstest]
+        #[case::block_opens_the_next_cell(
+            "<table><tr><th>Height</th><td><p>53 cm</p></td></tr></table>",
+            "Height\n53 cm"
+        )]
+        #[case::block_closes_the_previous_cell(
+            "<table><tr><th><div>Height</div></th><td>53 cm</td></tr></table>",
+            "Height\n53 cm"
+        )]
+        fn should_start_a_new_line_where_a_cell_boundary_meets_a_block_boundary(
+            #[case] markup: &str,
+            #[case] expected: &str,
+        ) {
+            assert_eq!(separated_text_of(markup), expected);
+        }
     }
 
     mod inline_elements {

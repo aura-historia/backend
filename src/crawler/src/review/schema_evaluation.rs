@@ -1304,6 +1304,10 @@ mod tests {
             assert_eq!(images.selector_match_count, Some(5));
             assert_eq!(images.skipped_element_count, Some(3));
             assert_eq!(field(page, "title").skipped_element_count, None);
+            assert!(
+                schema_matrix_deterministic_approval_ok(&matrix),
+                "skipped elements are review information and do not block approval"
+            );
         }
 
         #[test]
@@ -1351,6 +1355,46 @@ mod tests {
                 )
             );
             assert_eq!(field(page, "images").skipped_element_count, Some(2));
+        }
+
+        /// Pairs one gallery's extraction with another gallery's HTML, so the count shows
+        /// whether it came from the extraction or from applying the `images` rule again.
+        #[test]
+        fn should_apply_the_images_rule_again_only_when_another_rule_failed_the_page() {
+            let html_of = |anchors: &str| Html::parse_document(&gallery_page(anchors).raw_html);
+            let two_skipped =
+                html_of("<a href=\"/images/1.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a>");
+            let none_skipped = html_of("<a href=\"/images/1.jpg\"></a>");
+            let all_skipped = html_of("<a href=\"#\"></a>");
+            let applies = gallery_schema();
+            let fails_on_title = ProductCssSelectorSchema {
+                title: text_rule("h2"),
+                ..gallery_schema()
+            };
+
+            let applied = applies.extract(&two_skipped);
+            assert!(applied.is_ok());
+            assert_eq!(
+                skipped_image_elements(&applies, &none_skipped, &applied),
+                Some(2),
+                "an applied page reports its extraction's count"
+            );
+
+            let title_failed = fails_on_title.extract(&two_skipped);
+            assert!(matches!(title_failed, Err(ApplySchemaError::Title(_))));
+            assert_eq!(
+                skipped_image_elements(&fails_on_title, &none_skipped, &title_failed),
+                Some(0),
+                "a page another rule failed applies the images rule again"
+            );
+
+            let images_failed = applies.extract(&all_skipped);
+            assert!(matches!(images_failed, Err(ApplySchemaError::Images(_))));
+            assert_eq!(
+                skipped_image_elements(&applies, &two_skipped, &images_failed),
+                None,
+                "a page the images rule failed has no count"
+            );
         }
 
         #[test]
