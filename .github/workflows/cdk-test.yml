@@ -15,7 +15,6 @@ on:
       - "ci/**"
       - "opensearch/**"
       - "releases/**"
-      - ".github/workflows/release-adopt.yml"
       - "src/user-service/src/ports/consent_workflow_cleanup.rs"
       - "docs/swagger.yaml"
       - "Cargo.toml"
@@ -31,8 +30,6 @@ on:
       - ".github/workflows/cdk-test.yml"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
-      - ".github/workflows/initialize.yml"
-      - ".github/workflows/migrate.yml"
   pull_request:
     paths:
       - "infra/**"
@@ -40,7 +37,6 @@ on:
       - "ci/**"
       - "opensearch/**"
       - "releases/**"
-      - ".github/workflows/release-adopt.yml"
       - "src/user-service/src/ports/consent_workflow_cleanup.rs"
       - "docs/swagger.yaml"
       - "Cargo.toml"
@@ -56,8 +52,6 @@ on:
       - ".github/workflows/cdk-test.yml"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
-      - ".github/workflows/initialize.yml"
-      - ".github/workflows/migrate.yml"
 
 jobs:
   infra-test:

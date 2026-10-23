@@ -19,9 +19,6 @@ on:
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
-      - "ci/publish-container.sh"
-      - "ci/deploy-stacks.sh"
-      - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
   push:
@@ -37,9 +34,6 @@ on:
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
-      - "ci/publish-container.sh"
-      - "ci/deploy-stacks.sh"
-      - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
 
