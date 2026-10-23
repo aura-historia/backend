@@ -72,7 +72,7 @@ function environmentProtection(name, get = gh) {
   if (
     !environment.id ||
     !reviewers?.reviewers?.length ||
-    environment.can_admins_bypass === true ||
+    environment.can_admins_bypass !== false ||
     environment.deployment_branch_policy?.protected_branches !== true ||
     environment.deployment_branch_policy?.custom_branch_policies === true
   )

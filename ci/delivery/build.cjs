@@ -648,12 +648,27 @@ async function main() {
     tests,
   };
   const bundleDigest = completeBundle(bundle, bucket, store);
+  const elapsedSeconds = (Date.now() - started) / 1000;
+  const peak = (phase) => {
+    const filename = path.join(output, `${phase}.memory-peak-bytes`);
+    if (!fs.existsSync(filename)) return null;
+    const value = Number(fs.readFileSync(filename, 'utf8').trim());
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
   const metrics = {
     buildId,
     bundleDigest,
     codeBuildId: process.env.CODEBUILD_BUILD_ID,
     groups: config.groups,
-    elapsedSeconds: (Date.now() - started) / 1000,
+    pipelineExecutionId: process.env.DELIVERY_EXECUTION_ID || null,
+    codeBuildJobs: 1,
+    elapsedSeconds,
+    computeMinutesObserved: elapsedSeconds / 60,
+    memoryPeakBytes: { prepare: peak('prepare'), compile: peak('compile') },
+    memoryScope:
+      'Container cgroup peak where exposed; null means unavailable, not zero. Docker image builder memory and final billed compute minutes require native CodeBuild evidence.',
+    computeChoice:
+      'One shared build group is provisional until an approved cold/warm benchmark records duration and peak memory.',
     artifactBytes: artifacts.reduce((sum, asset) => sum + asset.size, 0),
     cache: 'build-identity-scoped local target; no cross-source cache claims',
   };

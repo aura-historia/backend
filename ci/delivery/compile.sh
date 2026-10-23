@@ -6,10 +6,17 @@ export CARGO_TARGET_DIR=/output/target
 export CARGO_HOME=/output/cargo
 export CARGO_INCREMENTAL=0
 export SOURCE_DATE_EPOCH=315532800
-export CARGO_PROFILE_RELEASE_LTO=true
-export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export AWS_EC2_METADATA_DISABLED=true
 mkdir -p /output/lambdas /output/templates /output/assemblies
+capture_memory() {
+  for counter in /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory/memory.max_usage_in_bytes; do
+    if [ -r "$counter" ]; then
+      cat "$counter" > "/output/${1}.memory-peak-bytes"
+      return
+    fi
+  done
+}
+trap 'capture_memory "${1:-compile}"' EXIT
 if [ "${1:-}" = prepare ]; then
   # Dependencies and tool installers run without publication credentials as well.
   cargo install cargo-lambda --version 1.9.0 --locked
@@ -28,6 +35,9 @@ if [ "${1:-}" = prepare ]; then
   exit 0
 fi
 export PATH=/output/node-v26.0.0-linux-x64/bin:/output/cargo/bin:/output/tools/bin:$PATH
+# Preserve the Lambda profile used by the previous proven publisher.
+export CARGO_PROFILE_RELEASE_LTO=true
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 rustc --version | head -1 | grep -F '1.98.0'
 cargo lambda --version | grep -E '^cargo-lambda 1\.9\.0($| )'
 node --version | grep -Fx 'v26.0.0'

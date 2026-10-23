@@ -40,6 +40,7 @@ test('privileged entry rejects non-manual, untrusted branch and unverified envir
   for (const change of [
     { protection_rules: [] },
     { can_admins_bypass: true },
+    { can_admins_bypass: undefined },
     { deployment_branch_policy: null },
   ])
     assert.throws(() =>
