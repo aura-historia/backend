@@ -1,29 +1,7 @@
+# Experiment for #2425 only: never merge this workflow.
 name: Integrate (CI)
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".cargo/**"
-      - ".config/**"
-      - "ci/**"
-      - "tooling/**"
-      - "tests/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-      - "opensearch/**"
-      - "mjml/**"
-      - "docs/swagger.yaml"
-      - "docs/fixtures/**"
-      - "infra/sql/**"
-      - "infra/assets/rds-ca-layer/**"
   pull_request:
     paths:
       - ".github/workflows/**"
@@ -61,75 +39,45 @@ env:
   CARGO_BUILD_JOBS: 4
 
 jobs:
-  lint:
-    name: Lint Workspace
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/lint-workspace
-
-  api:
-    name: Test API
+  baseline:
+    name: Screen baseline (develop dependency cache)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/test-lane
+      - uses: ./.github/actions/kache-screen
         with:
-          id: api
-          lanes: API
-          slots: 4
-          profile: api
-          compilation_cache: dependencies
+          mode: baseline
 
-  crawler:
-    name: Test Crawler
+  kache-populate:
+    name: Screen kache population
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/test-lane
+      - uses: ./.github/actions/kache-screen
         with:
-          id: crawler
-          lanes: CRAWLER
-          slots: 4
-          profile: postgres
-          compilation_cache: dependencies
+          mode: populate
 
-  integration:
-    name: Test Integration
+  kache-reuse:
+    name: Screen kache fresh-runner reuse
+    needs: kache-populate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/test-lane
+      - uses: ./.github/actions/kache-screen
         with:
-          id: integration
-          lanes: INFRASTRUCTURE
-          slots: 4
-          profile: api
-          compilation_cache: dependencies
-
-  remaining:
-    name: Test Remaining
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/test-lane
-        with:
-          id: remaining
-          lanes: REMAINING
-          slots: 4
-          profile: none
-          compilation_cache: dependencies
+          mode: reuse

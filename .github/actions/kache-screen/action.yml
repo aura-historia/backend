@@ -1,0 +1,175 @@
+name: Screen kache on the Integration lane
+description: >-
+  Experiment for #2425. Run the complete Integration lane against develop's dependency cache,
+  optionally under kache, and record cache restore, storage and timing evidence.
+inputs:
+  mode:
+    description: baseline (dependency cache only), populate (kache, saves its store) or reuse (kache, restores it).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure test lane
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        [[ "$MODE" =~ ^(baseline|populate|reuse)$ ]]
+        test -n "$RUNNER_TEMP"
+        test -n "$GITHUB_WORKSPACE"
+        mkdir -p "$RUNNER_TEMP/lane/integration"
+        target="$GITHUB_WORKSPACE/target/no-coverage"
+        rm -rf "$target"
+        mkdir -p "$target"
+        printf 'Reset target %s; screen mode %s.\n' "$target" "$MODE"
+        {
+          printf 'CARGO_TARGET_DIR=%s\n' "$target"
+          printf 'RUSTFLAGS=\nRUSTDOCFLAGS=\nCARGO_ENCODED_RUSTFLAGS=\nCARGO_ENCODED_RUSTDOCFLAGS=\n'
+          printf 'LLVM_PROFILE_FILE=\nRUSTDOC=rustdoc\n'
+          printf 'CARGO_PROFILE_TEST_DEBUG=1\nCARGO_PROFILE_DEV_DEBUG=1\n'
+          printf 'RUSTUP_TOOLCHAIN=nightly-2026-10-20\n'
+          printf 'AURA_TEST_POSTGRES_IMAGE=postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67\n'
+          printf 'NEXTEST_PROFILE=ci\n'
+          printf 'AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\nAWS_SESSION_TOKEN=test\n'
+          printf 'AWS_EC2_METADATA_DISABLED=true\nAWS_DEFAULT_REGION=eu-central-1\nAWS_REGION=eu-central-1\n'
+        } >> "$GITHUB_ENV"
+
+    - name: Observe runner disk capacity
+      shell: bash
+      run: |
+        bash ci/prepare-runner-disk.sh observe
+        nproc
+        free -b
+
+    - name: Install pinned Rust toolchain
+      shell: bash
+      run: |
+        rustup toolchain install nightly-2026-10-20 --profile minimal
+        rustc -Vv
+        rustup toolchain list
+
+    # Same key as the Integrate Integration job (job id appended explicitly), so the entry develop
+    # published is restored read-only. The hashed files are unchanged on this branch.
+    - name: Restore develop dependency cache
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: test-integration-none-deps-v1-${{ hashFiles('.github/actions/test-lane/action.yml', 'ci/run-test-lane.py', 'ci/ci_inventory/discovery.py', 'ci/ci_inventory/phases.py', 'ci/test-lanes.json') }}-integration
+        add-job-id-key: false
+        workspaces: . -> target/no-coverage
+        cache-workspace-crates: false
+        cache-all-crates: false
+        cache-on-failure: false
+        save-if: false
+        env-vars: CARGO_PROFILE_TEST_DEBUG CARGO_PROFILE_DEV_DEBUG CARGO_INCREMENTAL RUSTFLAGS RUSTDOCFLAGS RUSTUP_TOOLCHAIN
+
+    - name: Inventory repository caches
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash .github/actions/kache-screen/inventory.sh "$RUNNER_TEMP/lane/integration/caches-start.jsonl"
+
+    # Installed after the dependency restore so RUSTC_WRAPPER cannot enter that key.
+    - name: Install verified kache
+      if: inputs.mode != 'baseline'
+      shell: bash
+      run: |
+        directory="$RUNNER_TEMP/kache-bin"
+        mkdir -p "$directory" /tmp/kache-runtime
+        curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+          --connect-timeout 10 --max-time 120 \
+          https://github.com/kunobi-ninja/kache/releases/download/v1.2.2/kache-x86_64-unknown-linux-musl.tar.gz \
+          -o "$directory/kache.tar.gz"
+        printf '%s  %s\n' f2f6555dee50945c2a90a7fb793c2084a00cc6459d08ac2306d38d905064321b "$directory/kache.tar.gz" | sha256sum --check
+        tar -xzf "$directory/kache.tar.gz" -C "$directory" kache
+        "$directory/kache" --version
+        printf '%s\n' "$directory" >> "$GITHUB_PATH"
+        {
+          printf 'RUSTC_WRAPPER=%s\n' "$directory/kache"
+          printf 'KACHE_CACHE_DIR=%s\n' "$RUNNER_TEMP/kache-store"
+          printf 'KACHE_RUNTIME_DIR=/tmp/kache-runtime\n'
+          printf 'KACHE_MAX_SIZE=40GiB\n'
+          printf 'KACHE_CACHE_EXECUTABLES=0\n'
+        } >> "$GITHUB_ENV"
+
+    - name: Restore kache store
+      if: inputs.mode == 'reuse'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/kache-store
+        key: kache-screen-integration-${{ github.run_id }}
+        fail-on-cache-miss: true
+
+    - name: Install verified Nextest
+      shell: bash
+      run: |
+        bash ci/install-test-tools.sh "$RUNNER_TEMP/test-tools"
+        printf '%s\n' "$RUNNER_TEMP/test-tools" >> "$GITHUB_PATH"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Run owned targets and doctests
+      shell: bash
+      run: |
+        python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/integration/disk.jsonl" -- \
+          python3 ci/run-test-lane.py --lane INFRASTRUCTURE --slots 4 --profile api \
+          --features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge \
+          --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" --state-dir "$RUNNER_TEMP/lane/integration/state" \
+          --output "$RUNNER_TEMP/lane/integration/discovery" 2>&1 | tee "$RUNNER_TEMP/lane/integration/tests.log"
+
+    - name: Report kache activity
+      if: always() && inputs.mode != 'baseline'
+      shell: bash
+      run: |
+        output="$RUNNER_TEMP/lane/integration"
+        kache stats --last-build || true
+        kache stats --format json --output "$output/kache-stats.json" || true
+        kache report --format github >> "$GITHUB_STEP_SUMMARY" || true
+        kache daemon stop || true
+        du -sb "$KACHE_CACHE_DIR" | tee "$output/kache-store-bytes.txt"
+        df -B1 "$KACHE_CACHE_DIR" | tee -a "$output/kache-store-bytes.txt"
+
+    - name: Measure workspace output storage
+      if: inputs.mode == 'baseline'
+      shell: bash
+      run: |
+        python3 .github/actions/kache-screen/measure_target.py --target "$CARGO_TARGET_DIR" \
+          --output "$RUNNER_TEMP/lane/integration/target-composition.json"
+
+    - name: Check kache store budget
+      id: budget
+      if: inputs.mode == 'populate'
+      shell: bash
+      run: |
+        bytes="$(du -sb "$KACHE_CACHE_DIR" | cut -f1)"
+        limit=$((16 * 1024 * 1024 * 1024))
+        if [ "$bytes" -le "$limit" ]; then save=true; else save=false; fi
+        printf 'store_bytes=%s limit_bytes=%s save=%s\n' "$bytes" "$limit" "$save"
+        printf 'save=%s\n' "$save" >> "$GITHUB_OUTPUT"
+
+    - name: Save kache store
+      if: inputs.mode == 'populate' && steps.budget.outputs.save == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/kache-store
+        key: kache-screen-integration-${{ github.run_id }}
+
+    - name: Inventory repository caches after the lane
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash .github/actions/kache-screen/inventory.sh "$RUNNER_TEMP/lane/integration/caches-end.jsonl" || true
+
+    - name: Preserve screen diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: kache-screen-${{ inputs.mode }}-attempt-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/lane/integration/
+        if-no-files-found: warn
+        retention-days: 7
