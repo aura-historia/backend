@@ -55,6 +55,7 @@ assertions need an untouched cluster.
 To reproduce a lane with the CI compiler and build settings:
 
 ```sh
+rustup toolchain install nightly-2026-10-20 --profile minimal
 export RUSTUP_TOOLCHAIN=nightly-2026-10-20
 export CARGO_BUILD_JOBS=4
 export CARGO_INCREMENTAL=0
