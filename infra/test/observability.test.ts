@@ -228,7 +228,7 @@ test("dev creates CDC retention alarms while keeping production router alarms di
   }
   for (const stack of [dev.network, dev.initialization, dev.compute, dev.api]) {
     if (stack) {
-      Template.fromStack(stack).resourceCountIs("AWS::CloudWatch::Alarm", 0);
+      Template.fromStack(stack).resourceCountIs("AWS::CloudWatch::Alarm", stack === dev.compute ? 2 : 0);
     }
   }
 

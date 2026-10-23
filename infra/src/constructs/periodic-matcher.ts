@@ -3,6 +3,7 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import type * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -14,6 +15,7 @@ import type { PostgresConnectionSettings } from "./storage";
 
 export interface PeriodicMatcherProps {
   readonly config: StageConfig;
+  readonly deliveryDlq: sqs.IQueue;
   readonly network: Network;
   readonly cluster: ecs.ICluster;
   readonly postgres: PostgresConnectionSettings;
@@ -33,6 +35,7 @@ export class PeriodicMatcher extends ScheduledEcsJob {
     const names = periodicMatcherNames(config.stage);
     super(scope, id, {
       network,
+      deliveryDlq: props.deliveryDlq,
       cluster: props.cluster,
       names: { ...names, lifecyclePolicy: `periodic-matcher-events-${config.stage}` },
       platform: PERIODIC_MATCHER_IMAGE.platform,

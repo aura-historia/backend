@@ -51,8 +51,7 @@ pub struct NewsletterConfirmationEmailConfig {
     from: String,
     reply_to: String,
     configuration_set: String,
-    stage: String,
-    commit: String,
+    template_prefix: String,
     frontend_origin: Url,
 }
 
@@ -66,16 +65,16 @@ impl NewsletterConfirmationEmailConfig {
         reply_to: impl Into<String>,
         configuration_set: impl Into<String>,
         stage: impl Into<String>,
-        commit: impl Into<String>,
+        template_prefix: impl Into<String>,
         frontend_origin: &str,
     ) -> Result<Self, NewsletterConfirmationEmailConfigError> {
-        let (bucket, from, reply_to, configuration_set, stage, commit) = (
+        let (bucket, from, reply_to, configuration_set, stage, template_prefix) = (
             bucket.into(),
             from.into(),
             reply_to.into(),
             configuration_set.into(),
             stage.into(),
-            commit.into(),
+            template_prefix.into(),
         );
         if bucket.trim().is_empty()
             || from.trim().is_empty()
@@ -83,7 +82,9 @@ impl NewsletterConfirmationEmailConfig {
             || configuration_set.len() > 64
             || !safe_key_component(&configuration_set)
             || !safe_key_component(&stage)
-            || !safe_key_component(&commit)
+            || !template_prefix
+                .strip_suffix('/')
+                .is_some_and(|prefix| prefix.split('/').all(safe_key_component))
         {
             return Err(NewsletterConfirmationEmailConfigError::InvalidConfiguration);
         }
@@ -126,8 +127,7 @@ impl NewsletterConfirmationEmailConfig {
             from,
             reply_to,
             configuration_set,
-            stage,
-            commit,
+            template_prefix,
             frontend_origin: origin,
         })
     }
@@ -210,9 +210,8 @@ impl SesNewsletterConfirmationEmailSender {
 
     fn template_key(&self, language: EmailLanguage) -> String {
         format!(
-            "{}/{}/mjml/newsletter/confirmation/{}.html",
-            self.config.stage,
-            self.config.commit,
+            "{}mjml/newsletter/confirmation/{}.html",
+            self.config.template_prefix,
             language.code()
         )
     }
@@ -489,7 +488,7 @@ mod tests {
             "reply@example.test",
             "aura-historia-test-email",
             stage,
-            "abc123",
+            "mail/abc123/",
             origin,
         )
     }
@@ -525,11 +524,29 @@ mod tests {
                 "reply",
                 "aura-historia-test-email",
                 "../prod",
-                "abc123",
+                "mail/abc123/",
                 "https://aura-historia.com"
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn should_reject_unsafe_or_unterminated_template_prefixes() {
+        for prefix in ["", "mail/id", "/mail/id/", "mail/../", "mail/id//"] {
+            assert!(
+                NewsletterConfirmationEmailConfig::new(
+                    "bucket",
+                    "from",
+                    "reply",
+                    "mail-config",
+                    "dev",
+                    prefix,
+                    "https://stage.aura-historia.com",
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]
@@ -541,7 +558,7 @@ mod tests {
                 "reply@example.test",
                 name,
                 "dev",
-                "abc123",
+                "mail/abc123/",
                 "https://stage.aura-historia.com",
             )
         };
@@ -622,7 +639,7 @@ mod tests {
             };
             assert_eq!(
                 sender.template_key(language),
-                format!("dev/abc123/mjml/newsletter/confirmation/{code}.html")
+                format!("mail/abc123/mjml/newsletter/confirmation/{code}.html")
             );
             let link = sender.confirmation_url(language, &email.token).unwrap();
             assert_eq!(link.path(), format!("/{code}/newsletter/confirm"));

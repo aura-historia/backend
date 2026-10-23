@@ -200,7 +200,7 @@ fn sender_with_ses_timeout(
         "reply@example.test",
         CONFIGURATION_SET,
         "ephemeral",
-        "test-commit",
+        "ephemeral/test-commit/",
         "http://127.0.0.1:3000",
     )
     .unwrap_or_else(|_| panic!("valid newsletter email config"));

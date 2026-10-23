@@ -81,6 +81,7 @@ export class DmsCdc extends Construct {
         storage.runtimeCredentials.secretArn,
         storage.migrationCredentials.secretArn,
         storage.replicationCredentials.secretArn,
+        storage.inspectionCredentials!.secretArn,
       ],
     }));
     secretsManagerEndpoint.addToPolicy(new iam.PolicyStatement({

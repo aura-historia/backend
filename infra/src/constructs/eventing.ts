@@ -13,10 +13,12 @@ import type { DmsCdc } from "./dms-cdc";
 import type { LambdaFunctions } from "./lambdas";
 import type { QueueCatalog } from "./queues";
 import type { WorkerQueueCatalog } from "./worker-queues";
+import type { WorkloadStorage } from "./workload-storage";
 import type { WorkerScope } from "../worker-queue-config";
 
 export interface EventingProps {
   readonly config: StageConfig;
+  readonly workloadStorage: WorkloadStorage;
   readonly queues: QueueCatalog;
   readonly workerQueues: WorkerQueueCatalog;
   readonly functions: LambdaFunctions;
@@ -82,7 +84,7 @@ export class Eventing extends Construct {
     if (!props.backendCleanupVersion) {
       throw new Error("Real eventing requires a cleanup Lambda version.");
     }
-    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
+    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion, props.workloadStorage.maintenanceDlq);
 
     if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
       throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
@@ -95,6 +97,7 @@ export class Eventing extends Construct {
       props.dmsCdc,
       props.workerQueues,
       props.cdcRouterActivation,
+      props.workloadStorage.routerFailureArchive,
     );
 
     createSqsEventSources(
@@ -121,7 +124,6 @@ export class Eventing extends Construct {
 }
 
 
-const MAINTENANCE_SCHEDULER_DLQ_RETENTION_DAYS = 14;
 const SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS = 3_600;
 const SCHEDULE_MAXIMUM_RETRY_ATTEMPTS = 3;
 
@@ -145,6 +147,7 @@ function createMaintenanceSchedules(
   scope: Construct,
   config: StageConfig,
   cleanupVersion: lambda.IVersion,
+  deadLetterQueue: sqs.IQueue,
 ): void {
   const fxRateSyncArn = cdk.Stack.of(scope).formatArn({
     service: "lambda",
@@ -152,19 +155,12 @@ function createMaintenanceSchedules(
     resourceName: `fxrate-lambda-${config.stage}`,
     arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
   });
-  const deadLetterQueue = new sqs.Queue(scope, "MaintenanceSchedulerDeadLetterQueue", {
-    queueName: maintenanceSchedulerDeadLetterQueueName(config.stage),
-    encryption: sqs.QueueEncryption.SQS_MANAGED,
-    enforceSSL: true,
-    retentionPeriod: cdk.Duration.days(MAINTENANCE_SCHEDULER_DLQ_RETENTION_DAYS),
-    removalPolicy: config.removalPolicy,
-  });
   const role = new iam.Role(scope, "MaintenanceSchedulerExecutionRole", {
     assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
   });
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["lambda:InvokeFunction"],
-    resources: [cleanupVersion.functionArn, fxRateSyncArn],
+    resources: [`${cleanupVersion.lambda.functionArn}:*`, fxRateSyncArn],
   }));
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["sqs:SendMessage"],
@@ -303,19 +299,8 @@ function createDmsCdcRouterEventSource(
   dmsCdc: DmsCdc,
   workerQueues: WorkerQueueCatalog,
   activation: cdk.CfnCondition,
+  failureArchive: s3.IBucket,
 ): void {
-  const failureArchive = new s3.Bucket(scope, "CdcRouterFailureArchive", {
-    bucketName: `aura-historia-cdc-router-failures-${config.stage}`,
-    blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-    encryption: s3.BucketEncryption.S3_MANAGED,
-    enforceSSL: true,
-    lifecycleRules: [{
-      enabled: true,
-      expiration: cdk.Duration.days(90),
-    }],
-    removalPolicy: cdk.RemovalPolicy.RETAIN,
-  });
-
   router.addEnvironment("STAGE", config.stage);
   const sourceQueueArns: string[] = [];
   const deadLetterQueueArns: string[] = [];

@@ -11,8 +11,8 @@ export interface IdentityProps {
   readonly config: StageConfig;
   readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly stageName: string;
-  readonly postConfirmationLambda: lambda.Function;
-  readonly preSignUpLambda?: lambda.Function;
+  readonly postConfirmationLambda: lambda.IFunction;
+  readonly preSignUpLambda?: lambda.IFunction;
 }
 
 interface CreatedIdentityProvider {

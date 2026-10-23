@@ -6,6 +6,35 @@ This runbook owns deployment order, operator prerequisites and recovery boundari
 successful synth are **not evidence of deployed state or workload readiness**.
 Verify the approved account, physical resources and effective configuration at each release.
 
+## Delivery evidence and ownership
+
+The versioned [delivery contracts](../ci/delivery/contracts.schema.json) and
+[pure validators](../ci/delivery/contracts.cjs) own release evidence. Canonical JSON
+sorts object keys and retains array order; its SHA-256 binds every request, report
+and immutable bundle. SQLx migration checksums remain SHA-384 and are never
+substituted with artifact hashes.
+
+A completed bundle binds its exact source, complete Lambda/image catalogs,
+content-addressed versioned objects, registry digests, migration checksums,
+OpenSearch/source assets, per-target assemblies and original full-suite tests.
+Build identity is source SHA plus approved build-configuration digest. Publish
+completion metadata last. Missing/corrupt objects fail reuse. A new deployment
+request carries fresh tests and target approval without changing the bundle.
+
+Compatibility evidence binds the target account/region, last verified deployment,
+actual schema ledger, cumulative changes, effective templates/configuration,
+reviewer model/policy and manual prerequisite digest. Unknown baselines and
+uncertain review require maintenance. Manual OpenSearch administration remains
+operator work under the [OpenSearch contract](opensearch-stage.md); retained
+worker/message compatibility follows the [worker runbook](durable-worker-runbook.md).
+
+The environment record holds only its last verified application bundle, separately
+observed SQL state, active execution and an explicit operational hold. Successful
+SQL followed by failed application deployment updates schema evidence and preserves
+the previous verified bundle. Holds have no expiry or automatic unlock; maintenance
+and routine delivery share the same exclusion boundary. Request approvals authorize
+only their exact build or target scope and cannot be transferred between environments.
+
 ## Infrastructure boundary
 
 The CDK app declares `dev` and `prod` in `eu-central-1`. AWS `dev` serves the
@@ -16,12 +45,15 @@ staging API; it is not a stage named `stage`. Application stacks are composed in
 | --- | --- |
 | `network` | Private workload/database networking and outbound access |
 | `data` | PostgreSQL, CDC transport, durable queues, scoped worker policies and dev CDC alarms |
-| `initialize` | Private migrator and FX functions; deployment does not invoke them |
-| `compute` | Application/worker Lambdas, Cognito, eventing and scheduled work |
+| `identity` | Durable Cognito pool/client/domain/providers and SES configuration |
+| `initialize` | Protected bootstrap, read-only inspector and initial FX functions |
+| `migrate` | Candidate forward migrator; routine deployment publishes it before invocation |
+| `compute` | Application/worker Lambdas, eventing and scheduled work |
 | `api` | REST and MCP HTTP APIs, regional domains, CloudFront and WAF |
 | `observability` | Production alarms and alarm topic |
 
-Network precedes data and initialize; compute precedes API and prod observability.
+Network/data/identity/initialize are protected platform boundaries; routine order is
+migrate, reviewed SQL, compute, API and prod observability.
 The standalone container-repository setup stack is outside normal releases.
 OpenSearch host administration, external DNS, provider dashboards and native-worker
 process/identity deployment are externally owned; CDK does not reconcile them.
@@ -55,7 +87,7 @@ require ownership and recovery planning.
 ### Local Cognito session revocation
 
 Apply [the additive session-cutoff migration](../migrations/20261018063800_cognito_session_revocation.sql)
-with the coordinated Release workflow before deploying the API version
+through the reviewed forward migration path before deploying the API version
 that reads it. Deploy all API instances/versions that can serve traffic before relying
 on local revocation; older versions ignore the cutoff. Do not roll back to a version
 that ignores it while affected JWTs can still be valid. Keep issuer, API and database
@@ -67,84 +99,134 @@ owns cutoff, provider-failure and out-of-band revocation semantics.
 
 The [receipt cleanup migration](../migrations/20261014120000_remove_geography_creation_receipts.sql)
 requires the keyless address/Party-location runtime to be deployed first. That runtime
-works with both schemas. After foundation preparation and compatibility review, run the
-exceptional Release workflow at the same ref with `scope=all` against the current schema. Drain invocations of
-receipt-dependent versions, then invoke Migrate at the deployed initialization SHA to
-apply cleanup. After cleanup, rollback targets must also support the keyless schema.
+works with both schemas. After reviewed platform preparation and compatibility review, deploy the compatible
+runtime against the current schema under maintenance. Drain receipt-dependent
+versions, then invoke the qualified candidate migrator with the exact reviewed ledger
+and pending checksum evidence to apply cleanup. After cleanup, rollback targets must also support the keyless schema.
 Address ID tombstones, identity guards and private-resolution erasure/fences remain required.
 
-## Deployment inputs
+## Deployment inputs and approvals
 
-**Release (CD)** in [`deploy.yml`](../.github/workflows/deploy.yml) is the routine forward
-release entry point. It replaces the former `auto → Migrate → all` sequence.
+[Release](../.github/workflows/deploy.yml) is a **manual** workflow dispatched from
+protected `develop`. Pushes, tags, PRs and schedules never request AWS release
+compilation, publication or deployment. Ordinary CI remains automatic.
 
-| Trigger | Selected source and stage |
+| Mode | Selection | Protected approvals |
+| --- | --- | --- |
+| `build` | Full immutable SHA merged into protected `develop`, plus dev/prod | `aws-release-build`, then `aws-dev` or `aws-prod` |
+| `promote` | Existing completed bundle digest, plus dev/prod | Target approval only |
+
+Every request runs the [complete exact-source test suite](ci.md#exact-source-release-eligibility),
+including promotions and documentation-only changes. Candidate tests receive no
+cloud or model credentials. The build approval authorizes compilation/publication
+cost. Only its isolated requester role can submit a shared CodePipeline build.
+One CodeBuild job uses a shared Cargo target, builds each catalog image, compiles
+mail, and synthesizes configured target assemblies. Rust, cargo-lambda, Zig, Node,
+lockfiles and the builder base image are pinned by the approved configuration.
+Candidate Cargo/build scripts and Dockerfiles execute without forwarded AWS
+credentials; compilation uses a network-isolated container. Source mounts remain
+read-only. The builder role can publish artifacts, with no database secrets,
+application mutation, maintenance or role-passing powers.
+
+A fresh cumulative target report is prepared after bundle creation/reuse. Review
+its exact account/region, source, bundle, baseline, SQL, stack changes, worker
+compatibility and **blocking OpenSearch checklist** before target approval.
+`MAINTENANCE_REQUIRED`, uncertainty and missing baselines hold routine delivery.
+The reviewer has read/inspection/model access and cannot execute generated commands,
+weaken hard restrictions or authorize maintenance.
+
+Target approval attests the exact report and any completed manual prerequisite.
+OpenSearch commands run locally on the named host under the
+[OpenSearch contract](opensearch-stage.md#release-and-schema-change-contract).
+Provide a fresh sanitized before-state through dispatch `manual_evidence` as
+`{"beforeObservation":{"target":"prod","targetHost":"…","index":"…","alias":"…","mapping":{},"aliases":{},"observedAt":"…"}}`
+when private read access is unavailable. Also provide expected after observations as
+`manual_evidence` JSON `{"observations":[{"prerequisiteId":"…","mapping":{},"aliases":{}}]}`.
+If observations become available while approval waits, an approved operator can
+publish the immutable `reports/manual/<request-id>.json` observation object to the
+delivery bucket with conditional creation. The protected target job binds those
+observations to the displayed target/report/prerequisite digests. Missing or
+incorrect expected after-state evidence holds deployment. No pipeline has search
+administration credentials.
+
+The target requester submits pinned request, bundle, report and control-source
+versions to its native pipeline. All mutations and verification share one ordered
+`Deploy` stage in QUEUED mode, plus the durable environment exclusion record.
+CodePipeline stage queueing alone is not a whole-release lock. The candidate
+migrator is deployed before invocation, pending SQL runs before application
+changes, then native API/MCP CodeDeploy alias rollout and bounded health checks
+must pass before the application baseline advances. Worker/message compatibility
+is separately reviewed. Routine delivery preserves DMS task identity, configuration
+and intentional consumer activation. It cannot stop/start/modify capture or replace
+protected durable resources.
+
+GitHub monitoring is bounded. Cancelling a GitHub runner does not cancel AWS work,
+resume DMS or release an environment hold. Inspect native execution links and the
+versioned environment record after failure; do not infer success from a workflow
+badge. SQL may have committed while application deployment failed. Reconciliation
+must preserve that schema evidence and the previous verified application baseline.
+
+### Operator setup and cutover
+
+Delivery infrastructure and stack-boundary migration are separately approved
+platform work; implementing this branch does not authorize application deployment.
+Before enabling normal requests:
+
+1. Inventory existing physical resources, logical IDs, stack references, artifacts,
+   active native operations and any legacy DMS pause. Preserve existing data,
+   Cognito identities, queues/backlogs, slot/checkpoint identity and recovery evidence.
+   Import/move retained resources through reviewed CloudFormation operations; do
+   not deploy the new stack layout blindly over a live deployment.
+2. Protect `develop`. Configure required CI checks as described in [CI](ci.md).
+   Configure `aws-release-build`, `aws-dev` (if enabled), `aws-prod`, and each enabled
+   `aws-<target>-maintenance` with required
+   reviewers, protected-branch deployment policy, and administrator bypass disabled.
+   The owner chooses whether self-approval is allowed. Verify these in GitHub's UI
+   and API, then set `DELIVERY_PROTECTIONS_VERIFIED=true`; helpers also reject missing
+   reviewer/branch protections. YAML does not create environment protections.
+3. **Revoke or narrow the old broad `CI_DEPLOY_ROLE_ARN` OIDC trust before cutover.**
+   Account for historical rerunnable workflows and queued runs. Deleting YAML or
+   rotating a repository variable does not revoke an old run's ability to assume
+   a still-trusted role. Confirm old writers are fenced before enabling the new path.
+4. Review the immutable trusted control ZIP, publish it under `control/<digest>.zip`
+   with a version ID, and configure the standalone delivery stack with its key/version,
+   exact protected workflow revision, approved build-config digest and CodeConnections
+   connection. Source polling, source webhooks, restart-on-update and automatic builds
+   are disabled. Admission rejects bootstrap/default executions without authorization.
+   Application bundles cannot update the control plane or its permissions boundaries.
+5. Use the outputs from [delivery-stack.ts](../infra/src/delivery-stack.ts) for the
+   repository variables below. Pin `DELIVERY_WORKFLOW_REVISION` to the approved control commit for helper
+   checkouts and test evidence; actual invocation HEAD is recorded separately.
+   Trusted helpers compare control-sensitive paths to that pin and reject changed
+   workflow entries/helpers until the owner updates the approved control plane.
+   App-only commits can advance develop without changing this pin. The protected
+   develop entry YAML grants no authority by itself. Keep control-source version,
+   pinned workflow revision, build configuration and target files aligned; changing them is platform work.
+   Configure a strong review model explicitly, qualified read-only inspector and
+   target inventory under `ci/delivery/targets/`. Missing private facts require
+   sanitized operator evidence and hold deployment until reviewed.
+6. Establish a verified environment baseline and current schema observation under
+   the protected maintenance procedure. A baseline assertion must reflect the
+   deployed versions and artifacts, not merely the requested source. Confirm SNS
+   subscriptions and budget/failure notification delivery. Record real approval,
+   cold/warm build timing, action duration, artifact size, model usage and postcheck
+   evidence before declaring an end-to-end cutover verified.
+
+| Repository variable | Delivery stack output / ownership |
 | --- | --- |
-| Eligible `develop` push | Exact push SHA → dev, routine release |
-| Immutable UTC CalVer `YYYYMMDD-HHMM` tag push | Existing tag → prod, routine release |
-| Manual Release from current `develop` | Explicit stage/ref; continuation or exceptional operation |
-
-Manual dev `ref` is blank/`develop` or a full lowercase SHA. Prod requires an existing
-valid UTC CalVer tag. Sources must be reachable from fetched `origin/develop` and
-contain release protocol v1 (`releases/protocol.json`). Historical helpers are rejected
-before publication; never retag a release. The selected SHA owns the lockfile, catalogs,
-Lambda ZIPs, container digests, mail templates, CDK assembly and release requirements.
-
-| Scope | Contract |
-| --- | --- |
-| `routine` (default) | Prepare, approve once, pause capture, foundation, migrate, application, verify, resume owned capture, verify recovery |
-| `foundation` | Exceptional bootstrap/repair: network/data/initialize; no migration or DMS operation |
-| `all` | Exceptional activation or reviewed compatible rollback: foundation plus application; no migration or DMS operation |
-
-`auto` is retired. Exceptional scopes explicitly acknowledge their separate prerequisites;
-they do not provide a second routine release path. All helpers require durable stage
-ownership. Direct unowned `deploy-stacks.sh` or `invoke-operation.sh` invocations fail.
-CloudFormation uses prepared assemblies, change sets and preserved parameters, without
-hotswap, imports or previous-template artifact substitution.
-
-### Operator prerequisites
-
-Before relying on these workflows, the repository/AWS owners must verify:
-
-- Protected `develop` with required CI and immutable release tags. Restrict tag
-  creation to release maintainers and updates/deletion even for administrators.
-  Do not require path-filtered checks without an always-running fallback.
-- Both `aws-dev` and `aws-prod` require reviewers and disable administrator bypass.
-  Whether operators can approve their own release follows the environment's existing
-  self-review policy; the coordinator always requires an actual recorded approval.
-  Restrict sources to protected `develop` and approved immutable
-  release tags containing the coordinator. The helper checks required reviewers and
-  actual run approval history; the bypass setting must also be verified in GitHub's UI
-  because the environment REST response does not consistently expose it. GitHub plans
-  without these environment protections cannot provide this release contract.
-- Retire queued/rerunnable historical Deploy/Migrate/Initialize runs during adoption;
-  old workflow code predates ownership checks. Restrict environment sources/tag creation
-  and OIDC access accordingly. Do not run historical workflow definitions: dispatch the
-  current workflow with a supported source input. Helper protocol checks cannot retrofit
-  code already stored in an old workflow run.
-- OIDC audience `sts.amazonaws.com` and narrowly scoped subjects: publishers use
-  `repo:aura-historia/backend:ref:refs/heads/develop` or the IAM `StringLike`
-  pattern `repo:aura-historia/backend:ref:refs/tags/????????-????`; protected tag
-  rules and workflow validation enforce digits/date/ancestry. Final Release and
-  manual operations use exact `repo:aura-historia/backend:environment:aws-dev`
-  or `...:environment:aws-prod` subjects. Checkout does not change that subject.
-- Use AWS CLI v2 with conditional S3 writes, Node 26 and GitHub CLI (as on the workflow runner).
-- The existing `CI_DEPLOY_ROLE_ARN` and publisher region/bucket variables are
-  available outside environments. Verify their account/region/bucket targets
-  against [`config.ts`](../infra/src/config.ts). Publishers need scoped immutable
-  artifact writes; deployment also needs CDK/CloudFormation inspection/execution,
-  parameter resolution and exact migrator/FX invocation permissions.
-- Set repository variables `AWS_ACCOUNT_ID` (12 digits), `AWS_REGION`, and
-  `RELEASE_STATE_BUCKET` from the independent operational stack below. The approved deployment account is explicit and 12 digits; workload region is
-  `eu-central-1`. Template-only synth may omit the account, deployment may not.
-- Certificates, DNS/aliases and routing meet the [front-door gate](http-api-front-door.md#deployment-cutover-and-rollback).
-  Verify external provider credentials, permissions, callbacks, sender identities,
-  recipients, quotas and acknowledgment deadlines before enabling traffic.
-
-Only the final Release job enters `aws-<stage>` after image/ZIP/mail/CDK asset publication and planning. Migrate
-and Initialize enter it before invocation. Publishers currently share the CI role:
-environment approval is a workflow checkpoint, **not an isolated IAM boundary**.
-Do not reuse that role as a native-worker identity.
+| `AWS_ACCOUNT_ID`, `AWS_REGION` | Explicit approved workload account; `eu-central-1` |
+| `DELIVERY_BUCKET` | `DeliveryBucket` |
+| `DELIVERY_CONTROL_VERSION` | Approved immutable control ZIP version |
+| `DELIVERY_WORKFLOW_REVISION` | Approved full control-source commit, independent of candidate source |
+| `DELIVERY_READER_ROLE_ARN` | `BundleReaderRoleArn` |
+| `DELIVERY_BUILD_PIPELINE` | `BuildPipelineName` |
+| `DELIVERY_BUILD_REQUESTER_ROLE_ARN` | `BuildRequesterRoleArn` |
+| `DELIVERY_PROD_PLANNER_ROLE_ARN`, `DELIVERY_DEV_PLANNER_ROLE_ARN` | `<target>PlannerRoleArn` |
+| `DELIVERY_PROD_REQUESTER_ROLE_ARN`, `DELIVERY_DEV_REQUESTER_ROLE_ARN` | `<target>DeploymentRequesterRoleArn` |
+| `DELIVERY_PROD_PIPELINE`, `DELIVERY_DEV_PIPELINE` | `<target>DeploymentPipelineName` |
+| `DELIVERY_PROD_MAINTENANCE_ROLE_ARN`, `DELIVERY_DEV_MAINTENANCE_ROLE_ARN` | `<target>MaintenanceRoleArn` |
+| `DELIVERY_REVIEW_MODEL_ID` | Explicit approved model selection |
+| `DELIVERY_DEV_ENABLED` | Same explicit flag as delivery provisioning; default false |
 
 Parameter names and types belong in configuration/constructs, not a second
 inventory here. Some credentials use plain SSM `String` dynamic references and
@@ -163,264 +245,130 @@ Cognito's fixed trigger deadline. Hold if timing or fail-closed behavior is
 unverified. User-pool/schema/client replacement needs an explicit identity and
 callback migration; never silently replace a production pool.
 
-### Release artifacts
+### Existing-stack ownership transition
 
-Release prepares the selected source's Lambda/image catalogs and compiled mail
-templates even for foundation-only releases. The MCP ZIP is selected from the same
-[`lambda-binaries.json`](../ci/lambda-binaries.json) catalog and stage/SHA artifact
-keys as REST; compute publishes its immutable version and `live` alias before the
-API stack can send requests to it. ZIPs and templates are stage/SHA-local;
-existing objects are reused, never overwritten. Missing objects use conditional
-creation; authorization/transport failures are not evidence of absence.
+The final split is not a direct safe update of deployed stacks. A separately approved
+maintenance plan must freeze both writers, inspect native settlement and retain the
+source templates, physical identities, exports/consumers and resource histories.
+Prepare ownership-only refactor/import templates that preserve all existing resource
+properties and identities. Keep existing exports until consumers switch. Validate
+CloudFormation support and import/refactor change sets before execution; a normal
+update that deletes the moved source resources is not the transition procedure.
 
-ECR images use immutable full-SHA tags and compute receives resolved registry
-digests, never `latest`. Missing images are built and smoke-tested before publishing;
-unresolved artifacts block deployment. Existing artifact/template/staging buckets
-are prerequisites from configuration. The CLI-credentials synthesizer uses the
-existing staging bucket; it does not require a full CDK bootstrap stack.
+| Existing owner | New owner | Preserve |
+| --- | --- | --- |
+| compute Cognito/SES | identity | Pool/client/domain/providers and email configuration identities |
+| compute scheduler DLQs/router archive | data | Existing queue/bucket physical names, backlog and archived failure custody |
+| initialize routine migration Lambda | migrate | Existing `database-migration-lambda-<stage>` function identity |
 
-### Container repository setup
+After ownership is verified, review the inspector secret/private endpoint permissions,
+new release-bucket endpoint access, separate bootstrap/inspection functions, artifact
+parameters and permissions boundaries. IAM path changes replace roles: retain old roles
+**and their inline policies** while any retained Lambda version still uses them. Cut over
+stable aliases and drain old versions before retiring policies. DMS/Kinesis/RDS,
+replication slots and worker queue identities/settings must remain unchanged.
 
-Provisioning owners prepare catalog ECR repositories **outside normal releases**:
+A fresh environment creates protected identity with `AttachIdentityTriggers=false`,
+then compute creates stable pre/post trigger aliases, then separately approved identity
+sets `AttachIdentityTriggers=true`. Do not detach or replace an existing pool to perform
+this sequence. No existing-stack ownership transition is implied by a successful synth.
 
-1. Inspect each physical repository's account/region, URI, immutable-tag/AES256
-   configuration and any CloudFormation owner. Valid existing repositories may
-   be reused without moving ownership.
-2. For missing repositories, review the pinned setup source, synthesized catalog
-   and change set from [`bin/artifacts.ts`](../infra/bin/artifacts.ts) against
-   physical inventory. The setup stack retains repositories; releases never create them.
-3. Import/ownership changes and failed setup-stack shells require separate approval.
-   Never delete a repository or image history, create duplicates, or treat an empty
-   stack shell as proof of ownership. Keep the setup catalog append-only absent a
-   reviewed removal/migration.
+### Immutable artifacts and build evidence
 
-## First-time stage
+The retained delivery bucket owns shared content-addressed bytes, versioned
+manifests, exact test evidence, requests and reports. Complete manifests and build
+completion markers publish only after every object/digest/catalog validates.
+Partially uploaded objects cannot make a bundle eligible. Reuse reads and validates
+existing immutable versions; corruption is a failure, never permission to overwrite.
+Registry references use immutable digests. Mail uses `mail/<build-id>/mjml/…` for
+both environments. Per-target assemblies may differ while application bytes remain
+identical. CDK file assets are published and referenced by exact key/version before
+assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 
-1. Verify operator prerequisites and repositories above. Run Release for the selected ref
-   with exceptional `scope=foundation`; record the resolved SHA and completed
-   network/data/initialize stacks.
-2. Run **Migrate (CD)** for that stage and exact deployed initialization SHA;
-   require confirmed success under [manual operations](#manual-operations).
-3. Have the OpenSearch owner complete [host setup/compatibility checks](opensearch-stage.md#release-and-schema-change-contract)
-   and approve private-workload connectivity, scoped credentials and trusted TLS.
-4. Run **Initialize (CD)** with the same stage/SHA; verify persisted initial FX.
-5. Before same-ref manual Release `scope=all`, verify schema/job compatibility,
-   FX, OpenSearch, provider/SES prerequisites, certificate/DNS and
-   [native-consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff).
-   Stop old consumers and settle or preserve in-flight/backlog custody first.
-   Required pre-activation probes need an approved private path; if unavailable,
-   **hold `all`**, rather than deploy active compute as a speculative test.
-6. Continue with the pinned full dev SHA or same immutable prod tag. Record actual
-   function versions/aliases, mapping/rule/schedule states, front-door/readiness and
-   relevant private product-reader/projector and periodic-matcher smoke. Report
-   failed/omitted checks explicitly and hold dependent traffic. Complete CDC activation separately below.
+One on-demand shared build group and the initial compute size are provisional,
+not a measured performance/capacity claim. Before enabling paid release builds,
+an explicitly approved benchmark must record cold/warm duration, peak memory,
+cache behavior and final native billed compute minutes; adjust compute if needed. Real CodeBuild executions export observed duration/compute minutes, per-container
+cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
+minutes and cache behavior. Benchmark cold/warm builds through the protected build
+approval before changing group count or compute size. There is no reserved build
+fleet, build VPC or automatic source-triggered paid work. Pipeline scratch artifacts have bounded retention; local shared target data lasts
+for its build worker only; completed bundles and recovery evidence are
+retained. Configure the delivery budget and confirm notification subscriptions.
 
-Compute creation activates worker mappings, partner integrations and FX/cleanup
-schedules together. It is **not an inactive preview** and has no readiness marker.
-Foundation success does not prove these prerequisites. Never run two consumers of
-one queue or rename/purge a queue to perform handoff.
+### Optional dev and idle costs
 
-## Routine and schema-dependent releases
+Production works independently of dev and never requires a successful dev rollout.
+`devEnabled=false` omits its delivery pipeline and rejects dev requests; this does
+not delete a running dev environment. Disabling workflows/pipelines does **not**
+remove RDS, DMS, NAT, interface endpoint, storage or self-hosted search-host costs.
 
-Preparation builds/tests/publishes or reuses every artifact, then produces a read-only
-plan with account, region, stage, completed baseline, selected SHA/ref, template change
-paths, preserved activation state, requirements and operational phases. Exact OpenSearch
-asset differences appear in the summary and downloadable plan artifact. Plan failures
-and rejected approvals leave capture untouched.
+Decommission is a separate approved operation: inventory backups/restore evidence,
+retained data and keys, queues/backlogs, DNS/provider callbacks, scoped credentials,
+search storage, active tasks and replication slot/WAL ownership. Do not leave an
+active database with an abandoned slot accumulating WAL. Drain/fence consumers and
+settle capture custody before removing dependencies. Later reactivation uses the
+same platform/bootstrap procedures and fresh target evidence; this is not an
+on-demand ephemeral environment mechanism.
 
-The one protected `aws-<stage>` approval authorizes the displayed plan. When manual
-OpenSearch preparation is required, the approval job explicitly says **Confirm OpenSearch
-… completed and release**. Approval also attests the displayed actions/validations for
-that stage, SHA and prerequisite digest; complete them while the old application is
-running. No additional approval is needed for ordinary releases.
+## First-time environment and maintenance
 
-After approval the coordinator atomically owns the stage and rechecks the baseline,
-stack/resource identities, task lifecycle, requirements, reviewer policy and activation
-state. Any change invalidates the plan. It records pause intent, stops a running DMS task
-and waits for stable `stopped`, deploys network/data/initialize once, invokes the exact
-initialization release's private migrator and requires its strict success response,
-then deploys compute/API and production observability. It checks templates, SHA, image
-digests and existing mapping/rule/schedule activation before resuming an owned pause
-with `resume-processing`. An intentionally stopped, previously executed task stays stopped.
-Every forward release invokes the migrator, including when no SQL is pending; SQLx's
-ledger and advisory lock remain authoritative. Initial FX is not invoked.
+Bootstrap prepares protected network/data/identity resources and the private
+bootstrap/inspection functions under separate platform approval. The BOOTSTRAP
+function alone reads administrator/runtime/migrator/replication/inspector secrets,
+creates scoped roles/extensions, applies migrations and grants the inspector only
+catalog access plus ledger version/checksum/success columns. Routine MIGRATE reads
+only the migrator secret, validates the approved ledger and pending SQLx checksums
+under its advisory lock, and applies forward SQL or no-ops. INSPECT is a qualified,
+read-only function. The operation is fixed in each function configuration, never
+selected by untrusted invocation input. No startup or CloudFormation SQL runner exists.
 
-Capture recovery has a 15-minute deadline. It requires a running task without table
-errors, fresh source/target latency at most 300 seconds, and checkpoint movement or
-fresh zero source throughput. An enabled router must have its stage-owned mapping enabled
-and iterator age at most 60 seconds. When invocation metrics are absent, fresh zero incoming
-stream records can prove idleness. Streams can also omit write metrics while idle: fresh
-zero source throughput, successful empty Kinesis reads and zero stream read iterator age
-provide an alternative idle proof. Missing or stale metrics never count as zero, and
-observed router lag cannot be waived by idle evidence. Allow publication delay within the
-deadline; progress logs identify unmet observations every 30 seconds and include the last
-observation on timeout. This supports idle stages without requiring empty queues.
-Disabled routers keep their activation state and are exempt from router lag checks.
-Failure after resumption is **deployed but unverified** and retains ownership. Adoption
-uses the same read-only health check and records no baseline unless it succeeds.
+Before application activation, complete OpenSearch connectivity/TLS, initial FX,
+provider/SES, certificate/DNS and [native-consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff).
+Initial FX is a separately approved private invocation; retries retain
+`deployment:fxrate:initial:{stage}:v1`. Persisted capture is deduplicated, provider
+calls are not exactly once. Function success alone does not prove workload readiness.
+Never run duplicate consumers or purge/rename queues to simplify handoff.
 
-Traffic, callbacks, workers, schedules, existing messages and running invocations keep
-working throughout. PostgreSQL writes can accumulate in WAL during the pause. Review
-expand-and-contract compatibility with running code, retained messages and rollback
-sources. Crawler-local migrations are outside this contract. Capture topology changes,
-DMS replacement, source-slot/endpoint/instance changes, consumer retirement, durable
-resource replacement and existing activation changes use dedicated procedures. The
-initial guard conservatively rejects DMS table-selection changes and durable-resource
-property changes as well; compatible task-settings updates are supported while stopped.
+[Maintenance](../.github/workflows/maintenance.yml) is a protected, narrow manual
+entry for status, explicit baseline adoption/exclusion, reviewed DMS pause/resume and reconciliation.
+It does not execute arbitrary SQL, shell commands or stack updates. It uses the same
+non-expiring environment record as routine delivery. A maintenance pause needs fresh
+WAL/storage headroom and monitoring evidence; persist exact task/slot/checkpoint
+identity and intent before mutation. Resume only the owned normal stop using
+`resume-processing`; never invent a new start LSN or automatically clear an overdue
+pause. Follow the [worker recovery procedure](durable-worker-runbook.md) for native
+custody and capture changes.
 
-### Release requirements
+Dispatch `status` first to obtain the current state digest. Mutations require an
+`evidence` JSON object with that `expectedStateDigest` and a reviewed `reason`.
+`enter` acquires maintenance exclusion and records the actual capture baseline;
+`pause` additionally requires fresh `wal` evidence (`observedAt`, `retainedBytes`,
+`freeBytes`, `maxPauseSeconds`, `monitoringUri`). `resume` reads the exact retained
+pause record. Retries reconcile retained intent/results and never issue a blind
+second stop/start. `reconcile` additionally requires `migrationInvocationSettled:true`
+and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
+intended DMS/capture state plus health are checked before clearing the hold.
 
-Append immutable JSON declarations to `releases/requirements/<id>.json`; modifying or
-removing an existing declaration, even in an intermediate skipped commit, is rejected.
-The planner compares the known completed release with the target and evaluates every
-new declaration. Relevant assets include all tracked `opensearch/**` files. Every changed
-business migration SQL file also needs explicit running-application/retained-work review.
-Unclassified changes block before capture is paused. Rust semantic compatibility cannot
-be inferred automatically; add an application-only declaration when an external prerequisite
-exists, even if assets did not change. Review remains responsible for prerequisites in
-migration bootstrap code, provider configuration and other application changes.
+For the first baseline only, `adopt` takes `bundleDigest`, `reason` and explicit intended
+`expectedDmsStatus` (`running`, `stopped` or `ready`). Deploy the
+reviewed bootstrap/platform templates and exact bundle through the separately
+approved platform procedure first. Adoption checks actual stack templates and
+artifact/source parameters, Lambda ZIP and serving alias bytes, immutable container
+digests, complete migration checksums, reconstructed schema and native settlement.
+It publishes a held record before verification; failure retains that hold and cannot
+label an asserted baseline verified. It cannot overwrite an existing verified baseline.
 
-A declaration contains `version: 1`, a stable `id` matching its filename, `kind`
-(`OPENSEARCH` or `COMPATIBILITY`), `classification` (`NONE`, `MANUAL`, `UNSUPPORTED`),
-`reason` and a canonical repository `runbook` link. `NONE` requires a reviewed rationale.
-`MANUAL` is only for compatible OpenSearch preparation and also requires `action` and
-`validation`. `UNSUPPORTED` blocks the routine path and identifies the dedicated procedure.
-A compatibility declaration must set both `runningApplicationCompatible` and
-`retainedWorkCompatible` to `true`. Set `requiresDeployed` to the full prerequisite SHA
-for a contract/removal migration: it must already be an ancestor of the completed baseline,
-not merely present in the target's history. This prevents skipping the prerequisite release.
+Failed native operations require fresh actual schema plus settled CloudFormation,
+CodeBuild, CodeDeploy and pipeline evidence before reconciliation. A manually owned
+operation has no invented pipeline ID; inspect its native resources separately.
+Unknown migration completion or in-flight native work preserves the hold. Never
+mark a failed release verified, erase committed SQL, force-unlock by age, invoke an
+older migrator or run down migrations. The
+[private psql bootstrap wrapper](../infra/sql/rds-bootstrap-roles.sql) remains separately
+approved administration with private secret injection, never passwords in CLI logs.
 
-Use `assets: {"path": {"from": "<Git blob SHA>", "to": "<Git blob SHA>"}}` to classify
-exact content transitions; use JSON `null` for an absent file. Obtain hashes with
-`git rev-parse <baseline>:<path>` and `git hash-object <path>`. Several skipped declarations
-must form an unambiguous chain from the baseline blob to the target blob. For example:
-
-```json
-{
-  "version": 1,
-  "id": "add-search-field",
-  "kind": "OPENSEARCH",
-  "classification": "MANUAL",
-  "reason": "The new writer needs an additive field before deployment",
-  "runbook": "docs/opensearch-stage.md#release-and-schema-change-contract",
-  "action": "Apply the reviewed additive mapping to this stage's existing index",
-  "validation": "Read the effective mapping and verify the required field type",
-  "assets": {
-    "opensearch/mappings/product_listings.json": {"from": "<old blob SHA>", "to": "<new blob SHA>"}
-  }
-}
-```
-
-Do not use a `NONE` classification for incompatible index cutovers, fenced writers,
-drains, destructive rebuilds or engine transitions that cannot precede the release.
-Currency expansion still needs business/crawler migrations, additive search mappings and
-a complete expanded FX snapshot before activating inputs; declare its dedicated ordering
-as unsupported when ordinary migration-before-application sequencing cannot satisfy it.
-
-### Release ownership setup
-
-Provision the separate `aura-historia-release-operations` stack from
-[`infra/bin/releases.ts`](../infra/bin/releases.ts) under an approved setup operation,
-using the existing staging bucket. It is outside the application stack sequence. It
-provides a private encrypted, versioned, retained S3 bucket and a minute-based pause
-monitor. Confirm the `ReleaseAlarmTopicArn` SNS subscription and alarm delivery; both
-stage monitor alarms must be healthy before a routine release. Existing RDS WAL/storage
-and CDC alarms remain active. The monitor can read state and publish metrics, never
-stop/start DMS or clear ownership.
-
-`RELEASE_PAUSE_BUDGET_SECONDS` defaults to 10800 (three hours), configurable from 300 to
-86400 seconds. Set it from measured write rate, slot retention and free-storage headroom;
-the default is not a capacity guarantee. An overdue owned pause alerts even after runner
-loss and blocks further mutations. It never causes automatic resumption.
-
-The state key is `stages/<account>/<region>/<stage>.json`. S3 strongly consistent reads
-and conditional `PutObject` (`If-None-Match` initially, `If-Match` subsequently) fence
-writers, with a monotonically increasing revision. Bucket policy rejects unconditional
-writes and state deletion. Each version retains baseline/target, run/attempt, phase/intent,
-confirmed deployment/migration evidence, task identity/checkpoints, original task state,
-pause ownership/time, approval/prerequisite evidence and failure/completion status.
-There is no expiring lease. An incomplete operation excludes different SHAs and every
-exceptional entry point. A continuation can replace a prior run owner only after GitHub
-reports that exact attempt completed; AWS operations are reconciled separately.
-
-Add these narrow permissions to the existing approved GitHub OIDC deployment model:
-
-| Permission | Scope |
-| --- | --- |
-| `s3:GetObject`, `s3:PutObject` | Exact stage state key in the operational bucket |
-| `s3:ListBucket` | Dedicated operational bucket (allows distinguishing absent initial state) |
-| `dms:StopReplicationTask`, `dms:StartReplicationTask` | Exact stage-owned task ARN from CloudFormation |
-| DMS describe-task/endpoint/instance/table-statistics actions | Read-only; use resource scope where the service supports it |
-| `cloudformation:DescribeStacks`, `GetTemplate`, `ListStackResources` | Stage stacks, in addition to existing deployment permissions |
-| `cloudwatch:DescribeAlarms`, `GetMetricStatistics` | Monitoring reads (AWS requires `*` for these calls) |
-| `lambda:GetEventSourceMapping`, `events:DescribeRule`, `scheduler:GetSchedule` | Stage activation inspection; service-supported resource scope |
-| `ssm:GetParameter` | Plain String partner-bus names under `/eventbridge/<stage>/`; no decryption |
-
-Retain immutable artifact publication, existing CDK/CloudFormation/DMS-role preparation,
-and exact private migrator/FX invocation permissions. The GitHub token needs actions read
-for environment protections, approval history and previous run attempts. Publishers share
-the CI role; workflow approval is not an additional IAM isolation boundary. No routine
-root login or long-lived operator key is needed.
-
-Before the first routine release, use **Adopt release baseline** from current `develop`.
-Supply the verified deployed compute/initialize SHA. It checks healthy stacks/resources,
-matching SHAs, initialized task/checkpoint, capture configuration and CDC health; its
-protected approval attests all application stacks and actual OpenSearch state correspond
-to that source. This explicit operator attestation is necessary for pre-coordinator
-releases with no durable marker. Missing or mismatched baselines fail closed. Adoption
-cannot discard an incomplete release and never starts a new task. After a successful
-exceptional operation, finish its dedicated procedure and adopt the verified baseline again.
-
-### Release recovery
-
-Read the summary and versioned stage record before acting. A failed migration never
-permits application deployment; failed/partial application deployment never permits blind
-resumption. Resume failure may mean AWS already accepted the request. Verification failure
-can leave capture running but the release incomplete. Never infer state from the workflow
-conclusion alone, delete the record, reset a checkpoint or start with a fresh LSN.
-
-Cancel an abandoned owner and wait for its GitHub attempt to finish. Inspect the recorded
-stack operation and exact task/slot identity. Rerun **all jobs**, or manually dispatch
-Release for the **same pinned SHA/tag**; a new attempt needs a fresh plan and approval.
-Preparation waits up to 30 minutes for a recorded CloudFormation update and up to 15 minutes
-for a recorded DMS transition. Confirmed phases are preserved; ambiguous stack updates are
-checked against live templates/parameters before redeployment. An unconfirmed migration is
-invoked again through its existing SQLx lock/ledger validation. Never mark success from a
-workflow flag. Changed task identity, failed stacks or unsupported capture state require the
-owning dedicated repair procedure before continuation.
-
-If the pause is overdue, inspect retained WAL, available storage, slot validity and the
-alert. A measured budget increase in the repository variable is allowed only after that
-review and a fresh approval; the same release retains its original pause time. Repair
-monitoring failures rather than treating missing telemetry as healthy. If the original
-release cannot be completed, a separately authorized operator recovery must establish a
-verified compatible deployment and CDC outcome, fence the old runner, retain its versioned
-evidence, then conditionally reconcile state with the current ETag. There is deliberately
-no force-unlock or automatic rollback command. Do not use Adopt to erase uncertain work.
-
-## Manual operations
-
-[`migrate.yml`](../.github/workflows/migrate.yml) and
-[`initialize.yml`](../.github/workflows/initialize.yml) accept stage and a full
-lowercase `commit_sha`. This asserts the **already deployed** initialize stack's
-`CommitSHA`; it does not select/build/deploy source. These exceptional operations acquire
-the same durable ownership record and refuse an unfinished routine release, even at the
-same SHA. Migrate rejects an initialization source older than deployed compute. Their shared helper requires
-a complete stack and exact SHA, waits for the function update, then invokes it
-synchronously. Success requires status 200 without `FunctionError`, plus exactly
-`{"status":"ready"}` for migration or JSON `null` for FX. CLI success alone is insufficient.
-
-The private migrator bootstraps scoped roles/extensions and applies embedded SQLx
-migrations under an advisory lock. There is no public route, schedule, startup
-migration or SQL-running CloudFormation custom resource. The break-glass
-[`psql wrapper`](../infra/sql/rds-bootstrap-roles.sql) requires separate approval
-and private secret injection, never command-line passwords.
-
-Initialize is first-time FX capture only. Retries reuse
-`deployment:fxrate:initial:{stage}:v1`, even at a later SHA; persisted capture is
-deduplicated, provider calls are not exactly once. Neither operation activates
-compute, manages OpenSearch or repairs stacks. On timeout/ambiguous completion,
-inspect restricted logs and persisted state before retrying; publish no raw payloads.
+## Manual platform operations
 
 Before a release adopts existing API/PostConfirmation evidence log groups, inspect
 selected templates and exact names/ownership from the Lambda construct. Do not
@@ -443,9 +391,9 @@ a Facebook collision or delete when binding/identity cannot be established.
 ## CDC and scheduled work
 
 DMS declares a stopped CDC-only task, not a full load or automatic slot creation.
-Release verifies/bootstraps the shared account-level `dms-vpc-role`, refusing to
+Platform setup verifies/bootstraps the shared account-level `dms-vpc-role`, refusing to
 replace unexpected trust. Manual data-stack deployment must verify that role first.
-Routine Release automatically pauses/resumes its owned running task as described above.
+Routine delivery observes DMS without changing its lifecycle. Only reviewed maintenance may pause/resume owned capture.
 Exceptional selection changes need approval before data deployment and coordination with task
 state/update constraints; deploying configuration does not start/restart the task.
 Before task configuration updates, require a stable `stopped` task, or `ready` for a
@@ -509,18 +457,13 @@ outgrows it, because a refresh that keeps timing out repeats its scan every hour
 
 ## Rollback and stack recovery
 
-After compatibility review, manual Release from current `develop` selects an older
-supported prod tag or merged dev SHA with exceptional `scope=all`. It requires idle
-stage ownership and never invokes the older migrator. Complete the dedicated DMS
-coordination and compatibility review first; adopt the verified baseline afterward.
-**Never invoke an older migrator or run down migrations as rollback.**
-
-Rollback rebuilds/reuses artifacts and uses that source's CDK, so it may change
-infrastructure and API policy, not just code. Review actual diffs/replacements,
-newer database schema, retained jobs, provider/template contracts and committed
-effects. Require separate prepared-change-set inspection when needed; environment
-approval is not that inspection. This is not atomic across stacks and does not
-undo database writes, email/provider effects, external DNS or OpenSearch changes.
+Native CloudFormation failure handling and the scoped API/MCP CodeDeploy alias
+rollback are the routine recovery mechanisms. They do not undo SQL, messages,
+provider effects or search changes. Reconciliation requires actual deployed state
+and fresh schema evidence; use a reviewed forward fix when older code is incompatible.
+Broader stack repair, protected resource changes and capture changes are separately
+approved maintenance. There is no database rollback framework or routine rebuild of
+an older source as a rollback shortcut.
 
 Failed/in-progress/rollback-failed/incomplete-import/empty-shell stacks need operator
 CloudFormation recovery before release. A usable `UPDATE_ROLLBACK_COMPLETE` or

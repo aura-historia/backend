@@ -225,6 +225,7 @@ pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
+pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
@@ -332,7 +333,7 @@ impl ApiConfig {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
             )?,
             required_config(&mut get, STAGE_ENV)?,
-            required_config(&mut get, COMMIT_SHA_ENV)?,
+            required_config(&mut get, MAIL_TEMPLATE_PREFIX_ENV)?,
             &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
         )
         .map_err(ApiConfigError::NewsletterConfirmationEmailConfig)?;
@@ -2070,6 +2071,7 @@ mod tests {
             ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
+            (MAIL_TEMPLATE_PREFIX_ENV, "mail/test-commit/".to_owned()),
             (
                 NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
                 "http://127.0.0.1:3000".to_owned(),
@@ -2194,7 +2196,7 @@ mod tests {
                 "contact@example.test",
                 value,
                 "ephemeral",
-                "test-commit",
+                "mail/test-commit/",
                 "http://127.0.0.1:3000",
             )
             .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));

@@ -68,7 +68,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(JSON.stringify(endpoint.RouteTableIds)).toContain(applicationRouteTables[0]);
     expect(JSON.stringify(endpoint.RouteTableIds)).toContain(applicationRouteTables[1]);
     expect(endpoint.PolicyDocument.Statement[0].Resource).toEqual(expect.arrayContaining([
-      "arn:aws:s3:::aura-historia-binary-artifacts-eu-central-1/*",
+      "arn:aws:s3:::aura-historia-release-bundles-eu-central-1/*",
       "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*",
       "arn:aws:s3:::aura-historia-cfn-artifcats-eu-central-1/*",
     ]));
@@ -201,7 +201,8 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     const compute = Template.fromStack(stacks.compute);
     const initialization = Template.fromStack(stacks.initialization!);
     const computeFunctions = Object.values(compute.findResources("AWS::Lambda::Function"));
-    const initializationFunctions = Object.values(initialization.findResources("AWS::Lambda::Function"));
+    const initializationFunctions = [...Object.values(initialization.findResources("AWS::Lambda::Function")),
+      ...Object.values(Template.fromStack(stacks.migration).findResources("AWS::Lambda::Function"))];
     const applicationFunctions = [...computeFunctions, ...initializationFunctions].filter((resource) =>
       [
         "aura-historia-api",
@@ -250,7 +251,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(migrationEgress).toHaveLength(2);
     expect(migrationEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
     expect(migrationEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(23);
+    expect(vpcAttachedFunctions).toHaveLength(25);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

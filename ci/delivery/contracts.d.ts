@@ -1,0 +1,191 @@
+export type Target = 'dev' | 'prod';
+export interface Migration {
+  version: string;
+  checksum: string;
+}
+export interface SourceAsset {
+  path: string;
+  sha256: string;
+}
+export interface Artifact {
+  id: string;
+  kind: 'LAMBDA' | 'TEMPLATE' | 'ASSEMBLY' | 'SOURCE' | 'ASSET';
+  bucket: string;
+  key: string;
+  versionId: string;
+  sha256: string;
+  size: number;
+}
+export interface TestEvidence {
+  invocationRevision: string;
+  version: 1;
+  repository: 'aura-historia/backend';
+  sourceSha: string;
+  workflowRevision: string;
+  runId: string;
+  runAttempt: number;
+  toolchainDigest: string;
+  configDigest: string;
+  inventoryDigest: string;
+  requiredJobs: string[];
+  jobResults: Record<string, 'success' | 'failure' | 'cancelled' | 'skipped'>;
+  reports: string[];
+  completedAt: string;
+}
+export interface ReleaseBundle {
+  version: 1;
+  repository: 'aura-historia/backend';
+  sourceSha: string;
+  build: {
+    id: string;
+    configDigest: string;
+    toolchain: string;
+    image: string;
+    profile: string;
+    architecture: 'x86_64';
+  };
+  artifacts: Artifact[];
+  images: { id: string; repository: string; digest: string }[];
+  catalogs: { lambdas: string[]; containers: string[] };
+  migrations: Migration[];
+  sourceAssets: SourceAsset[];
+  targets: Partial<
+    Record<
+      Target,
+      {
+        account: string;
+        region: string;
+        assemblyDigest: string;
+        templateDigests: Record<string, string>;
+      }
+    >
+  >;
+  tests: TestEvidence;
+}
+export interface ReleaseRequest {
+  invocationRevision: string;
+  buildConfigDigest: string;
+  version: 1;
+  id: string;
+  repository: 'aura-historia/backend';
+  sourceSha: string;
+  target: Target;
+  workflowRevision: string;
+  runId: string;
+  runAttempt: number;
+  testEvidenceDigest: string;
+  bundleDigest: string | null;
+  authorization: {
+    scope: 'BUILD' | 'DEPLOY';
+    environment: 'aws-release-build' | 'aws-dev' | 'aws-prod';
+    approvedAt: string;
+  };
+}
+export interface ManualPrerequisite {
+  id: string;
+  kind: 'OPENSEARCH';
+  targetHost: string;
+  index: string;
+  alias: string;
+  sourceAssets: SourceAsset[];
+  preconditions: string[];
+  steps: string[];
+  verification: string[];
+  stopConditions: string[];
+  expectedBeforeDigest: string;
+  expectedAfterDigest: string;
+}
+export interface CompatibilityReport {
+  findings: { code: string; path: string; detail: string }[];
+  compatibility: {
+    oldNew: boolean;
+    queuedMessages: boolean;
+    sql: boolean;
+    search: boolean;
+  };
+  reviewEvidenceDigest: string;
+  version: 1;
+  requestId: string;
+  target: Target;
+  account: string;
+  region: string;
+  baseline: {
+    revision: number;
+    bundleDigest: string | null;
+    sourceSha: string | null;
+  };
+  migrationLedgerDigest: string;
+  candidateBundleDigest: string;
+  configDigest: string;
+  templateDigest: string;
+  changeSetDigest: string;
+  inventory: {
+    category: string;
+    path: string;
+    change: string;
+    sha256?: string;
+  }[];
+  reviewer: { model: string; promptVersion: string; policyVersion: string };
+  evidence: { kind: string; uri: string; sha256: string }[];
+  verdict: 'ROUTINE' | 'MAINTENANCE_REQUIRED';
+  uncertainties: string[];
+  manualPrerequisites: ManualPrerequisite[];
+  prerequisiteDigest: string;
+  createdAt: string;
+}
+export interface EnvironmentState {
+  version: 1;
+  target: Target;
+  revision: number;
+  state: 'READY' | 'IN_PROGRESS' | 'NEEDS_ATTENTION' | 'MAINTENANCE';
+  lastVerified: {
+    bundleDigest: string;
+    sourceSha: string;
+    verifiedAt: string;
+  } | null;
+  observedSchema: {
+    sha256: string;
+    observedAt: string;
+    migrations: Migration[];
+  };
+  active: {
+    executionId: string;
+    requestDigest: string;
+    bundleDigest: string;
+  } | null;
+  holdReason: string | null;
+}
+export function canonicalize(value: unknown): string;
+export function digest(value: unknown): string;
+export function bytesDigest(value: string | Uint8Array): string;
+export function validateTestEvidence(
+  value: unknown,
+  expected?: Partial<TestEvidence>,
+): TestEvidence;
+export function validateBundle(
+  value: ReleaseBundle,
+  catalogs?: ReleaseBundle['catalogs'],
+): ReleaseBundle;
+export function validateRequest(value: unknown): ReleaseRequest;
+export function validateReport(value: unknown): CompatibilityReport;
+export function validateEnvironmentState(value: unknown): EnvironmentState;
+export function assertRequestBinding(
+  request: ReleaseRequest,
+  evidence: TestEvidence,
+  bundle?: ReleaseBundle,
+): ReleaseRequest;
+export function assertDeployApproval(
+  request: ReleaseRequest,
+  report: CompatibilityReport,
+  completion?: {
+    target: Target;
+    reportDigest: string;
+    prerequisiteDigest: string;
+    confirmed: boolean;
+  },
+): void;
+export function summarize(
+  request: ReleaseRequest,
+  bundle?: ReleaseBundle,
+  report?: CompatibilityReport,
+): string;

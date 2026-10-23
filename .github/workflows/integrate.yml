@@ -1,55 +1,61 @@
 name: Integrate (CI)
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact candidate SHA selected by the trusted release workflow
+        required: false
+        type: string
   push:
     branches: [develop]
     paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".cargo/**"
-      - ".config/**"
-      - "ci/**"
-      - "tooling/**"
-      - "tests/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-      - "opensearch/**"
-      - "mjml/**"
-      - "docs/swagger.yaml"
-      - "docs/fixtures/**"
-      - "infra/sql/**"
-      - "infra/assets/rds-ca-layer/**"
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.cargo/**'
+      - '.config/**'
+      - 'ci/**'
+      - 'tooling/**'
+      - 'tests/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'depgraph-rules.toml'
+      - 'sonar-project.properties'
+      - 'src/**'
+      - 'migrations/**'
+      - 'opensearch/**'
+      - 'mjml/**'
+      - 'docs/swagger.yaml'
+      - 'docs/fixtures/**'
+      - 'infra/sql/**'
+      - 'infra/assets/rds-ca-layer/**'
   pull_request:
     paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".cargo/**"
-      - ".config/**"
-      - "ci/**"
-      - "tooling/**"
-      - "tests/**"
-      - "rust-toolchain.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "depgraph-rules.toml"
-      - "sonar-project.properties"
-      - "src/**"
-      - "migrations/**"
-      - "opensearch/**"
-      - "mjml/**"
-      - "docs/swagger.yaml"
-      - "docs/fixtures/**"
-      - "infra/sql/**"
-      - "infra/assets/rds-ca-layer/**"
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.cargo/**'
+      - '.config/**'
+      - 'ci/**'
+      - 'tooling/**'
+      - 'tests/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'depgraph-rules.toml'
+      - 'sonar-project.properties'
+      - 'src/**'
+      - 'migrations/**'
+      - 'opensearch/**'
+      - 'mjml/**'
+      - 'docs/swagger.yaml'
+      - 'docs/fixtures/**'
+      - 'infra/sql/**'
+      - 'infra/assets/rds-ca-layer/**'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.source_sha && format('{0}-{1}', github.run_id, github.run_attempt) || 'ci' }}
+  cancel-in-progress: ${{ !inputs.source_sha }}
 
 permissions:
   contents: read
@@ -67,6 +73,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/lint-workspace
 
   api:
@@ -78,6 +86,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/test-lane
         with:
           id: api
@@ -95,6 +105,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/test-lane
         with:
           id: crawler
@@ -112,6 +124,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/test-lane
         with:
           id: integration
@@ -126,6 +140,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/test-lane
         with:
           id: remaining
@@ -133,3 +149,21 @@ jobs:
           slots: 4
           profile: none
           compilation_cache: dependencies
+
+  quality:
+    name: Complete Rust suite
+    if: always()
+    needs: [lint, api, crawler, integration, remaining]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every Rust job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          required = {'lint', 'api', 'crawler', 'integration', 'remaining'}
+          assert set(results) == required, 'Missing required Rust jobs'
+          assert all(job['result'] == 'success' for job in results.values()), results
+          PYTHON

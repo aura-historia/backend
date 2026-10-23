@@ -3,6 +3,7 @@ import { Construct } from "constructs";
 
 export interface ApplicationParameters {
   readonly commitSha: string;
+  readonly mailTemplatePrefix: string;
   readonly cdcRouterActivation: cdk.CfnCondition;
   readonly searchFilterClassifierModel: string;
   readonly searchFilterMatchBatchCandidates: string;
@@ -12,7 +13,7 @@ export interface ApplicationParameters {
 export function artifactCommitShaParameter(scope: Construct): string {
   return new cdk.CfnParameter(scope, "CommitSHA", {
     type: "String",
-    description: "Artifact version to deploy. Reusing an older SHA rolls back Lambda/template artifacts.",
+    description: "Source provenance for runtime diagnostics and email template lookup; code objects are pinned separately.",
   }).valueAsString;
 }
 
@@ -24,6 +25,10 @@ export function applicationParameters(
   } = { model: "clef-flash", shouldShowThresholdBps: 5_000 },
 ): ApplicationParameters {
   const commitSha = artifactCommitShaParameter(scope);
+  const mailTemplatePrefix = new cdk.CfnParameter(scope, "MailTemplatePrefix", {
+    type: "String", allowedPattern: "^mail/[a-zA-Z0-9._-]+/$",
+    description: "Immutable shared mail artifact prefix from the completed bundle.",
+  }).valueAsString;
   const searchFilterClassifierModel = new cdk.CfnParameter(scope, "SearchFilterClassifierModel", {
     type: "String",
     default: searchFilterClassifierDefaults.model,
@@ -51,6 +56,7 @@ export function applicationParameters(
 
   return {
     commitSha,
+    mailTemplatePrefix,
     cdcRouterActivation,
     searchFilterClassifierModel,
     searchFilterMatchBatchCandidates,

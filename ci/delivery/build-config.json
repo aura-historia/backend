@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "toolchain": "1.98.0",
+  "cargoLambda": "1.9.0",
+  "zig": "0.14.1",
+  "node": "26.0.0",
+  "profile": "release",
+  "architecture": "x86_64",
+  "groups": 1,
+  "builderImage": "rust:1.98.0-bookworm@sha256:4e4a7e7939c17991ab35f2b8c2e67593980f771d28f6b1254b1850f860fd0c7f",
+  "targets": {
+    "prod": {"account": "${AWS_ACCOUNT_ID}", "region": "eu-central-1"}
+  }
+}

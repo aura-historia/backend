@@ -25,6 +25,12 @@ Command admission and committed-change delivery are separate boundaries. An API
 success may confirm a transaction or queue custody; neither implies search visibility
 or external delivery. PostgreSQL remains authoritative. DMS start and router activation
 require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
+Routine application delivery leaves DMS running and preserves selected-source identity,
+strict router shapes, retained-message readers and intentional consumer/schedule activation.
+Any captured relation DDL, capture selection/topology change or consumer retirement requires
+reviewed maintenance through the same environment admission hold. Stopping DMS does not
+drain Kinesis/SQS, discard retained contracts or authorize a new slot/start position; use
+[controlled maintenance and recovery](../durable-worker-runbook.md#approved-dms-maintenance).
 
 ## Account identity deletion
 

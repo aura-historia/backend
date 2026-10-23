@@ -199,8 +199,8 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     const versionId = alias.Properties.FunctionVersion["Fn::GetAtt"][0];
     const version = compute.findResources("AWS::Lambda::Version")[versionId];
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
-    expect(version.Properties.Description).toEqual({ "Fn::Join": ["", ["aura-historia-mcp-", { Ref: "CommitSHA" }]] });
-    expect(fn.Properties.Code.S3Key).toEqual({ "Fn::Join": ["", [`aura-historia-mcp-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] });
+    expect(version.Properties.Description).toEqual({ Ref: "AuraHistoriaMcpArtifactSha256" });
+    expect(fn.Properties.Code.S3Key).toEqual({ Ref: "AuraHistoriaMcpArtifactKey" });
     expect(compute.findResources("AWS::Lambda::Url")).toEqual({});
   });
 

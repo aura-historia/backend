@@ -4,7 +4,8 @@ import { WORKER_QUEUE_SETTINGS, type WorkerQueueSettings } from "./worker-queue-
 export const STAGES = ["prod", "dev"] as const;
 export type StageName = (typeof STAGES)[number];
 
-export const ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
+export const LEGACY_ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
+export const ARTIFACT_BUCKET_NAME = "aura-historia-release-bundles-eu-central-1";
 export const MAIL_TEMPLATE_BUCKET_NAME = "aura-historia-mail-templates-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 export const WORKLOAD_REGION = "eu-central-1";

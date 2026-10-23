@@ -6,19 +6,42 @@ running. [Event flow](events/flow.md) owns routes/completion;
 owns consent-specific recovery. Record the approved stage/account, release SHA, operator,
 checks and omissions. Keep payloads, credentials and personal content out of evidence.
 
-Routine **Release (CD)** owns the complete DMS pause/resume sequence for an initialized
-stage, including retries and runner loss. Its durable record distinguishes an owned pause
-from an intentional prior stop. Do not manually resume a task owned by an incomplete
-release or bypass it with Migrate/Initialize/exceptional deployment. Use
-[release recovery](infra.md#release-recovery) and retain WAL/storage monitoring throughout.
-The coordinator does not drain queues, pause consumers/schedulers, block API writes or
-perform the exceptional handoffs below.
+Routine delivery observes DMS while applying reviewed forward migrations and deploying
+compatible workloads. It preserves capture identity, selections, slot/checkpoint, mappings,
+worker activation and schedules. Captured-table shape changes, consumer retirement and
+platform changes require separately approved maintenance; an HTTP smoke does not establish
+queued-message compatibility or CDC health.
+
+Routine and maintenance operations share one durable environment admission record.
+`IN_PROGRESS`, `NEEDS_ATTENTION` and `MAINTENANCE` block another candidate. Cancellation,
+runner loss and elapsed time never release a hold. Inspect native pipeline/actions,
+CloudFormation, CodeDeploy alias versions and the actual SQLx ledger before reconciliation;
+SQL may have committed even when application rollout failed. Preserve the last verified
+application release separately from observed schema. The usual remedy is a reviewed forward
+fix or safe native retry, with fresh review when the baseline changes.
+
+### Approved DMS maintenance
+
+Record the exact task/endpoints/instance/slot and recovery checkpoint, prior lifecycle,
+maintenance owner/request, current retained WAL/free storage, pause budget and monitoring.
+Enter the environment maintenance hold before privileged operations. Pause only when the
+reviewed work requires it; retain an intentional prior stopped state. The small
+[maintenance helper](../ci/delivery/maintenance.cjs) records durable pause intent through
+its required evidence writer before calling DMS, observes ambiguous responses and resumes
+only its owned pause on the same task/checkpoint using `resume-processing`.
+
+A changed identity/checkpoint, exceeded WAL budget, task/table error or ambiguous recovery
+retains the hold. Inspect actual native state before retrying. Never create a start LSN,
+reset/recreate a slot/task, purge transport or restart an intentionally stopped subsystem
+to satisfy a release. Verify capture progress or measured healthy idleness, retained WAL,
+free storage and downstream routing after work; only then record observed state and
+explicitly reconcile the hold under the protected maintenance identity.
 
 ## Activation and legacy handoff
 
 1. Follow the [release sequence](infra.md#first-time-stage). Verify schema/job
    compatibility, FX, OpenSearch, provider/SES prerequisites and connection capacity
-   **before** `scope=all` creates active mappings and integrations. Deployment is not
+   **before** an approved platform activation creates active mappings and integrations. Deployment is not
    a readiness probe; if required checks are unavailable, hold activation.
 2. Inventory old subscriptions/processes, queue/DLQ backlog and in-flight or process-local
    work. Stop old delivery/consumers under approval before replacements take ownership.

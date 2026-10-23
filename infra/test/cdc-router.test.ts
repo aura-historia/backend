@@ -45,6 +45,7 @@ function stackTemplates(stage: (typeof REAL_STAGES)[number]) {
   const stacks = createApplicationStacks(app, { stage });
   return {
     data: Template.fromStack(stacks.data),
+    archiveArn: stacks.compute.resolve(stacks.data.workloadStorage.routerFailureArchive.bucketArn),
     compute: Template.fromStack(stacks.compute),
   };
 }
@@ -85,8 +86,8 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     expect(router.Properties).toMatchObject({
       Architectures: ["x86_64"],
       Code: {
-        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
-        S3Key: { "Fn::Join": ["", [`cdc-router-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] },
+        S3Bucket: "aura-historia-release-bundles-eu-central-1",
+        S3Key: { Ref: "CdcRouterLambdaArtifactKey" },
       },
       FunctionName: `cdc-router-lambda-${stage}`,
       Handler: "lib.handler",
@@ -112,16 +113,10 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
   });
 
   test("maps the real DMS Kinesis stream with bounded failure handling and default-disabled activation", () => {
-    const { data, compute } = stackTemplates(stage);
+    const { data, compute, archiveArn } = stackTemplates(stage);
     const routerVersionLogicalId = Object.keys(compute.findResources("AWS::Lambda::Version"))
       .find((logicalId) => logicalId.includes("CdcRouterVersion"));
     expect(routerVersionLogicalId).toBeDefined();
-    const [archiveLogicalId] = namedResource(
-      compute,
-      "AWS::S3::Bucket",
-      "BucketName",
-      `aura-historia-cdc-router-failures-${stage}`,
-    );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping") as Record<string, Resource>);
     const mapping = mappings.find((resource) => JSON.stringify(resource.Properties.FunctionName).includes(routerVersionLogicalId!));
 
@@ -146,7 +141,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       BisectBatchOnFunctionError: true,
       DestinationConfig: {
         OnFailure: {
-          Destination: { "Fn::GetAtt": [archiveLogicalId, "Arn"] },
+          Destination: archiveArn,
         },
       },
       Enabled: { "Fn::If": ["CdcRouterActivation", true, false] },
@@ -172,7 +167,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
   });
 
   test("retains an encrypted, private failure archive and grants the router only its read, fan-out, and archive actions", () => {
-    const { compute } = stackTemplates(stage);
+    const { data, compute, archiveArn } = stackTemplates(stage);
     const [routerLogicalId] = namedResource(
       compute,
       "AWS::Lambda::Function",
@@ -180,7 +175,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       `cdc-router-lambda-${stage}`,
     );
     const [archiveLogicalId, archive] = namedResource(
-      compute,
+      data,
       "AWS::S3::Bucket",
       "BucketName",
       `aura-historia-cdc-router-failures-${stage}`,
@@ -191,7 +186,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     const deadLetterQueues = statements.find((statement) => statement.Action === "sqs:GetQueueAttributes");
     const archiveList = statements.find((statement) => statement.Action === "s3:ListBucket");
     const archivePut = statements.find((statement) => statement.Action === "s3:PutObject");
-    const bucketPolicy = Object.values(compute.findResources("AWS::S3::BucketPolicy") as Record<string, Resource>)
+    const bucketPolicy = Object.values(data.findResources("AWS::S3::BucketPolicy") as Record<string, Resource>)
       .find((resource) => JSON.stringify(resource.Properties.Bucket).includes(archiveLogicalId));
 
     expect(archive).toMatchObject({
@@ -257,7 +252,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     expect(archiveList).toEqual({
       Action: "s3:ListBucket",
       Effect: "Allow",
-      Resource: { "Fn::GetAtt": [archiveLogicalId, "Arn"] },
+      Resource: archiveArn,
     });
     expect(archivePut).toMatchObject({
       Action: "s3:PutObject",
