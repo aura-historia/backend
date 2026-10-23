@@ -549,19 +549,14 @@ impl CrawlerReviewRepository {
             }
         };
         if is_new {
-            for page in pages {
-                let review_page_id = CrawlerReviewPageId::new();
-                let html_hash = sha256_hex(page.raw_html.as_bytes());
-                sqlx::query(
-                    "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
-                     VALUES ($1, $2, $3, $4, $5)",
+            for page in &pages {
+                insert_review_page(
+                    &mut transaction,
+                    review_id,
+                    &page.url,
+                    &page.role,
+                    &page.raw_html,
                 )
-                .bind(review_page_id.as_uuid())
-                .bind(review_id.as_uuid())
-                .bind(page.url)
-                .bind(page.role)
-                .bind(html_hash)
-                .execute(&mut *transaction)
                 .await?;
             }
         }
@@ -1153,6 +1148,27 @@ async fn persist_approved_schema_edit(
 }
 
 /// Drops the cached schema matrix after the review's page set changed.
+async fn insert_review_page(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    url: &str,
+    role: &str,
+    raw_html: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(CrawlerReviewPageId::new().as_uuid())
+    .bind(review_id.as_uuid())
+    .bind(url)
+    .bind(role)
+    .bind(sha256_hex(raw_html.as_bytes()))
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 async fn drop_cached_schema_matrix(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
