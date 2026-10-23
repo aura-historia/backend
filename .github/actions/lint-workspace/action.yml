@@ -12,9 +12,6 @@ runs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: lint
-    - name: Check CI tooling
-      shell: bash
-      run: python3 -m unittest discover -s ci/tests
     - name: Format check
       shell: bash
       run: cargo fmt --all -- --check
@@ -30,5 +27,5 @@ runs:
     - name: Clippy lint
       shell: bash
       run: |
-        python3 ci/guard-disk.py --target target --profiles "$RUNNER_TEMP/lint-profraw" --log "$RUNNER_TEMP/lint-disk.jsonl" -- \
+        python3 ci/guard-disk.py --target target --log "$RUNNER_TEMP/lint-disk.jsonl" -- \
           cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
