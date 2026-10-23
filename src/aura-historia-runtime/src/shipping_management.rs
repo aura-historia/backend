@@ -1,7 +1,14 @@
 //! Shipping management requires only PostgreSQL and the existing source access policy.
 use listing_source_postgres::SqlxSourceLocationAccessFactory;
 use platform_postgres::SqlxUnitOfWork;
-use shipping_service::use_cases::*;
+use shipping_service::use_cases::{
+    AssignShippingDefaultHandler, AssignShippingDefaultUseCase, ClearShippingDefaultHandler,
+    ClearShippingDefaultUseCase, CreateShippingProfileHandler, CreateShippingProfileUseCase,
+    GetShippingDefaultHandler, GetShippingDefaultUseCase, GetShippingProfileHandler,
+    GetShippingProfileUseCase, ListShippingProfilesHandler, ListShippingProfilesUseCase,
+    ReplaceShippingProfileHandler, ReplaceShippingProfileUseCase, RestoreShippingProfileHandler,
+    RestoreShippingProfileUseCase, RetireShippingProfileHandler, RetireShippingProfileUseCase,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 

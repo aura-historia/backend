@@ -1,5 +1,12 @@
 //! HTTP classification of shipping management failures.
-use super::*;
+use super::bad;
+use crate::error::{
+    ApiError, FORBIDDEN, INVALID_CREDENTIALS, LISTING_SOURCE_NOT_FOUND, PARTY_NOT_FOUND,
+    SHIPPING_CREATION_KEY_CONFLICT, SHIPPING_LOCATION_NOT_FOUND, SHIPPING_PROFILE_NOT_FOUND,
+    SHIPPING_PROFILE_RETIRED, SHIPPING_REFERENCE_INELIGIBLE, SHIPPING_REVISION_EXHAUSTED,
+    SHIPPING_STALE_REVISION, SHIPPING_STORAGE_ERROR, SHIPPING_TEMPORARILY_UNAVAILABLE,
+};
+use shipping_service::ShippingError;
 
 impl From<ShippingError> for ApiError {
     fn from(e: ShippingError) -> Self {

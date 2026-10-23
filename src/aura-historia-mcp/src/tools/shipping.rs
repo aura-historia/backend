@@ -13,7 +13,11 @@ use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use shipping_core::profile::ShippingProfileId;
-use shipping_service::use_cases::*;
+use shipping_service::use_cases::{
+    AssignShippingDefaultUseCase, ClearShippingDefaultUseCase, CreateShippingProfileUseCase,
+    GetShippingDefaultUseCase, GetShippingProfileUseCase, ListShippingProfilesUseCase,
+    ReplaceShippingProfileUseCase, RestoreShippingProfileUseCase, RetireShippingProfileUseCase,
+};
 use std::sync::Arc;
 
 #[derive(Deserialize, JsonSchema)]
