@@ -45,11 +45,13 @@ impl ElementFlow {
     fn of(element_name: &str) -> Self {
         match element_name {
             "td" | "th" => Self::Cell,
-            "address" | "article" | "aside" | "blockquote" | "br" | "caption" | "dd"
-            | "details" | "div" | "dl" | "dt" | "fieldset" | "figcaption" | "figure" | "footer"
-            | "form" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "hr" | "li"
-            | "main" | "nav" | "ol" | "p" | "pre" | "section" | "summary" | "table" | "tbody"
-            | "tfoot" | "thead" | "tr" | "ul" => Self::Block,
+            "address" | "article" | "aside" | "blockquote" | "br" | "caption" | "center" | "dd"
+            | "details" | "dir" | "div" | "dl" | "dt" | "fieldset" | "figcaption" | "figure"
+            | "footer" | "form" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "hgroup"
+            | "hr" | "legend" | "li" | "main" | "menu" | "nav" | "ol" | "p" | "pre" | "search"
+            | "section" | "summary" | "table" | "tbody" | "tfoot" | "thead" | "tr" | "ul" => {
+                Self::Block
+            }
             _ => Self::Inline,
         }
     }
@@ -264,6 +266,24 @@ mod tests {
             assert_eq!(
                 separated_text_of(markup),
                 "Oak bureau\nHeight 40 cm\nWidth 30 cm\nProvenance\nPrivate collection"
+            );
+        }
+
+        /// Block elements shops use less often than `div` or `p`, including the obsolete
+        /// `center` and `dir`, which browsers still lay out as blocks.
+        #[rstest]
+        #[case::center("center")]
+        #[case::dir("dir")]
+        #[case::hgroup("hgroup")]
+        #[case::legend("legend")]
+        #[case::menu("menu")]
+        #[case::search("search")]
+        fn should_start_a_new_line_at_the_boundaries_of_a_block_element(#[case] element: &str) {
+            let markup = format!("<div>Oak chair<{element}>Circa 1880</{element}>Restored</div>");
+
+            assert_eq!(
+                separated_text_of(&markup),
+                "Oak chair\nCirca 1880\nRestored"
             );
         }
 
