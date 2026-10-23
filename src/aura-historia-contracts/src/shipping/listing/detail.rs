@@ -15,12 +15,16 @@ use serde::Serialize;
 use shipping_core::assessment::{ServiceAssessment, ShippingAssessment};
 
 /// Effective public terms shared by every viewer of the listing; omitted when unasserted.
+/// Terms that cannot be resolved leave only the explanation of the undetermined outcome.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(extend("minProperties" = 1))]
 pub struct ListingShippingDetailData {
     #[serde(flatten)]
     shipping: AssessmentSummaryData,
-    terms: TermsData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "TermsData")]
+    terms: Option<TermsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "DisplayData")]
     display: Option<DisplayData>,
@@ -28,9 +32,10 @@ pub struct ListingShippingDetailData {
 impl ListingShippingProjection for ListingShippingDetailData {
     type Source = AdvertisedShipping;
     fn project(source: AdvertisedShipping) -> Option<Self> {
-        let (terms, converted) = TermsData::new(source.effective.terms(), source.display.as_ref());
+        let terms = TermsData::new(source.effective.terms(), source.display.as_ref());
+        let converted = terms.as_ref().is_some_and(TermsData::is_converted);
         let shipping = AssessmentSummaryData::shipping(&source.assessment);
-        (!terms.is_empty() || !shipping.is_empty()).then(|| Self {
+        (terms.is_some() || !shipping.is_empty()).then(|| Self {
             shipping,
             terms,
             display: source

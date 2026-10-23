@@ -15,6 +15,7 @@ use serde::Serialize;
 /// Destination-independent summary shared by every viewer of a collection item.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(extend("minProperties" = 1))]
 pub struct ListingShippingSummaryData {
     #[serde(flatten)]
     shipping: AssessmentSummaryData,
@@ -37,6 +38,7 @@ impl ListingShippingProjection for ListingShippingSummaryData {
 /// Assessment for the caller's selected browsing destination, without echoing it.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(extend("minProperties" = 1))]
 pub struct PersonalizedShippingSummaryData {
     #[serde(flatten)]
     shipping: AssessmentSummaryData,

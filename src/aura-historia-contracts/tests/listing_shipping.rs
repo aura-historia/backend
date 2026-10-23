@@ -30,6 +30,7 @@ use shipping_core::{
     },
     time::CollectionArrangement,
 };
+use std::sync::LazyLock;
 use time::OffsetDateTime;
 
 const RELEASE: ReferenceRelease = ReferenceRelease::IsoCodes4_20_1;
@@ -42,25 +43,34 @@ fn fixture(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// Serializes a value and proves its generated output schema accepts the actual JSON.
+/// Serializes a value and proves both its generated MCP output schema and the REST OpenAPI
+/// component accept the actual JSON.
 fn output<T: Serialize + JsonSchema>(value: &T) -> Value {
     let serialized = serde_json::to_value(value).unwrap();
-    let validator = validator::<T>();
-    let errors: Vec<_> = validator
-        .iter_errors(&serialized)
-        .map(|e| e.to_string())
-        .collect();
-    assert!(errors.is_empty(), "{serialized}: {errors:?}");
+    for validator in validators::<T>() {
+        let errors: Vec<_> = validator
+            .iter_errors(&serialized)
+            .map(|e| e.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{serialized}: {errors:?}");
+    }
     assert_no_nulls(&serialized);
     serialized
 }
-fn validator<T: JsonSchema>() -> jsonschema::Validator {
-    let schema = SchemaSettings::default()
+/// The generated schema and the hand-written OpenAPI component of the same name.
+fn validators<T: JsonSchema>() -> [jsonschema::Validator; 2] {
+    let generated = SchemaSettings::default()
         .for_serialize()
         .into_generator()
         .into_root_schema_for::<T>();
-    jsonschema::validator_for(schema.as_value()).unwrap()
+    let mut openapi = OPENAPI.clone();
+    openapi["$ref"] = json!(format!("#/components/schemas/{}", T::schema_name()));
+    [generated.as_value(), &openapi].map(|schema| jsonschema::validator_for(schema).unwrap())
 }
+static OPENAPI: LazyLock<Value> = LazyLock::new(|| {
+    let swagger: Value = yaml_serde::from_str(include_str!("../../../docs/swagger.yaml")).unwrap();
+    json!({"components": swagger["components"]})
+});
 fn assert_no_nulls(value: &Value) {
     match value {
         Value::Null => panic!("public shipping reads omit absent values"),
@@ -292,6 +302,22 @@ fn should_distinguish_prohibition_unknown_eligibility_and_confirmation() {
         "unasserted shipping omits the summary instead of asserting no shipping"
     );
     assert!(ListingShippingDetailData::project(advertised(&unasserted, Currency::Eur)).is_none());
+    // Unresolvable dependencies leave no terms to show, but the explanation remains.
+    let gallery = shipping_core::fixtures::gallery();
+    let unresolved = EffectiveDeliveryTerms::resolve(
+        &gallery.painting,
+        Some(&gallery.source_default),
+        &[gallery.profile.clone(), gallery.profile],
+    );
+    let explained = json!({
+        "explanations": [{"code": "UNRESOLVED_TERMS"}],
+        "collection": {"explanations": [{"code": "UNRESOLVED_TERMS"}]}
+    });
+    assert_eq!(explained, summary(advertised(&unresolved, Currency::Eur)));
+    assert_eq!(
+        json!({"explanations": [{"code": "UNRESOLVED_TERMS"}]}),
+        detail(advertised(&unresolved, Currency::Eur))
+    );
 
     let policy = shipping_fixture::large_policy(8);
     let international =
@@ -467,21 +493,29 @@ fn should_never_disclose_dispatch_or_collection_sites() {
 
 #[test]
 fn should_describe_omission_rather_than_null_in_output_schemas() {
-    let summaries = validator::<ListingShippingSummaryData>();
-    assert!(summaries.is_valid(&json!({"requiredInputs": ["DESTINATION"]})));
-    for invalid in [
-        json!({"eligibility": null}),
-        json!({"requiredInputs": []}),
-        json!({"requiredInputs": ["ORIGIN_COUNTRY"]}),
-        json!({"explanations": [{"code": "QUALIFYING_AMOUNT_REQUIRED"}]}),
-        json!({"collection": null}),
-    ] {
-        assert!(!summaries.is_valid(&invalid), "{invalid}");
+    for summaries in validators::<ListingShippingSummaryData>() {
+        assert!(summaries.is_valid(&json!({"requiredInputs": ["DESTINATION"]})));
+        for invalid in [
+            json!({}),
+            json!({"eligibility": null}),
+            json!({"requiredInputs": []}),
+            json!({"requiredInputs": ["ORIGIN_COUNTRY"]}),
+            json!({"explanations": [{"code": "QUALIFYING_AMOUNT_REQUIRED"}]}),
+            json!({"collection": null}),
+            json!({"collection": {}}),
+        ] {
+            assert!(!summaries.is_valid(&invalid), "{invalid}");
+        }
     }
-    let details = validator::<ListingShippingDetailData>();
-    assert!(!details.is_valid(&json!({})), "detail terms are required");
-    assert!(!details.is_valid(&json!({"terms": {"shipping": null}})));
-    assert!(!details.is_valid(&json!({"terms": {}})));
+    for details in validators::<ListingShippingDetailData>() {
+        assert!(details.is_valid(&json!({"explanations": [{"code": "UNRESOLVED_TERMS"}]})));
+        assert!(!details.is_valid(&json!({})), "empty details are omitted");
+        assert!(!details.is_valid(&json!({"terms": {"shipping": null}})));
+        assert!(!details.is_valid(&json!({"terms": {}})));
+    }
+    for personalized in validators::<PersonalizedShippingSummaryData>() {
+        assert!(!personalized.is_valid(&json!({})));
+    }
 }
 
 /// Records decoded JSON sizes of a repeated large-policy collection. Run explicitly with

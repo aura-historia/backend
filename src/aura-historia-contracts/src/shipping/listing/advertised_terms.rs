@@ -310,31 +310,33 @@ enum ArrangementData {
 }
 
 impl TermsData {
-    pub(super) fn is_empty(&self) -> bool {
-        self.shipping.is_none() && self.collection.is_none()
-    }
-    /// Also reports whether any rate carries a converted requested-currency value.
-    pub(super) fn new(terms: &DeliveryTerms, display: Option<&ShippingDisplay>) -> (Self, bool) {
-        let mut converted = false;
-        let shipping = terms.shipping().map(|policy| match policy {
-            ShippingPolicy::Prohibited => PolicyData::Prohibited,
-            ShippingPolicy::Coverage(coverage) => PolicyData::Coverage {
-                coverage: Box::new(CoverageData::new(coverage, display, &mut converted)),
-            },
-        });
+    /// `None` when neither shipping nor collection is asserted.
+    pub(super) fn new(terms: &DeliveryTerms, display: Option<&ShippingDisplay>) -> Option<Self> {
         let data = Self {
-            shipping,
+            shipping: terms.shipping().map(|policy| match policy {
+                ShippingPolicy::Prohibited => PolicyData::Prohibited,
+                ShippingPolicy::Coverage(coverage) => PolicyData::Coverage {
+                    coverage: Box::new(CoverageData::new(coverage, display)),
+                },
+            }),
             collection: terms.collection().map(CollectionData::new),
         };
-        (data, converted)
+        (data.shipping.is_some() || data.collection.is_some()).then_some(data)
+    }
+    /// Whether any rate carries a converted requested-currency value.
+    pub(super) fn is_converted(&self) -> bool {
+        let Some(PolicyData::Coverage { coverage }) = &self.shipping else {
+            return false;
+        };
+        coverage
+            .zones
+            .iter()
+            .flat_map(|zone| &zone.services)
+            .any(|service| service.rate.as_ref().is_some_and(RateData::is_converted))
     }
 }
 impl CoverageData {
-    fn new(
-        coverage: &ShippingCoverage,
-        display: Option<&ShippingDisplay>,
-        converted: &mut bool,
-    ) -> Self {
+    fn new(coverage: &ShippingCoverage, display: Option<&ShippingDisplay>) -> Self {
         Self {
             reference_release: coverage.release().as_str(),
             completeness: coverage.completeness().as_str(),
@@ -344,18 +346,13 @@ impl CoverageData {
                 .zones()
                 .iter()
                 .enumerate()
-                .map(|(index, zone)| ZoneData::new(index, zone, display, converted))
+                .map(|(index, zone)| ZoneData::new(index, zone, display))
                 .collect(),
         }
     }
 }
 impl ZoneData {
-    fn new(
-        zone_index: usize,
-        zone: &ShippingZone,
-        display: Option<&ShippingDisplay>,
-        converted: &mut bool,
-    ) -> Self {
+    fn new(zone_index: usize, zone: &ShippingZone, display: Option<&ShippingDisplay>) -> Self {
         Self {
             areas: zone.areas().iter().map(AreaData::new).collect(),
             applicability: ApplicabilityData::new(zone.applicability()),
@@ -366,9 +363,7 @@ impl ZoneData {
                 .map(|(service_index, service)| {
                     let display =
                         display.and_then(|display| display.price(zone_index, service_index));
-                    let data = ServiceData::new(service, display);
-                    *converted |= data.rate.as_ref().is_some_and(RateData::is_converted);
-                    data
+                    ServiceData::new(service, display)
                 })
                 .collect(),
         }

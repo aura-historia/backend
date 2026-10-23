@@ -18075,10 +18075,11 @@ components:
     ListingShippingDetailData:
       type: object
       additionalProperties: false
-      required: [terms]
+      minProperties: 1
       description: >-
         Destination-independent shipping of a single listing read, shared by every viewer: the summary fields
-        and effective advertised terms. Omitted when nothing is asserted or the listing is hidden/withdrawn.
+        and effective advertised terms. Terms are omitted when none resolve; the summary then explains why.
+        Omitted when nothing is asserted or the listing is hidden/withdrawn.
         Display conversion uses persisted browsing FX, never historical sale-observation FX. Missing snapshot
         or unavailable FX reads return 503; invalid snapshot, missing required quote or overflow return 500.
         Currency and query predicates isolate anonymous caches; credential-bearing responses and errors remain
@@ -18109,9 +18110,9 @@ components:
       minProperties: 1
       description: >-
         Bounded assessment of a collection item for the authenticated owner's selected browsing destination,
-        without echoing it. Omitted when no destination is selected, delegated personalization lacks
-        users:read, or the listing is hidden/withdrawn. Owning addresses alone selects none. Authenticated
-        responses are never cached.
+        without echoing it. Omitted when nothing is assessed, no destination is selected, delegated
+        personalization lacks users:read, or the listing is hidden/withdrawn. Owning addresses alone selects
+        none. Authenticated responses are never cached.
       properties:
         eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
         requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}

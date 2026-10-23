@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 /// eligibility means unknown or unasserted; only an explicit `NOT_OFFERED` is a negative.
 #[derive(Debug, Default, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(rename = "DeliveryAssessmentSummaryData")]
+#[schemars(rename = "DeliveryAssessmentSummaryData", extend("minProperties" = 1))]
 pub struct AssessmentSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "super::values::eligibility")]

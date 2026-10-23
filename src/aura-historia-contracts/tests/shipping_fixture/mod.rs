@@ -1,16 +1,15 @@
 //! A stable large advertised policy resembling observed staging terms: a domestic zone with
 //! parcel, conditional free freight and class-restricted furniture rates, repeated regional
 //! zones and an international on-request zone.
-#![allow(dead_code)]
 use geo::{CountryCode, GeographicDescription, reference::ReferenceRelease};
 use money::{Currency, Price};
 use product_listing_service::shipping::{ConvertedShippingRate, ShippingDisplay};
 use shipping_core::{
-    assessment::{EffectiveDeliveryTerms, ShippingAssessment, assess},
+    assessment::EffectiveDeliveryTerms,
     coverage::{
         CoverageCompleteness, DeliveryArea, ReferenceCountry, ShippingCoverage, ShippingZone,
     },
-    inputs::{AmountThreshold, Applicability, AssessmentInput, SourceShippingClass},
+    inputs::{AmountThreshold, Applicability, SourceShippingClass},
     pricing::{ChargeBasis, QualifyingScope, ShippingPrice, ShippingRate},
     selection::ProfileSelection,
     terms::{
@@ -29,8 +28,6 @@ const REGIONS: [&str; 40] = [
 
 pub struct LargePolicy {
     pub effective: EffectiveDeliveryTerms,
-    pub generic: ShippingAssessment,
-    pub personalized: ShippingAssessment,
     pub destination: GeographicDescription,
 }
 
@@ -194,25 +191,14 @@ pub fn large_policy(regions: usize) -> LargePolicy {
         GeographicDescription::new_in_release(RELEASE, None, Some(CountryCode::DEU), None, None)
             .unwrap()
             .unwrap();
-    let generic = assess(&effective, &AssessmentInput::default(), &[]);
-    let personalized = assess(
-        &effective,
-        &AssessmentInput {
-            destination: Some(destination.clone()),
-            ..Default::default()
-        },
-        &[],
-    );
     LargePolicy {
         effective,
-        generic,
-        personalized,
         destination,
     }
 }
 
 /// Test-local display conversion: EUR is identity, USD multiplies by 1.1 with HalfUp rounding.
-pub fn converted(price: ShippingPrice, currency: Currency) -> Option<ShippingPrice> {
+fn converted(price: ShippingPrice, currency: Currency) -> Option<ShippingPrice> {
     let convert = |p: Price| {
         let minor = u64::from(p.monetary_amount);
         let minor = if currency == Currency::Usd {
