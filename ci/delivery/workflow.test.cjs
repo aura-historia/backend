@@ -4,6 +4,7 @@ const test = require('node:test'),
   fs = require('node:fs');
 const {
   trustedInvocation,
+  assertControlRevision,
   environmentProtection,
   request,
 } = require('./workflow.cjs');
@@ -51,6 +52,7 @@ test('build-cost authorization cannot authorize target mutation', () => {
     sourceSha: f.sha,
     target: 'prod',
     workflowRevision: f.sha,
+    invocationRevision: f.sha,
     runId: '42',
     runAttempt: 1,
     buildConfigDigest: f.hash,
@@ -71,5 +73,25 @@ test('the only release workflow is manual and target approval follows complete t
   assert.doesNotMatch(
     workflow,
     /CI_DEPLOY_ROLE_ARN|cargo lambda|docker push|s3api put-object/,
+  );
+});
+
+test('approved control code remains stable across app commits and rejects entry/helper changes', () => {
+  let called = false;
+  assertControlRevision(
+    { WORKFLOW_REVISION: f.sha, INVOCATION_REVISION: 'b'.repeat(40) },
+    (_program, args) => {
+      called = true;
+      assert.ok(args.includes('ci/delivery'));
+    },
+  );
+  assert.equal(called, true);
+  assert.throws(() =>
+    assertControlRevision(
+      { WORKFLOW_REVISION: f.sha, INVOCATION_REVISION: 'b'.repeat(40) },
+      () => {
+        throw Error('changed control');
+      },
+    ),
   );
 });

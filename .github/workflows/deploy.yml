@@ -34,7 +34,8 @@ env:
   DELIVERY_BUILD_PIPELINE: ${{ vars.DELIVERY_BUILD_PIPELINE }}
   DELIVERY_DEV_ENABLED: ${{ vars.DELIVERY_DEV_ENABLED }}
   DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
-  WORKFLOW_REVISION: ${{ github.workflow_sha }}
+  WORKFLOW_REVISION: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+  INVOCATION_REVISION: ${{ github.workflow_sha }}
   GH_TOKEN: ${{ github.token }}
 jobs:
   resolve:
@@ -54,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -84,6 +85,7 @@ jobs:
     uses: ./.github/workflows/release-tests.yml
     with:
       source_sha: ${{ needs.resolve.outputs.source_sha }}
+      control_revision: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
     permissions:
       contents: read
       packages: read
@@ -104,7 +106,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 26
@@ -149,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -203,7 +206,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 26

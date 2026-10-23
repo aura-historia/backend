@@ -37,6 +37,33 @@ function trustedInvocation(env = process.env) {
       'Owner must verify environment reviewers, protected develop branch and disabled administrator bypass before enabling delivery',
     );
 }
+function assertControlRevision(env = process.env, run = execFileSync) {
+  if (!/^[a-f0-9]{40}$/.test(env.INVOCATION_REVISION || ''))
+    throw new Error('Missing actual invocation revision');
+  try {
+    run(
+      'git',
+      [
+        'diff',
+        '--quiet',
+        env.WORKFLOW_REVISION,
+        env.INVOCATION_REVISION,
+        '--',
+        '.github/workflows',
+        '.github/actions',
+        'ci/delivery',
+        'ci/lambda-binaries.json',
+        'ci/container-images.json',
+        'ci/container-images',
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+  } catch {
+    throw new Error(
+      'Delivery control files differ from the approved pinned revision; update the reviewed control-plane configuration before releasing',
+    );
+  }
+}
 function environmentProtection(name, get = gh) {
   const environment = get(`environments/${name}`);
   const reviewers = environment.protection_rules?.find(
@@ -133,6 +160,7 @@ function resolve() {
     target,
     mode,
     workflowRevision: process.env.WORKFLOW_REVISION,
+    invocationRevision: process.env.INVOCATION_REVISION,
     runId: process.env.GITHUB_RUN_ID,
     runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
     buildConfigDigest: digest(loadBuildConfig()),
@@ -156,6 +184,7 @@ function request(selection, tests, scope, bundleDigest) {
     sourceSha: selection.sourceSha,
     target: selection.target,
     workflowRevision: selection.workflowRevision,
+    invocationRevision: selection.invocationRevision,
     runId: selection.runId,
     runAttempt: selection.runAttempt,
     testEvidenceDigest: digest(tests),
@@ -175,6 +204,7 @@ function selected() {
   const selection = json('.delivery/selection.json');
   if (
     selection.workflowRevision !== process.env.WORKFLOW_REVISION ||
+    selection.invocationRevision !== process.env.INVOCATION_REVISION ||
     selection.runId !== process.env.GITHUB_RUN_ID ||
     selection.runAttempt !== Number(process.env.GITHUB_RUN_ATTEMPT)
   )
@@ -187,6 +217,7 @@ function currentTests(selection) {
   return assertFullTests(json('.delivery/tests.json'), {
     sourceSha: selection.sourceSha,
     workflowRevision: selection.workflowRevision,
+    invocationRevision: selection.invocationRevision,
     runId: selection.runId,
     runAttempt: selection.runAttempt,
   });
@@ -394,6 +425,7 @@ function deploy() {
     );
 }
 async function main() {
+  assertControlRevision();
   const command = process.argv[2];
   if (command === 'resolve') resolve();
   else if (command === 'build') build();
@@ -417,6 +449,8 @@ if (require.main === module)
   });
 module.exports = {
   trustedInvocation,
+  assertControlRevision,
+  approvedEnvironment,
   environmentProtection,
   request,
   releaseSource,

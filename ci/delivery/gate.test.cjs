@@ -7,6 +7,7 @@ function input() {
   return {
     sourceSha: f.sha,
     workflowRevision: f.sha,
+    invocationRevision: f.sha,
     runId: '42',
     runAttempt: 1,
     needs: Object.fromEntries(

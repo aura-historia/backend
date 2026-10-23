@@ -5,6 +5,9 @@ on:
       source_sha:
         required: true
         type: string
+      control_revision:
+        required: true
+        type: string
     outputs:
       evidence_digest:
         value: ${{ jobs.complete.outputs.digest }}
@@ -37,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ inputs.control_revision }}
           path: control
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -63,12 +66,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ inputs.control_revision }}
       - name: Require complete exact-SHA results and emit bound evidence
         id: evidence
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          WORKFLOW_REVISION: ${{ inputs.control_revision }}
+          INVOCATION_REVISION: ${{ github.workflow_sha }}
           NEEDS_JSON: ${{ toJSON(needs) }}
           FINGERPRINTS: ${{ needs.inventory.outputs.fingerprints }}
         run: |

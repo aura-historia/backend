@@ -128,6 +128,7 @@ function assertFullTests(evidence, expected = {}) {
 function evidence({
   sourceSha,
   workflowRevision,
+  invocationRevision,
   runId,
   runAttempt,
   needs,
@@ -142,6 +143,7 @@ function evidence({
     repository: 'aura-historia/backend',
     sourceSha,
     workflowRevision,
+    invocationRevision,
     runId,
     runAttempt: Number(runAttempt),
     ...fingerprints,
@@ -155,6 +157,7 @@ function evidence({
   return assertFullTests(result, {
     sourceSha,
     workflowRevision,
+    invocationRevision,
     runId,
     runAttempt: Number(runAttempt),
   });
@@ -184,6 +187,7 @@ if (require.main === module) {
     const result = evidence({
       sourceSha: process.env.SOURCE_SHA,
       workflowRevision: process.env.WORKFLOW_REVISION,
+      invocationRevision: process.env.INVOCATION_REVISION,
       runId: process.env.GITHUB_RUN_ID,
       runAttempt: process.env.GITHUB_RUN_ATTEMPT,
       needs: JSON.parse(process.env.NEEDS_JSON),

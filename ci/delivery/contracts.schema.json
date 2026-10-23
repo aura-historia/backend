@@ -116,7 +116,8 @@
         "requiredJobs",
         "jobResults",
         "reports",
-        "completedAt"
+        "completedAt",
+        "invocationRevision"
       ],
       "properties": {
         "version": {
@@ -175,6 +176,9 @@
         },
         "completedAt": {
           "$ref": "#/$defs/time"
+        },
+        "invocationRevision": {
+          "$ref": "#/$defs/sourceSha"
         }
       },
       "additionalProperties": false
@@ -358,7 +362,8 @@
         "testEvidenceDigest",
         "bundleDigest",
         "authorization",
-        "buildConfigDigest"
+        "buildConfigDigest",
+        "invocationRevision"
       ],
       "properties": {
         "version": {
@@ -429,6 +434,9 @@
         },
         "buildConfigDigest": {
           "$ref": "#/$defs/sha256"
+        },
+        "invocationRevision": {
+          "$ref": "#/$defs/sourceSha"
         }
       },
       "additionalProperties": false
