@@ -454,3 +454,28 @@ ADC construction remains lazy until an embedding is requested. Lambda prepares i
 uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
 REST while retaining only the MCP runtime's existing PostgreSQL secret-read IAM permission.
+
+## Shipping management
+
+The [shipping operation manifest](../src/aura-historia-mcp/shipping-operations.json)
+defines the nine profile and source-default operations, using the existing REST operation IDs.
+Reads require `listing-sources:read`; mutations require `listing-sources:write`. Current account,
+operator partnership membership, source grants and referenced-party/location eligibility remain
+service checks on every call, including creation-key and import replays. Delegated context reaches
+those services without changing its principal or capabilities.
+
+Arguments combine `listingSourceId`, optional `shippingProfileId` and the shared REST query/body
+fields. Profile lists retain `objectKey`, `integrationMethod`, `after` and `size` (default 21,
+accepted range 1–100), with the complete page in `result`. Profile content retains required but
+nullable `attributedPartyId`, complete terms and evidence. Public terms use prefixed party/location
+IDs; persisted UUID reference encodings remain adapter-owned. Generated schemas come from the
+same `shipping-json` DTOs that encode/decode every terms branch, money, origin and collection site.
+
+Mutations retain creation keys, expected revisions and optional import provenance. The idempotent
+annotation means repeating a command cannot apply a second effect: revision-checked retries may
+conflict rather than recover a response. Create repeats use identical content/evidence and their
+original creation key. Import repeats retain exact request keys, content and successful acquisition;
+a new key/timestamp must never be attached to old assertions to bypass current authority or ordering.
+After a conflict, refetch and reconcile. No mutation is automatically retried. The
+[shipping contract](shipping.md#incremental-typed-imports) owns import replay retention and authority;
+no shipping quote, purchase, booking or checkout tool is introduced.

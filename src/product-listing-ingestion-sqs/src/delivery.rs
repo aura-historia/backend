@@ -47,60 +47,7 @@ impl DeliveryReferenceCodec for PublicDeliveryReferences {
         v.to_string()
     }
 }
-/// Shared public and queue protocol; timestamps always use RFC3339, never receipt time.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ImportData {
-    integration: Value,
-    sequence: u64,
-    acquired_at: String,
-    request_key: String,
-    #[serde(default)]
-    object_key: Option<String>,
-    #[serde(default)]
-    observation: Option<ObservationData>,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ObservationData {}
-impl ImportData {
-    pub fn into_command(
-        self,
-    ) -> Result<shipping_service::imports::ShippingImportWrite, CodecError> {
-        use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-        let acquired_at =
-            OffsetDateTime::parse(&self.acquired_at, &Rfc3339).map_err(|_| CodecError::Invalid)?;
-        let observation = self
-            .observation
-            .map(|_| shipping_service::imports::ShippingObservation { acquired_at });
-        let write = shipping_service::imports::ShippingImportWrite {
-            integration: invalid(listing_delivery::decode_integration(self.integration))?,
-            sequence: self.sequence,
-            acquired_at,
-            request_key: self.request_key,
-            object_key: self.object_key,
-            observation,
-        };
-        write.validate().map_err(|_| CodecError::Invalid)?;
-        Ok(write)
-    }
-    fn from_command(
-        w: &shipping_service::imports::ShippingImportWrite,
-    ) -> Result<Self, CodecError> {
-        let observation = w.observation.as_ref().map(|_| ObservationData {});
-        Ok(Self {
-            integration: invalid(listing_delivery::encode_integration(&w.integration))?,
-            sequence: w.sequence,
-            acquired_at: w
-                .acquired_at
-                .format(&time::format_description::well_known::Rfc3339)
-                .map_err(|_| CodecError::Invalid)?,
-            request_key: w.request_key.clone(),
-            object_key: w.object_key.clone(),
-            observation,
-        })
-    }
-}
+pub use aura_historia_contracts::shipping::imports::ImportData;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CommandData {
@@ -164,7 +111,11 @@ fn decode_data(
         })
     })?;
     let command = ChangeProductListingDeliveryCommand {
-        import: data.import.map(ImportData::into_command).transpose()?,
+        import: data
+            .import
+            .map(ImportData::into_command)
+            .transpose()
+            .map_err(|_| CodecError::Invalid)?,
         product_key: key,
         expected_version: ProductListingStorageVersion::try_from(data.expected_version)
             .map_err(|_| CodecError::Invalid)?,
@@ -212,7 +163,8 @@ pub fn encode_command(c: &ChangeProductListingDeliveryCommand) -> Result<Value, 
             .import
             .as_ref()
             .map(ImportData::from_command)
-            .transpose()?,
+            .transpose()
+            .map_err(|_| CodecError::Invalid)?,
         delivery,
     })
     .map_err(|_| CodecError::Invalid)

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+listing-source-core = { workspace = true }
+shipping-core = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
 auction-core = { workspace = true }

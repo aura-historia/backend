@@ -111,11 +111,13 @@ enum AreaData {
     Anywhere {},
     Domestic {},
     Country {
+        #[schemars(schema_with = "schema::country")]
         code: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
     },
     Subdivision {
+        #[schemars(schema_with = "schema::subdivision")]
         code: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
@@ -123,6 +125,7 @@ enum AreaData {
     Postal {
         #[schemars(schema_with = "schema::postal_version")]
         version: String,
+        #[schemars(schema_with = "schema::country")]
         country: String,
         #[schemars(schema_with = "schema::release")]
         reference_release: String,
@@ -171,6 +174,7 @@ struct ThresholdData {
 struct MoneyData {
     #[schemars(range(max = u64::MAX))]
     amount_minor: u64,
+    #[schemars(schema_with = "schema::money_currency")]
     currency: String,
 }
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -295,8 +299,10 @@ enum SiteData {
     },
     Asserted {
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::geography")]
         geography: RequiredNullable<serde_json::Value>,
         #[serde(deserialize_with = "required")]
+        #[schemars(schema_with = "schema::position")]
         position: RequiredNullable<serde_json::Value>,
     },
 }

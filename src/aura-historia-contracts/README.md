@@ -76,3 +76,9 @@ Watchlist entry, mutation, list query and paged personalized-detail contracts li
 REST and MCP share their constructor-based ID validation, notification defaults, nonnullable
 patch validation and timestamp/listing-ID cursor codecs. The [watchlist contract tests](tests/watchlist.rs)
 compare schema validation with the complete input mapping, including null and omission rules.
+
+Shipping profile/default contracts live under `shipping::management`; `shipping::imports` owns the
+provenance DTO also re-exported by asynchronous listing ingestion. `shipping::terms::schema` exposes
+the complete authoritative terms schema with public references for other operation families.
+[Shipping fixtures](tests/shipping_management.rs) compare both schema directions with actual codecs,
+including public TypeIDs versus persisted UUIDs, required nulls, complete terms and import metadata.

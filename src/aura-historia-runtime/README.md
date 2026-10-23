@@ -78,3 +78,7 @@ transactions, destination acceptance and materialized match semantics.
 one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
 the existing services; transport adapters share notification DTOs and pagination conversions.
+
+`Runtime::shipping_management()` constructs the nine profile/default use-case handles once for
+the warm pool. REST and MCP reuse the same PostgreSQL composition without loading provider settings.
+Services retain source/operator authorization, transactions, creation-key/import replay and revisions.

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+strum = { workspace = true }
 schemars = { workspace = true }
 product-listing-core = { workspace = true }
 application = { workspace = true }
