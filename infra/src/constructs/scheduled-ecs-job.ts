@@ -28,6 +28,7 @@ export interface ScheduledEcsJobNames {
 
 export interface ScheduledEcsJobProps {
   readonly network: Network;
+  readonly deliveryDlq: sqs.IQueue;
   readonly cluster: ecs.ICluster;
   readonly names: ScheduledEcsJobNames;
   readonly platform: ContainerImage["platform"];
@@ -56,7 +57,7 @@ export function ecsCpuArchitectureForPlatform(platform: ContainerImage["platform
 }
 
 export class ScheduledEcsJob extends Construct {
-  readonly deliveryDlq: sqs.Queue;
+  readonly deliveryDlq: sqs.IQueue;
   readonly taskDefinitionArn: string;
 
   constructor(scope: Construct, id: string, props: ScheduledEcsJobProps) {
@@ -98,10 +99,7 @@ export class ScheduledEcsJob extends Construct {
       secrets: props.secrets(this),
     });
     container.addMountPoints({ sourceVolume: "tmp", containerPath: "/tmp", readOnly: false });
-    this.deliveryDlq = new sqs.Queue(this, "DeliveryDlq", {
-      queueName: names.dlq, encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
-      retentionPeriod: cdk.Duration.days(14), removalPolicy: props.removalPolicy,
-    });
+    this.deliveryDlq = props.deliveryDlq;
     const group = new scheduler.CfnScheduleGroup(this, "Group", { name: names.group });
     const groupArn = stack.formatArn({ service: "scheduler", resource: "schedule-group", resourceName: names.group });
     // Avoid resolving Schedule.attrArn: CloudFormation can fail to retrieve it for a new schedule in a named group.
@@ -111,7 +109,7 @@ export class ScheduledEcsJob extends Construct {
         conditions: { StringEquals: { "aws:SourceAccount": stack.account, "aws:SourceArn": groupArn } },
       }),
     });
-    schedulerRole.addToPolicy(new iam.PolicyStatement({ actions: ["ecs:RunTask"], resources: [task.taskDefinitionArn], conditions: { ArnEquals: { "ecs:cluster": cluster.clusterArn } } }));
+    schedulerRole.addToPolicy(new iam.PolicyStatement({ actions: ["ecs:RunTask"], resources: [stack.formatArn({ service: "ecs", resource: "task-definition", resourceName: `${names.family}:*`, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME })], conditions: { ArnEquals: { "ecs:cluster": cluster.clusterArn } } }));
     schedulerRole.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [taskRole.roleArn, executionRole.roleArn], conditions: { StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" } } }));
     schedulerRole.addToPolicy(new iam.PolicyStatement({ actions: ["sqs:SendMessage"], resources: [this.deliveryDlq.queueArn] }));
     const subnetIds = network.vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds;

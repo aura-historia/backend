@@ -103,7 +103,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const secrets = Object.values(template.findResources("AWS::SecretsManager::Secret"));
     const outputs = template.toJSON().Outputs ?? {};
 
-    expect(secrets).toHaveLength(4);
+    expect(secrets).toHaveLength(5);
     expect(secrets.every((secret) => secret.Properties.GenerateSecretString !== undefined)).toBe(true);
     expect(JSON.stringify(outputs)).not.toContain("Secret");
     expect(JSON.stringify(outputs)).not.toContain("aura_runtime");
@@ -115,9 +115,11 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const stacks = createStacks(stage);
     const compute = Template.fromStack(stacks.compute);
     const initialization = Template.fromStack(stacks.initialization!);
+    const operations = Template.fromStack(stacks.migration);
     const functions = [
       ...Object.values(compute.findResources("AWS::Lambda::Function")),
       ...Object.values(initialization.findResources("AWS::Lambda::Function")),
+      ...Object.values(operations.findResources("AWS::Lambda::Function")),
     ].filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
     const migration = functions.find((resource) =>
       resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
@@ -126,7 +128,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(23);
+    expect(functions).toHaveLength(25);
     expect(runtimeFunctions).toHaveLength(22);
     expect(runtimeFunctions.find((resource) =>
       resource.Properties.FunctionName === `aura-historia-mcp-${stage}`,
@@ -153,7 +155,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `watchlist-notification-lambda-${stage}`,
     )).toBeDefined();
-    expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(2);
+    expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(3);
     initialization.resourceCountIs("AWS::Lambda::EventSourceMapping", 0);
     initialization.resourceCountIs("AWS::Events::Rule", 0);
     expect(JSON.stringify(compute.toJSON())).not.toContain(`database-migration-lambda-${stage}`);
@@ -204,16 +206,14 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(migrationEnvironment.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(migrationEnvironment.POSTGRES_TLS_ROOT_CERT).toBe(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
     expect(Object.keys(migrationEnvironment).filter((name) => name.endsWith("_SECRET_ARN"))).toEqual([
-      "POSTGRES_ADMIN_SECRET_ARN",
       "POSTGRES_MIGRATION_SECRET_ARN",
-      "POSTGRES_REPLICATION_SECRET_ARN",
-      "POSTGRES_RUNTIME_SECRET_ARN",
     ]);
     expect(migration!.Properties.Layers).toHaveLength(1);
 
     const secretReadStatements = [
       ...Object.values(compute.findResources("AWS::IAM::Policy")),
       ...Object.values(initialization.findResources("AWS::IAM::Policy")),
+      ...Object.values(operations.findResources("AWS::IAM::Policy")),
     ]
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
@@ -221,7 +221,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       JSON.stringify(statement.Resource) === JSON.stringify(runtimeSecretArn),
     );
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
-      Array.isArray(statement.Resource) && statement.Resource.length === 4,
+      Array.isArray(statement.Resource) && statement.Resource.length === 5,
     );
     const matcherExecutionSecretReads = Object.entries(compute.findResources("AWS::IAM::Policy"))
       .filter(([id]) => id.includes("PeriodicMatcherExecutionRole"))
@@ -234,7 +234,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",
     });
-    expect(migrationSecretReadStatement?.Resource).toHaveLength(4);
+    expect(migrationSecretReadStatement?.Resource).toHaveLength(5);
     expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresAdminCredentials");
     expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresRuntimeCredentials");
     expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresMigrationCredentials");
@@ -243,8 +243,9 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const layers = [
       ...Object.values(compute.findResources("AWS::Lambda::LayerVersion")),
       ...Object.values(initialization.findResources("AWS::Lambda::LayerVersion")),
+      ...Object.values(operations.findResources("AWS::Lambda::LayerVersion")),
     ];
-    expect(layers).toHaveLength(2);
+    expect(layers).toHaveLength(3);
     for (const layer of layers) {
       expect(layer.Properties).toMatchObject({
         CompatibleRuntimes: ["provided.al2023"],
@@ -318,6 +319,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
         { Ref: runtimeSecretId },
         { Ref: migrationSecretId },
         { Ref: replicationSecretId },
+        expect.anything(),
       ],
     });
     expect(describeSecretStatement).toMatchObject({

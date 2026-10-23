@@ -1,0 +1,119 @@
+'use strict';
+const { digest } = require('./contracts.cjs');
+const sha = 'a'.repeat(40),
+  hash = 'b'.repeat(64),
+  time = '2026-10-23T00:00:00.000Z';
+function tests() {
+  return {
+    version: 1,
+    repository: 'aura-historia/backend',
+    sourceSha: sha,
+    workflowRevision: sha,
+    invocationRevision: sha,
+    runId: '42',
+    runAttempt: 1,
+    toolchainDigest: hash,
+    configDigest: hash,
+    inventoryDigest: hash,
+    requiredJobs: ['lint', 'api'],
+    jobResults: { lint: 'success', api: 'success' },
+    reports: ['https://github.com/aura-historia/backend/actions/runs/42'],
+    completedAt: time,
+  };
+}
+function artifact(id, kind) {
+  return {
+    id,
+    kind,
+    bucket: 'artifacts',
+    key: `objects/sha256/${hash}`,
+    versionId: 'version-1',
+    sha256: hash,
+    size: 1,
+  };
+}
+function bundle() {
+  return {
+    version: 1,
+    repository: 'aura-historia/backend',
+    sourceSha: sha,
+    build: {
+      id: digest({ sourceSha: sha, configDigest: hash }),
+      configDigest: hash,
+      toolchain: '1.98.0',
+      image: `builder@sha256:${hash}`,
+      profile: 'release',
+      architecture: 'x86_64',
+    },
+    artifacts: [
+      artifact('api', 'LAMBDA'),
+      artifact('assembly-prod', 'ASSEMBLY'),
+    ],
+    images: [],
+    catalogs: { lambdas: ['api'], containers: [] },
+    migrations: [{ version: '1', checksum: 'c'.repeat(96) }],
+    sourceAssets: [],
+    targets: {
+      prod: {
+        account: '123456789012',
+        region: 'eu-central-1',
+        assemblyDigest: hash,
+        templateDigests: { compute: hash },
+      },
+    },
+    tests: tests(),
+  };
+}
+function request(scope = 'DEPLOY', target = 'prod') {
+  return {
+    buildConfigDigest: hash,
+    version: 1,
+    id: hash,
+    repository: 'aura-historia/backend',
+    sourceSha: sha,
+    target,
+    workflowRevision: sha,
+    invocationRevision: sha,
+    runId: '42',
+    runAttempt: 1,
+    testEvidenceDigest: digest(tests()),
+    bundleDigest: scope === 'BUILD' ? null : digest(bundle()),
+    authorization: {
+      scope,
+      environment: scope === 'BUILD' ? 'aws-release-build' : `aws-${target}`,
+      approvedAt: time,
+    },
+  };
+}
+function report() {
+  return {
+    findings: [],
+    compatibility: {
+      oldNew: true,
+      queuedMessages: true,
+      sql: true,
+      search: true,
+    },
+    reviewEvidenceDigest: hash,
+    version: 1,
+    requestId: hash,
+    target: 'prod',
+    account: '123456789012',
+    region: 'eu-central-1',
+    baseline: { revision: 1, bundleDigest: hash, sourceSha: sha },
+    migrationLedgerDigest: hash,
+    candidateBundleDigest: digest(bundle()),
+    configDigest: hash,
+    templateDigest: hash,
+    changeSetDigest: hash,
+    inventory: [],
+    reviewer: { model: 'strong-model', promptVersion: '1', policyVersion: '1' },
+    evidence: [{ kind: 'SCHEMA', uri: 's3://evidence/schema', sha256: hash }],
+    verdict: 'ROUTINE',
+    uncertainties: [],
+    manualPrerequisites: [],
+    prerequisiteDigest: digest([]),
+    createdAt: time,
+  };
+}
+module.exports = { sha, hash, time, tests, artifact, bundle, request, report };

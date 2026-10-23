@@ -29,6 +29,7 @@ use url::{Host, Url};
 pub enum EmailDeliveryConfigError {
     InvalidConfigurationSetName,
     InvalidFrontendOrigin,
+    InvalidTemplatePrefix,
 }
 
 impl std::fmt::Display for EmailDeliveryConfigError {
@@ -38,6 +39,7 @@ impl std::fmt::Display for EmailDeliveryConfigError {
                 "invalid notification email SES configuration set name"
             }
             Self::InvalidFrontendOrigin => "invalid notification email frontend origin",
+            Self::InvalidTemplatePrefix => "invalid notification email template prefix",
         })
     }
 }
@@ -50,8 +52,7 @@ pub struct EmailDeliveryConfig {
     from_email_address: String,
     reply_to_email_address: String,
     configuration_set_name: String,
-    stage: String,
-    commit_sha: String,
+    template_prefix: String,
     frontend_origin: String,
 }
 
@@ -63,10 +64,20 @@ impl EmailDeliveryConfig {
         from_email_address: impl Into<String>,
         reply_to_email_address: impl Into<String>,
         configuration_set_name: impl Into<String>,
-        stage: impl Into<String>,
-        commit_sha: impl Into<String>,
+        template_prefix: impl Into<String>,
         frontend_origin: &str,
     ) -> Result<Self, EmailDeliveryConfigError> {
+        let template_prefix = template_prefix.into();
+        if !template_prefix.strip_suffix('/').is_some_and(|prefix| {
+            prefix.split('/').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            })
+        }) {
+            return Err(EmailDeliveryConfigError::InvalidTemplatePrefix);
+        }
         let configuration_set_name = configuration_set_name.into();
         if configuration_set_name.is_empty()
             || configuration_set_name.len() > 64
@@ -83,8 +94,7 @@ impl EmailDeliveryConfig {
             from_email_address: from_email_address.into(),
             reply_to_email_address: reply_to_email_address.into(),
             configuration_set_name,
-            stage: stage.into(),
-            commit_sha: commit_sha.into(),
+            template_prefix,
             frontend_origin,
         })
     }
@@ -139,12 +149,7 @@ impl SesNotificationChannelSender {
             from_email_address: config.from_email_address,
             reply_to_email_address: config.reply_to_email_address,
             configuration_set_name: config.configuration_set_name,
-            templates: TemplateReader::new(
-                s3,
-                config.template_bucket,
-                config.stage,
-                config.commit_sha,
-            ),
+            templates: TemplateReader::new(s3, config.template_bucket, config.template_prefix),
             targets,
             frontend_origin: config.frontend_origin,
         }
@@ -304,8 +309,7 @@ mod tests {
             "from@example.test",
             "reply@example.test",
             configuration_set_name,
-            "test",
-            "test-commit",
+            "mail/test-commit/",
             "https://stage.aura-historia.com",
         )
     }
@@ -335,8 +339,7 @@ mod tests {
                 "from@example.test",
                 "reply@example.test",
                 "aura-historia-test-email",
-                "test",
-                "test-commit",
+                "mail/test-commit/",
                 value,
             ),
             Err(EmailDeliveryConfigError::InvalidFrontendOrigin)
@@ -536,8 +539,7 @@ mod tests {
                 "from@example.test",
                 "reply@example.test",
                 "aura-historia-test-email",
-                "test",
-                "test-commit",
+                "mail/test-commit/",
                 "https://stage.aura-historia.com",
             )
             .expect("valid email configuration"),

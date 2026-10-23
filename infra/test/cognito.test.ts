@@ -10,7 +10,9 @@ type Resource = {
 
 function computeTemplate(stage: StageName): Template {
   const app = new cdk.App({ analyticsReporting: false });
-  return Template.fromStack(createApplicationStacks(app, { stage }).compute);
+  const stacks = createApplicationStacks(app, { stage });
+  return Template.fromJSON({ Resources: { ...Template.fromStack(stacks.compute).toJSON().Resources,
+    ...Template.fromStack(stacks.identity).toJSON().Resources } });
 }
 
 function resourceByFunctionName(template: Template, functionName: string): Resource {
@@ -81,8 +83,8 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(pool.Properties.AccountRecoverySetting.RecoveryMechanisms).toEqual([
       { Name: "verified_email", Priority: 1 },
     ]);
-    expect(pool.Properties.LambdaConfig.PostConfirmation).toBeDefined();
-    expect(pool.Properties.LambdaConfig.PreSignUp).toBeDefined();
+    expect(pool.Properties.LambdaConfig["Fn::If"][1].PostConfirmation).toBeDefined();
+    expect(pool.Properties.LambdaConfig["Fn::If"][1].PreSignUp).toBeDefined();
   });
 
   test("creates Google with an SSM String client secret and the narrow mapped profile", () => {

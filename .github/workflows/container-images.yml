@@ -1,6 +1,12 @@
 name: Container image checks
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact candidate SHA selected by the trusted release workflow
+        required: false
+        type: string
   pull_request:
     paths:
       - ".dockerignore"
@@ -13,9 +19,6 @@ on:
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
-      - "ci/publish-container.sh"
-      - "ci/deploy-stacks.sh"
-      - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
   push:
@@ -31,9 +34,6 @@ on:
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
-      - "ci/publish-container.sh"
-      - "ci/deploy-stacks.sh"
-      - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
 
@@ -48,6 +48,8 @@ jobs:
       container_matrix: ${{ steps.catalog.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Validate catalog and fixture logic
         run: |
           node ci/container-images.cjs validate
@@ -66,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Configure Docker Hub mirror
         shell: bash
         run: |
@@ -84,20 +86,21 @@ jobs:
       - name: Build local image
         shell: bash
         env:
+          CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
           IMAGE_ID: ${{ matrix.id }}
           IMAGE_BINARY: ${{ matrix.binary }}
           IMAGE_PLATFORM: ${{ matrix.platform }}
           IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           build_identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
-          IMAGE="local/${IMAGE_ID}:${GITHUB_SHA}"
+          IMAGE="local/${IMAGE_ID}:${CANDIDATE_SHA}"
           docker build --platform "$IMAGE_PLATFORM" -f "$IMAGE_DOCKERFILE" \
-            --build-arg "SOURCE_REVISION=${GITHUB_SHA}" \
+            --build-arg "SOURCE_REVISION=${CANDIDATE_SHA}" \
             --build-arg "BUILD_WORKFLOW_IDENTITY=${build_identity}" \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.revision=${CANDIDATE_SHA}" \
             --label "org.opencontainers.image.title=${IMAGE_BINARY}" \
             --label "com.aura-historia.build-workflow=${build_identity}" \
             -t "$IMAGE" .

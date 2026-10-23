@@ -112,8 +112,7 @@ fn email_config_from_env(
         required_env("NOTIFICATION_EMAIL_FROM")?,
         required_env("NOTIFICATION_EMAIL_REPLY_TO")?,
         required_env("NOTIFICATION_EMAIL_CONFIGURATION_SET")?,
-        required_env("STAGE")?,
-        required_env("COMMIT_SHA")?,
+        required_env("MAIL_TEMPLATE_PREFIX")?,
         &required_env("NOTIFICATION_EMAIL_FRONTEND_ORIGIN")?,
     )?)
 }
@@ -132,7 +131,7 @@ mod tests {
             "NOTIFICATION_EMAIL_REPLY_TO" => "reply@example.test",
             CONFIGURATION_SET_ENV => "aura-historia-test-email",
             "STAGE" => "test",
-            "COMMIT_SHA" => "test-commit",
+            "MAIL_TEMPLATE_PREFIX" => "mail/test-commit/",
             "NOTIFICATION_EMAIL_FRONTEND_ORIGIN" => "https://stage.aura-historia.com",
             _ => return Err(std::env::VarError::NotPresent),
         }

@@ -704,6 +704,10 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
         (aura_historia_api::STAGE_ENV, "ephemeral"),
         (aura_historia_api::COMMIT_SHA_ENV, "lambda-test-commit"),
         (
+            aura_historia_api::MAIL_TEMPLATE_PREFIX_ENV,
+            "mail/lambda-test-commit/",
+        ),
+        (
             aura_historia_api::NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
             "http://127.0.0.1:3000",
         ),

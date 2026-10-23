@@ -1,0 +1,68 @@
+name: Delivery maintenance
+run-name: Maintenance ${{ inputs.action }} / ${{ inputs.target }}
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Exact target environment
+        required: true
+        type: choice
+        options: [prod, dev]
+      action:
+        description: Narrow approved operation (never arbitrary SQL/commands)
+        required: true
+        type: choice
+        options: [status, adopt, enter, pause, resume, reconcile]
+      evidence:
+        description: Reviewed JSON with expectedStateDigest, reason and action evidence; see docs/infra.md
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  deployments: read
+jobs:
+  maintenance:
+    if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
+    environment: aws-${{ inputs.target }}-maintenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+      id-token: write
+    env:
+      WORKFLOW_REVISION: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+      INVOCATION_REVISION: ${{ github.workflow_sha }}
+      GH_TOKEN: ${{ github.token }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DELIVERY_BUCKET: ${{ vars.DELIVERY_BUCKET }}
+      DELIVERY_DEV_ENABLED: ${{ vars.DELIVERY_DEV_ENABLED }}
+      DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
+      DELIVERY_TARGET: ${{ inputs.target }}
+      DELIVERY_MAINTENANCE_EVIDENCE: ${{ inputs.evidence }}
+      DELIVERY_ACTION: ${{ inputs.action }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_MAINTENANCE_ROLE_ARN || vars.DELIVERY_DEV_MAINTENANCE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Execute narrow reviewed maintenance action
+        run: node ci/delivery/maintenance-cli.cjs "$DELIVERY_ACTION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: delivery-maintenance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90

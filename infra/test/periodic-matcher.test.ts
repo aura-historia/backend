@@ -294,7 +294,7 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     }
     expect(logFixtures[0].rule.Properties.Targets[0].InputTransformer.InputTemplate).not.toContain("stopCode");
     expect(logFixtures[1].rule.Properties.Targets[0].InputTransformer.InputTemplate).not.toContain("stopCode");
-    template.hasResourceProperties("AWS::SQS::Queue", { QueueName: `aura-historia-periodic-matcher-delivery-${stage}`, SqsManagedSseEnabled: true, MessageRetentionPeriod: 1209600 });
+    Template.fromStack(stack.data).hasResourceProperties("AWS::SQS::Queue", { QueueName: `aura-historia-periodic-matcher-delivery-${stage}`, SqsManagedSseEnabled: true, MessageRetentionPeriod: 1209600 });
     template.resourceCountIs("AWS::ECR::Repository", 0);
     expect(stack.compute.periodicMatcher).toBeDefined();
     expect(JSON.stringify(Template.fromStack(stack.network!).toJSON())).toContain("starport-layer-bucket/*");
@@ -324,6 +324,7 @@ test("two scheduled ECS jobs share one stage cluster but retain independent task
   const secondNames = Object.fromEntries(Object.entries(names).map(([key, value]) => [key, value.replaceAll("periodic-matcher", "example-job").replaceAll("search-filter-periodic-match", "example-job")])) as unknown as typeof names;
   const armImage = { ...PERIODIC_MATCHER_IMAGE, platform: "linux/arm64" as const };
   new ScheduledEcsJob(app.compute, "ExampleJob", {
+    deliveryDlq: new cdk.aws_sqs.Queue(app.data, "ExampleJobDlq", { queueName: secondNames.dlq }),
     network: app.network!.network, cluster: app.compute.scheduledEcsCluster!,
     names: { ...secondNames, lifecyclePolicy: "example-job-events-dev" },
     platform: armImage.platform, cpu: 512, memoryLimitMiB: 1024,
@@ -358,7 +359,7 @@ test("two scheduled ECS jobs share one stage cluster but retain independent task
     .filter((schedule) => schedule.Properties.Target.EcsParameters);
   expect(schedules).toHaveLength(2);
   expect(schedules[0].Properties.Target.Arn).toEqual(schedules[1].Properties.Target.Arn);
-  template.hasResourceProperties("AWS::SQS::Queue", { QueueName: secondNames.dlq });
+  Template.fromStack(app.data).hasResourceProperties("AWS::SQS::Queue", { QueueName: secondNames.dlq });
   const exampleRules = Object.values(template.findResources("AWS::Events::Rule"))
     .filter((rule) => rule.Properties.Name?.includes("example-job"));
   expect(exampleRules).toHaveLength(3);

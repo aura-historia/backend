@@ -4,6 +4,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
+  LEGACY_ARTIFACT_BUCKET_NAME,
   CLOUDFORMATION_STAGING_BUCKET_NAME,
   MAIL_TEMPLATE_BUCKET_NAME,
   WORKLOAD_REGION,
@@ -119,6 +120,6 @@ export class Network extends Construct {
 }
 
 function s3EndpointResources(): string[] {
-  return [ARTIFACT_BUCKET_NAME, MAIL_TEMPLATE_BUCKET_NAME, CLOUDFORMATION_STAGING_BUCKET_NAME]
+  return [ARTIFACT_BUCKET_NAME, LEGACY_ARTIFACT_BUCKET_NAME, MAIL_TEMPLATE_BUCKET_NAME, CLOUDFORMATION_STAGING_BUCKET_NAME]
     .flatMap((bucket) => [`arn:aws:s3:::${bucket}`, `arn:aws:s3:::${bucket}/*`]);
 }

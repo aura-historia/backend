@@ -1,0 +1,86 @@
+name: Complete release tests
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      control_revision:
+        required: true
+        type: string
+    outputs:
+      evidence_digest:
+        value: ${{ jobs.complete.outputs.digest }}
+permissions:
+  contents: read
+jobs:
+  rust:
+    uses: ./.github/workflows/integrate.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+    permissions:
+      contents: read
+      packages: read
+  infra:
+    uses: ./.github/workflows/cdk-test.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+  templates:
+    uses: ./.github/workflows/mjml-templates.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+  images:
+    uses: ./.github/workflows/container-images.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+  inventory:
+    runs-on: ubuntu-24.04
+    outputs:
+      fingerprints: ${{ steps.inventory.outputs.fingerprints }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.control_revision }}
+          path: control
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: candidate
+      - name: Validate exact checkout and complete catalogs
+        id: inventory
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_SHA"
+          rustup show
+          node control/ci/delivery/gate.cjs inventory candidate
+          printf 'fingerprints=%s\n' "$(cat fingerprints.json | jq -c .)" >> "$GITHUB_OUTPUT"
+  complete:
+    name: Complete release suite
+    if: always()
+    needs: [rust, infra, templates, images, inventory]
+    runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.evidence.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.control_revision }}
+      - name: Require complete exact-SHA results and emit bound evidence
+        id: evidence
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          WORKFLOW_REVISION: ${{ inputs.control_revision }}
+          INVOCATION_REVISION: ${{ github.workflow_sha }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          FINGERPRINTS: ${{ needs.inventory.outputs.fingerprints }}
+        run: |
+          printf '%s' "$FINGERPRINTS" > fingerprints.json
+          node ci/delivery/gate.cjs evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: delivery-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: delivery-evidence/tests.json
+          if-no-files-found: error
+          retention-days: 30

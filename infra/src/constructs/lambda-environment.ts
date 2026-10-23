@@ -1,5 +1,5 @@
 import type * as ses from "aws-cdk-lib/aws-ses";
-import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue, type StageConfig } from "../config";
+import { ARTIFACT_BUCKET_NAME, ssmValue, type StageConfig } from "../config";
 import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
 import type { PostgresConnectionSettings } from "./storage";
@@ -8,6 +8,7 @@ export interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly commitSha: string;
+  readonly mailTemplatePrefix: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
@@ -39,7 +40,8 @@ export function notificationDeliveryEnvironment(context: LambdaEnvironmentContex
     NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
     NOTIFICATION_EMAIL_FRONTEND_ORIGIN: frontendOrigin(context.config),
     NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
-    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
+    S3_BUCKET_NAME_TEMPLATES: ARTIFACT_BUCKET_NAME,
+    MAIL_TEMPLATE_PREFIX: context.mailTemplatePrefix,
     STAGE: context.config.stage,
   };
 }
@@ -78,7 +80,8 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
     NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
     NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: frontendOrigin(config),
-    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
+    S3_BUCKET_NAME_TEMPLATES: ARTIFACT_BUCKET_NAME,
+    MAIL_TEMPLATE_PREFIX: context.mailTemplatePrefix,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
     STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,
     STRIPE_PORTAL_RETURN_URL: config.stripePortalReturnUrl,

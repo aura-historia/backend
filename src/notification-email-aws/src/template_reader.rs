@@ -11,8 +11,7 @@ use serde_json::Value;
 pub(crate) struct TemplateReader {
     s3: S3Client,
     template_bucket: String,
-    stage: String,
-    commit_sha: String,
+    template_prefix: String,
     handlebars: Handlebars<'static>,
 }
 
@@ -20,14 +19,12 @@ impl TemplateReader {
     pub(crate) fn new(
         s3: S3Client,
         template_bucket: impl Into<String>,
-        stage: impl Into<String>,
-        commit_sha: impl Into<String>,
+        template_prefix: impl Into<String>,
     ) -> Self {
         Self {
             s3,
             template_bucket: template_bucket.into(),
-            stage: stage.into(),
-            commit_sha: commit_sha.into(),
+            template_prefix: template_prefix.into(),
             handlebars: Handlebars::new(),
         }
     }
@@ -38,7 +35,7 @@ impl TemplateReader {
         language: EmailLanguage,
         data: &Value,
     ) -> Result<String, NotificationChannelSendError> {
-        let key = s3_template_key(&self.stage, &self.commit_sha, template_type, language);
+        let key = s3_template_key(&self.template_prefix, template_type, language);
         let response = self
             .s3
             .get_object()

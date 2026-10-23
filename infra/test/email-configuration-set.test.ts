@@ -19,9 +19,10 @@ test("infrastructure source does not refer to the legacy shared configuration se
 describe.each(STAGES)("%s managed SES configuration set", (stage) => {
   const stacks = createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage });
   const compute = Template.fromStack(stacks.compute);
-  const [[setId, set]] = Object.entries(compute.findResources("AWS::SES::ConfigurationSet"));
+  const identity = Template.fromStack(stacks.identity);
+  const [[setId, set]] = Object.entries(identity.findResources("AWS::SES::ConfigurationSet"));
   const [[destinationId, destination]] = Object.entries(
-    compute.findResources("AWS::SES::ConfigurationSetEventDestination"),
+    identity.findResources("AWS::SES::ConfigurationSetEventDestination"),
   );
   const setRef = { Ref: setId };
   const otherStage = stage === "dev" ? "prod" : "dev";
@@ -30,8 +31,8 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
     const config = stageConfig(stage);
     expect(config.notificationEmail.configurationSet).toBe(`aura-historia-${stage}-email`);
     expect(config.cognitoEmail?.configurationSet).toBe(config.notificationEmail.configurationSet);
-    compute.resourceCountIs("AWS::SES::ConfigurationSet", 1);
-    compute.resourceCountIs("AWS::SES::ConfigurationSetEventDestination", 1);
+    identity.resourceCountIs("AWS::SES::ConfigurationSet", 1);
+    identity.resourceCountIs("AWS::SES::ConfigurationSetEventDestination", 1);
     expect(set.Properties).toEqual({
       Name: `aura-historia-${stage}-email`,
       ReputationOptions: { ReputationMetricsEnabled: true },
@@ -44,7 +45,7 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
       const template = Template.fromStack(stack);
       const resources = Object.values(template.toJSON().Resources) as Array<{ Type: string; Properties?: unknown }>;
       const sesResources = resources.filter((resource) => resource.Type.startsWith("AWS::SES::"));
-      expect(sesResources).toHaveLength(stack === stacks.compute ? 2 : 0);
+      expect(sesResources).toHaveLength(stack === stacks.identity ? 2 : 0);
       for (const resource of resources.filter((candidate) => candidate.Type.startsWith("Custom::"))) {
         expect(JSON.stringify(resource)).not.toMatch(/ses:|configuration.?set|email.?identity/i);
       }
@@ -74,13 +75,13 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
   });
 
   test("Cognito consumes the managed reference after metrics without changing permanent identity resources", () => {
-    const [[poolId, pool]] = Object.entries(compute.findResources("AWS::Cognito::UserPool"));
+    const [[poolId, pool]] = Object.entries(identity.findResources("AWS::Cognito::UserPool"));
     expect(poolId).toBe("IdentityPrimaryUserPool6ED02BC6");
-    expect(Object.keys(compute.findResources("AWS::Cognito::UserPoolClient")))
+    expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolClient")))
       .toEqual(["IdentityPrimaryUserPoolPrimaryUserPoolClientPublic80694516"]);
-    expect(Object.keys(compute.findResources("AWS::Cognito::UserPoolDomain")))
+    expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolDomain")))
       .toEqual(["IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955"]);
-    expect(Object.keys(compute.findResources("AWS::Cognito::UserPoolIdentityProvider")))
+    expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolIdentityProvider")))
       .toEqual(["IdentityGoogleIdentityProviderB503749B", "IdentityFacebookIdentityProviderD75F6B2A"]);
     expect(pool.Properties.Schema).toEqual([
       { Name: "email", Required: true, Mutable: true },
@@ -109,8 +110,8 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
   ])("%s selects and can send only through its own managed set", (binaryName, environmentKey) => {
     const functions = Object.values(compute.findResources("AWS::Lambda::Function"));
     const sender = functions.find((resource) => resource.Properties.FunctionName === `${binaryName}-${stage}`)!;
-    expect(sender.Properties.Environment.Variables[environmentKey]).toEqual(setRef);
-    expect(sender.DependsOn).toContain(destinationId);
+    expect(JSON.stringify(sender.Properties.Environment.Variables[environmentKey])).toContain("Fn::ImportValue");
+    expect(stacks.compute.dependencies).toContain(stacks.identity);
 
     const roleId = sender.Properties.Role["Fn::GetAtt"][0];
     const policies = Object.values(compute.findResources("AWS::IAM::Policy"))
@@ -127,7 +128,7 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
         ]] },
         { "Fn::Join": ["", [
           "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
-          { Ref: "AWS::AccountId" }, ":configuration-set/", setRef,
+          { Ref: "AWS::AccountId" }, ":configuration-set/", sender.Properties.Environment.Variables[environmentKey],
         ]] },
       ],
     }]);

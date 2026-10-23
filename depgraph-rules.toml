@@ -40,7 +40,7 @@ notification-delivery-lambda = ["aura-historia-jobs", "notification-core", "noti
 marketing-consent-sync-lambda = ["aura-historia-jobs", "aws_lambda_events", "lambda_runtime", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "sqlx", "tokio", "tracing", "user-core", "user-loops", "user-postgres", "user-service"]
 search-filter-periodic-match = ["classifier-model", "fxrate-postgres", "notification-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
 cloudwatch-log-retention-lambda = ["platform-lambda-bootstrap", "platform-observability"]
-database-migration-lambda = ["platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
+database-migration-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 
 embedding = ["image-fetcher"]
 classifier-model = ["image-fetcher"]

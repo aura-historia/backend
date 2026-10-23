@@ -113,7 +113,7 @@ before rollout. Security groups do not follow DNS changes. Coordinate host rotat
 with CIDR/configuration and TLS changes; never broaden to `0.0.0.0/0`, use a raw-IP
 URL or disable verification. Host-side NAT-EIP allowlisting is not a stage prerequisite.
 
-Use an approved private probe path before `scope=all` activates consumers; if it is
+Use an approved private probe path before platform activation enables consumers; if it is
 unavailable, hold activation. Record effective endpoint/role references, rule/CIDR
 and sanitized private-workload readiness, product-reader and projector results,
 including periodic-matcher Fargate access. Synth, SSM inspection, local curl or a
@@ -122,8 +122,8 @@ checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutove
 
 ## Release and schema-change contract
 
-Host/security/assets/upgrades remain manual operations; Release, Migrate and Initialize
-do not administer OpenSearch. Follow the
+Host/security/assets/upgrades remain manual operations; the delivery pipeline and
+scoped database operations do not administer OpenSearch. Follow the
 [first-time release](infra.md#first-time-stage) and
 [consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff), without
 using compute creation as a readiness probe. Runtime roles must never gain admin rights.
@@ -139,27 +139,37 @@ No automated rebuild tool is implied. Engine upgrades need reconstruction/backup
 verification, pinned-image/adapter review, an outage/restart plan and post-restart
 version/health/security checks. Never downgrade a migrated volume.
 
-The [Release requirements](infra.md#release-requirements) gate compares all tracked
-`opensearch/**` assets (mapping, pipeline, roles/security, gateway and engine configuration)
-from the stage's completed baseline to the target, including skipped commits. Each exact
-content transition needs an immutable reviewed classification: `NONE` with rationale,
-compatible `MANUAL` preparation, or `UNSUPPORTED`. Application changes needing an external
-action also add a declaration when assets are unchanged; source analysis cannot discover
-all such prerequisites.
+The release compatibility report compares every tracked `opensearch/**` transition
+from the target's last verified application release through the complete candidate.
+Repository assets are desired state; sanitized current mapping/alias observations are
+required. Missing private facts hold the routine path until the owner supplies evidence.
+Existing field/type/settings changes, alias/rebuild cutovers and uncertain compatibility
+require maintenance. A model verdict cannot override those restrictions.
 
-For compatible preparation, the Release plan displays the exact asset diff, stage, SHA,
-prerequisite identity, manual action, validation and this runbook link. Complete the action
-while old code runs. The protected approval explicitly confirms completion for that
-stage/release/prerequisite before capture is paused. GitHub reviewer configuration and
-baseline adoption are mandatory; an unprotected environment is rejected. The confirmation
-is an operator attestation, not an automated probe of the private administration endpoint.
-A changed target, requirement, baseline or plan requires a fresh approval.
+For a compatible mapping addition the approval summary prominently displays:
 
-Incompatible cutovers, writer fencing/draining, destructive rebuilds and engine transitions
-that cannot safely precede routine deployment must declare `UNSUPPORTED` and use their
-dedicated procedure. Never recreate a populated index, discard tombstones, expose the
-administration endpoint, grant runtime admin rights or downgrade a migrated volume.
-Application rollback and rerunning Migrate do not undo host/schema/security changes.
+**BLOCKING MANUAL OPENSEARCH PREREQUISITE — COMPLETE BEFORE APPROVING aws-<target>**
+
+The checklist names the target host/index/alias, source-asset SHA256 values, reviewed
+host-local patch, ordered commands, preconditions, expected resulting mapping digest,
+verification and stop conditions. Use a mode-0600 `.admin-curl` credential file; never
+put passwords in commands/output. Complete the action while old readers/projectors run,
+record sanitized actual mapping/alias evidence, and verify old/new compatibility and
+private workload readiness. The protected target approval attests the exact target,
+bundle, report and prerequisite digest. Replacing a prerequisite or observing an
+unplanned change invalidates approval and requires a fresh report.
+
+Execution revalidates the expected **after** mapping and alias state against the approved
+transition. A successful manual addition is not treated as unexplained baseline drift.
+Read-only postchecks corroborate available observations; pipelines receive no search
+administration credentials, SSH automation or exposed administrative endpoint. A missing
+or incorrect completion attestation blocks mutation.
+
+First-time bootstrap, incompatible cutovers, fencing/draining, destructive rebuilds and
+engine transitions use their dedicated approved procedure and the common maintenance
+hold. Never recreate a populated index, discard tombstones, expose administration,
+grant runtime admin rights or downgrade a migrated volume. Application/alias rollback
+and migration retries do not undo database, queue or search effects.
 
 ## Monitoring and recovery
 
