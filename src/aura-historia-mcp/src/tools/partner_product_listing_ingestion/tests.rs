@@ -356,6 +356,54 @@ async fn should_preserve_retry_identity_and_return_generated_effective_keys() {
 }
 
 #[tokio::test]
+async fn should_match_key_schema_and_runtime_for_omission_null_values_and_invalid_keys() {
+    for name in NAMES {
+        let (registry, publisher, _) = fixture();
+        let source = ListingSourceId::new();
+        let schema =
+            serde_json::to_value(&*registry.get(name).unwrap().tool().input_schema).unwrap();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        let base = json!({"listingSourceId":source,"products":[product(name,"schema-key")]});
+        for key in [None, Some(Value::Null), Some(json!("explicit-key!"))] {
+            let mut input = base.clone();
+            if let Some(key) = &key {
+                input["idempotencyKey"] = key.clone();
+            }
+            assert!(validator.is_valid(&input), "{name}: {input}");
+            let report = call(&registry, name, input, context()).await.unwrap();
+            assert_eq!(report["acceptedCount"], 1);
+            match key {
+                Some(Value::String(key)) => assert_eq!(report["idempotencyKey"], key),
+                _ => assert!(
+                    report["idempotencyKey"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("generated-")
+                ),
+            }
+        }
+        assert_eq!(publisher.sent.lock().unwrap().len(), 3);
+        for key in [
+            json!(""),
+            json!("space key"),
+            json!("comma,key"),
+            json!("é"),
+            json!("a".repeat(129)),
+            json!(42),
+        ] {
+            let mut input = base.clone();
+            input["idempotencyKey"] = key;
+            assert!(!validator.is_valid(&input), "{name}: {input}");
+            assert!(matches!(
+                call(&registry, name, input, context()).await,
+                Err(OperationError::InvalidArguments(_))
+            ));
+        }
+        assert_eq!(publisher.sent.lock().unwrap().len(), 3);
+    }
+}
+
+#[tokio::test]
 async fn should_reject_envelopes_keys_and_missing_capabilities_before_publication() {
     let (registry, publisher, configuration) = fixture();
     let source = ListingSourceId::new();

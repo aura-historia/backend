@@ -31,6 +31,7 @@ const ADMISSION_DESCRIPTION: &str = "Submit up to 100 source-keyed listings for 
 struct BatchInput<T> {
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::listing_source_id")]
     listing_source_id: ListingSourceId,
+    #[serde(default)]
     #[schemars(schema_with = "admission::optional_idempotency_key_schema")]
     idempotency_key: Option<String>,
     products: RawAdmissionItems<T>,
