@@ -2,14 +2,21 @@
 const { digest } = require('./contracts.cjs');
 const { aws, enterMaintenance, reconcile } = require('./admission.cjs');
 function readTask(ctx, arn, api = aws) {
-  const tasks = api(ctx, 'dms', 'describe-replication-tasks', ['--filters', `Name=replication-task-arn,Values=${arn}`, '--without-settings']).ReplicationTasks;
+  const tasks = api(ctx, 'dms', 'describe-replication-tasks', ['--filters', `Name=replication-task-arn,Values=${arn}`]).ReplicationTasks;
   const task = tasks?.length === 1 && tasks[0];
   if (!task || task.ReplicationTaskArn !== arn || task.MigrationType !== 'cdc' || !/^checkpoint:V1#\S+$/.test(task.RecoveryCheckpoint || '') || !Number.isFinite(Date.parse(task.ReplicationTaskStats?.StartDate))) throw new Error('Missing/replaced/unstarted CDC task or checkpoint; use specialized recovery');
-  return { arn, source: task.SourceEndpointArn, target: task.TargetEndpointArn, instance: task.ReplicationInstanceArn,
+  const endpoints = [task.SourceEndpointArn, task.TargetEndpointArn].map(endpointArn => {
+    const result = api(ctx, 'dms', 'describe-endpoints', ['--filters', `Name=endpoint-arn,Values=${endpointArn}`]).Endpoints;
+    if (result?.length !== 1 || result[0].EndpointArn !== endpointArn) throw new Error('Missing maintenance endpoint/slot identity');
+    const value = result[0];
+    return { arn: endpointArn, engine: value.EngineName, database: value.DatabaseName || null, slot: value.PostgreSQLSettings?.SlotName || null, plugin: value.PostgreSQLSettings?.PluginName || null, stream: value.KinesisSettings?.StreamArn || null, extraDigest: digest(value.ExtraConnectionAttributes || '') };
+  });
+  const captureDigest = digest({ mappings: task.TableMappings, settings: task.ReplicationTaskSettings, endpoints });
+  return { arn, captureDigest, source: task.SourceEndpointArn, target: task.TargetEndpointArn, instance: task.ReplicationInstanceArn,
     checkpoint: task.RecoveryCheckpoint, status: task.Status, stopReason: task.StopReason || null, tablesErrored: task.ReplicationTaskStats.TablesErrored };
 }
 function sameTask(actual, recorded) {
-  for (const key of ['arn','source','target','instance']) if (!actual[key] || actual[key] !== recorded[key]) throw new Error(`DMS ${key} changed; maintenance hold retained`);
+  for (const key of ['arn','source','target','instance','captureDigest']) if (!actual[key] || actual[key] !== recorded[key]) throw new Error(`DMS ${key} changed; maintenance hold retained`);
 }
 function requireOwner(store, operation) {
   const state = store.read()?.state;
@@ -72,16 +79,37 @@ function inspectNative(ctx, operation, stackNames, deploymentIds, api = aws) {
     if (values?.length !== 1) throw new Error('Missing native stack state');
     return { id: values[0].StackId, status: values[0].StackStatus };
   });
-  const deployments = deploymentIds.map(id => {
+  const builds = actions.filter(action => action.input?.actionTypeId?.provider === 'CodeBuild').map(action => {
+    const id = action.output?.executionResult?.externalExecutionId;
+    if (!id) throw new Error('Missing underlying CodeBuild execution ID');
+    const result = api(ctx, 'codebuild', 'batch-get-builds', ['--ids', id]).builds;
+    if (result?.length !== 1 || result[0].id !== id) throw new Error('Missing underlying CodeBuild state');
+    return { id, status: result[0].buildStatus };
+  });
+  const derived = new Set(deploymentIds);
+  for (const name of stackNames) {
+    const resources = api(ctx, 'cloudformation', 'list-stack-resources', ['--stack-name', name]).StackResourceSummaries;
+    if (!Array.isArray(resources)) throw new Error('Missing CodeDeploy ownership inventory');
+    for (const resource of resources.filter(item => item.ResourceType === 'AWS::CodeDeploy::Application')) {
+      const groups = api(ctx, 'deploy', 'list-deployment-groups', ['--application-name', resource.PhysicalResourceId]).deploymentGroups;
+      if (!Array.isArray(groups)) throw new Error('Missing CodeDeploy group inventory');
+      for (const group of groups) {
+        const ids = api(ctx, 'deploy', 'list-deployments', ['--application-name', resource.PhysicalResourceId, '--deployment-group-name', group, '--include-only-statuses', 'Created', 'Queued', 'InProgress', 'Baking', 'Ready']).deployments;
+        if (!Array.isArray(ids)) throw new Error('Missing active CodeDeploy inventory');
+        ids.forEach(id => derived.add(id));
+      }
+    }
+  }
+  const deployments = [...derived].map(id => {
     const value = api(ctx, 'deploy', 'get-deployment', ['--deployment-id', id]).deploymentInfo;
     if (!value || value.deploymentId !== id) throw new Error('Missing native CodeDeploy state');
     return { id, status: value.status, application: value.applicationName, group: value.deploymentGroupName };
   });
-  const settled = ['Succeeded','Failed','Stopped','Superseded'].includes(execution.status) && actions.every(action => !['InProgress','NotStarted'].includes(action.status)) && stacks.every(stack => !/_IN_PROGRESS$/.test(stack.status)) && deployments.every(deployment => ['Succeeded','Failed','Stopped'].includes(deployment.status));
-  return { executionId: operation.executionId, pipelineStatus: execution.status, actions: actions.map(action => ({ id: action.actionExecutionId, name: action.actionName, status: action.status, externalId: action.output?.executionResult?.externalExecutionId || null })), stacks, deployments, nativeWorkSettled: settled };
+  const settled = ['Succeeded','Failed','Stopped','Superseded'].includes(execution.status) && actions.every(action => !['InProgress','NotStarted'].includes(action.status)) && stacks.every(stack => !/_IN_PROGRESS$/.test(stack.status)) && builds.every(build => ['SUCCEEDED','FAILED','FAULT','STOPPED','TIMED_OUT'].includes(build.status)) && deployments.every(deployment => ['Succeeded','Failed','Stopped'].includes(deployment.status));
+  return { executionId: operation.executionId, pipelineStatus: execution.status, actions: actions.map(action => ({ id: action.actionExecutionId, name: action.actionName, status: action.status, externalId: action.output?.executionResult?.externalExecutionId || null })), stacks, builds, deployments, nativeWorkSettled: settled };
 }
 function reconcileObserved(store, expected, evidence, observations) {
-  if (!observations.nativeWorkSettled || observations.executionId !== expected.active?.executionId || digest(observations) !== evidence.evidenceDigest) throw new Error('Exact settled native execution evidence required');
+  if (!evidence.migrationInvocationSettled || !evidence.migrationEvidenceUri || !observations.nativeWorkSettled || observations.executionId !== expected.active?.executionId || digest(observations) !== evidence.evidenceDigest) throw new Error('Exact settled native execution evidence required');
   return reconcile(store, expected, { ...evidence, nativeWorkSettled: true });
 }
 module.exports = { readTask, sameTask, walBudget, requireOwner, pause, resume, inspectNative, enterMaintenance, reconcileObserved };
