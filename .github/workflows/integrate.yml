@@ -54,8 +54,8 @@ on:
       - "infra/assets/rds-ca-layer/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.source_sha && format('{0}-{1}', github.run_id, github.run_attempt) || 'ci' }}
+  cancel-in-progress: ${{ !inputs.source_sha }}
 
 permissions:
   contents: read

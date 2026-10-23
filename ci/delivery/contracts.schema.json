@@ -357,7 +357,8 @@
         "runAttempt",
         "testEvidenceDigest",
         "bundleDigest",
-        "authorization"
+        "authorization",
+        "buildConfigDigest"
       ],
       "properties": {
         "version": {
@@ -425,6 +426,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "buildConfigDigest": {
+          "$ref": "#/$defs/sha256"
         }
       },
       "additionalProperties": false
