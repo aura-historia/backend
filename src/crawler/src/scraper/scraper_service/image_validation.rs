@@ -53,21 +53,40 @@ impl ImageValidator for ReqwestImageValidator {
             return image_validation_for_target_error(error);
         }
 
-        let key = url.as_str().to_owned();
-        if let Some(cached) = self.cache.lock().expect("cache lock").get(&key).copied() {
-            return cached;
+        self.cached_quality(url, || image_quality(url)).await
+    }
+}
+
+impl ReqwestImageValidator {
+    /// Returns the cached quality of `url`, or runs `probe` and caches its
+    /// result unless it is `Unknown`. An unknown size usually comes from a
+    /// transient probe failure, and a thumbnail-named image of unknown size is
+    /// discarded, so caching it would drop the image until the process restarts.
+    async fn cached_quality<F, Fut>(&self, url: &Url, probe: F) -> ImageValidation
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = ImageValidation>,
+    {
+        if let Some(cached) = self.cache.lock().expect("cache lock").get(url.as_str()) {
+            return *cached;
         }
 
-        let validation = match ImageUrlHint::of(url) {
-            ImageUrlHint::Dimensions(validation) => validation,
-            ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => probe_image_dimensions(url).await,
-        };
-
-        self.cache
-            .lock()
-            .expect("cache lock")
-            .insert(key, validation);
+        let validation = probe().await;
+        if validation != ImageValidation::Unknown {
+            self.cache
+                .lock()
+                .expect("cache lock")
+                .insert(url.as_str().to_owned(), validation);
+        }
         validation
+    }
+}
+
+/// Decides an image's quality from the size its URL gives, or else from a probe.
+async fn image_quality(url: &Url) -> ImageValidation {
+    match ImageUrlHint::of(url) {
+        ImageUrlHint::Dimensions(validation) => validation,
+        ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => probe_image_dimensions(url).await,
     }
 }
 
@@ -306,6 +325,7 @@ async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, re
 mod tests {
     use super::*;
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct StaticValidator {
         validation: ImageValidation,
@@ -316,6 +336,63 @@ mod tests {
         async fn validate(&self, _: &Url) -> ImageValidation {
             self.validation
         }
+    }
+
+    /// Looks `url` up in `validator`'s cache with a probe that returns `probed`
+    /// and counts each probe it runs in `probes`.
+    async fn cached_quality_with_probe(
+        validator: &ReqwestImageValidator,
+        url: &Url,
+        probed: ImageValidation,
+        probes: &AtomicUsize,
+    ) -> ImageValidation {
+        validator
+            .cached_quality(url, || async {
+                probes.fetch_add(1, Ordering::SeqCst);
+                probed
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn should_probe_again_after_an_unknown_size_and_serve_decided_sizes_from_cache() {
+        let validator = ReqwestImageValidator::new();
+        let flaky = Url::parse(THUMBNAIL_NAMED_UPLOAD).unwrap();
+        let small = Url::parse("https://example.com/images/badge.jpg").unwrap();
+        let probes = AtomicUsize::new(0);
+        let lookup = |url, probed| cached_quality_with_probe(&validator, url, probed, &probes);
+
+        assert_eq!(
+            lookup(&flaky, ImageValidation::Unknown).await,
+            ImageValidation::Unknown
+        );
+        assert_eq!(
+            lookup(&flaky, ImageValidation::Valid).await,
+            ImageValidation::Valid
+        );
+        assert_eq!(
+            probes.load(Ordering::SeqCst),
+            2,
+            "an unknown size is probed again"
+        );
+
+        assert_eq!(
+            lookup(&flaky, ImageValidation::Invalid).await,
+            ImageValidation::Valid
+        );
+        assert_eq!(
+            lookup(&small, ImageValidation::Invalid).await,
+            ImageValidation::Invalid
+        );
+        assert_eq!(
+            lookup(&small, ImageValidation::Valid).await,
+            ImageValidation::Invalid
+        );
+        assert_eq!(
+            probes.load(Ordering::SeqCst),
+            3,
+            "valid and invalid sizes are served from the cache"
+        );
     }
 
     #[test]
