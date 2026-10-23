@@ -269,6 +269,26 @@ async function adopt(ctx, config, evidence, store, options = {}) {
     active: operation,
     holdReason: 'Baseline adoption verification has not completed',
   };
+  const raw = api(ctx, 'dms', 'describe-replication-tasks', [
+    '--filters',
+    `Name=replication-task-arn,Values=${config.dmsTaskArn}`,
+  ]).ReplicationTasks;
+  if (raw?.length !== 1 || raw[0].ReplicationTaskArn !== config.dmsTaskArn)
+    throw new Error('Missing baseline capture health inventory');
+  const fingerprint = require('./health.cjs').fingerprint;
+  const baselineDms = {
+    arn: raw[0].ReplicationTaskArn,
+    status: raw[0].Status,
+    settingsHash: fingerprint(raw[0].ReplicationTaskSettings),
+    mappingsHash: fingerprint(raw[0].TableMappings),
+  };
+  if (
+    !['running', 'stopped', 'ready'].includes(evidence.expectedDmsStatus) ||
+    baselineDms.status !== evidence.expectedDmsStatus
+  )
+    throw new Error(
+      'Explicit intended DMS state differs from observed baseline',
+    );
   store.write(held, current?.etag);
   try {
     const templates = (options.candidateTemplates || candidateTemplates)(
@@ -313,19 +333,6 @@ async function adopt(ctx, config, evidence, store, options = {}) {
     )({ ...ctx, executionId: operation.executionId }, config.stackNames, api);
     if (!native.nativeWorkSettled)
       throw new Error('Native baseline operations are not settled');
-    const raw = api(ctx, 'dms', 'describe-replication-tasks', [
-      '--filters',
-      `Name=replication-task-arn,Values=${config.dmsTaskArn}`,
-    ]).ReplicationTasks;
-    if (raw?.length !== 1 || raw[0].ReplicationTaskArn !== config.dmsTaskArn)
-      throw new Error('Missing baseline capture health inventory');
-    const fingerprint = require('./health.cjs').fingerprint;
-    const baselineDms = {
-      arn: raw[0].ReplicationTaskArn,
-      status: raw[0].Status,
-      settingsHash: fingerprint(raw[0].ReplicationTaskSettings),
-      mappingsHash: fingerprint(raw[0].TableMappings),
-    };
     const health = await (
       options.verifyCurrentHealth ||
       require('./execution.cjs').verifyCurrentHealth

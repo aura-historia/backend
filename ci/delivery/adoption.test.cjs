@@ -53,11 +53,15 @@ function fixture() {
       region: 'eu-central-1',
       bucket: 'bundles',
     },
-    config: { inspectorFunctionArn: 'inspector:1',
-      dmsTaskArn: 'task', stackNames: [] },
+    config: {
+      inspectorFunctionArn: 'inspector:1',
+      dmsTaskArn: 'task',
+      stackNames: [],
+    },
     evidence: {
       bundleDigest: digest(bundle),
       reason: 'Verified baseline adoption',
+      expectedDmsStatus: 'running',
     },
     state: () => state,
   };

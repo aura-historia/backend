@@ -350,7 +350,8 @@ second stop/start. `reconcile` additionally requires `migrationInvocationSettled
 and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
 intended DMS/capture state plus health are checked before clearing the hold.
 
-For the first baseline only, `adopt` takes `bundleDigest` and `reason`. Deploy the
+For the first baseline only, `adopt` takes `bundleDigest`, `reason` and explicit intended
+`expectedDmsStatus` (`running`, `stopped` or `ready`). Deploy the
 reviewed bootstrap/platform templates and exact bundle through the separately
 approved platform procedure first. Adoption checks actual stack templates and
 artifact/source parameters, Lambda ZIP and serving alias bytes, immutable container
