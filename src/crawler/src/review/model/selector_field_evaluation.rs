@@ -17,8 +17,9 @@ pub struct SelectorFieldEvaluation {
     pub required: bool,
     /// Matched elements the `images` rule skipped on this page because they hold no
     /// value (no image URL candidate, or no attribute of an attribute rule), such as
-    /// `href="#"` anchors in a gallery; a count above zero shows a loose selector. `None` for every other rule, which never skips an element,
-    /// and when the `images` rule failed the page, for example by skipping every element.
+    /// `href="#"` anchors in a gallery; a count above zero shows a loose selector.
+    /// `None` for every other rule, which never skips an element, and when the
+    /// `images` rule failed the page, for example by skipping every element.
     #[serde(default)]
     pub skipped_element_count: Option<usize>,
 }
