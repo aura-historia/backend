@@ -4,20 +4,18 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::rule::ExtractionError;
 use scraper::Html;
 
-/// Applies `schema` to an already-parsed `html` document.
+/// Applies `schema` to an already-parsed `html` document as runtime extraction
+/// captures it, with each gallery element's ordered image URL candidates as one
+/// `images` entry (see [`ProductCssSelectorSchema::extract`]).
 ///
 /// Use this when the same document is queried by multiple schemas so the HTML
 /// is parsed only once. Retains the same raw extraction semantics as
-/// [`apply_schema`], including image extraction behavior.
+/// [`apply_schema`].
 pub(crate) fn apply_schema_to_document(
     schema: &ProductCssSelectorSchema,
     html: &Html,
 ) -> Result<RawExtractedProduct, ApplySchemaError> {
-    let mut raw = schema.apply(html)?;
-    raw.images = schema
-        .apply_image_url_candidate_groups(html)
-        .map_err(ApplySchemaError::Images)?;
-    Ok(raw)
+    schema.extract(html).map(|extraction| extraction.raw)
 }
 
 /// Applies `schema` to `html` synchronously (`scraper::Html` is `!Send`).

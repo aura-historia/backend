@@ -166,6 +166,40 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_
 }
 
 #[tokio::test]
+async fn should_mark_product_removed_when_cached_schema_extracts_a_notice_split_by_a_line_break() {
+    let id = listing_source_id();
+    let url = product_url();
+    // The cached schema's title is the notice heading, whose lines a `<br>` separates.
+    // The removed-page template reads the same separated text, so the title is
+    // recognised as the notice rather than taken as product evidence.
+    let html = r#"<html><body><main id="mainCatCol">
+        <h1>Sorry!<br>The page you're looking for couldn't be found</h1>
+        <div class="related"><span id="product-id">SKU-9</span>
+        <span id="state">In Stock</span><img src="/images/related.jpg"></div>
+        </main></body></html>"#;
+
+    let service = service(
+        fetcher_returning(html.to_string()),
+        schema_service_with_cached_schema(id),
+        removed_repo_returning(removed_schema_set_for(
+            id,
+            "#mainCatCol h1",
+            "couldn't be found",
+        )),
+    );
+
+    let err = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn should_mark_product_removed_when_container_level_removed_page_selector_matches() {
     let id = listing_source_id();
     let url = product_url();

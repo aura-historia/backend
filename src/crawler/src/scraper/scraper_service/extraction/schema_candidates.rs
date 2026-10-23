@@ -3,6 +3,7 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::plausibility::PlausibilityFindings;
+use crate::scraper::scraper_service::image_validation::resolve_image_candidate;
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -207,10 +208,10 @@ pub fn rank_applicable_schemas(
         if findings.rejects_candidate() {
             continue;
         }
-        // Network image probing is unavailable here, so only obvious
-        // thumbnail/invalid URL candidates are discarded locally. Preserve
-        // ordered candidate-group semantics by choosing the first locally
-        // viable candidate from each group.
+        // Network image probing is unavailable here, so every parseable URL
+        // counts as an image candidate and the capture-time probe decides.
+        // Preserve ordered candidate-group semantics by choosing the first
+        // parseable candidate from each group.
         let validated_image_urls = candidate
             .raw
             .images
@@ -219,11 +220,8 @@ pub fn rank_applicable_schemas(
                 split_image_candidate_group(raw_image)
                     .into_iter()
                     .find_map(|raw_candidate| {
-                        let candidate = raw_candidate.trim();
-                        let viable = !candidate.to_ascii_lowercase().contains("thumb")
-                            && (url::Url::parse(candidate).is_ok()
-                                || base_url.join(candidate).is_ok());
-                        viable.then(|| candidate.to_owned())
+                        resolve_image_candidate(raw_candidate, &base_url)
+                            .map(|_| raw_candidate.trim().to_owned())
                     })
             })
             .collect();
@@ -441,6 +439,46 @@ mod tests {
 
         assert_eq!(candidates[0].schema_index, 0);
         assert_eq!(candidates[1].schema_index, 2);
+    }
+
+    #[test]
+    fn should_count_thumbnail_named_image_whose_size_needs_a_probe() {
+        assert_eq!(
+            first_ranked_schema_with_first_image(
+                "/uploads/thumbnail_IMG_5849_org_l.jpg?fit=768%2C768"
+            ),
+            0,
+            "both candidates count an image, so stored order breaks the tie"
+        );
+    }
+
+    #[test]
+    fn should_not_count_unparseable_image_candidate() {
+        assert_eq!(first_ranked_schema_with_first_image("//"), 1);
+    }
+
+    /// Ranks two schemas that differ only in their image: schema 0 extracts
+    /// `first_image`, schema 1 a plain full-size image.
+    fn first_ranked_schema_with_first_image(first_image: &str) -> usize {
+        let html = format!(
+            r#"<html><body><h1>Chair</h1><span id="state">Available</span>
+            <img class="first" src="{first_image}"><img class="second" src="/uploads/chair.jpg">
+            </body></html>"#
+        );
+        let schemas = [
+            schema_with_images("img.first"),
+            schema_with_images("img.second"),
+        ];
+        rank_applicable_schemas(&schemas, &html)
+            .first()
+            .map(|candidate| candidate.schema_index)
+            .unwrap_or_else(|| panic!("both schemas must apply"))
+    }
+
+    fn schema_with_images(selector: &str) -> ProductCssSelectorSchema {
+        let mut schema = schema();
+        schema.images.selector = crate::scraper::css_selector::rule::CssSelector::from(selector);
+        schema
     }
 
     fn checked<'a>(

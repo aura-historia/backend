@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::rule::{
-    ExtractionError, ExtractionRule, split_image_candidate_group,
+    ExtractionError, ExtractionRule, RuleExtraction, split_image_candidate_group,
 };
 
 use listing_source_core::ListingSourceId;
@@ -173,13 +173,13 @@ impl ProductCssSelectorSchema {
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
-    ) -> Result<Vec<String>, ExtractionError> {
+    ) -> Result<RuleExtraction, ExtractionError> {
         match self.images.apply_image_url_candidate_groups(html) {
             Ok(images) => Ok(images),
             Err(ExtractionError::NoElementMatched { .. })
                 if image_rule_has_existing_empty_container(&self.images, html) =>
             {
-                Ok(Vec::new())
+                Ok(RuleExtraction::default())
             }
             Err(err) => Err(err),
         }
@@ -195,23 +195,54 @@ impl ProductCssSelectorSchema {
     /// price, debug or trace otherwise) instead of a page error: one page without
     /// a description must not invalidate the schema. Only `title` and `state` fail
     /// closed on a miss; `images` fails closed unless the image container exists and
-    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). Any other rule
-    /// failure (invalid selector, missing attribute) still returns the corresponding
-    /// [`ApplySchemaError`] variant immediately.
+    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). `images` skips
+    /// gallery elements without a value (no image URL candidate, or no attribute of an
+    /// attribute rule) and fails only when it skips every element it matched. Any other
+    /// rule failure (invalid selector, missing attribute) still returns the
+    /// corresponding [`ApplySchemaError`] variant immediately.
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
-    /// (`description`, `images`) all results are kept as a `Vec<String>`.
+    /// (`description`, `images`) all results are kept as a `Vec<String>`; `images` keeps
+    /// the first image URL candidate of each gallery element, where [`Self::extract`]
+    /// keeps the element's whole ordered group.
+    ///
+    /// Text separates lines at `<br>` and block boundaries, except in
+    /// `source_listing_id`, which joins its text as written so a captured identity stays
+    /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
-        let source_listing_id = match &self.source_listing_id {
-            None => String::new(),
-            Some(rule) => {
-                apply_optional_rule("source_listing_id", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::SourceListingId)?
+        let mut raw = self.extract(html)?.raw;
+        raw.images = raw
+            .images
+            .into_iter()
+            .map(|image| {
+                split_image_candidate_group(&image)
                     .into_iter()
                     .next()
-                    .unwrap_or_default()
-            }
+                    .unwrap_or(image.as_str())
+                    .to_owned()
+            })
+            .collect();
+        Ok(raw)
+    }
+
+    /// Applies this schema like [`Self::apply`], except that `images` keeps each gallery
+    /// element's ordered image URL candidates as one group, which runtime image
+    /// validation tries in order, and the result counts the `images` elements skipped for
+    /// having no value. Runtime extraction and the schema review matrix both apply a
+    /// schema this way, so each rule, the `images` rule included, runs once per page.
+    pub(crate) fn extract(&self, html: &Html) -> Result<SchemaExtraction, ApplySchemaError> {
+        let source_listing_id = match &self.source_listing_id {
+            None => String::new(),
+            Some(rule) => tolerate_optional_miss(
+                "source_listing_id",
+                rule.apply_as_identity(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::SourceListingId)?
+            .into_iter()
+            .next()
+            .unwrap_or_default(),
         };
 
         let title = self
@@ -224,15 +255,17 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => apply_optional_rule("description", rule, html, OptionalMissLog::Warn)
-                .map_err(ApplySchemaError::Description)?,
+            Some(rule) => {
+                tolerate_optional_miss("description", rule.apply(html), OptionalMissLog::Warn)
+                    .map_err(ApplySchemaError::Description)?
+            }
         };
 
         // A miss yields `None`, exactly like a schema without the rule, so plausibility
         // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => apply_optional_rule("price", rule, html, OptionalMissLog::Warn)
+            Some(rule) => tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn)
                 .map_err(ApplySchemaError::Price)?
                 .into_iter()
                 .next(),
@@ -240,22 +273,26 @@ impl ProductCssSelectorSchema {
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => {
-                apply_optional_rule("price_estimate_min", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::PriceEstimateMin)?
-                    .into_iter()
-                    .next()
-            }
+            Some(rule) => tolerate_optional_miss(
+                "price_estimate_min",
+                rule.apply(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::PriceEstimateMin)?
+            .into_iter()
+            .next(),
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => {
-                apply_optional_rule("price_estimate_max", rule, html, OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::PriceEstimateMax)?
-                    .into_iter()
-                    .next()
-            }
+            Some(rule) => tolerate_optional_miss(
+                "price_estimate_max",
+                rule.apply(html),
+                OptionalMissLog::Debug,
+            )
+            .map_err(ApplySchemaError::PriceEstimateMax)?
+            .into_iter()
+            .next(),
         };
 
         let state = self
@@ -269,21 +306,11 @@ impl ProductCssSelectorSchema {
         let images = self
             .apply_image_url_candidate_groups(html)
             .map_err(ApplySchemaError::Images)?;
-        let images = images
-            .into_iter()
-            .map(|image| {
-                split_image_candidate_group(&image)
-                    .into_iter()
-                    .next()
-                    .unwrap_or(image.as_str())
-                    .to_owned()
-            })
-            .collect();
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
             let values: Vec<String> =
-                apply_optional_rule(field, rule, html, OptionalMissLog::Trace)
+                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
@@ -296,16 +323,19 @@ impl ProductCssSelectorSchema {
             }
         }
 
-        Ok(RawExtractedProduct {
-            source_listing_id,
-            title,
-            description,
-            price,
-            price_estimate_min,
-            price_estimate_max,
-            state,
-            images,
-            raw_attributes,
+        Ok(SchemaExtraction {
+            raw: RawExtractedProduct {
+                source_listing_id,
+                title,
+                description,
+                price,
+                price_estimate_min,
+                price_estimate_max,
+                state,
+                images: images.values,
+                raw_attributes,
+            },
+            skipped_image_elements: images.skipped_elements,
         })
     }
 }
@@ -323,17 +353,16 @@ enum OptionalMissLog {
     Trace,
 }
 
-/// Applies the rule of an optional field, turning a miss into an empty result.
+/// Turns a miss of an optional field's rule into an empty result.
 ///
 /// The miss is still recorded as a per-field diagnostic so the scrape log explains
 /// why the field is empty; the page itself keeps extracting.
-fn apply_optional_rule(
+fn tolerate_optional_miss(
     field: &str,
-    rule: &ExtractionRule,
-    html: &Html,
+    extraction: Result<Vec<String>, ExtractionError>,
     miss_log: OptionalMissLog,
 ) -> Result<Vec<String>, ExtractionError> {
-    match rule.apply(html) {
+    match extraction {
         Ok(values) => Ok(values),
         Err(ExtractionError::NoElementMatched { selector }) => {
             // The message must be a literal in each arm: a `const` in message position
@@ -436,6 +465,17 @@ pub struct RawExtractedProduct {
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
+/// What [`ProductCssSelectorSchema::extract`] captured from a page.
+#[derive(Debug)]
+pub(crate) struct SchemaExtraction {
+    /// The raw values, with each gallery element's ordered image URL candidates as one
+    /// `images` entry.
+    pub(crate) raw: RawExtractedProduct,
+    /// Matched `images` elements without a value (see
+    /// [`RuleExtraction::skipped_elements`]).
+    pub(crate) skipped_image_elements: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -443,10 +483,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::scraper::css_selector::product_schema::{
-        ApplySchemaError, ProductCssSelectorSchema,
+        ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
     };
     use crate::scraper::css_selector::rule::{
-        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule, HtmlAttributeName,
+        CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
+        HtmlAttributeName, IMAGE_CANDIDATE_SEPARATOR,
     };
 
     // -------------------------------------------------------------------------
@@ -995,6 +1036,29 @@ mod tests {
         assert_eq!(result.source_listing_id, "");
     }
 
+    /// An identity element whose text a `<br>` and a block child split, as a label such
+    /// as "Ref:<br>11614" renders on a product page.
+    mod identity_text_across_line_breaks {
+        use super::*;
+
+        const PAGE: &str = r#"<html><body><div id="product-id">Ref:<br>11614<p>A</p></div><h1>Pair of Windsor Chairs<br>English, c.1830</h1><span id="state">Available</span><img src="/a.jpg"></body></html>"#;
+
+        #[test]
+        fn should_join_the_identity_as_written_while_other_text_fields_separate_lines() {
+            let (html, schema) = minimal_schema(PAGE);
+            let schema = ProductCssSelectorSchema {
+                description: Some(text_rule_all("#product-id")),
+                ..schema
+            };
+
+            let result = schema.apply(&html).unwrap();
+
+            assert_eq!(result.source_listing_id, "Ref:11614A");
+            assert_eq!(result.description, vec!["Ref:\n11614\nA"]);
+            assert_eq!(result.title, "Pair of Windsor Chairs\nEnglish, c.1830");
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Error cases: mandatory fields
     // -------------------------------------------------------------------------
@@ -1317,6 +1381,8 @@ mod tests {
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
     }
 
+    /// The only matched `<img>` has no `src`, so no element yields a value, and no empty
+    /// image container exists.
     #[test]
     fn should_return_err_images_when_img_element_missing_src_attribute() {
         let html = Html::parse_document(
@@ -1338,9 +1404,42 @@ mod tests {
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
-            matches!(err, ApplySchemaError::Images(_)),
+            matches!(
+                &err,
+                ApplySchemaError::Images(ExtractionError::MissingAttribute { attribute, .. })
+                    if attribute == "src"
+            ),
             "unexpected variant: {err}"
         );
+    }
+
+    /// The `images` rule skips gallery elements without a value whatever its kind
+    /// (#2099): an attribute rule skips an `<img>` without its attribute.
+    #[test]
+    fn should_skip_gallery_img_without_the_attribute_of_an_attribute_images_rule() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div class="gallery">
+                    <img src="a.jpg"><img alt="no-src"><img src="c.jpg">
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            source_listing_id: Some(text_rule("#product-id")),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("#state"),
+            images: attr_rule_all("div.gallery img", "src"),
+            raw_attributes: Default::default(),
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(result.images, vec!["a.jpg", "c.jpg"]);
     }
 
     #[test]
@@ -1372,6 +1471,44 @@ mod tests {
 
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0], "/full-800x600.jpg");
+    }
+
+    #[test]
+    fn should_keep_image_url_candidate_groups_and_count_skipped_elements_when_extracting() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="/thumb-100x100.jpg" data-large_image="/full-800x600.jpg">
+                <img alt="placeholder">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: ExtractionRule {
+                selector: CssSelector::from("img"),
+                additional_selectors: vec![],
+                extract: ExtractionKind::ImageUrl,
+                cardinality: ExtractionCardinality::All,
+            },
+            ..required_only_schema()
+        };
+
+        let extraction = schema.extract(&html).unwrap();
+        let applied = schema.apply(&html).unwrap();
+
+        assert_eq!(
+            extraction.raw.images,
+            vec![format!(
+                "/full-800x600.jpg{IMAGE_CANDIDATE_SEPARATOR}/thumb-100x100.jpg"
+            )]
+        );
+        assert_eq!(extraction.skipped_image_elements, 1);
+        assert_eq!(
+            applied,
+            RawExtractedProduct {
+                images: vec!["/full-800x600.jpg".to_string()],
+                ..extraction.raw
+            }
+        );
     }
 
     // -------------------------------------------------------------------------
