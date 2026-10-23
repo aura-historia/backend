@@ -103,12 +103,6 @@ use product_listing_service::use_cases::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
     },
 };
-use product_listing_service::use_cases::{
-    commands::partner_product_listings::PartnerProductListingMutationHandler,
-    queries::partner_product_listings::{
-        GetPartnerProductListingHandler, ListPartnerProductListingsHandler,
-    },
-};
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use listing_source_postgres::{
@@ -146,7 +140,6 @@ use partnership_service::use_cases::{
         get_partnership_application::GetPartnershipApplicationHandler,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
         list_admin_partnerships::ListAdminPartnershipsHandler,
-        list_administered_listing_sources::ListAdministeredListingSourcesHandler,
         list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
     },
 };
@@ -1247,9 +1240,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceRepositoryFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
-    let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
-        SqlxListingSourceAuthorization::new(pool.clone()),
-    );
+    let partner_management = runtime.partner_listing_management();
     let search_listing_sources = SearchListingSourcesHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceSearchReaderFactory::new(),
@@ -1555,26 +1546,12 @@ async fn app_state_from_config_and_runtime(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
-    let partner_management_reader = SqlxAdminProductListingReader::new(pool.clone());
-    let partner_management_mutations = Arc::new(PartnerProductListingMutationHandler::new(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxListingSourceAuthorization::new(pool.clone()),
-        auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
-    ));
     let partner_product_listing_management_state = state::PartnerProductListingManagementState::new(
-        Arc::new(GetPartnerProductListingHandler::new(
-            partner_management_reader.clone(),
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        )),
-        Arc::new(ListPartnerProductListingsHandler::new(
-            partner_management_reader,
-            SqlxListingSourceAuthorization::new(pool.clone()),
-        )),
-        partner_management_mutations.clone(),
-        partner_management_mutations.clone(),
-        partner_management_mutations,
+        partner_management.get.clone(),
+        partner_management.list.clone(),
+        partner_management.update.clone(),
+        partner_management.withdraw.clone(),
+        partner_management.restore.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
@@ -1595,7 +1572,7 @@ async fn app_state_from_config_and_runtime(
         Arc::new(create_listing_source),
         Arc::new(get_listing_source),
         Arc::new(update_listing_source),
-        Arc::new(list_administered_listing_sources),
+        partner_management.sources.clone(),
         Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )

@@ -18,6 +18,8 @@ listing-source-service = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
+partnership-postgres = { workspace = true }
+partnership-service = { workspace = true }
 party-postgres = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }

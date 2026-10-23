@@ -68,7 +68,6 @@ mod tests {
         error::static_error,
         operation_context::{CorrelationId, RequestId},
     };
-    use partnership_service::ports::AdministeredListingSource;
     use std::{
         collections::BTreeSet,
         sync::atomic::{AtomicUsize, Ordering},
@@ -98,7 +97,12 @@ mod tests {
         async fn list_sources_user_administers(
             &self,
             _: UserId,
-        ) -> Result<Vec<AdministeredListingSource>, SourceAuthorizationError> {
+            _: u32,
+            _: Option<&partnership_service::ports::AdministeredListingSourcePosition>,
+        ) -> Result<
+            partnership_service::ports::AdministeredListingSourcePage,
+            SourceAuthorizationError,
+        > {
             panic!("management checks only the path source")
         }
     }

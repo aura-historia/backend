@@ -17,10 +17,12 @@ fxrate-service = { workspace = true }
 geo-service = { workspace = true }
 http-body-util = { workspace = true }
 lambda_http = { workspace = true }
+listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
+partnership-service = { workspace = true }
 party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
@@ -47,6 +49,7 @@ watchlist-service = { workspace = true }
 [dev-dependencies]
 embedding = { workspace = true }
 platform-postgres = { workspace = true }
+product-listing-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }

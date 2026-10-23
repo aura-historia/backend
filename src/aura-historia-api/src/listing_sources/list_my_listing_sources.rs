@@ -1,34 +1,37 @@
-use crate::auth::protected_context;
-use crate::error::ApiError;
-use crate::listing_sources::types::AdministeredListingSourceData;
-use crate::state::ListingSourcesState;
-use axum::extract::State;
-use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
-use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesRequest;
+use crate::{
+    auth::protected_context,
+    error::{ApiError, BAD_QUERY_PARAMETER_VALUE},
+    state::ListingSourcesState,
+};
+use aura_historia_contracts::listing_sources::administered::{
+    AdministeredListingSourcesPageData, AdministeredListingSourcesQuery,
+};
+use axum::{
+    extract::{RawQuery, State},
+    http::HeaderMap,
+    response::{IntoResponse, Response},
+};
 
 pub async fn list_my_listing_sources(
     State(state): State<ListingSourcesState>,
     headers: HeaderMap,
+    RawQuery(raw): RawQuery,
 ) -> Response {
-    let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
-
-    match state
-        .list_administered
-        .execute(&context, ListAdministeredListingSourcesRequest { user_id })
-        .await
-    {
-        Ok(result) => axum::Json(
-            result
-                .items
-                .into_iter()
-                .map(AdministeredListingSourceData::from)
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+    let request = crate::wire::from_query_str::<AdministeredListingSourcesQuery>(
+        raw.as_deref().unwrap_or_default(),
+    )
+    .map_err(|_| ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_query_field("query"))
+    .and_then(|query| query.into_request().map_err(ApiError::from));
+    let request = match request {
+        Ok(request) => request,
+        Err(error) => return error.into_response(),
+    };
+    match state.list_administered.execute(&context, request).await {
+        Ok(result) => axum::Json(AdministeredListingSourcesPageData::from(result)).into_response(),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -64,8 +67,8 @@ mod tests {
     };
     use partnership_service::ports::AdministeredListingSource;
     use partnership_service::use_cases::queries::list_administered_listing_sources::{
-        ListAdministeredListingSourcesError, ListAdministeredListingSourcesResult,
-        ListAdministeredListingSourcesUseCase,
+        ListAdministeredListingSourcesError, ListAdministeredListingSourcesRequest,
+        ListAdministeredListingSourcesResult, ListAdministeredListingSourcesUseCase,
     };
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -94,18 +97,23 @@ mod tests {
     impl ListAdministeredListingSourcesUseCase for ListUseCase {
         async fn execute(
             &self,
-            _context: &OperationContext,
+            context: &OperationContext,
             request: ListAdministeredListingSourcesRequest,
         ) -> Result<ListAdministeredListingSourcesResult, ListAdministeredListingSourcesError>
         {
+            assert_eq!(2, request.size);
+            assert!(request.after.is_none());
             Ok(ListAdministeredListingSourcesResult {
+                next: None,
                 items: vec![AdministeredListingSource {
                     listing_source_id: ListingSourceId::new(),
                     slug_id: ListingSourceSlugId::raw("source-name")
                         .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
-                    name: ListingSourceName::try_from(request.user_id.to_string()).unwrap_or_else(
-                        |error| panic!("invalid test listing source name: {error}"),
-                    ),
+                    name: ListingSourceName::try_from(match context.principal {
+                        application::operation_context::Principal::User(id) => id.to_string(),
+                        _ => panic!("expected trusted user"),
+                    })
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 }],
             })
         }
@@ -175,7 +183,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/v1/me/listing-sources")
+                Request::get("/v1/me/listing-sources?size=2")
                     .header(header::AUTHORIZATION, "Bearer token")
                     .body(Body::empty())?,
             )
@@ -184,9 +192,9 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: serde_json::Value = serde_json::from_slice(&body)?;
-        assert_eq!(user_id.to_string(), body[0]["name"]);
-        assert!(body[0]["listingSourceId"].is_string());
-        assert_eq!("source-name", body[0]["listingSourceSlugId"]);
+        assert_eq!(user_id.to_string(), body["items"][0]["name"]);
+        assert!(body["items"][0]["listingSourceId"].is_string());
+        assert_eq!("source-name", body["items"][0]["listingSourceSlugId"]);
         Ok(())
     }
 }

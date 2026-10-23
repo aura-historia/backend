@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-23 — Granted listing-source pages (#2249)
+
+- **Breaking development change:** `GET /v1/me/listing-sources` (`getMyListingSources`) returns `{ items, next? }` instead of an array. It accepts `size` (default 50, range 1–100) and opaque `after`; callers must follow `next` until absent to enumerate every eligible source. Every page rechecks current grants and delegated `listing-sources:read`; continuations are bound to the authenticated actor and stable source-name/ID ordering. The browser source selector must consume this page contract.
+
 ## 2026-10-21 — Authenticated MCP and Aura OAuth (#2228)
 
 - The stable MCP endpoint now exposes 38 operations: the existing 12 public tools plus 9 own-account/address/destination, 7 saved-search/match-feedback, 4 watchlist and 6 notification tools. Protected families retain complete shared REST contracts, independent read/write scopes, ownership, quotas, pagination and version conflicts. Mutations preserve their existing retry semantics and are never automatically retried. See the [MCP contract](mcp.md) and [authenticated manifest](../src/aura-historia-mcp/authenticated-operations.json).

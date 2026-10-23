@@ -78,3 +78,9 @@ transactions, destination acceptance and materialized match semantics.
 one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
 the existing services; transport adapters share notification DTOs and pagination conversions.
+
+`Runtime::partner_listing_management()` supplies granted-source discovery and the five existing
+source-scoped authoritative listing use cases against the warm PostgreSQL pool. REST and MCP
+reuse these handles without loading search, embedding or identity-provider configuration.
+The use cases retain current partnership grants, delegated capabilities, transaction boundaries
+and optimistic version checks.

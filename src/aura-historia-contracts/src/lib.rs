@@ -19,3 +19,6 @@ pub mod notifications;
 pub mod saved_searches;
 pub mod users;
 pub mod watchlist;
+
+pub mod product_listing_fields;
+pub mod product_listing_management;
