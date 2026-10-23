@@ -3,17 +3,10 @@
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Serialize;
 
-fn terms(generator: &mut SchemaGenerator) -> Schema {
-    shipping_json::terms_schema(
-        generator,
-        crate::wire::schema::object_id(party_core::party_id::PartyId::PREFIX),
-        crate::wire::schema::object_id(party_core::party_location_id::PartyLocationId::PREFIX),
-    )
-}
 #[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvertisedShippingSchema {
-    #[schemars(schema_with = "terms")]
+    #[schemars(schema_with = "super::terms::schema")]
     pub terms: serde_json::Value,
     pub display: Option<DisplaySchema>,
     #[schemars(range(max = u64::MAX))]

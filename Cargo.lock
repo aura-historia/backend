@@ -456,6 +456,7 @@ dependencies = [
  "url",
  "user-core",
  "user-service",
+ "uuid",
  "watchlist-core",
  "watchlist-service",
 ]
@@ -6379,6 +6380,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "aura-historia-contracts",
  "aws-sdk-sqs",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -8054,6 +8056,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shipping-core",
+ "strum 0.28.0",
 ]
 
 [[package]]

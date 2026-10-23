@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aura-historia-contracts = { workspace = true }
 shipping-service = { workspace = true }
 shipping-json = { workspace = true }
 shipping-core = { workspace = true }

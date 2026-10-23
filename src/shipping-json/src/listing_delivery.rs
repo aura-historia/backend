@@ -14,11 +14,14 @@ pub trait DeliveryReferenceCodec: ShippingTermsReferenceCodec {
     fn decode_profile(value: &str) -> Result<ShippingProfileId, BoxError>;
     fn encode_profile(value: ShippingProfileId) -> String;
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum IntegrationData {
     Source {},
-    Provider { method: String },
+    Provider {
+        #[schemars(schema_with = "provider_method_schema")]
+        method: String,
+    },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
@@ -246,6 +249,14 @@ pub fn encode<C: DeliveryReferenceCodec>(
             "collection":encode_collection::<C>(&v.overrides().collection)?,
         }),
     )
+}
+
+/// Schema generated from the integration codec's DTO rather than a parallel transport model.
+pub fn integration_schema(generator: &mut SchemaGenerator) -> Schema {
+    generator.subschema_for::<IntegrationData>()
+}
+pub fn provider_method_schema(_: &mut SchemaGenerator) -> Schema {
+    schemars::json_schema!({"type":"string","enum":[ListingIngestionMethod::Shopify.as_str(),ListingIngestionMethod::Woocommerce.as_str()]})
 }
 
 #[cfg(test)]

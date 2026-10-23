@@ -79,6 +79,10 @@ one warm pool. REST and MCP reuse this family without loading delivery, email or
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
 the existing services; transport adapters share notification DTOs and pagination conversions.
 
+`Runtime::shipping_management()` constructs the nine profile/default use-case handles once for
+the warm pool. REST and MCP reuse the same PostgreSQL composition without loading provider settings.
+Services retain source/operator authorization, transactions, creation-key/import replay and revisions.
+
 `Runtime::party_locations()` supplies the five protected location-management handles;
 `Runtime::source_location_defaults()` supplies the four operator-or-administrator default
 handles. REST and MCP reuse the same warm PostgreSQL composition without constructing a
