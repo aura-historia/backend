@@ -764,12 +764,19 @@ async fn insert_pending_product_schema_review(
     .unwrap();
 }
 
-async fn insert_cached_product_schemas(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
+/// Stores `product_schema` as the source's cached schema row; the candidate query reads only
+/// whether the row holds a schema.
+async fn insert_cached_product_schemas(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    product_schema: serde_json::Value,
+) {
     sqlx::query(
         "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated) \
-         VALUES ($1, '[]'::jsonb, NOW(), NOW())",
+         VALUES ($1, $2, NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())
+    .bind(product_schema)
     .execute(pool)
     .await
     .unwrap();
@@ -790,7 +797,12 @@ async fn scraper_should_return_candidate_when_schema_review_is_pending_and_schem
         "https://scraper-review.example.com/p/1",
     )
     .await;
-    insert_cached_product_schemas(&pool, listing_source_id).await;
+    insert_cached_product_schemas(
+        &pool,
+        listing_source_id,
+        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
+    )
+    .await;
     insert_pending_product_schema_review(&pool, listing_source_id).await;
 
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
@@ -828,6 +840,35 @@ async fn scraper_should_not_return_candidate_when_schema_review_is_pending_witho
             .iter()
             .all(|c| c.listing_source_id != listing_source_id),
         "a source without cached schemas waits on its initial schema review"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_not_return_candidate_when_schema_review_is_pending_and_schema_row_is_empty()
+{
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-empty.example.com")
+            .await;
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://scraper-empty.example.com/p/1",
+    )
+    .await;
+    insert_cached_product_schemas(&pool, listing_source_id, serde_json::json!([])).await;
+    insert_pending_product_schema_review(&pool, listing_source_id).await;
+
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert!(
+        candidates
+            .iter()
+            .all(|c| c.listing_source_id != listing_source_id),
+        "an empty schema row extracts nothing, so the source waits on its review"
     );
 }
 

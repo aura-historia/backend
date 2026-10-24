@@ -1012,7 +1012,9 @@ async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperErro
         }
     } else if matches!(
         error,
-        ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
+        ScraperError::ProductListingRemoved { .. }
+            | ScraperError::NotProductPage { .. }
+            | ScraperError::PendingSchemaReview { .. }
     ) || is_robots_refusal(error)
     {
         debug!(error = %error, "Scraper run failed");

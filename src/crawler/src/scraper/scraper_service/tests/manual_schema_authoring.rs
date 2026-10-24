@@ -249,7 +249,7 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_capture_page_a_cached_schema_extracts_while_schema_review_is_pending() {
+async fn should_capture_page_when_a_cached_schema_extracts_it_and_schema_review_is_pending() {
     let pool = test_api::get_postgres_client().await;
     let id = insert_listing_source(&pool).await;
     let url = product_url();
@@ -316,11 +316,16 @@ async fn assert_failing_page_waits_on_pending_schema_review(authoring: CrawlerAu
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_attach_failing_page_to_pending_schema_review_in_manual_mode() {
+async fn should_attach_failing_page_to_pending_schema_review_when_authoring_is_manual() {
     assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Manual).await;
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_attach_failing_page_to_pending_schema_review_without_generation_in_review_mode() {
+async fn should_attach_failing_page_without_generation_when_authoring_is_review() {
     assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Review).await;
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_attach_failing_page_without_generation_when_authoring_is_auto() {
+    assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Auto).await;
 }

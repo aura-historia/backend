@@ -21,7 +21,8 @@ pub const MANUAL_SCHEMA_REASON: &str = "manual_schema_required";
 
 impl ScraperServiceImpl {
     /// Opens the pending manual schema review for `listing_source_id`, or joins the one already
-    /// pending, and returns the error that parks the ListingSource until it is approved.
+    /// pending as a waiting page, and returns the error that makes the page wait until it is
+    /// approved.
     ///
     /// The candidate keeps `existing_schemas` and appends a starter schema for the operator to
     /// rewrite; approval replaces the ListingSource's schemas with the reviewed list.
@@ -33,6 +34,7 @@ impl ScraperServiceImpl {
         review_repository: &CrawlerReviewRepository,
         listing_source_id: &ListingSourceId,
         url: &Url,
+        html: &str,
         existing_schemas: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
     ) -> ScraperError {
@@ -57,6 +59,19 @@ impl ScraperServiceImpl {
             Err(error) => {
                 return review_error_to_schema_service_error(error.into()).into();
             }
+        }
+        match self
+            .join_pending_product_schema_review(listing_source_id, url, html)
+            .await
+        {
+            Ok(Some(review_id)) => {
+                return ScraperError::PendingSchemaReview {
+                    url: url.clone(),
+                    review_id,
+                };
+            }
+            Ok(None) => {}
+            Err(error) => return error.into(),
         }
         let mut schemas = existing_schemas.to_vec();
         schemas.push(starter_schema());

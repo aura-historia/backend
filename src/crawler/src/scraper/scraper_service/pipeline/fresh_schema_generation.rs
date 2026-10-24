@@ -40,6 +40,7 @@ impl ScraperServiceImpl {
                     review_repository,
                     ctx.listing_source_id,
                     ctx.url,
+                    ctx.html,
                     ctx.existing_schemas,
                     vec![triggering_page(&ctx)],
                 )

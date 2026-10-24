@@ -400,6 +400,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
                   SELECT 1
                   FROM listing_source_product_schemas ps
                   WHERE ps.listing_source_id = su.listing_source_id
+                    AND (jsonb_typeof(ps.product_schema) <> 'array'
+                         OR jsonb_array_length(ps.product_schema) > 0)
               )
               OR NOT EXISTS (
                   SELECT 1
