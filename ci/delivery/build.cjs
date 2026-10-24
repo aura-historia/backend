@@ -343,6 +343,22 @@ function publishImages(candidate, output, catalog, sourceSha, buildId, store) {
     };
   });
 }
+function packageAssemblyAsset(assembly, archive, asset) {
+  const source = path.resolve(assembly, asset.path);
+  if (
+    !source.startsWith(assembly + path.sep) ||
+    fs.lstatSync(source).isSymbolicLink()
+  )
+    throw new Error('Invalid CDK asset source');
+  if (asset.packaging === 'file') return source;
+  if (asset.packaging !== 'zip')
+    throw new Error('Unsupported CDK asset packaging');
+  const entries = fileTree(source).map((entry) => path.relative(source, entry));
+  for (const entry of entries)
+    fs.utimesSync(path.join(source, entry), 315532800, 315532800);
+  run('zip', ['-X', '-q', archive, ...entries], { cwd: source });
+  return archive;
+}
 function publishAssemblyAssets(
   assembly,
   output,
@@ -359,23 +375,9 @@ function publishAssemblyAssets(
     if (Object.keys(manifest.dockerImages || {}).length)
       throw new Error('Synth-time Docker bundling is forbidden');
     for (const [id, asset] of Object.entries(manifest.files || {})) {
-      const source = path.resolve(assembly, asset.source.path);
-      if (
-        !source.startsWith(assembly + path.sep) ||
-        fs.lstatSync(source).isSymbolicLink()
-      )
-        throw new Error('Invalid CDK asset source');
-      let file = source;
-      if (asset.source.packaging === 'zip') {
-        file = path.join(output, `cdk-${target}-${id}.zip`);
-        const entries = fileTree(source).map((entry) =>
-          path.relative(source, entry),
-        );
-        for (const entry of entries)
-          fs.utimesSync(path.join(source, entry), 315532800, 315532800);
-        run('zip', ['-X', '-q', file, ...entries], { cwd: source });
-      } else if (asset.source.packaging !== 'file')
-        throw new Error('Unsupported CDK asset packaging');
+      const file = packageAssemblyAsset(
+        assembly, path.join(output, `cdk-${target}-${id}.zip`), asset.source,
+      );
       const reference = store.publishFile(
         bucket,
         file,
