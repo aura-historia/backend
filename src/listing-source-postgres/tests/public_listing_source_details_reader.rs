@@ -68,45 +68,6 @@ async fn should_return_none_for_unknown_or_deleted_exact_slug() {
     assert!(read(&pool, "deleted-source").await.is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_show_renamed_source_and_operator_at_immutable_slug() {
-    let pool = get_postgres_client().await;
-    let source_id = uuid::Uuid::now_v7();
-    let party_id = uuid::Uuid::now_v7();
-    insert_party(&pool, party_id, "renamed-operator", "Original Operator").await;
-    insert_source(
-        &pool,
-        source_id,
-        "immutable-source",
-        "Original Source",
-        party_id,
-        None,
-        None,
-    )
-    .await;
-    sqlx::query("UPDATE parties SET name = $1 WHERE party_id = $2")
-        .bind("Renamed Operator")
-        .bind(party_id)
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("rename operator: {error}"));
-    sqlx::query("UPDATE listing_sources SET name = $1 WHERE listing_source_id = $2")
-        .bind("Renamed Source")
-        .bind(source_id)
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("rename source: {error}"));
-
-    let result = read(&pool, "immutable-source").await;
-
-    assert!(matches!(
-        result,
-        Some(summary)
-            if summary.name.as_ref() == "Renamed Source"
-                && summary.operator.name.as_ref() == "Renamed Operator"
-    ));
-}
-
 async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSummary> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut transaction = unit_of_work

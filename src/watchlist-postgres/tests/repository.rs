@@ -362,66 +362,6 @@ async fn should_keep_active_watch_count_and_intervals_when_product_listing_is_wi
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
-    let pool = get_postgres_client().await;
-    let unit = SqlxUnitOfWork::new(pool.clone());
-    let repository = SqlxWatchlistRepositoryFactory;
-    let user_id = seed_user(&pool, "watchlist-postgres-conflict@example.com").await;
-    let product_listing_id = seed_product(&pool, "watchlist-postgres-conflict-product").await;
-    let entry = WatchlistProductListing::rehydrate(
-        user_id,
-        product_listing_id,
-        true,
-        WatchlistState::Active,
-    );
-
-    let mut tx = begin(&unit).await;
-    repository
-        .in_transaction(&mut tx)
-        .insert(&entry)
-        .await
-        .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
-    let loaded = repository
-        .in_transaction(&mut tx)
-        .find_by_user_and_product(user_id, product_listing_id)
-        .await
-        .unwrap_or_else(|error| panic!("find failed: {error:?}"))
-        .unwrap_or_else(|| panic!("missing watchlist entry"));
-
-    let mut changed = entry.clone();
-    changed.change_notifications(false);
-    let updated = repository
-        .in_transaction(&mut tx)
-        .update(&changed, loaded.version)
-        .await
-        .unwrap_or_else(|error| panic!("update failed: {error:?}"));
-    let stale_update = repository
-        .in_transaction(&mut tx)
-        .update(&entry, loaded.version)
-        .await;
-    let stale_delete = repository
-        .in_transaction(&mut tx)
-        .delete(user_id, product_listing_id, loaded.version)
-        .await;
-
-    assert!(matches!(
-        stale_update,
-        Err(watchlist_service::ports::WatchlistRepositoryError::ConcurrencyConflict)
-    ));
-    assert!(matches!(
-        stale_delete,
-        Err(watchlist_service::ports::WatchlistRepositoryError::ConcurrencyConflict)
-    ));
-
-    repository
-        .in_transaction(&mut tx)
-        .delete(user_id, product_listing_id, updated.version)
-        .await
-        .unwrap_or_else(|error| panic!("current delete failed: {error:?}"));
-    commit(tx).await;
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

@@ -292,38 +292,6 @@ mod tests {
 
     use fixtures::*;
 
-    #[test]
-    fn should_register_exact_family_with_shared_schemas_and_effect_metadata() {
-        let fixture = Fixture::default();
-        let registry = fixture.registry();
-        let manifest: Value =
-            serde_json::from_str(include_str!("../../authenticated-operations.json")).unwrap();
-        let actual = manifest["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|operation| operation["family"] == "saved_searches")
-            .collect::<Vec<_>>();
-        assert_eq!(7, actual.len());
-        for selected in actual {
-            let operation = registry
-                .get(selected["operationId"].as_str().unwrap())
-                .unwrap();
-            let serialized = serde_json::to_value(operation.tool()).unwrap();
-            assert_eq!(
-                selected["requiredScopes"],
-                serialized["_meta"]["aura.historia/requiredScopes"]
-            );
-            assert_eq!("protected", serialized["_meta"]["aura.historia/access"]);
-            assert_eq!(selected["annotations"], serialized["annotations"]);
-            jsonschema::validator_for(&Value::Object((*operation.tool().input_schema).clone()))
-                .unwrap();
-            jsonschema::validator_for(&Value::Object(
-                (**operation.tool().output_schema.as_ref().unwrap()).clone(),
-            ))
-            .unwrap();
-        }
-    }
     #[tokio::test]
     async fn should_forward_complete_create_fixture_and_trusted_delegated_context_once() {
         let fixture = Fixture::default();

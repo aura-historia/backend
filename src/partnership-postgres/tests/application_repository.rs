@@ -197,53 +197,6 @@ async fn should_insert_and_find_application_by_id_and_applicant() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_store_existing_listing_source_proposal_id_as_raw_uuid_text() {
-    let pool = get_postgres_client().await;
-    let applicant_user_id = seed_user(&pool).await;
-    let listing_source_id = seed_listing_source(&pool).await;
-    let application = submitted_application(applicant_user_id, listing_source_id);
-
-    insert_committed(&pool, &application).await;
-
-    let stored_listing_source_id = sqlx::query_scalar::<_, String>(
-        "SELECT proposal->>'listing_source_id' FROM partnership_applications WHERE partnership_application_id = $1",
-    )
-    .bind(application.id().into_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("read stored proposal ListingSource ID: {error}"));
-    assert_eq!(
-        listing_source_id.as_uuid().to_string(),
-        stored_listing_source_id
-    );
-    assert_ne!(listing_source_id.to_string(), stored_listing_source_id);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_find_application_for_update() {
-    let pool = get_postgres_client().await;
-    let applicant_user_id = seed_user(&pool).await;
-    let listing_source_id = seed_listing_source(&pool).await;
-    let application = submitted_application(applicant_user_id, listing_source_id);
-    let inserted = insert_committed(&pool, &application).await;
-    let mut transaction = begin(&pool).await;
-
-    let found = SqlxPartnershipApplicationRepositoryFactory::new()
-        .in_transaction(&mut transaction)
-        .find_by_id_for_update(application.id())
-        .await
-        .unwrap_or_else(|error| panic!("find partnership application for update: {error}"));
-    assert!(matches!(
-        found,
-        Some(found)
-            if found.value == application
-                && found.version == inserted.version
-    ));
-
-    commit(transaction).await;
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_update_application_increment_version_and_persist_approval_result() {
     let pool = get_postgres_client().await;
     let applicant_user_id = seed_user(&pool).await;

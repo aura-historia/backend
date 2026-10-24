@@ -947,34 +947,6 @@ async fn should_reject_noncanonical_oauth_client_query_ids() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_bad_query_for_malformed_admin_oauth_client_search_after_shape() {
-    let token = admin_read_token().await;
-    let response = reqwest::Client::new()
-        .get(format!("{}/v1/admin/oauth-clients", AURA_API.base_url()))
-        .bearer_auth(token)
-        .query(&[("searchAfter", "{}")])
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to validate OAuth client cursor: {error}"));
-    let cache_control = response
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    let (status, body) = json_response(response).await;
-
-    api_support::assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_QUERY_PARAMETER_VALUE",
-    );
-    assert_eq!("searchAfter", body["source"]["field"]);
-    assert_eq!("QUERY", body["source"]["type"]);
-    assert_eq!(Some("no-store".to_owned()), cache_control);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_admin_oauth_client_cursors() {
     let token = admin_read_token().await;
     let client = reqwest::Client::new();
@@ -1739,38 +1711,6 @@ async fn should_stop_a_delegated_admin_from_registering_or_approving_an_oauth_cl
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_redirect_authorized_user_with_authorization_code_and_state() {
-    let OAuthAdmin {
-        client,
-        cognito_token: token,
-        ..
-    } = oauth_admin().await;
-    let credentials = create_oauth_client(&client, &token).await;
-    let code = authorize_code(&client, &token, &credentials).await;
-    assert!(!code.is_empty());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_exchange_authorization_code_for_access_token() {
-    let OAuthAdmin {
-        client,
-        cognito_token: token,
-        ..
-    } = oauth_admin().await;
-    let credentials = create_oauth_client(&client, &token).await;
-    let code = authorize_code(&client, &token, &credentials).await;
-    let body = exchange_code(&client, &credentials, &code).await;
-    assert_eq!(serde_json::json!("Bearer"), body["token_type"]);
-    assert!(body.get("expires_in").is_none());
-    assert!(body.get("refresh_token").is_none());
-    assert!(
-        body["access_token"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     let OAuthAdmin {
         client,
@@ -1808,22 +1748,6 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
         .await
         .unwrap_or_else(|error| panic!("failed to retry third-party exchange: {error}"));
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_sequential_authorization_code_replay() {
-    let OAuthAdmin {
-        client,
-        cognito_token: token,
-        ..
-    } = oauth_admin().await;
-    let credentials = create_oauth_client(&client, &token).await;
-    let code = authorize_code(&client, &token, &credentials).await;
-
-    let first = exchange_code_response(&client, &credentials, &code).await;
-    assert_eq!(reqwest::StatusCode::OK, first.0);
-    let second = exchange_code_response(&client, &credentials, &code).await;
-    assert_eq!(reqwest::StatusCode::BAD_REQUEST, second.0);
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

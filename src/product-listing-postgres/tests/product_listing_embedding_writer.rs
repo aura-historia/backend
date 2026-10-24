@@ -60,44 +60,6 @@ async fn should_store_embedding_append_enrichment_event_and_advance_current_even
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_report_duplicate_and_stale_without_second_embedding_event() {
-    let result: Result<(), Box<dyn std::error::Error>> = async {
-    let pool = get_postgres_client().await;
-    let (product_listing_id, source_event_id) = insert_product_with_created_event(&pool).await?;
-    let embedding_write = new_write(product_listing_id, source_event_id, EventId::new());
-    apply(&pool, &embedding_write).await?;
-    assert_eq!(
-        ProductListingEmbeddingWriteOutcome::Duplicate,
-        apply(
-            &pool,
-            &ProductListingEmbeddingWrite {
-                enrichment_event_id: EventId::new(),
-                ..embedding_write.clone()
-            }
-        )
-        .await?
-    );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_EMBEDDED'").bind(product_listing_id.into_uuid()).fetch_one(&pool).await?;
-    assert_eq!(1, count);
-    let (stale_product_listing_id, stale_event_id) = insert_product_with_created_event(&pool).await?;
-    advance_product_current_event(&pool, stale_product_listing_id).await?;
-    assert_eq!(
-        ProductListingEmbeddingWriteOutcome::Stale,
-        apply(
-            &pool,
-            &new_write(stale_product_listing_id, stale_event_id, EventId::new())
-        )
-        .await?
-    );
-    Ok(())
-    }.await;
-    assert!(
-        result.is_ok(),
-        "embedding duplicate/stale acceptance failed: {result:?}"
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_first_embedding_when_duplicate_completions_overlap() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

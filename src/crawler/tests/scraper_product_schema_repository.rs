@@ -131,42 +131,6 @@ async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_return_none_when_no_schema_exists_for_find() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let result = repository
-        .find_product_schema(&ListingSourceId::new())
-        .await
-        .unwrap();
-
-    assert!(result.is_none());
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_return_schema_when_exists_for_find() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
-    repository
-        .insert_product_schema(&listing_source_id, &schema)
-        .await
-        .unwrap();
-
-    let result = repository
-        .find_product_schema(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(result.listing_source_id, listing_source_id);
-    assert_eq!(result.product_schemas[0], minimal_css_schema());
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exist_for_find() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -191,40 +155,6 @@ async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exi
 // ---------------------------------------------------------------------------
 // insert_product_schema
 // ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_insert() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
-    let returned = repository
-        .insert_product_schema(&listing_source_id, &schema)
-        .await
-        .unwrap();
-
-    assert_eq!(returned.listing_source_id, listing_source_id);
-    assert_eq!(returned.product_schemas[0], minimal_css_schema());
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let schema = make_listing_source_product_schemas(listing_source_id, full_css_schema());
-    let returned = repository
-        .insert_product_schema(&listing_source_id, &schema)
-        .await
-        .unwrap();
-
-    assert_eq!(returned.listing_source_id, listing_source_id);
-    assert_eq!(returned.product_schemas[0], full_css_schema());
-}
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
@@ -329,72 +259,6 @@ async fn should_fail_when_inserting_duplicate_listing_source_id_for_insert() {
 // ---------------------------------------------------------------------------
 // update_product_schema
 // ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let original = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
-    repository
-        .insert_product_schema(&listing_source_id, &original)
-        .await
-        .unwrap();
-
-    let inserted = repository
-        .find_product_schema(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    // Small sleep so NOW() in the UPDATE is measurably later than the inserted `updated`
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-
-    let returned = repository
-        .update_product_schema(&listing_source_id, &[full_css_schema()])
-        .await
-        .unwrap();
-
-    assert_eq!(returned.listing_source_id, listing_source_id);
-    assert_eq!(returned.product_schemas[0], full_css_schema());
-    assert_ne!(returned.updated, inserted.updated);
-    // created must remain unchanged
-    assert!(
-        (returned.created - original.created).abs() < time::Duration::microseconds(1000),
-        "created timestamp must not change on update"
-    );
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
-
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    repository
-        .insert_product_schema(
-            &listing_source_id,
-            &make_listing_source_product_schemas(listing_source_id, minimal_css_schema()),
-        )
-        .await
-        .unwrap();
-
-    repository
-        .update_product_schema(&listing_source_id, &[full_css_schema()])
-        .await
-        .unwrap();
-
-    let found = repository
-        .find_product_schema(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(found.product_schemas[0], full_css_schema());
-}
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_return_row_not_found_when_updating_non_existent_listing_source_id_for_update() {

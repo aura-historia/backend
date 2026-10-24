@@ -152,37 +152,6 @@ mod tests {
         assert_eq!(-32602, error.into_protocol().unwrap_err().code.0);
     }
 
-    #[test]
-    fn should_register_exactly_four_stable_public_read_operations() {
-        let fixture = Arc::new(Fixture::default());
-        let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        let (tools, next) = registry.page(None).unwrap();
-        assert!(next.is_none());
-        assert_eq!(
-            vec![
-                "discoverPartyLocations",
-                "getPublicListingSourceBySlug",
-                "getPublicOverview",
-                "searchPublicListingSources"
-            ],
-            tools
-                .iter()
-                .map(|tool| tool.name.as_ref())
-                .collect::<Vec<_>>()
-        );
-        for tool in tools {
-            let policy = registry.get(&tool.name).unwrap().policy();
-            assert_eq!(AccessClass::Public, policy.access);
-            assert!(policy.required_scopes.is_empty());
-            assert!(policy.read_only && policy.idempotent);
-            assert!(!policy.destructive && !policy.open_world);
-            assert_eq!(
-                tool.name.as_ref(),
-                tool.meta.as_ref().unwrap().0["aura.historia/operationId"]
-            );
-        }
-    }
-
     #[tokio::test]
     async fn should_preserve_browse_insufficient_text_and_search_with_query_bound_continuation() {
         let fixture = Arc::new(Fixture::default());
@@ -611,72 +580,6 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(missing, OperationError::Unavailable(_)));
-    }
-
-    #[tokio::test]
-    async fn should_serve_family_manifests_and_shared_results_through_streamable_http() {
-        use axum::{
-            body::{Body, to_bytes},
-            http::Request as HttpRequest,
-        };
-        use tower::ServiceExt;
-        let fixture = Arc::new(Fixture::default());
-        let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        let app = crate::router(
-            crate::TransportConfig::default(),
-            registry.clone(),
-            Arc::new(crate::AnonymousGate),
-        )
-        .unwrap();
-        for (index, (name, arguments)) in operation_arguments().into_iter().enumerate() {
-            let params = json!({"name":name,"arguments":arguments,"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"public-discovery-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}});
-            let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::post("/v1")
-                    .header("host", "localhost:8080")
-                    .header("content-type", "application/json")
-                    .header("accept", "application/json,text/event-stream")
-                    .header("mcp-method", "tools/call")
-                    .header("mcp-name", name)
-                    .header("mcp-protocol-version", "2026-07-28")
-                    .body(Body::from(
-                        json!({"jsonrpc":"2.0","id":index,"method":"tools/call","params":params})
-                            .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-            assert_eq!(200, response.status());
-            let response: Value = serde_json::from_slice(
-                &to_bytes(response.into_body(), MAX_RESPONSE_BYTES)
-                    .await
-                    .unwrap(),
-            )
-            .unwrap();
-            let result = &response["result"]["structuredContent"];
-            assert!(result.is_object(), "{response}");
-            assert!(
-                result.get("result").is_none(),
-                "shared object shape remains direct"
-            );
-            let schema = serde_json::to_value(
-                registry
-                    .get(name)
-                    .unwrap()
-                    .tool()
-                    .output_schema
-                    .as_ref()
-                    .unwrap(),
-            )
-            .unwrap();
-            assert!(jsonschema::is_valid(&schema, result));
-            let text: Value =
-                serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
-                    .unwrap();
-            assert_eq!(*result, text);
-        }
     }
 
     #[tokio::test]

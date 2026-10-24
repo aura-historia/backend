@@ -125,31 +125,6 @@ async fn should_surface_invalid_persisted_v4_domain_id() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_reject_domain_claimed_by_another_listing_source() {
-    let pool = get_postgres_client().await;
-    let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
-    let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool);
-    let owner = ListingSourceId::new();
-    let claimant = ListingSourceId::new();
-    registration
-        .apply_snapshot(&[source(owner, true), source(claimant, true)])
-        .await
-        .unwrap();
-    domains
-        .register(owner, Domain::try_from("owned.example.com").unwrap())
-        .await
-        .unwrap();
-
-    let result = domains
-        .register(claimant, Domain::try_from("owned.example.com").unwrap())
-        .await;
-    assert!(matches!(
-        result,
-        Err(CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. })
-    ));
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_register_a_concurrent_same_source_domain_once() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());

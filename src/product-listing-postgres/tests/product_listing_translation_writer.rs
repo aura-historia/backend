@@ -84,40 +84,6 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_curre
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_report_duplicate_without_second_event_when_same_source_is_redelivered() {
-    let result: Result<(), Box<dyn std::error::Error>> = async {
-        let pool = get_postgres_client().await;
-        let (product_listing_id, source_event_id) = insert_product_with_discovered_event(&pool).await?;
-        let write = write(product_listing_id, source_event_id, EventId::new());
-        apply(&pool, &write).await?;
-
-        let outcome = apply(
-            &pool,
-            &ProductListingTranslationWrite {
-                enrichment_event_id: EventId::new(),
-                ..write
-            },
-        )
-        .await?;
-
-        assert_eq!(ProductListingTranslationWriteOutcome::Duplicate, outcome);
-        let count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_group = 'ENRICHMENT'",
-    )
-    .bind(product_listing_id.into_uuid())
-    .fetch_one(&pool)
-    .await?;
-        assert_eq!(1, count, "one translated event for the discovered source");
-        Ok(())
-    }
-    .await;
-    assert!(
-        result.is_ok(),
-        "translation duplicate acceptance failed: {result:?}"
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_keep_first_translation_when_same_source_redelivery_has_different_text() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

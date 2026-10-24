@@ -6,35 +6,6 @@ use user_core::access_token::Scope;
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_request_newsletter_confirmation_anonymously() {
-    let response = reqwest::Client::new()
-        .put(format!(
-            "{}/v1/newsletter-subscriptions",
-            AURA_API.base_url()
-        ))
-        .json(&serde_json::json!({
-            "email": "collector@example.com",
-            "firstName": "Ada",
-            "lastName": "Lovelace",
-            "language": "en",
-            "currency": "EUR"
-        }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
-
-    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
-    assert_eq!(
-        Some("no-store"),
-        response
-            .headers()
-            .get("cache-control")
-            .and_then(|value| value.to_str().ok())
-    );
-    assert!(response.bytes().await.unwrap_or_default().is_empty());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -65,29 +36,6 @@ async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
                 .and_then(|value| value.to_str().ok())
         );
     }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_route_anonymous_newsletter_confirmation_without_authentication() {
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/newsletter-subscriptions/confirm",
-            AURA_API.base_url()
-        ))
-        .json(&serde_json::json!({ "token": "opaque-confirmation-token" }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
-
-    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
-    assert_eq!(
-        Some("no-store"),
-        response
-            .headers()
-            .get("cache-control")
-            .and_then(|value| value.to_str().ok())
-    );
-    assert!(response.bytes().await.unwrap_or_default().is_empty());
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

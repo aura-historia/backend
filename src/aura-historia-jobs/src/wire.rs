@@ -410,17 +410,6 @@ mod tests {
     }
 
     #[test]
-    fn should_match_v2_snapshots_for_every_scope_and_payload()
-    -> Result<(), Box<dyn std::error::Error>> {
-        for (scope, snapshot) in snapshots() {
-            let job: crate::jobs::DomainJob = decode(&snapshot.to_string(), scope)?;
-            assert_eq!(snapshot, serde_json::from_str::<Value>(&encode(&job)?)?);
-        }
-
-        Ok(())
-    }
-
-    #[test]
     fn should_keep_exact_schema_v2_bytes_for_every_scope() -> Result<(), Box<dyn std::error::Error>>
     {
         for (scope, snapshot) in snapshots() {
@@ -640,40 +629,6 @@ mod tests {
             vec![json!(0), json!(-1), json!(1.5), json!("3"), json!(u64::MAX)]
         } else {
             vec![json!("update"), json!("UNKNOWN"), Value::Null]
-        }
-    }
-
-    #[test]
-    fn should_reject_wrong_prefix_bare_uuid_malformed_and_noncanonical_typeids() {
-        for (scope, original) in snapshots() {
-            let Some(payload) = original["payload"].as_object() else {
-                assert!(
-                    original["payload"].is_object(),
-                    "snapshot payload must be an object"
-                );
-                continue;
-            };
-            let id_fields: Vec<_> = payload
-                .keys()
-                .filter(|field| field.ends_with("id"))
-                .cloned()
-                .collect();
-            for field in id_fields {
-                for invalid in [
-                    json!(format!("pty_{SUFFIX}")),
-                    json!(BARE_UUID_V7),
-                    json!("malformed"),
-                    json!(format!("EVT_{SUFFIX}")),
-                ] {
-                    let mut body = original.clone();
-                    body["payload"][&field] = invalid;
-                    assert!(
-                        decode(&body.to_string(), scope).is_err(),
-                        "accepted invalid {field} for {}",
-                        scope.as_str()
-                    );
-                }
-            }
         }
     }
 

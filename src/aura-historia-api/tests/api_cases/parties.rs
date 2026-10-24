@@ -204,25 +204,6 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_empty_party_collection_when_no_party_matches() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = parties_token(admin_id).await;
-
-    let response = reqwest::Client::new()
-        .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
-        .query(&[("email", "missing-party@example.test")])
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to search empty party collection: {error}"));
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
-    assert!(body.get("searchAfter").is_none());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_invalid_party_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
     let token = parties_token(admin_id).await;

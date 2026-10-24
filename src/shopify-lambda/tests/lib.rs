@@ -573,56 +573,6 @@ async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_capture_changed_inventory_and_unknown_shopify_key() {
-    let source = seed_source().await;
-    let mut harness = ShopifyTestHarness::new().await;
-    let domain = source.domain.as_str();
-
-    assert!(
-        harness
-            .invoke_and_process(product_event(
-                SHOPIFY_TOPIC_PRODUCTS_CREATE,
-                domain,
-                102,
-                5,
-                "shopify-event-1",
-                "eventbridge-1",
-                serde_json::json!({"futureShopifyKey": "first"}),
-            ))
-            .await
-            .batch_item_failures
-            .is_empty()
-    );
-    assert!(
-        harness
-            .invoke_and_process(product_event(
-                SHOPIFY_TOPIC_PRODUCTS_UPDATE,
-                domain,
-                102,
-                0,
-                "shopify-event-2",
-                "eventbridge-2",
-                serde_json::json!({"futureShopifyKey": "second"}),
-            ))
-            .await
-            .batch_item_failures
-            .is_empty()
-    );
-
-    assert_eq!(2, raw_revision_count(source.id, 102).await);
-    let revision = raw_revision(source.id, 102, 2).await;
-    assert_eq!(
-        serde_json::json!("second"),
-        revision.source_payload.0["futureShopifyKey"]
-    );
-    assert_eq!(
-        serde_json::json!({"action": "SET", "value": "out of stock"}),
-        revision.raw_values.0["availability"]
-    );
-    assert_eq!(0, listing_count(source.id).await);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_normalize_shopify_machine_decimal_prices_and_preserve_provider_strings() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;

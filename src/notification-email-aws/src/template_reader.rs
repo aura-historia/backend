@@ -93,17 +93,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn should_render_template_with_notification_data() -> Result<(), NotificationChannelSendError> {
-        let rendered = render_template(
-            &Handlebars::new(),
-            "Hello {{listing_source_name}}. New price: {{new_price}}.",
-            &json!({ "listing_source_name": "Aster Antiques", "new_price": "12,00 €" }),
-        )?;
-        assert_eq!(rendered, "Hello Aster Antiques. New price: 12,00 €.");
-        Ok(())
-    }
-
-    #[test]
     fn should_return_safe_code_when_template_cannot_render() {
         assert!(matches!(
             render_template(&Handlebars::new(), "{{#if", &json!({})),

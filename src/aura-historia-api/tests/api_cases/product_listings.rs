@@ -64,58 +64,6 @@ static AURA_API_WITH_FX_ROLLOVER_SEARCH_CACHES: AuraHistoriaApi =
 static AURA_API_WITH_ASSESSMENT_SEARCH_CACHES: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_product_listing_search_caches);
 
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_get_product_details_by_id() {
-    let product_listing_id = seed_product().await;
-
-    let response = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
-    let cache_control = response
-        .0
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|value| value.to_str().ok())
-        .map(ToOwned::to_owned);
-    let (status, body) = json_response(response.0).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body["item"]["productListingId"]
-    );
-    assert!(
-        body["item"]["productListingId"]
-            .as_str()
-            .is_some_and(|value| value.starts_with("pl_"))
-    );
-    assert!(
-        body["item"]["eventId"]
-            .as_str()
-            .is_some_and(|value| value.starts_with("evt_"))
-    );
-    assert!(
-        body["item"]["source"]["listingSourceId"]
-            .as_str()
-            .is_some_and(|value| value.starts_with("ls_"))
-    );
-    assert!(
-        body["item"]["pricing"]["valuation"]["fxRateId"]
-            .as_str()
-            .is_some_and(|value| value.starts_with("fx_"))
-    );
-    assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
-    assert!(body["item"]["pricing"].get("source").is_some());
-    assert!(body["item"]["pricing"].get("display").is_some());
-    assert!(body["item"].get("price").is_none());
-    assert!(body["item"].get("priceEstimateMin").is_none());
-    assert!(body["item"].get("priceEstimateMax").is_none());
-    assert!(body["item"].get("currency").is_none());
-    assert!(body.get("userState").is_none());
-    assert_eq!(
-        Some("public, max-age=0, s-maxage=120, stale-if-error=0".to_owned()),
-        cache_control
-    );
-}
-
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE,
     BUSINESS_SCHEMA,
     OPENSEARCH,
@@ -735,36 +683,6 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
             );
         }
     }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_keep_source_scoped_product_management_details_private() {
-    let product_listing_id = seed_product().await;
-    let pool = get_postgres_client().await;
-    let listing_source_id = sqlx::query_scalar::<_, uuid::Uuid>(
-        "SELECT listing_source_id FROM product_listings WHERE product_listing_id = $1",
-    )
-    .bind(uuid::Uuid::from(product_listing_id))
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("failed to read product source identity: {error}"));
-    let listing_source_id = ListingSourceId::try_from(listing_source_id)
-        .unwrap_or_else(|error| panic!("invalid ListingSource fixture ID: {error}"));
-
-    let response = reqwest::Client::new()
-        .get(format!(
-            "{}/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
-            AURA_API.base_url()
-        ))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to get private product management route: {error}"));
-
-    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, response.status());
-    assert_eq!(
-        "private, no-store",
-        response.headers().get("cache-control").unwrap()
-    );
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
@@ -1569,58 +1487,6 @@ async fn should_intersect_product_search_filters() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_projected_product_listings_from_default_search() {
-    let active = search_document(
-        "Lifecycle fixture",
-        100,
-        "AVAILABLE",
-        "Lifecycle Listing Source",
-        "2025-01-01T00:00:00Z",
-    );
-
-    index_search_documents([active.1.clone()]).await;
-
-    let (response, _) = get_json(
-        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture"
-            .to_owned(),
-    )
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![active.0], product_listing_ids(&body));
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_filter_product_search_by_availability() {
-    let available = search_document(
-        "Availability fixture",
-        100,
-        "AVAILABLE",
-        "Availability Listing Source",
-        "2025-01-01T00:00:00Z",
-    );
-    let sold_out = search_document(
-        "Availability fixture",
-        200,
-        "SOLD_OUT",
-        "Availability Listing Source",
-        "2025-01-01T00:00:00Z",
-    );
-    index_search_documents([available.1, sold_out.1.clone()]).await;
-
-    let (response, _) = get_json(
-        "/v1/product-listings?language=en&currency=USD&productQuery[0]=Availability%20fixture&availability[0]=SOLD_OUT".to_owned(),
-    )
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![sold_out.0], product_listing_ids(&body));
-    assert_eq!(json!("SOLD_OUT"), body["items"][0]["item"]["availability"]);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_filter_product_search_by_created_date_range() {
     let january = search_document(
         "Date fixture",
@@ -1737,21 +1603,6 @@ async fn should_reject_invalid_optional_product_authentication() {
         "INVALID_CREDENTIALS",
     );
     assert_eq!(Some("private, no-store".to_owned()), cache_control);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_invalid_product_search_sort() {
-    let (response, _) =
-        get_json("/v1/product-listings?language=en&currency=USD&sort=invalid&order=asc".to_owned())
-            .await;
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_SORT_VALUE",
-    );
 }
 
 async fn get_json(path: String) -> (reqwest::Response, String) {

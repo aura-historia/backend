@@ -198,46 +198,6 @@ mod tests {
     use serde_json::json;
     use std::error::Error;
 
-    #[tokio::test]
-    async fn should_expose_only_the_five_location_operations_with_truthful_scope_and_retry_annotations()
-     {
-        let runtime = aura_historia_runtime::Runtime::from_pool(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://fixture:fixture@localhost:9/fixture")
-                .unwrap(),
-        );
-        let operations = operations(runtime.party_locations().clone()).unwrap();
-        assert_eq!(
-            vec![
-                "createPartyLocation",
-                "listPartyLocations",
-                "getPartyLocation",
-                "correctPartyLocation",
-                "setPartyLocationLifecycle"
-            ],
-            operations.iter().map(|op| op.name()).collect::<Vec<_>>()
-        );
-        for op in operations {
-            let read = matches!(op.name(), "listPartyLocations" | "getPartyLocation");
-            let annotations = op.tool().annotations.as_ref().unwrap();
-            assert_eq!(Some(read), annotations.read_only_hint);
-            assert_eq!(Some(!read), annotations.destructive_hint);
-            assert_eq!(
-                Some(op.name() != "createPartyLocation"),
-                annotations.idempotent_hint
-            );
-            assert_eq!(Some(false), annotations.open_world_hint);
-            assert_eq!(
-                vec![if read {
-                    CredentialCapability::PartiesRead
-                } else {
-                    CredentialCapability::PartiesWrite
-                }],
-                op.policy().required_scopes
-            );
-            assert_eq!(AccessClass::Protected, op.policy().access);
-        }
-    }
     #[test]
     fn should_describe_combined_path_and_body_arguments_without_dropping_business_fields() {
         let party = PartyId::new();

@@ -641,6 +641,11 @@ mod tests {
             .unwrap()
             .into_queues();
         assert_eq!(WorkerScope::ALL.len() - 1, queues.len());
+        assert!(
+            queues
+                .iter()
+                .all(|queue| queue.scope() != WorkerScope::MarketingConsentSync)
+        );
     }
 
     fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {

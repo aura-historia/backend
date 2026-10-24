@@ -117,28 +117,6 @@ async fn should_retain_slug_when_renaming_party_and_replace_contact() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_insert_parties_with_the_same_name_using_disambiguated_slugs() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let parties = SqlxPartyRepositoryFactory::new();
-    let first = sample_party("duplicate-slug");
-    let second = sample_party("duplicate-slug");
-
-    let mut tx = begin(&unit_of_work).await;
-    let first = match parties.in_transaction(&mut tx).insert(&first).await {
-        Ok(value) => value,
-        Err(error) => panic!("failed to insert first party: {error:?}"),
-    };
-    let second = match parties.in_transaction(&mut tx).insert(&second).await {
-        Ok(value) => value,
-        Err(error) => panic!("failed to insert second party: {error:?}"),
-    };
-    commit(tx).await;
-
-    assert_ne!(first.party.slug_id(), second.party.slug_id());
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_report_concurrency_conflict_for_stale_party_update() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

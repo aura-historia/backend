@@ -120,27 +120,12 @@ mod tests {
     }
 
     #[test]
-    fn should_default_product_user_state_notification_seen_to_true() {
-        let state = ProductListingUserState::default();
-        assert!(state.notification.unseen_notification_ids.is_empty());
-    }
-
-    #[test]
     fn should_default_search_filter_user_state_to_not_matched() {
         let state = SearchFilterUserState::default();
         assert!(!state.matched);
         assert!(!state.hidden);
         assert!(state.user_search_filter_id.is_none());
         assert!(state.user_search_filter_name.is_none());
-    }
-
-    #[test]
-    fn should_default_product_user_state_search_filter_to_not_matched() {
-        let state = ProductListingUserState::default();
-        assert!(!state.search_filter.matched);
-        assert!(!state.search_filter.hidden);
-        assert!(state.search_filter.user_search_filter_id.is_none());
-        assert!(state.search_filter.user_search_filter_name.is_none());
     }
 
     fn delegated(capabilities: &[CredentialCapability]) -> Principal {

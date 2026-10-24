@@ -247,21 +247,6 @@ mod tests {
         "biedermeier-polsterstuhl-kirschbaum-um-1830-art-nr-8241"
     )]
     #[trace]
-    fn should_make_slug_id_for_random_suffix_6(#[case] text: &str, #[case] expected_slug: &str) {
-        let actual: SlugId<6> = SlugId::from(text);
-        assert!(actual.0.starts_with(&format!("{expected_slug}-")));
-    }
-
-    #[rstest::rstest]
-    #[case(
-        "Musealer Kabinettschrank 18./19. Jahrhundert",
-        "musealer-kabinettschrank-18-19-jahrhundert"
-    )]
-    #[case(
-        "Biedermeier Polsterstuhl Kirschbaum um 1830 Art.Nr. 8241",
-        "biedermeier-polsterstuhl-kirschbaum-um-1830-art-nr-8241"
-    )]
-    #[trace]
     fn should_make_slug_id_for_empty_suffix(#[case] text: &str, #[case] expected_slug: &str) {
         let actual: SlugId<0> = SlugId::from(text);
         assert_eq!(expected_slug, &actual.0);

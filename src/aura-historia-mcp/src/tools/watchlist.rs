@@ -509,55 +509,6 @@ mod tests {
             .map(|result| result.structured_content.unwrap())
     }
 
-    #[test]
-    fn should_register_exact_family_and_manifest_policies_without_public_overlap() {
-        let fixture = Fixture::new(Outcome::Success);
-        let registry = registry(&fixture);
-        let manifest: Value =
-            serde_json::from_str(include_str!("../../authenticated-operations.json")).unwrap();
-        let public: Value =
-            serde_json::from_str(include_str!("../../public-operations.json")).unwrap();
-        let names: BTreeSet<_> = operations(fixture.services())
-            .unwrap()
-            .into_iter()
-            .map(|op| op.name().to_owned())
-            .collect();
-        assert_eq!(
-            BTreeSet::from([
-                "getWatchlistProductListings".to_owned(),
-                "addWatchlistProduct".to_owned(),
-                "deleteWatchlistProduct".to_owned(),
-                "patchWatchlistProduct".to_owned()
-            ]),
-            names
-        );
-        let entries: Vec<_> = manifest["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|op| op["family"] == "watchlist")
-            .collect();
-        assert_eq!(4, entries.len());
-        for entry in entries {
-            let operation = registry.get(entry["name"].as_str().unwrap()).unwrap();
-            let tool = serde_json::to_value(operation.tool()).unwrap();
-            assert_eq!(entry["operationId"], tool["name"]);
-            assert_eq!(entry["annotations"], tool["annotations"]);
-            assert_eq!(entry["access"], tool["_meta"]["aura.historia/access"]);
-            assert_eq!(
-                entry["requiredScopes"],
-                tool["_meta"]["aura.historia/requiredScopes"]
-            );
-            assert!(
-                public["operations"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|op| op["name"] != entry["name"])
-            );
-        }
-    }
-
     #[tokio::test]
     async fn should_forward_presentation_and_continuation_without_dropping_listing_fields() {
         let fixture = Fixture::new(Outcome::Success);

@@ -65,8 +65,7 @@ points inject the same family handles.
 
 The runtime unit suite checks clean-environment anonymous startup, warm reuse, credential-version
 replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment
-configuration without mutating a multithreaded test process. PostgreSQL integration tests use the
-repository's isolated Docker fixture and business migrations.
+configuration without mutating a multithreaded test process.
 
 `Runtime::saved_searches(embeddings)` supplies the seven saved-search and match-feedback inbound
 handles. REST and MCP reuse this family with the same PostgreSQL pool, shipping enrichment and

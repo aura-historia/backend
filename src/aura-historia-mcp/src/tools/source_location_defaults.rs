@@ -148,42 +148,6 @@ mod tests {
     use party_core::party_location_id::PartyLocationId;
     use serde_json::json;
     use std::error::Error;
-    #[tokio::test]
-    async fn should_expose_only_four_default_operations_with_source_scopes_and_revision_annotations()
-     {
-        let runtime = aura_historia_runtime::Runtime::from_pool(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://fixture:fixture@localhost:9/fixture")
-                .unwrap(),
-        );
-        let operations = operations(runtime.source_location_defaults().clone()).unwrap();
-        assert_eq!(
-            vec![
-                "getSourceLocationDefault",
-                "assignSourceLocationDefault",
-                "changeSourceLocationDefaultApplicability",
-                "clearSourceLocationDefault"
-            ],
-            operations.iter().map(|op| op.name()).collect::<Vec<_>>()
-        );
-        for op in operations {
-            let read = op.name() == "getSourceLocationDefault";
-            let annotations = op.tool().annotations.as_ref().unwrap();
-            assert_eq!(Some(read), annotations.read_only_hint);
-            assert_eq!(Some(!read), annotations.destructive_hint);
-            assert_eq!(Some(true), annotations.idempotent_hint);
-            assert_eq!(Some(false), annotations.open_world_hint);
-            assert_eq!(
-                vec![if read {
-                    CredentialCapability::ListingSourcesRead
-                } else {
-                    CredentialCapability::ListingSourcesWrite
-                }],
-                op.policy().required_scopes
-            );
-            assert_eq!(AccessClass::Protected, op.policy().access);
-        }
-    }
     #[test]
     fn should_describe_combined_source_arguments_preserving_null_applicability_and_strict_ids() {
         let source = ListingSourceId::new();

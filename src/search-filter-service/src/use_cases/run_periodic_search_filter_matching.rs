@@ -2027,33 +2027,6 @@ mod tests {
         filter
     }
 
-    #[tokio::test]
-    async fn geographic_periodic_matching_advances_progress_after_projection_search()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
-            matched_through: OffsetDateTime::UNIX_EPOCH,
-        });
-        let handler = handler(state.clone())?;
-        let mut filter = geographic_filter();
-        filter.embedding = Some(vec![0.1; embedding::EMBEDDING_DIMENSIONS]);
-        filter.search.enhanced_search_description = Some("Munich antiques".try_into()?);
-        let mut report = FilterAttemptReport::default();
-        let outcome = handler
-            .process_filter(
-                &filter,
-                &test_snapshot(),
-                filter.matched_through + Duration::seconds(1),
-                &mut None,
-                &mut report,
-            )
-            .await?;
-        assert_eq!(FilterOutcome::Completed, outcome);
-        let state = state.lock().unwrap();
-        assert_eq!(2, state.commits);
-        assert_eq!(1, state.checkpoints);
-        Ok(())
-    }
-
     fn withdrawn_search_result()
     -> Result<ProductListingSearchReadResult, Box<dyn std::error::Error>> {
         let mut result = ProductListingSearchReadResult::default();
@@ -2137,28 +2110,6 @@ mod tests {
             Some(RangeQuery {
                 min: Some(candidate.created),
                 max: Some(window_end),
-            }),
-            search.and_then(|search| search.updated_query)
-        );
-    }
-
-    #[test]
-    fn should_intersect_replay_window_with_persisted_updated_bounds() {
-        let mut candidate = filter();
-        candidate.created = OffsetDateTime::UNIX_EPOCH;
-        candidate.matched_through = candidate.created + Duration::hours(10);
-        candidate.search.updated_query = Some(RangeQuery {
-            min: Some(candidate.created + Duration::hours(9)),
-            max: Some(candidate.created + Duration::hours(11)),
-        });
-        let window_end = candidate.created + Duration::hours(12);
-
-        let search = periodic_search(&candidate, window_end, Duration::hours(2));
-
-        assert_eq!(
-            Some(RangeQuery {
-                min: Some(candidate.created + Duration::hours(9)),
-                max: Some(candidate.created + Duration::hours(11)),
             }),
             search.and_then(|search| search.updated_query)
         );

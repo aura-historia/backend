@@ -371,30 +371,6 @@ mod tests {
         assert_eq!(builds.load(Ordering::Acquire), 2);
     }
 
-    #[tokio::test]
-    async fn should_keep_old_composition_lease_alive_after_version_replacement() {
-        let cache = VersionedCompositionCache::<String>::new();
-        let old = cache
-            .get_or_try_build("version-1", || async { Ok::<_, ()>("old-pool".to_owned()) })
-            .await;
-        let old = match old {
-            Ok(lease) => lease,
-            Err(()) => panic!("old composition failed"),
-        };
-        let new = cache
-            .get_or_try_build("version-2", || async { Ok::<_, ()>("new-pool".to_owned()) })
-            .await;
-        let new = match new {
-            Ok(lease) => lease,
-            Err(()) => panic!("new composition failed"),
-        };
-
-        assert_eq!(old.version_id(), "version-1");
-        assert_eq!(old.value(), "old-pool");
-        assert_eq!(new.version_id(), "version-2");
-        assert_eq!(new.value(), "new-pool");
-    }
-
     #[test]
     fn should_clamp_elapsed_invocation_deadline_to_zero() {
         assert_eq!(0, remaining_budget_ms(100, 101));

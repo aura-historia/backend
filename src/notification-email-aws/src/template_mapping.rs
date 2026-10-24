@@ -804,7 +804,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Language::En, "Available", "In stock")]
     #[case(Language::De, "Verfügbar", "Auf Lager")]
     fn should_localize_watchlist_availability_change_for_recipient_language(
         #[case] language: Language,

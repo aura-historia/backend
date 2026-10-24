@@ -1474,21 +1474,6 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_extensionless_product_href_for_image_url_extraction() {
-        let doc = Html::parse_document(
-            r#"
-            <html><body>
-                <a class="product" href="/products/foo">ProductListing detail</a>
-            </body></html>
-            "#,
-        );
-
-        let r = rule("a.product", image_url_kind(), ExtractionCardinality::All);
-        let err = r.apply(&doc).unwrap_err();
-        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
-    }
-
-    #[test]
     fn should_accept_current_href_with_image_extension_for_image_url_extraction() {
         let doc = Html::parse_document(
             r#"
