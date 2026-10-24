@@ -126,7 +126,7 @@ export class DeliveryStack extends cdk.Stack {
         } }),
       }), projectName: `aura-delivery-${name}`, timeout: cdk.Duration.minutes(name === "release-build" ? 120 : 30),
       queuedTimeout: cdk.Duration.minutes(60), concurrentBuildLimit: 1,
-      environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, computeType: name === "release-build" ? codebuild.ComputeType.MEDIUM : codebuild.ComputeType.SMALL,
+      environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, computeType: name === "release-build" ? codebuild.ComputeType.X_LARGE : codebuild.ComputeType.SMALL,
         privileged: name === "release-build" },
       logging: { cloudWatch: { logGroup: new logs.LogGroup(this, `${name}Logs`, { retention: logs.RetentionDays.ONE_MONTH }) } },
       buildSpec: codebuild.BuildSpec.fromObject({ version: "0.2",

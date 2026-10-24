@@ -308,12 +308,12 @@ both environments. Per-target assemblies may differ while application bytes rema
 identical. CDK file assets are published and referenced by exact key/version before
 assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 
-One on-demand shared build group and the initial compute size are provisional,
-not a measured performance/capacity claim. Before enabling paid release builds,
+One on-demand shared build group uses a Linux XLarge worker (36 vCPUs, 72 GiB).
+This sizing is provisional, not an optimal performance/capacity claim. Before enabling paid release builds,
 an explicitly approved benchmark must record cold/warm duration, peak memory,
 cache behavior and final native billed compute minutes; adjust compute if needed. Real CodeBuild executions export observed duration/compute minutes, per-container
 cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
-minutes and cache behavior. Benchmark cold/warm builds through the protected build
+minutes, effective timeout/compute type and cache behavior; project settings alone do not prove the actual build's limits. Benchmark cold/warm builds through the protected build
 approval before changing group count or compute size. There is no reserved build
 fleet, build VPC or automatic source-triggered paid work. Pipeline scratch artifacts have bounded retention; local shared target data lasts
 for its build worker only; completed bundles and recovery evidence are
