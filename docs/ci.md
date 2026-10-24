@@ -29,7 +29,6 @@ cargo test --locked -p test-api --all-features --test postgres -- --ignored --te
 
 [Integrate](../.github/workflows/integrate.yml) runs independent lint and four
 test lanes on relevant PRs and `develop` pushes. Nextest uses four slots.
-The final quality job requires lint and every lane to succeed.
 
 | Lane | Packages | Service profile |
 | --- | --- | --- |
@@ -88,12 +87,10 @@ image smoke check and tracked delivery helper before emitting its fingerprint.
 cancellation. Only success from every trusted required job produces immutable
 [test evidence](../ci/delivery/gate.cjs), bound to source, trusted workflow revision,
 run/attempt, toolchain and inventory. Missing and skipped suites fail eligibility.
-A successful artifact upload cannot change that result. Rust `Complete Rust suite`
-also aggregates lint and every lane for ordinary CI.
+A successful artifact upload cannot change that result.
 
-Use an always-running PR aggregate for branch required checks. The ordinary
-workflows retain path filters: before requiring `Complete Rust suite` or other
-filtered checks, remove those workflow filters or add an always-present dispatcher
+The ordinary workflows retain path filters: before requiring their checks for
+merging, remove those workflow filters or add an always-present dispatcher
 that explicitly accounts for skipped paths. GitHub leaves a required path-filtered
 workflow pending when it never starts. Do not require the manual-only release suite
 on PRs. GitHub owners must verify the actual ruleset and environment restrictions;
