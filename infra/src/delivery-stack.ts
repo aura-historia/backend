@@ -152,7 +152,7 @@ export class DeliveryStack extends cdk.Stack {
     pipelineVariables.set(this.buildPipeline, requestVariables);
     const reader = requester("GitHubBundleReader", "__reader__");
     readRelease(reader);
-    reader.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:DescribeImages"], resources: CONTAINER_IMAGE_CATALOG.map((image) => this.formatArn({ service: "ecr", resource: "repository", resourceName: image.repository })) }));
+    this.grantImageReads(reader);
     new cdk.CfnOutput(this, "BundleReaderRoleArn", { value: reader.roleArn });
     const builder = project("release-build", 'DELIVERY_CANDIDATE_DIR="$CODEBUILD_SRC_DIR_Candidate" node ci/delivery/build.cjs');
     readRelease(builder);
@@ -205,6 +205,13 @@ export class DeliveryStack extends cdk.Stack {
     new cdk.CfnOutput(this, "DeliveryNotificationTopicArn", { value: topic.topicArn });
   }
 
+  private grantImageReads(grantee: iam.IGrantable): void {
+    iam.Grant.addToPrincipal({ grantee, actions: ["ecr:DescribeImages"],
+      resourceArns: CONTAINER_IMAGE_CATALOG.map((image) => this.formatArn({
+        service: "ecr", resource: "repository", resourceName: image.repository,
+      })) });
+  }
+
   private createDeployment(stage: StageName, context: {
     artifacts: s3.IBucket;
     source: (pipeline: codepipeline.Pipeline, candidate: boolean) => { control: codepipeline.Artifact };
@@ -254,7 +261,7 @@ export class DeliveryStack extends cdk.Stack {
     for (const job of [prepare, migration, verify]) {
       grantInspectionReads(job);
       this.releases.grantPut(job, "reports/executions/*");
-      job.addToRolePolicy(new iam.PolicyStatement({ actions: ["ecr:DescribeImages"], resources: CONTAINER_IMAGE_CATALOG.map((image) => this.formatArn({ service: "ecr", resource: "repository", resourceName: image.repository })) }));
+      this.grantImageReads(job);
       job.addToRolePolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     }
     prepare.addToRolePolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({
@@ -286,7 +293,7 @@ export class DeliveryStack extends cdk.Stack {
       extraInputs: [prepared], environmentVariables: context.vars(pipeline, { DELIVERY_TARGET: stage, DELIVERY_TARGET_CONFIG: `ci/delivery/targets/${stage}.json` }), runOrder: 8 }));
     const planRole = context.requester(`${stage}GitHubPlanner`, "__reader__");
     context.readRelease(planRole);
-    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:DescribeImages"], resources: CONTAINER_IMAGE_CATALOG.map((image) => this.formatArn({ service: "ecr", resource: "repository", resourceName: image.repository })) }));
+    this.grantImageReads(planRole);
     planRole.addToPolicy(new iam.PolicyStatement({ actions: ["cloudformation:CreateChangeSet", "cloudformation:DeleteChangeSet",
       "cloudformation:DescribeChangeSet", "cloudformation:DescribeStacks", "cloudformation:DescribeStackResources",
       "cloudformation:ListStackResources", "cloudformation:GetTemplate"], resources: [this.formatArn({
@@ -303,6 +310,7 @@ export class DeliveryStack extends cdk.Stack {
     ] }));
     const maintenance = context.requester(`${stage}Maintenance`, `aws-${stage}-maintenance`);
     context.readRelease(maintenance);
+    this.grantImageReads(maintenance);
     this.releases.grantPut(maintenance, `environments/${this.account}/${this.region}/${stage}.json`);
     const taskArn = new cdk.CfnParameter(this, `${stage}MaintenanceDmsTaskArn`, { type: "String",
       allowedPattern: "^arn:aws:dms:[a-z0-9-]+:[0-9]{12}:task:[A-Za-z0-9-]+$" });
@@ -312,7 +320,10 @@ export class DeliveryStack extends cdk.Stack {
     grantInspectionReads(maintenance);
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codepipeline:GetPipelineExecution", "codepipeline:ListActionExecutions"], resources: [pipeline.pipelineArn] }));
-    maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codebuild:BatchGetBuilds"], resources: [this.formatArn({ service: "codebuild", resource: "build", resourceName: `aura-delivery-${stage}-*:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
+    maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codebuild:ListBuildsForProject", "codebuild:BatchGetBuilds"],
+      resources: ["admission", "migrate", "verify"].map((phase) => this.formatArn({
+        service: "codebuild", resource: "project", resourceName: `aura-delivery-${stage}-${phase}`,
+      })) }));
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codedeploy:GetDeployment", "codedeploy:ListDeployments", "codedeploy:GetDeploymentGroup", "codedeploy:ListApplications", "codedeploy:ListDeploymentGroups"], resources: ["*"] }));
     this.releases.grantPut(maintenance, "evidence/*");
     this.releases.grantPut(maintenance, `maintenance/${stage}/*`);
