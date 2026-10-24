@@ -296,16 +296,10 @@ export class DeliveryStack extends cdk.Stack {
     planRole.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     this.releases.grantPut(planRole, "reports/*");
     this.releases.grantPut(planRole, "evidence/*");
-    const modelArn = new cdk.CfnParameter(this, `${stage}ReviewerModelArn`, { type: "String",
-      description: "Explicit strong reviewer model or inference-profile ARN authorized for compatibility review." });
-    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [modelArn.valueAsString] }));
-    const foundationModelArns = new cdk.CfnParameter(this, `${stage}ReviewerFoundationModelArns`, {
-      type: "CommaDelimitedList",
-      allowedPattern: "^arn:aws:bedrock:[a-z0-9-]+::foundation-model/[a-zA-Z0-9.:-]+$",
-      description: "Exact foundation-model ARNs in every destination region of the approved reviewer inference profile; use the model ARN itself for direct invocation.",
-    });
-    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: foundationModelArns.valueAsList,
-      conditions: { StringEquals: { "bedrock:InferenceProfileArn": modelArn.valueAsString } } }));
+    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["ssm:GetParameter"], resources: [
+      this.formatArn({ service: "ssm", resource: "parameter", resourceName: `anthropic/${stage}/api-key`,
+        arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME }),
+    ] }));
     const maintenance = context.requester(`${stage}Maintenance`, `aws-${stage}-maintenance`);
     context.readRelease(maintenance);
     this.releases.grantPut(maintenance, `environments/${this.account}/${this.region}/${stage}.json`);

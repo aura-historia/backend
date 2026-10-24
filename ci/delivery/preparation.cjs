@@ -611,12 +611,12 @@ async function prepare(env = process.env, options = {}) {
       ],
       manualPrerequisites: prerequisites.manual,
     };
-    const reviewed = reviewer.review(
+    const reviewed = await reviewer.review(
       ctx,
       inventory,
       binding,
       operational.reviewer,
-      { api },
+      { api, fetch: options.fetch },
     );
     const modelRef = store.putImmutableJson(
       ctx.bucket,
