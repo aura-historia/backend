@@ -16,7 +16,7 @@ export interface EnvironmentRoles {
 }
 
 export function createEnvironmentRoles(scope: Construct, stage: StageName, bucket: s3.IBucket,
-  artifacts: s3.IBucket): EnvironmentRoles {
+  artifacts: s3.IBucket, pipelineRole: iam.IRole): EnvironmentRoles {
   const stack = cdk.Stack.of(scope);
   const arn = (service: string, resource: string, resourceName: string, region = stack.region) =>
     stack.formatArn({ service, resource, resourceName, region,
@@ -127,7 +127,7 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   bucket.grantRead(migrationExecution, "objects/sha256/*");
   const action = new iam.Role(scope, `${stage}CloudFormationAction`, {
     roleName: `aura-delivery-${stage}-action`, path: "/aura-historia/delivery/",
-    assumedBy: new iam.ServicePrincipal("codepipeline.amazonaws.com"),
+    assumedBy: pipelineRole.grantPrincipal,
   });
   action.addToPolicy(new iam.PolicyStatement({ actions: ["cloudformation:ExecuteChangeSet", "cloudformation:DescribeChangeSet",
     "cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents", "cloudformation:GetTemplate", "cloudformation:UpdateStack"], resources: stacks,

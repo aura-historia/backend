@@ -156,6 +156,8 @@ administration credentials.
 The target requester submits pinned request, bundle, report and control-source
 versions to its native pipeline. All mutations and verification share one ordered
 `Deploy` stage in QUEUED mode, plus the durable environment exclusion record.
+Native CloudFormation action roles trust only their owning pipeline role. Notification
+rules wait for their SNS publish policy before creation.
 CodePipeline stage queueing alone is not a whole-release lock. The candidate
 migrator is deployed before invocation, pending SQL runs before application
 changes, then native API/MCP CodeDeploy alias rollout and bounded health checks

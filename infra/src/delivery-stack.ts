@@ -183,8 +183,9 @@ export class DeliveryStack extends cdk.Stack {
     for (const stage of targets) {
       this.createDeployment(stage, { artifacts, source, project, admission, requester, readRelease, vars, topic });
     }
-    new codestarnotifications.NotificationRule(this, "BuildFailures", { source: this.buildPipeline,
+    const buildFailures = new codestarnotifications.NotificationRule(this, "BuildFailures", { source: this.buildPipeline,
       events: ["codepipeline-pipeline-pipeline-execution-failed"], targets: [topic] });
+    topic.grantPublish(new iam.ServicePrincipal("codestar-notifications.amazonaws.com")).applyBefore(buildFailures);
     if (props.monthlyBudgetUsd !== undefined) {
       if (!Number.isFinite(props.monthlyBudgetUsd) || props.monthlyBudgetUsd <= 0) throw new Error("Budget must be positive USD.");
       new budgets.CfnBudget(this, "DeliveryBudget", {
@@ -219,7 +220,7 @@ export class DeliveryStack extends cdk.Stack {
       pipelineName: `aura-deploy-${stage}`, pipelineType: codepipeline.PipelineType.V2, executionMode: codepipeline.ExecutionMode.QUEUED,
       artifactBucket: context.artifacts, variables, restartExecutionOnUpdate: false,
     });
-    const roles = createEnvironmentRoles(this, stage, this.releases, context.artifacts);
+    const roles = createEnvironmentRoles(this, stage, this.releases, context.artifacts, pipeline.role);
     const { control } = context.source(pipeline, false);
     const prepared = new codepipeline.Artifact("Prepared");
     const prepare = context.project(`${stage}-admission`, "node ci/delivery/pipeline.cjs admit", roles.planner);
@@ -329,8 +330,9 @@ export class DeliveryStack extends cdk.Stack {
     this.releases.grantPut(requestRole, "reports/*");
     this.releases.grantPut(requestRole, "tests/*");
     context.readRelease(requestRole);
-    new codestarnotifications.NotificationRule(this, `${stage}DeploymentFailures`, { source: pipeline,
+    const deploymentFailures = new codestarnotifications.NotificationRule(this, `${stage}DeploymentFailures`, { source: pipeline,
       events: ["codepipeline-pipeline-pipeline-execution-failed"], targets: [context.topic] });
+    context.topic.grantPublish(new iam.ServicePrincipal("codestar-notifications.amazonaws.com")).applyBefore(deploymentFailures);
     new cdk.CfnOutput(this, `${stage}DeploymentPipelineName`, { value: pipeline.pipelineName });
     new cdk.CfnOutput(this, `${stage}DeploymentRequesterRoleArn`, { value: requestRole.roleArn });
     new cdk.CfnOutput(this, `${stage}MigrationCloudFormationExecutionRoleArn`, { value: roles.migrationExecution.roleArn });
