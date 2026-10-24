@@ -41,7 +41,8 @@ UUID-named, labelled containers, volumes and a network; ports bind only to
 `127.0.0.1`. Images are pinned in
 [`environment/services.rs`](src/environment/services.rs). PostgreSQL uses
 verified TLS and logical WAL. Managed OpenSearch installs the workspace mapping
-and hybrid pipeline before tests start.
+and hybrid pipeline before tests start. Its engine version and immutable image pin
+match production so mapping compatibility is checked against the serving engine.
 
 Children attach to validated job configuration. Both
 `AURA_TEST_ENV_MANAGED=1` and absolute `AURA_TEST_ENV_CONFIG` must be present
