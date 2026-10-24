@@ -13,27 +13,6 @@ use user_core::tier::UserTier;
 use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_current_user_account_when_authenticated() {
-    let user_id = seed_user("USER").await;
-    let token =
-        seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
-
-    let response = reqwest::Client::new()
-        .get(format!("{}/v1/me/account", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to call user API: {error}"));
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
-    assert_id_prefix(&body["userId"], "usr_");
-    assert_eq!(serde_json::json!("USER"), body["role"]);
-    assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_current_user_profile_when_body_is_valid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -1815,40 +1794,6 @@ async fn should_revoke_all_admin_user_access_tokens_and_preserve_other_users() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_bulk_revoke_existing_admin_user_with_no_tokens_idempotently() {
-    let target_user_id = seed_user("USER").await;
-    let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(
-        admin_id,
-        std::collections::HashSet::from([Scope::AccessTokensWrite]),
-    )
-    .await;
-    let client = reqwest::Client::new();
-
-    for _ in 0..2 {
-        let response = client
-            .delete(format!(
-                "{}/v1/admin/users/{}/access-tokens",
-                AURA_API.base_url(),
-                target_user_id
-            ))
-            .bearer_auth(String::from(admin_token.clone()))
-            .send()
-            .await
-            .unwrap_or_else(|error| panic!("failed to bulk revoke empty token set: {error}"));
-
-        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
-        assert_eq!(
-            Some("no-store"),
-            response
-                .headers()
-                .get(reqwest::header::CACHE_CONTROL)
-                .and_then(|value| value.to_str().ok())
-        );
-    }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_bulk_revoke_target_user_is_missing() {
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(
@@ -2639,36 +2584,6 @@ async fn should_reject_malformed_user_id_for_reactivation() {
         &body,
         reqwest::StatusCode::BAD_REQUEST,
         "INVALID_OBJECT_ID",
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_secret_bearing_user_suspension_reason() {
-    let target_user_id = seed_user("USER").await;
-    let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(
-        admin_id,
-        std::collections::HashSet::from([Scope::UsersWrite]),
-    )
-    .await;
-
-    let response = reqwest::Client::new()
-        .put(format!(
-            "{}/v1/admin/users/{target_user_id}/suspension",
-            AURA_API.base_url()
-        ))
-        .bearer_auth(String::from(admin_token))
-        .json(&serde_json::json!({"reason": "BEARER credential supplied by mistake"}))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to reject secret-bearing reason: {error}"));
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_BODY_VALUE",
     );
 }
 

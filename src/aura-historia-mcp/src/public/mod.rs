@@ -58,6 +58,3 @@ pub fn operations(
     )?);
     Ok(operations)
 }
-
-#[cfg(test)]
-mod tests;

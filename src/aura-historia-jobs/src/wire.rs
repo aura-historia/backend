@@ -22,7 +22,7 @@ use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
 pub const MAX_JOB_BYTES: usize = 16 * 1024;
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Deserialize)]
 struct SchemaEnvelope {
@@ -30,18 +30,18 @@ struct SchemaEnvelope {
 }
 
 #[derive(Serialize, Deserialize)]
-struct EnvelopeV2 {
+struct EnvelopeV1 {
     schema_version: u32,
     scope: String,
     idempotency_key: String,
     ordering_key: String,
     #[serde(flatten)]
-    job: PayloadV2,
+    job: PayloadV1,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "job_type", content = "payload")]
-enum PayloadV2 {
+enum PayloadV1 {
     #[serde(rename = "USER_IDENTITY_DELETION")]
     UserIdentityDeletion { user_id: UserId },
     #[serde(rename = "LISTING_GEOGRAPHY")]
@@ -87,7 +87,7 @@ enum PayloadV2 {
     },
 }
 
-/// FIFO attributes are derived only from an already validated schema-2 domain job.
+/// FIFO attributes are derived only from an already validated schema-1 domain job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FifoMessageAttributes {
     message_group_id: String,
@@ -104,7 +104,7 @@ impl FifoMessageAttributes {
     }
 }
 
-/// A validated schema-2 body and the trusted destination metadata for the publisher.
+/// A validated schema-1 body and the trusted destination metadata for the publisher.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedJob {
     scope: WorkerScope,
@@ -148,51 +148,51 @@ impl From<InvalidJob> for WireError {
 pub fn encode(job: &DomainJob) -> Result<String, WireError> {
     let scope = job.validate()?;
     let payload = match &job.payload {
-        DomainJobPayload::ListingGeography(job) => PayloadV2::ListingGeography {
+        DomainJobPayload::ListingGeography(job) => PayloadV1::ListingGeography {
             work_id: job.work_id,
             generation: job.generation,
         },
-        DomainJobPayload::ListingShipping(job) => PayloadV2::ListingShipping {
+        DomainJobPayload::ListingShipping(job) => PayloadV1::ListingShipping {
             work_id: job.work_id,
             generation: job.generation,
         },
-        DomainJobPayload::GeoResolution(job) => PayloadV2::GeoResolution {
+        DomainJobPayload::GeoResolution(job) => PayloadV1::GeoResolution {
             resolution_id: job.resolution_id,
             generation: job.generation,
         },
-        DomainJobPayload::ProductListingEvent(event) => PayloadV2::ProductListingEvent {
+        DomainJobPayload::ProductListingEvent(event) => PayloadV1::ProductListingEvent {
             event_id: event.event_id,
             product_listing_id: event.product_listing_id,
         },
         DomainJobPayload::ProductListingRawRevision(revision) => {
-            PayloadV2::ProductListingRawRevision {
+            PayloadV1::ProductListingRawRevision {
                 product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
                 product_listing_raw_revision_id: revision.product_listing_raw_revision_id,
                 revision: revision.revision,
             }
         }
-        DomainJobPayload::SearchFilterMatchCreated(change) => PayloadV2::SearchFilterMatchCreated {
+        DomainJobPayload::SearchFilterMatchCreated(change) => PayloadV1::SearchFilterMatchCreated {
             user_id: change.user_id,
             user_search_filter_id: change.user_search_filter_id,
             product_listing_id: change.product_listing_id,
             origin_event_id: change.origin_event_id,
         },
         DomainJobPayload::NotificationDeliveryCreated(delivery) => {
-            PayloadV2::NotificationDeliveryCreated {
+            PayloadV1::NotificationDeliveryCreated {
                 notification_delivery_id: delivery.notification_delivery_id,
             }
         }
         DomainJobPayload::MarketingConsentSyncIntentCreated(job) => {
-            PayloadV2::MarketingConsentSyncIntentCreated {
+            PayloadV1::MarketingConsentSyncIntentCreated {
                 marketing_consent_sync_intent_id: job.marketing_consent_sync_intent_id,
             }
         }
-        DomainJobPayload::UserIdentityDeletion(job) => PayloadV2::UserIdentityDeletion {
+        DomainJobPayload::UserIdentityDeletion(job) => PayloadV1::UserIdentityDeletion {
             user_id: job.user_id,
         },
         DomainJobPayload::UserTierChanged(_) => return Err(WireError::Scope),
     };
-    let encoded = serde_json::to_string(&EnvelopeV2 {
+    let encoded = serde_json::to_string(&EnvelopeV1 {
         schema_version: SCHEMA_VERSION,
         scope: scope.as_str().to_owned(),
         idempotency_key: job.idempotency_key.as_str().to_owned(),
@@ -238,7 +238,7 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
     if schema.schema_version != SCHEMA_VERSION {
         return Err(WireError::SchemaVersion);
     }
-    let envelope: EnvelopeV2 = serde_json::from_str(body).map_err(|_| WireError::Json)?;
+    let envelope: EnvelopeV1 = serde_json::from_str(body).map_err(|_| WireError::Json)?;
     let scope = WorkerScope::iter()
         .find(|scope| scope.as_str() == envelope.scope)
         .ok_or(WireError::Scope)?;
@@ -246,35 +246,35 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
         return Err(WireError::Scope);
     }
     let payload = match envelope.job {
-        PayloadV2::ListingGeography {
+        PayloadV1::ListingGeography {
             work_id,
             generation,
         } => DomainJobPayload::ListingGeography(crate::jobs::ListingGeographyJob {
             work_id,
             generation,
         }),
-        PayloadV2::ListingShipping {
+        PayloadV1::ListingShipping {
             work_id,
             generation,
         } => DomainJobPayload::ListingShipping(crate::jobs::ListingShippingJob {
             work_id,
             generation,
         }),
-        PayloadV2::GeoResolution {
+        PayloadV1::GeoResolution {
             resolution_id,
             generation,
         } => DomainJobPayload::GeoResolution(crate::jobs::GeoResolutionJob {
             resolution_id,
             generation,
         }),
-        PayloadV2::ProductListingEvent {
+        PayloadV1::ProductListingEvent {
             event_id,
             product_listing_id,
         } => DomainJobPayload::ProductListingEvent(ProductListingEventJob {
             event_id,
             product_listing_id,
         }),
-        PayloadV2::ProductListingRawRevision {
+        PayloadV1::ProductListingRawRevision {
             product_listing_raw_stream_id,
             product_listing_raw_revision_id,
             revision,
@@ -283,7 +283,7 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
             product_listing_raw_revision_id,
             revision,
         }),
-        PayloadV2::SearchFilterMatchCreated {
+        PayloadV1::SearchFilterMatchCreated {
             user_id,
             user_search_filter_id,
             product_listing_id,
@@ -294,15 +294,15 @@ pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, Wire
             product_listing_id,
             origin_event_id,
         }),
-        PayloadV2::UserIdentityDeletion { user_id } => {
+        PayloadV1::UserIdentityDeletion { user_id } => {
             DomainJobPayload::UserIdentityDeletion(crate::jobs::UserIdentityDeletionJob { user_id })
         }
-        PayloadV2::NotificationDeliveryCreated {
+        PayloadV1::NotificationDeliveryCreated {
             notification_delivery_id,
         } => DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
             notification_delivery_id,
         }),
-        PayloadV2::MarketingConsentSyncIntentCreated {
+        PayloadV1::MarketingConsentSyncIntentCreated {
             marketing_consent_sync_intent_id,
         } => DomainJobPayload::MarketingConsentSyncIntentCreated(
             MarketingConsentSyncIntentCreatedJob {
@@ -402,7 +402,7 @@ mod tests {
             };
             snapshots.push((
                 scope,
-                json!({"schema_version": 2, "scope": scope.as_str(), "job_type": kind,
+                json!({"schema_version": 1, "scope": scope.as_str(), "job_type": kind,
                 "idempotency_key": key, "ordering_key": ordering, "payload": payload}),
             ));
         }
@@ -410,18 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn should_match_v2_snapshots_for_every_scope_and_payload()
-    -> Result<(), Box<dyn std::error::Error>> {
-        for (scope, snapshot) in snapshots() {
-            let job: crate::jobs::DomainJob = decode(&snapshot.to_string(), scope)?;
-            assert_eq!(snapshot, serde_json::from_str::<Value>(&encode(&job)?)?);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn should_keep_exact_schema_v2_bytes_for_every_scope() -> Result<(), Box<dyn std::error::Error>>
+    fn should_keep_exact_schema_v1_bytes_for_every_scope() -> Result<(), Box<dyn std::error::Error>>
     {
         for (scope, snapshot) in snapshots() {
             let (job_type, payload) = match scope {
@@ -471,7 +460,7 @@ mod tests {
                 ),
             };
             let expected = format!(
-                "{{\"schema_version\":2,\"scope\":\"{}\",\"idempotency_key\":\"{}\",\"ordering_key\":\"{}\",\"job_type\":\"{job_type}\",\"payload\":{payload}}}",
+                "{{\"schema_version\":1,\"scope\":\"{}\",\"idempotency_key\":\"{}\",\"ordering_key\":\"{}\",\"job_type\":\"{job_type}\",\"payload\":{payload}}}",
                 scope.as_str(),
                 snapshot["idempotency_key"].as_str().ok_or("key")?,
                 snapshot["ordering_key"].as_str().ok_or("ordering")?,
@@ -516,7 +505,7 @@ mod tests {
         for scope in WorkerScope::ALL {
             for operation in ["INSERT", "UPDATE", "DELETE"] {
                 let body = json!({
-                    "schema_version": 2,
+                    "schema_version": 1,
                     "scope": scope.as_str(),
                     "job_type": "SEARCH_FILTER_CHANGED",
                     "idempotency_key": format!("search-filter:{SEARCH_FILTER_ID}:3:{}", operation.to_ascii_lowercase()),
@@ -530,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_schema_v1_without_compatibility_decoding() {
+    fn should_reject_bare_uuid_ids_in_v1() {
         let body = json!({
             "schema_version": 1,
             "scope": WorkerScope::ProductListingOpenSearch.as_str(),
@@ -544,7 +533,7 @@ mod tests {
         });
 
         assert_eq!(
-            Err(WireError::SchemaVersion),
+            Err(WireError::Json),
             decode(&body.to_string(), WorkerScope::ProductListingOpenSearch)
         );
     }
@@ -562,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn consent_preparation_derives_fifo_fields_from_validated_schema_two_metadata() {
+    fn consent_preparation_derives_fifo_fields_from_validated_schema_one_metadata() {
         let (_, snapshot) = snapshots()
             .into_iter()
             .find(|(scope, _)| *scope == WorkerScope::MarketingConsentSync)
@@ -644,45 +633,11 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_wrong_prefix_bare_uuid_malformed_and_noncanonical_typeids() {
-        for (scope, original) in snapshots() {
-            let Some(payload) = original["payload"].as_object() else {
-                assert!(
-                    original["payload"].is_object(),
-                    "snapshot payload must be an object"
-                );
-                continue;
-            };
-            let id_fields: Vec<_> = payload
-                .keys()
-                .filter(|field| field.ends_with("id"))
-                .cloned()
-                .collect();
-            for field in id_fields {
-                for invalid in [
-                    json!(format!("pty_{SUFFIX}")),
-                    json!(BARE_UUID_V7),
-                    json!("malformed"),
-                    json!(format!("EVT_{SUFFIX}")),
-                ] {
-                    let mut body = original.clone();
-                    body["payload"][&field] = invalid;
-                    assert!(
-                        decode(&body.to_string(), scope).is_err(),
-                        "accepted invalid {field} for {}",
-                        scope.as_str()
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
     fn should_reject_invalid_envelopes_and_payloads_for_every_variant() {
         for (scope, original) in snapshots() {
             for (field, value) in [
                 ("schema_version", json!(0)),
-                ("schema_version", json!(1)),
+                ("schema_version", json!(2)),
                 ("schema_version", json!(3)),
                 ("schema_version", json!("2")),
                 ("scope", json!("user-tier-enforcement")),

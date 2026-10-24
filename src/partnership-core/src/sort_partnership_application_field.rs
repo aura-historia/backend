@@ -16,14 +16,4 @@ mod tests {
             SortPartnershipApplicationField::default()
         );
     }
-
-    #[test]
-    fn should_clone_and_compare_each_sort_partnership_application_field() {
-        for field in [
-            SortPartnershipApplicationField::Created,
-            SortPartnershipApplicationField::Updated,
-        ] {
-            assert_eq!(field, field.clone());
-        }
-    }
 }

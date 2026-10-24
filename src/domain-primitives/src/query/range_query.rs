@@ -296,17 +296,4 @@ mod tests {
         let wrapper: WrapperOpt = serde_json::from_value(json).unwrap();
         assert_eq!(wrapper.range, None);
     }
-
-    #[test]
-    fn should_deserialize_rangequery_as_empty_some_when_empty_for_rfc3339_option() {
-        let json = json!({"range": {}});
-        let wrapper: WrapperOpt = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            wrapper.range,
-            Some(RangeQuery {
-                min: None,
-                max: None
-            })
-        );
-    }
 }

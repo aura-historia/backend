@@ -344,7 +344,7 @@ mod tests {
     }
 
     fn valid_body() -> String {
-        r#"{"schema_version":2,"scope":"search-filter-match-notification","job_type":"SEARCH_FILTER_MATCH_CREATED","idempotency_key":"search-filter-match:usr_01h455vb4pex5vy7enb1p677vn:sf_01h455vb4pex5vy7enb1p677vn:pl_01h455vb4pex5vy7enb1p677vn:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"user:usr_01h455vb4pex5vy7enb1p677vn","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn","user_search_filter_id":"sf_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn","origin_event_id":"evt_01h455vb4pex5vy7enb1p677vn"}}"#.to_owned()
+        r#"{"schema_version":1,"scope":"search-filter-match-notification","job_type":"SEARCH_FILTER_MATCH_CREATED","idempotency_key":"search-filter-match:usr_01h455vb4pex5vy7enb1p677vn:sf_01h455vb4pex5vy7enb1p677vn:pl_01h455vb4pex5vy7enb1p677vn:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"user:usr_01h455vb4pex5vy7enb1p677vn","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn","user_search_filter_id":"sf_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn","origin_event_id":"evt_01h455vb4pex5vy7enb1p677vn"}}"#.to_owned()
     }
 
     fn events<const N: usize>(records: [(Option<&str>, String); N]) -> LambdaEvent<SqsEvent> {

@@ -13,6 +13,27 @@ function foundation(enabledTargets: readonly ("dev" | "prod")[] = ["prod"]) {
 }
 const template = foundation();
 
+test("the reviewer reads only its target Anthropic key without model-service permissions", () => {
+  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+    .filter((policy) => JSON.stringify(policy.Properties.Roles).includes("prodGitHubPlanner"))
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+    .filter((statement) => statement.Action === "ssm:GetParameter");
+  expect(statements).toHaveLength(2);
+  expect(JSON.stringify(statements[1].Resource)).toContain(":parameter/anthropic/prod/api-key");
+  expect(JSON.stringify(template.toJSON())).not.toContain("bedrock:");
+  expect(template.toJSON().Parameters).not.toHaveProperty("prodReviewerModelArn");
+  expect(template.toJSON().Parameters).not.toHaveProperty("prodReviewerFoundationModelArns");
+});
+
+test("maintenance accepts observed DMS task identifiers without allowing wildcard task access", () => {
+  const allowed = new RegExp(template.toJSON().Parameters.prodMaintenanceDmsTaskArn.AllowedPattern);
+  for (const resource of ["liz4s522bnf7zipgqaix32x73m", "2PVREMWNPGYJCVU2IBPTOYTIV4", "approved-task"]) {
+    expect(allowed.test(`arn:aws:dms:eu-central-1:550663032924:task:${resource}`)).toBe(true);
+  }
+  expect(allowed.test("arn:aws:dms:eu-central-1:550663032924:task:*")).toBe(false);
+  expect(allowed.test("arn:aws:dms:eu-central-1:550663032924:rep:liz4s522bnf7zipgqaix32x73m")).toBe(false);
+});
+
 test("manual delivery has no source triggers, reserved builders, mandatory dev target or build VPC", () => {
   const pipelines = Object.values(template.findResources("AWS::CodePipeline::Pipeline"));
   expect(pipelines.map((resource) => resource.Properties.Name).sort()).toEqual(["aura-deploy-prod", "aura-release-build"]);

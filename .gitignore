@@ -42,6 +42,7 @@ coverage.lcov
 /opensearch/stage/.admin-curl
 /opensearch/stage/.credentials/
 /opensearch/stage/certs/
+/opensearch/prod/.private/
 
 # Output files
 **/scraper_output.json

@@ -317,15 +317,33 @@ function build() {
     }),
   });
 }
+function pipelineExecution(name, executionId) {
+  return storage.aws('codepipeline', 'get-pipeline-execution', [
+    '--pipeline-name',
+    name,
+    '--pipeline-execution-id',
+    executionId,
+  ]).pipelineExecution;
+}
 async function waitPipeline(name, executionId, timeoutSeconds = 7200) {
   const deadline = Date.now() + timeoutSeconds * 1000;
+  const visibilityDeadline = Math.min(deadline, Date.now() + 120000);
   while (Date.now() < deadline) {
-    const execution = storage.aws('codepipeline', 'get-pipeline-execution', [
-      '--pipeline-name',
-      name,
-      '--pipeline-execution-id',
-      executionId,
-    ]).pipelineExecution;
+    let execution;
+    try {
+      execution = pipelineExecution(name, executionId);
+    } catch (cause) {
+      // A successful start may precede visibility in GetPipelineExecution.
+      if (
+        Date.now() >= visibilityDeadline ||
+        !/\(PipelineExecutionNotFoundException\) when calling the GetPipelineExecution operation:/.test(
+          String(cause.stderr || ''),
+        )
+      )
+        throw cause;
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      continue;
+    }
     if (execution.status === 'Succeeded') return execution;
     if (
       ['Failed', 'Stopped', 'Superseded', 'Cancelled'].includes(

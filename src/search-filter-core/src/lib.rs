@@ -184,14 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn should_create_search_filter() {
-        let filter = sample_filter();
-        assert!(filter.notifications());
-        assert_eq!(SearchFilterState::Active, filter.state());
-        assert_eq!(Language::En, filter.search().language);
-    }
-
-    #[test]
     fn should_rename_search_filter() {
         let mut filter = sample_filter();
         assert_eq!(

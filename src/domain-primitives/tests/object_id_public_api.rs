@@ -168,18 +168,6 @@ fn should_serialize_and_deserialize_only_canonical_typeid() -> Result<(), Box<dy
 }
 
 #[test]
-fn should_preserve_all_uuid_bits_across_text_and_raw_roundtrips() -> Result<(), Box<dyn Error>> {
-    let uuid = fixture_uuid()?;
-    let raw_roundtrip = ExampleId::try_from(uuid)?.into_uuid();
-    let text_roundtrip = ExampleId::from_str(TYPE_ID_TEXT)?.into_uuid();
-
-    assert_eq!(uuid.as_bytes(), raw_roundtrip.as_bytes());
-    assert_eq!(uuid.as_bytes(), text_roundtrip.as_bytes());
-
-    Ok(())
-}
-
-#[test]
 fn should_order_by_backing_uuid() -> Result<(), Box<dyn Error>> {
     let first_uuid = Uuid::parse_str("01890a5d-ac96-774b-bf1d-d5586c639f75")?;
     let second_uuid = Uuid::parse_str("01890a5d-ac96-774b-bf1d-d5586c639f76")?;

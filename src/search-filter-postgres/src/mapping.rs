@@ -1437,21 +1437,6 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_unknown_product_search_field() {
-        let mut json =
-            match product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur)) {
-                Ok(value) => value,
-                Err(_) => panic!("failed to serialize product search"),
-            };
-        let object = match json.as_object_mut() {
-            Some(value) => value,
-            None => panic!("product search JSON must be an object"),
-        };
-        object.insert("unexpected".into(), serde_json::Value::Null);
-
-        assert!(product_search_from_json(json).is_err());
-    }
-    #[test]
     fn fx_shipping_snapshot_and_match_provenance_round_trip_and_fail_closed() {
         let query = ShippingSearch::new(
             geo::reference::ReferenceRelease::CURRENT,

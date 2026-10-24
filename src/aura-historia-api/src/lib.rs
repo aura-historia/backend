@@ -19,6 +19,7 @@ pub(crate) mod patch_value;
 mod product_listing_management;
 pub mod product_listings;
 pub(crate) mod public_overview;
+mod readiness;
 pub mod search_filters;
 pub mod shipping;
 mod shipping_search;
@@ -35,12 +36,13 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
     UserAuthenticationAuthenticator,
 };
+use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
     ListingSourcesState, LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState,
     PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
     ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
-    ReadinessCheck, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -64,6 +66,7 @@ pub use aura_historia_runtime::product_listing_config::{
     VERTEX_AI_PROJECT_ID_ENV,
 };
 use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
+use aws_config::BehaviorVersion;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -90,7 +93,6 @@ use oauth_service::use_cases::{
     RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
     UpdateOAuthClientHandler,
 };
-use opensearch::{OpenSearch, SearchParts};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
 use product_listing_service::use_cases::{
@@ -152,7 +154,6 @@ use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
-use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
@@ -523,8 +524,8 @@ pub fn app(state: AppState) -> Router {
 
 fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
     let health_routes = Router::new()
-        .route("/v1/health", get(health))
-        .route("/v1/ready", get(ready))
+        .route("/v1/health", get(readiness::health))
+        .route("/v1/ready", get(readiness::ready))
         .with_state(Arc::clone(&state.readiness));
     let mut routes = health_routes;
 
@@ -1030,93 +1031,6 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     }
 
     with_transport_middleware(routes, request_timeout)
-}
-
-async fn health() -> &'static str {
-    "ok\n"
-}
-
-const READINESS_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
-
-async fn ready(
-    axum::extract::State(readiness): axum::extract::State<Arc<dyn ReadinessCheck>>,
-) -> axum::http::StatusCode {
-    match tokio::time::timeout(READINESS_CHECK_TIMEOUT, readiness.check()).await {
-        Ok(Ok(())) => axum::http::StatusCode::NO_CONTENT,
-        _ => axum::http::StatusCode::SERVICE_UNAVAILABLE,
-    }
-}
-
-struct RuntimeReadiness {
-    postgres: PgPool,
-    opensearch: OpenSearch,
-}
-
-#[derive(serde::Deserialize)]
-struct ReadinessSearchResponse {
-    timed_out: bool,
-    #[serde(rename = "_shards")]
-    shards: ReadinessShardStats,
-    hits: ReadinessHits,
-    error: Option<serde_json::Value>,
-}
-
-#[derive(serde::Deserialize)]
-struct ReadinessShardStats {
-    total: u64,
-    successful: u64,
-    failed: u64,
-}
-
-#[derive(serde::Deserialize)]
-struct ReadinessHits {
-    total: ReadinessHitCount,
-    hits: Vec<serde_json::Value>,
-}
-
-#[derive(serde::Deserialize)]
-struct ReadinessHitCount {
-    #[serde(rename = "value")]
-    _value: u64,
-    relation: String,
-}
-
-use async_trait::async_trait;
-use aws_config::BehaviorVersion;
-
-#[async_trait]
-impl ReadinessCheck for RuntimeReadiness {
-    async fn check(&self) -> Result<(), ()> {
-        let value: i32 = sqlx::query_scalar("SELECT 1")
-            .fetch_one(&self.postgres)
-            .await
-            .map_err(|_| ())?;
-        if value != 1 {
-            return Err(());
-        }
-        let response = self
-            .opensearch
-            .search(SearchParts::Index(&["product-listings"]))
-            .body(serde_json::json!({ "size": 0, "query": { "match_all": {} } }))
-            .send()
-            .await
-            .map_err(|_| ())?;
-        if !response.status_code().is_success() {
-            return Err(());
-        }
-        let search: ReadinessSearchResponse = response.json().await.map_err(|_| ())?;
-        if search.timed_out
-            || search.error.is_some()
-            || search.shards.total == 0
-            || search.shards.successful == 0
-            || search.shards.failed != 0
-            || !matches!(search.hits.total.relation.as_str(), "eq" | "gte")
-            || !search.hits.hits.is_empty()
-        {
-            return Err(());
-        }
-        Ok(())
-    }
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
@@ -1797,10 +1711,7 @@ async fn app_state_from_config_and_runtime(
     )
     .with_dissolve(Arc::new(dissolve_partnership));
 
-    let readiness = Arc::new(RuntimeReadiness {
-        postgres: pool,
-        opensearch: opensearch_client.clone(),
-    });
+    let readiness = Arc::new(RuntimeReadiness::new(pool, opensearch_client.clone()));
 
     let user_addresses_state = state::UserAddressesState {
         commands: address_book.commands.clone(),
@@ -1999,9 +1910,6 @@ where
         .await
         .map_err(ApiRunError::Serve)
 }
-
-#[cfg(test)]
-mod readiness_tests;
 
 #[cfg(test)]
 mod tests {

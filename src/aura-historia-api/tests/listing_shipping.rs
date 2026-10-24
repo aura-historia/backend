@@ -507,18 +507,49 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
     let (_, selected) = request(&router, &path, Some("owner")).await;
     let personal = &selected["userState"]["shipping"];
     assert_eq!("OFFERED", personal["eligibility"]);
-    assert_eq!("DE", personal["destination"]["country"]);
-    assert_eq!(0, personal["selectedZone"]);
-    assert_eq!(0, personal["options"][0]["serviceIndex"]);
-    assert!(personal["options"][0]["charge"].is_null());
-    assert!(
-        personal["options"][0]["reasons"]
-            .as_array()
-            .unwrap()
-            .contains(&json!({"code":"MISSING_INPUT","input":"QUANTITY"}))
+    assert_eq!(
+        json!({"referenceRelease": "iso-codes-4.20.1", "country": "DE"}),
+        personal["destination"]
     );
-    assert_eq!(false, personal["bindingQuote"]);
-    assert_eq!(false, personal["completeLandedCost"]);
+    // Options are self-contained; browsing supplies no quantity, so no charge is calculated.
+    assert_eq!(
+        json!([{
+            "service": "gallery-delivery",
+            "eligibility": "OFFERED",
+            "rate": {"price": {"kind": "FIXED", "amount": {"amount_minor": 8000, "currency": "EUR"}}, "basis": "PER_ITEM"}
+        }]),
+        personal["options"]
+    );
+    for removed in [
+        "selectedZone",
+        "reasons",
+        "evaluatedAt",
+        "bindingQuote",
+        "completeLandedCost",
+    ] {
+        assert!(personal.get(removed).is_none(), "{removed}");
+    }
+    for removed in [
+        "listingRevision",
+        "sourceRevision",
+        "defaultRevision",
+        "profile",
+        "listingEvidence",
+        "evaluatedAt",
+        "shippingReasons",
+        "collectionReasons",
+        "notices",
+    ] {
+        assert!(
+            selected["item"]["shipping"].get(removed).is_none(),
+            "{removed}"
+        );
+    }
+    assert!(
+        selected["item"]["shipping"]["terms"]
+            .get("schema")
+            .is_none()
+    );
     assert!(!selected.to_string().contains(&address.id.to_string()));
     let (_, other) = request(&router, &path, Some("other")).await;
     assert!(other["userState"].get("shipping").is_none());
@@ -581,7 +612,7 @@ async fn current_profile_changes_overrides_observation_age_and_suspension_are_re
     .await
     .unwrap();
     let (_, updated) = request(&router, &path, Some("owner")).await;
-    assert_eq!(2, updated["item"]["shipping"]["profile"]["termsRevision"]);
+    assert!(updated["item"]["shipping"].get("profile").is_none());
     assert_eq!(
         9500,
         updated["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]
@@ -625,12 +656,18 @@ async fn current_profile_changes_overrides_observation_age_and_suspension_are_re
     assert!(cache.contains("s-maxage=120"), "{cache}");
     let (_, old) = request(&router, &path, Some("owner")).await;
     assert_eq!("OFFERED", old["userState"]["shipping"]["eligibility"]);
-    let evidence = old["item"]["shipping"]["profile"]["evidence"]
-        .as_object()
-        .unwrap();
-    assert_eq!(1, evidence.len());
-    assert!(evidence.contains_key("verifiedAt"));
-    assert!(old["item"]["shipping"].get("validityDeadline").is_none());
+    // Evidence bookkeeping stays internal; its age has no eligibility effect.
+    for internal in [
+        "profile",
+        "listingEvidence",
+        "evaluatedAt",
+        "validityDeadline",
+    ] {
+        assert!(
+            old["item"]["shipping"].get(internal).is_none(),
+            "{internal}"
+        );
+    }
     sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
         .bind(owner.into_uuid())
         .execute(&p)
@@ -731,18 +768,26 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         .unwrap();
     let (_, active) = request(&router, &path, Some("owner")).await;
     assert_eq!("OFFERED", active["userState"]["shipping"]["eligibility"]);
+    let public_terms = &active["item"]["shipping"]["terms"];
     assert!(
-        active["item"]["shipping"]["terms"]["shipping"]["coverage"]["dispatch_origin"].is_null()
+        public_terms["shipping"]["coverage"]
+            .get("dispatch_origin")
+            .is_none()
     );
-    assert!(active["item"]["shipping"]["terms"]["collection"]["site"].is_null());
+    assert!(public_terms["collection"].get("site").is_none());
+    assert!(!active.to_string().contains(&site.to_string()));
     assert!(!active.to_string().contains("private pickup street"));
     assert!(!active.to_string().contains("private origin street"));
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(site.into_uuid()).execute(&p).await.unwrap();
     let (_, retired) = request(&router, &path, Some("owner")).await;
-    assert!(retired["userState"]["shipping"]["eligibility"].is_null());
+    assert!(
+        retired["userState"]["shipping"]
+            .get("eligibility")
+            .is_none()
+    );
     assert_eq!(
-        json!([{"code":"LOCATION_RETIRED"}]),
-        retired["userState"]["shipping"]["reasons"]
+        json!([{"code":"UNRESOLVED_TERMS"}]),
+        retired["userState"]["shipping"]["explanations"]
     );
     assert_eq!(
         "OFFERED",
@@ -790,14 +835,10 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
         .await
         .unwrap();
     let (_, unknown) = request(&router, &path, Some("owner")).await;
-    assert!(unknown["userState"]["shipping"]["eligibility"].is_null());
-    assert_eq!(json!([]), unknown["userState"]["shipping"]["options"]);
-    assert!(
-        unknown["userState"]["shipping"]["reasons"]
-            .as_array()
-            .unwrap()
-            .contains(&json!({"code":"MISSING_INPUT","input":"POSTAL_CODE"}))
-    );
+    let unknown = &unknown["userState"]["shipping"];
+    assert!(unknown.get("eligibility").is_none());
+    assert!(unknown.get("options").is_none());
+    assert_eq!(json!(["POSTAL_CODE"]), unknown["requiredInputs"]);
     select_country(&book, user, Some("20000"), 2).await;
     let (_, offered) = request(&router, &path, Some("owner")).await;
     assert_eq!("OFFERED", offered["userState"]["shipping"]["eligibility"]);
@@ -985,14 +1026,19 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         before["items"][0]["item"]["productListingId"],
         current["items"][0]["item"]["productListingId"]
     );
-    assert_eq!(
-        9500,
-        current["items"][0]["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"]
-            [0]["rate"]["price"]["amount"]["amount_minor"]
+    // Collections preview the current rate for the selected destination, not advertised terms.
+    assert!(
+        current["items"][0]["item"]["shipping"]
+            .get("terms")
+            .is_none()
     );
     assert_eq!(
         "OFFERED",
         current["items"][0]["userState"]["shipping"]["eligibility"]
+    );
+    assert_eq!(
+        9500,
+        current["items"][0]["userState"]["shipping"]["pricePreview"]["price"]["amount"]["amount_minor"]
     );
     // PostgreSQL is current while indexed membership/counts retain the old predicate.
     assert_eq!(
@@ -1010,8 +1056,8 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
     assert_eq!(current["total"], caught_up["total"]);
     assert_eq!(current["size"], caught_up["size"]);
     assert_eq!(
-        current["items"][0]["item"]["shipping"]["terms"],
-        caught_up["items"][0]["item"]["shipping"]["terms"]
+        current["items"][0]["userState"]["shipping"],
+        caught_up["items"][0]["userState"]["shipping"]
     );
 }
 
@@ -1040,9 +1086,17 @@ async fn search_country_is_independent_of_browsing_and_current_shipping_during_p
     .await
     .unwrap();
     let (_, selected) = request(&router, path, Some("owner")).await;
+    // The FR browsing destination, not the DE search country, drives personalization.
     assert_eq!(
-        "FR",
-        selected["items"][0]["userState"]["shipping"]["destination"]["country"]
+        json!({
+            "explanations": [{"code": "INCOMPLETE_COVERAGE"}],
+            "collection": {"eligibility": "OFFERED"}
+        }),
+        selected["items"][0]["userState"]["shipping"]
+    );
+    assert_eq!(
+        json!(["DESTINATION"]),
+        selected["items"][0]["item"]["shipping"]["requiredInputs"]
     );
     let (_, delegated) = request(&router, path, Some("no-user-scope")).await;
     assert!(delegated["items"][0]["userState"].get("shipping").is_none());
@@ -1063,10 +1117,14 @@ async fn search_country_is_independent_of_browsing_and_current_shipping_during_p
         before["items"][0]["item"]["productListingId"],
         lagging["items"][0]["item"]["productListingId"]
     );
+    let id = lagging["items"][0]["item"]["productListingId"]
+        .as_str()
+        .unwrap();
+    let (_, detail) = request(&router, &format!("/v1/product-listings/{id}"), None).await;
     assert_eq!(
         9500,
-        lagging["items"][0]["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"]
-            [0]["rate"]["price"]["amount"]["amount_minor"]
+        detail["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]
+            ["price"]["amount"]["amount_minor"]
     );
     indexed
         .amount
@@ -1449,13 +1507,13 @@ async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_co
     let (pool, router, book, owner, _, id) = fixture().await;
     select_country(&book, owner, None, 1).await;
     let query = "/v1/product-listings?currency=USD&shipping[destination][kind]=COUNTRY&shipping[destination][country]=DE&shipping[interpretation]=WHOLE_COUNTRY_PER_ITEM_FX_V1&shipping[maximumPerItem][amount]=9000&shipping[maximumPerItem][currency]=USD";
-    let (status, first) = request(&router, query, None).await;
+    let (status, first) = request(&router, query, Some("owner")).await;
     assert_eq!(StatusCode::OK, status, "{first}");
     assert_eq!(1, first["total"]);
-    let first_shipping = &first["items"][0]["item"]["shipping"];
+    let first_shipping = &first["items"][0]["userState"]["shipping"];
     assert_eq!(
-        8000,
-        first_shipping["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+        json!({"kind": "FIXED", "amount": {"amount_minor": 8000, "currency": "USD"}}),
+        first_shipping["pricePreview"]["price"]
     );
     let encoded_cursor: String =
         url::form_urlencoded::byte_serialize(first["searchAfter"].to_string().as_bytes()).collect();
@@ -1463,33 +1521,32 @@ async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_co
     let (status, continued) = request(
         &router,
         &format!("{query}&searchAfter={encoded_cursor}"),
-        None,
+        Some("owner"),
     )
     .await;
     assert_eq!(StatusCode::OK, status, "{continued}");
     assert_eq!(
-        first_shipping["display"],
-        continued["items"][0]["item"]["shipping"]["display"]
+        *first_shipping,
+        continued["items"][0]["userState"]["shipping"]
     );
     assert_eq!(1, continued["total"]);
-    let (_, changed_membership) = request(&router, query, None).await;
+    let (_, changed_membership) = request(&router, query, Some("owner")).await;
     assert_eq!(0, changed_membership["total"]);
     let fx = capture_shipping_fx(&pool, 900_000).await;
     let threshold = query.replace("amount]=9000", "amount]=7500");
     let (_, fresh) = request(&router, &threshold, Some("owner")).await;
     assert_eq!(1, fresh["total"]);
-    let shipping = &fresh["items"][0]["item"]["shipping"];
+    let shipping = &fresh["items"][0]["userState"]["shipping"];
     assert_eq!(fx.to_string(), shipping["display"]["fxRateId"]);
     assert_eq!("USD", shipping["display"]["currency"]);
     assert_eq!(
         7200,
-        shipping["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+        shipping["pricePreview"]["price"]["amount"]["amount_minor"]
     );
-    assert_eq!(first_shipping["terms"], shipping["terms"]);
-    assert_eq!(
-        "EUR",
-        shipping["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]["price"]["amount"]
-            ["currency"]
+    assert!(
+        fresh["items"][0]["item"]["shipping"]
+            .get("display")
+            .is_none()
     );
     let (_, native) = request(
         &router,
@@ -1510,18 +1567,23 @@ async fn shipping_display_and_explicit_fx_filter_use_current_snapshot_and_pin_co
         None,
     )
     .await;
+    let rate = |body: &Value| {
+        body["item"]["shipping"]["terms"]["shipping"]["coverage"]["zones"][0]["services"][0]["rate"]
+            .clone()
+    };
+    // Same-currency reads carry no conversion output; source amounts stay distinguishable.
+    assert!(eur["item"]["shipping"].get("display").is_none());
+    assert!(rate(&eur).get("display_price").is_none());
     assert_eq!(
-        8000,
-        eur["item"]["shipping"]["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+        fx.to_string(),
+        usd["item"]["shipping"]["display"]["fxRateId"]
     );
     assert_eq!(
-        7200,
-        usd["item"]["shipping"]["display"]["rates"][0]["price"]["amount"]["amount_minor"]
+        json!({"kind": "FIXED", "amount": {"amount_minor": 7200, "currency": "USD"}}),
+        rate(&usd)["display_price"]
     );
-    assert_eq!(
-        eur["item"]["shipping"]["terms"],
-        usd["item"]["shipping"]["terms"]
-    );
+    assert_eq!(rate(&eur)["price"], rate(&usd)["price"]);
+    assert_eq!("EUR", rate(&usd)["price"]["amount"]["currency"]);
     // Sold item pricing retains its observation basis; current advertised shipping does not.
     let old_fx: uuid::Uuid = sqlx::query_scalar("SELECT fx_rate_id FROM fx_rates WHERE fx_rate_id<>$1 ORDER BY captured_at DESC,generation DESC LIMIT 1")
         .bind(fx.into_uuid()).fetch_one(&pool).await.unwrap();

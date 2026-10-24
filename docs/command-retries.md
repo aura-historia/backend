@@ -28,5 +28,5 @@ creating a second replacement. It cannot recover the successful result. Refresh 
 location collection and reconcile the retired site and replacement before continuing.
 
 [Geography](geography.md) owns authorization, revisions, geographic resolution and
-private-content erasure. [Infrastructure](infra.md#removing-geography-creation-receipts)
-owns schema cleanup order and rollback compatibility.
+private-content erasure. [Infrastructure](infra.md#fresh-database-baseline)
+owns database bootstrap requirements.

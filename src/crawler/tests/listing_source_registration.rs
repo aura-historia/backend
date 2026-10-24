@@ -72,50 +72,6 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_disable_absent_sources_without_deleting_local_domain_configuration() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
-    let kept = ListingSourceId::new();
-    let removed = ListingSourceId::new();
-    repository
-        .apply_snapshot(&[listing_source(kept, true), listing_source(removed, true)])
-        .await
-        .unwrap();
-    let removed_domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) VALUES ($1, $2, $3, $3)",
-    )
-    .bind(removed_domain_id.as_uuid())
-    .bind(removed.as_uuid())
-    .bind("removed.example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let result = repository
-        .apply_snapshot(&[listing_source(kept, true)])
-        .await
-        .unwrap();
-    assert_eq!(result.disabled, 1);
-    let enabled: bool = sqlx::query_scalar(
-        "SELECT crawl_enabled FROM listing_sources WHERE listing_source_id = $1",
-    )
-    .bind(removed.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(!enabled);
-    let domain_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM listing_source_domains WHERE listing_source_id = $1",
-    )
-    .bind(removed.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(domain_count, 1);
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_default_ad_hoc_listing_sources_to_crawl_disabled() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();

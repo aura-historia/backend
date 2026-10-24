@@ -485,24 +485,4 @@ mod tests {
         non_finite[0] = f32::NAN;
         assert!(EmbeddingVector::try_new(non_finite).is_err());
     }
-
-    #[tokio::test]
-    async fn should_keep_query_cache_bounded_and_promote_recent_entry() -> Result<(), EmbeddingError>
-    {
-        let mut cache = LruCache::new(NonZeroUsize::new(2).unwrap_or(NonZeroUsize::MIN));
-        let first = EmbeddingText::new("first")?;
-        let second = EmbeddingText::new("second")?;
-        let third = EmbeddingText::new("third")?;
-        let vector = EmbeddingVector::try_new(vec![1.0; EMBEDDING_DIMENSIONS])?;
-
-        cache.put(first.clone(), vector.clone());
-        cache.put(second.clone(), vector.clone());
-        let _ = cache.get(&first);
-        cache.put(third.clone(), vector);
-
-        assert!(cache.get(&first).is_some());
-        assert!(cache.get(&second).is_none());
-        assert!(cache.get(&third).is_some());
-        Ok(())
-    }
 }

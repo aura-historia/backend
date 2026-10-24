@@ -116,10 +116,52 @@ consumers reread current state and tolerate duplicate/out-of-order signals.
 ## Shipping on listing reads
 
 Detail by ID/slug, search, similar listings, watchlists, saved-search matches and auction
-catalogues include public effective terms in `item.shipping`. An authenticated user with a
-permitted selected browsing destination also receives `userState.shipping`. Merely owning
-an address selects none. Delegated destination reads require `users:read`; other callers
-receive generic terms. Hidden/withdrawn or obsolete discovery hits disclose no shipping.
+catalogues include public, destination-independent `item.shipping`. An authenticated user
+with a permitted selected browsing destination also receives private `userState.shipping`.
+Merely owning an address selects none. Delegated destination reads require `users:read`;
+other callers receive only the public object. Hidden/withdrawn or obsolete discovery hits
+disclose no shipping.
+
+The response purpose selects the representation, even inside detail-shaped collection items:
+
+| Read | `item.shipping` | `userState.shipping` |
+| --- | --- | --- |
+| Collection: search, similar, watchlist, saved-search matches, auction catalogue | Summary: eligibility determinable without a destination, required inputs, explanations, collection summary | Summary for the destination, at most one price preview, required attribution |
+| Single listing: detail by ID/slug, watchlist update | Summary fields plus effective terms | Minimal destination, attribution, summary, assessed options of the destination's zone, collection summary |
+
+Collection summaries never grow with the advertised policy: no terms, zones, service lists,
+per-zone conversions or pointers into omitted terms. Details carry the material terms
+(coverage completeness and zone order, exclusions, applicability, rates and components,
+timing, features, actors, pickup arrangements and geographic reference releases). Options
+are self-contained: each names its service and copies its advertised rate. Neither carries
+the `SHIP_TERMS_V1` marker, revisions, profile, evidence or evaluation times.
+
+Public reads omit absent optional values and empty optional collections at every level and
+never serialize null. Missing eligibility is unknown or unasserted; only `NOT_OFFERED` is a
+negative. A summary or terms object without information is omitted, and missing shipping is
+never a no-shipping assertion; missing `userState.shipping` means no disclosed destination
+assessment. These read projections leave persisted, import, command and management protocols
+unchanged.
+
+Undetermined outcomes are explained by a bounded vocabulary derived from the assessment,
+never a raw reason trace. Determined outcomes carry neither field.
+
+| Field | Values |
+| --- | --- |
+| `requiredInputs` | `DESTINATION`, `DESTINATION_COUNTRY`, `DESTINATION_SUBDIVISION`, `POSTAL_CODE`, `QUANTITY`, `LOTS`, `SHIPMENTS`, `SELLER_ORDERS`, `VARIANT` |
+| `explanations[].code` | `INCOMPLETE_COVERAGE`; `QUALIFYING_AMOUNT_REQUIRED` with its `scope`; `UNRESOLVED_TERMS` for seller-side origin/class facts, uninterpretable areas and dependencies; `SHIPPING_UNDETERMINED` for shipping-dependent collection; `NOT_ASSERTED` for applicable terms without eligibility |
+
+Unasserted terms, dependency notices, earlier-zone pointers, negatives and price facts shown
+by the rate add no explanation. An option explains only its own applicability; charge reasons
+concern its price.
+
+The price preview is the advertised rate of a service establishing the summarized `OFFERED`
+or `SUBJECT_TO_CONFIRMATION` eligibility in the destination's selected zone, after exclusions
+and zone precedence. Services with undetermined conditions never supply it. Every candidate
+needs an explicit basis. Several candidates are compared only with one basis and exact fixed
+or known-currency free prices in one currency: the lowest wins, then the first advertised.
+Otherwise there is no preview. It keeps its service, basis and price kind, never implies a
+purchase quantity, total or quote, and is not a global cheapest-rate ranking.
 
 Services enrich the whole page, preserving membership/order. They resolve the destination
 once and batch current listings, sources, defaults, profiles and explicit locations from one
@@ -130,8 +172,8 @@ Private destination reads enforce ownership, current user status, delegated perm
 geographic evidence validity. Submitted assertions take precedence; derived facts fill gaps
 only when reference-release, country, subdivision and postal assertions agree. Responses
 retain only effective area facts and required evidence attribution. Browsing supplies no
-purchase quantities, selected variants or qualifying basket amounts: missing inputs remain
-explained uncertainty. Zone/service indices relate assessments to advertised terms.
+purchase quantities, selected variants or qualifying basket amounts, so it calculates no
+charge and missing inputs remain explained uncertainty.
 
 Assertions continue until changed, withdrawn or their source loses authority. Observation
 age never removes terms or caps caching. Successful acquisition time is independent of
@@ -142,7 +184,8 @@ Dispatch/collection sites are omitted from public terms; a reference does not au
 publishing its management address. Exact pickup disclosure needs its own contract.
 Destination values, address identities/text, points, hashes and raw evidence never enter
 logs or public storage. Authenticated responses and errors are `no-store`. Generic anonymous
-responses follow discovery TTLs, shortened where geographic provider retention requires it.
+responses follow discovery TTLs, shortened where geographic provider retention requires it;
+retention deadlines and evaluation times stay internal.
 
 ## Effective shipping discovery projection
 
@@ -178,12 +221,16 @@ monitoring, bounded rebuilds and recovery of both projection stages.
 
 ## Shipping display currency
 
-`item.shipping.display` accompanies unchanged source terms. Converted rates identify
-zone/service indices and preserve price kind/basis, requested currency, `fxRateId` and
-`capturedAt`. Fixed/from/range amounts use currency minor-unit exponents and HalfUp rounding;
-known-currency free remains zero. Unknown-currency free, external/on-request and absent rates
-have no converted entry. Private assessed charges remain source values. Conversion supplies
-neither applicability nor purchase inputs, a binding quote or a landed-cost total.
+Detail terms keep advertised source prices. A rate whose amount is in another currency adds
+`display_price` in the requested currency; fixed/from/range amounts use currency minor-unit
+exponents and HalfUp rounding. Free, on-request and externally calculated prices have no
+amount to convert. Each shipping object containing a converted value carries one `display`
+valuation (`currency`, `fxRateId`, `capturedAt`); same-currency reads carry none. A preview
+uses the requested-currency value with the same valuation. Reads convert only what they
+present: details every advertised rate, collections at most the previewed rate, so
+conversion failures concern presented values only. Private assessed charges remain
+source values. Conversion supplies neither applicability nor purchase inputs, a binding quote
+or a landed-cost total.
 
 Fresh reads select the latest persisted browsing snapshot at/before valuation time. Search
 shares one snapshot across item display, shipping display and FX filters; continuation pins
@@ -326,7 +373,7 @@ component acquisition; its age alone has no eligibility effect.
 | 503/lost response | Retry identical content/keys; a missing response does not prove rollback. |
 
 [Canonical import fixtures](fixtures/shipping-imports.json) exercise API and queue contracts.
-[Domain fixtures/tests](../src/shipping-core/src/tests.rs) include the shared gallery profile:
+[Domain fixtures/tests](../src/shipping-core/tests/shipping.rs) include the shared gallery profile:
 painting shipping changes from EUR 80 to EUR 95 (8000 to 9500 minor units) while cabinet prohibition and
 independent collection retain their meanings.
 

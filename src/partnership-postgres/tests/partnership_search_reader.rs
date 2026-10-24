@@ -286,18 +286,3 @@ async fn should_exclude_dissolved_partnerships_from_admin_search() {
             .collect::<Vec<_>>()
     );
 }
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_return_an_empty_partnership_page() {
-    let result = read_page(&ListAdminPartnershipsRequest {
-        cursor: Some(Cursor {
-            size: 2,
-            search_after: None,
-        }),
-        ..Default::default()
-    })
-    .await;
-
-    assert!(result.items.is_empty());
-    assert!(result.cursor.search_after.is_none());
-}

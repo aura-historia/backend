@@ -11,7 +11,7 @@ pub(super) const POSTGRES_IMAGE: &str =
     "postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67";
 pub(super) const FLOCI_IMAGE: &str =
     "floci/floci:2.3.0@sha256:e0b292df4dc9559b7b1bf4f51bdda4bb8e269276236438cd03cae661260ea8a9";
-pub(super) const OPENSEARCH_IMAGE: &str = "opensearchproject/opensearch:3.5.0@sha256:dbb01641baadae5104e18acd888bf05e8fdd9af3567fd30624a76ba3e5a31dec";
+pub(super) const OPENSEARCH_IMAGE: &str = "opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c";
 
 pub(super) async fn bootstrap(
     run: &str,
@@ -233,8 +233,8 @@ async fn start_opensearch(run: &str, network: &str) -> Result<String> {
         .error_for_status_code()?
         .json::<serde_json::Value>()
         .await?;
-    if response["version"]["number"] != "3.5.0" {
-        return Err(invalid("managed OpenSearch must be the real 3.5.0 engine"));
+    if response["version"]["number"] != "3.9.0" {
+        return Err(invalid("managed OpenSearch must be the real 3.9.0 engine"));
     }
     Ok(endpoint)
 }

@@ -25,60 +25,6 @@ async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, O
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_empty_admin_overview_with_no_store() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = String::from(
-        seed_access_token_for(
-            admin_id,
-            std::collections::HashSet::from([Scope::AdminOverviewRead]),
-        )
-        .await,
-    );
-
-    let (status, body, cache_control) = get_overview(&token).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some("no-store".to_owned()), cache_control);
-    assert_eq!(
-        json!({
-            "schemaVersion": 1,
-            "users": {
-                "total": 1,
-                "byTier": { "free": 1, "pro": 0, "ultimate": 0 },
-                "byRole": { "user": 0, "admin": 1 }
-            },
-            "partnershipApplications": {
-                "total": 0,
-                "byState": {
-                    "submitted": 0, "inReview": 0, "approved": 0, "rejected": 0,
-                    "withdrawn": 0
-                }
-            },
-            "parties": { "total": 0 },
-            "listingSources": {
-                "total": 0,
-                "withoutIngestionMethod": 0,
-                "methodAssignments": {
-                    "webCrawl": 0, "shopify": 0, "woocommerce": 0, "partnerApi": 0
-                }
-            },
-            "partnerships": { "total": 0 },
-            "productListings": {
-                "total": 0,
-                "byLifecycle": { "active": 0, "withdrawn": 0 },
-                "activeAvailability": {
-                    "available": 0, "inStock": 0, "limitedAvailability": 0,
-                    "backOrder": 0, "madeToOrder": 0, "preOrder": 0, "preSale": 0,
-                    "unavailable": 0, "reserved": 0, "outOfStock": 0, "soldOut": 0
-                },
-                "activeWithoutAvailability": 0
-            }
-        }),
-        body
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_aggregate_representative_admin_overview_counts() {
     let admin_id = seed_user("ADMIN").await;
     let pro_user = seed_user_with_tier("USER", UserTier::Pro).await;

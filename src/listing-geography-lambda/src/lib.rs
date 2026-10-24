@@ -54,7 +54,7 @@ mod tests {
             }
         }
     }
-    const JOB: &str = r#"{"schema_version":2,"scope":"listing-geography","idempotency_key":"listing-geography:gwork_01h455vb4pex5vy7enb1p677vn:1","ordering_key":"listing-geography:gwork_01h455vb4pex5vy7enb1p677vn","job_type":"LISTING_GEOGRAPHY","payload":{"work_id":"gwork_01h455vb4pex5vy7enb1p677vn","generation":1}}"#;
+    const JOB: &str = r#"{"schema_version":1,"scope":"listing-geography","idempotency_key":"listing-geography:gwork_01h455vb4pex5vy7enb1p677vn:1","ordering_key":"listing-geography:gwork_01h455vb4pex5vy7enb1p677vn","job_type":"LISTING_GEOGRAPHY","payload":{"work_id":"gwork_01h455vb4pex5vy7enb1p677vn","generation":1}}"#;
 
     #[tokio::test]
     async fn malformed_jobs_never_project_and_completed_replays_acknowledge() {

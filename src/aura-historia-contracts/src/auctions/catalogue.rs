@@ -54,7 +54,8 @@ pub fn parse_catalogue_cursor(
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueData {
-    pub items: Vec<crate::product_listings::product_data::PersonalizedProductListingDetailsData>,
+    pub items:
+        Vec<crate::product_listings::product_data::PersonalizedProductListingCollectionDetailsData>,
     #[schemars(range(max = u64::MAX))]
     pub page_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,7 +85,7 @@ impl
             items: value
                 .items
                 .into_iter()
-                .map(crate::product_listings::product_data::personalized_product_details_data)
+                .map(crate::product_listings::product_data::personalized_product_collection_details_data)
                 .collect(),
         }
     }

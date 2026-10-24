@@ -478,6 +478,7 @@ dependencies = [
  "uuid",
  "watchlist-core",
  "watchlist-service",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -610,13 +611,11 @@ dependencies = [
  "shipping-postgres",
  "shipping-service",
  "sqlx",
- "test-api",
  "thiserror 2.0.21",
  "tokio",
  "url",
  "user-postgres",
  "user-service",
- "uuid",
  "watchlist-postgres",
  "watchlist-service",
 ]
@@ -8120,6 +8119,7 @@ dependencies = [
  "money",
  "party-core",
  "serde_json",
+ "shipping-core",
  "thiserror 2.0.21",
  "uuid",
 ]

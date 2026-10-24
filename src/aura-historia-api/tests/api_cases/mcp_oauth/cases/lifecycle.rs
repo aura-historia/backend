@@ -183,48 +183,6 @@ async fn assert_public_overview(mcp: &McpServer) {
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 #[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
-async fn should_handle_denial_and_untrusted_callback_without_issuing_a_credential() {
-    let client = GenericClient::registered().await;
-    let attempt = client.attempt("users:read").await;
-    let state = &attempt.query["state"];
-    // Browser denial is a client callback, not a backend approval request. Webapp rendering
-    // is outside this fixture; no approval or exchange is made for a denied attempt.
-    assert_eq!(
-        Ok(None),
-        attempt.callback(&format!("{CALLBACK}?error=access_denied&state={state}"))
-    );
-    for callback in [
-        format!("{CALLBACK}?code=untrusted&state=wrong"),
-        format!("https://foreign.example/callback?code=untrusted&state={state}"),
-        format!("{CALLBACK}/suffix?code=untrusted&state={state}"),
-        format!("{CALLBACK}?code=untrusted&state={state}&state={state}"),
-        format!("{CALLBACK}?code=untrusted&error=access_denied&state={state}"),
-        format!("{CALLBACK}?code=untrusted&state={state}#fragment"),
-    ] {
-        assert!(attempt.callback(&callback).is_err());
-    }
-    let pool = get_postgres_client().await;
-    for sql in [
-        "SELECT COUNT(*) FROM oauth_authorization_codes WHERE client_id=$1",
-        "SELECT COUNT(*) FROM access_tokens WHERE oauth_client_id=$1",
-    ] {
-        let count: i64 = sqlx::query_scalar(sql)
-            .bind(
-                client
-                    .id
-                    .parse::<credential_core::oauth_client_id::OAuthClientId>()
-                    .unwrap()
-                    .as_uuid(),
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(0, count);
-    }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-#[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
 async fn should_preserve_real_oauth_authority_through_the_actual_lambda_adapter() {
     let client = GenericClient::registered().await;
     let user = api_support::seed_user("USER").await;

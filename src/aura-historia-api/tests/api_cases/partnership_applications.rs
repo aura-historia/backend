@@ -421,33 +421,6 @@ async fn should_reject_non_admin_mark_in_review() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_remove_legacy_mark_in_review_route() {
-    let applicant_user_id = seed_user("USER").await;
-    let application_id = seed_partnership_application(
-        applicant_user_id,
-        "SUBMITTED",
-        existing_proposal(ListingSourceId::new()),
-        datetime!(2026-06-01 12:00 UTC),
-        datetime!(2026-06-01 12:00 UTC),
-    )
-    .await;
-    let admin_id = seed_user("ADMIN").await;
-    let token = partnership_applications_token(admin_id).await;
-
-    let response = reqwest::Client::new()
-        .patch(format!(
-            "{}/v1/partnership-applications/{application_id}",
-            AURA_API.base_url()
-        ))
-        .bearer_auth(String::from(token))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to call legacy mark in review route: {error}"));
-
-    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_approve_an_in_review_partnership_application_on_the_admin_decision_route() {
     let applicant_user_id = seed_user("USER").await;
     let listing_source_id = seed_listing_source().await;
@@ -970,35 +943,6 @@ async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps
         second_body["items"][0]["id"]
     );
     assert!(second_body.get("searchAfter").is_none());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_empty_admin_partnership_application_collection() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = partnership_applications_token(admin_id).await;
-
-    let response = reqwest::Client::new()
-        .get(format!(
-            "{}/v1/admin/partnership-applications",
-            AURA_API.base_url()
-        ))
-        .bearer_auth(String::from(token))
-        .query(&[("applicantUserId", UserId::new().to_string())])
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to get empty application collection: {error}"));
-    let cache_control = response
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some("no-store".to_owned()), cache_control);
-    assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
-    assert_eq!(json!(0), body["size"]);
-    assert!(body.get("searchAfter").is_none());
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

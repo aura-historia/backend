@@ -146,7 +146,8 @@ impl ListWatchlistQueryData {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CursoredWatchlistData {
-    pub items: Vec<crate::product_listings::product_data::PersonalizedProductListingDetailsData>,
+    pub items:
+        Vec<crate::product_listings::product_data::PersonalizedProductListingCollectionDetailsData>,
     #[schemars(range(max = u64::MAX))]
     pub size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,7 +167,7 @@ impl TryFrom<ListWatchlistResult> for CursoredWatchlistData {
             items: result
                 .items
                 .into_iter()
-                .map(crate::product_listings::product_data::personalized_product_details_data)
+                .map(crate::product_listings::product_data::personalized_product_collection_details_data)
                 .collect(),
             search_after: result
                 .cursor

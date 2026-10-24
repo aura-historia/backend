@@ -143,7 +143,7 @@ impl ProductListingRawNormalizationJobDisposition {
     }
 }
 
-/// Decode and execute one compact schema-2 raw-normalization wake-up without exposing transport
+/// Decode and execute one compact schema-1 raw-normalization wake-up without exposing transport
 /// DTOs to the service. Stream ordering and progress remain PostgreSQL-owned.
 pub async fn process_product_listing_raw_normalization_job(
     body: &str,
@@ -314,7 +314,7 @@ mod tests {
     }
 
     fn valid_body() -> String {
-        r#"{"schema_version":2,"scope":"product-listing-normalization","job_type":"PRODUCT_LISTING_RAW_REVISION","idempotency_key":"product-listing-raw-revision:prr_01j0000000e008000000000002","ordering_key":"product-listing-raw-stream:prs_01j0000000e008000000000001","payload":{"product_listing_raw_stream_id":"prs_01j0000000e008000000000001","product_listing_raw_revision_id":"prr_01j0000000e008000000000002","revision":1}}"#.to_owned()
+        r#"{"schema_version":1,"scope":"product-listing-normalization","job_type":"PRODUCT_LISTING_RAW_REVISION","idempotency_key":"product-listing-raw-revision:prr_01j0000000e008000000000002","ordering_key":"product-listing-raw-stream:prs_01j0000000e008000000000001","payload":{"product_listing_raw_stream_id":"prs_01j0000000e008000000000001","product_listing_raw_revision_id":"prr_01j0000000e008000000000002","revision":1}}"#.to_owned()
     }
 
     fn events<const N: usize>(records: [(Option<&str>, String); N]) -> LambdaEvent<SqsEvent> {

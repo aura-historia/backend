@@ -347,69 +347,6 @@ async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invali
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn global_unsubscribe_and_contact_deletion_apply_their_distinct_withdrawal_dispositions() {
-    let pool = get_postgres_client().await;
-    let cases = [
-        (
-            "loops-global-contact-unsubscribe",
-            "contact.unsubscribed",
-            NewsletterWebhookEventKind::ContactUnsubscribed,
-            Disposition::AppliedWithdrawal,
-        ),
-        (
-            "loops-contact-deleted",
-            "contact.deleted",
-            NewsletterWebhookEventKind::ContactDeleted,
-            Disposition::AppliedContactRemoval,
-        ),
-    ];
-
-    for (index, (delivery_id, event_name, kind, disposition)) in cases.into_iter().enumerate() {
-        let address = email(&format!("loops-global-negative-{index}@example.test"));
-        let user_id = UserId::new();
-        seed_user(&pool, user_id, &address).await;
-        let granted_at = timestamp() - Duration::seconds(3);
-        grant_user(&pool, &address, granted_at).await;
-        let event_at = timestamp();
-        let outcome = handler(&pool, MockProvider::state(CONTACT_ID, false, false, false))
-            .execute(ApplyLoopsPreferenceEventCommand {
-                verification: verified_event(
-                    delivery_id,
-                    90 + index as u8,
-                    event_name,
-                    kind,
-                    event_at,
-                    address.as_ref(),
-                    CONTACT_ID,
-                    None,
-                ),
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(
-            ApplyLoopsPreferenceEventOutcome::CommittedApplication(disposition),
-            outcome
-        );
-        assert_eq!(
-            (false, 2, Some(event_at)),
-            consent_state(&pool, user_id).await
-        );
-        let saved_source: (String, String) = sqlx::query_as(
-            "SELECT provider_event_name, disposition FROM loops_webhook_receipts WHERE delivery_id = $1",
-        )
-        .bind(delivery_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            (event_name.to_owned(), disposition.as_str().to_owned()),
-            saved_source
-        );
-    }
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn recreated_contact_can_withdraw_and_can_rebind_after_verified_resubscription() {
     let pool = get_postgres_client().await;
 

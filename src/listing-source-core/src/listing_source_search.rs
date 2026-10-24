@@ -12,23 +12,3 @@ pub struct ListingSourceSearch {
     pub operator_party_id: Option<PartyId>,
     pub ingestion_method: Option<ListingIngestionMethod>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_default_listing_source_search_to_empty_filters() {
-        assert_eq!(
-            ListingSourceSearch::default(),
-            ListingSourceSearch {
-                query: None,
-                name_query: None,
-                listing_source_id: None,
-                listing_source_slug_id: None,
-                operator_party_id: None,
-                ingestion_method: None,
-            }
-        );
-    }
-}

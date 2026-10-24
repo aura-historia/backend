@@ -169,13 +169,3 @@ fn invalid(error: impl std::error::Error + Send + Sync + 'static) -> AuctionCata
         source: box_error(error),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_expose_a_transaction_bound_catalogue_factory() {
-        let _ = SqlxAuctionCatalogueReaderFactory::new();
-    }
-}

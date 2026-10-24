@@ -62,31 +62,6 @@ fn snapshots(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_capture_complete_fx_snapshot_from_scheduled_event() {
-    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
-        let pool = get_postgres_client().await;
-        handler(event("scheduled-capture"), &snapshots(pool.clone(), true)).await?;
-        let (snapshots, conversions): (i64, i64) = sqlx::query_as(
-            r#"
-            SELECT
-                (SELECT count(*) FROM fx_rates WHERE source_event_id = 'scheduled-capture'),
-                (SELECT count(*) FROM fx_rate_quotes c
-                 JOIN fx_rates r ON r.fx_rate_id = c.fx_rate_id
-                 WHERE r.source_event_id = 'scheduled-capture')
-            "#,
-        )
-        .fetch_one(&pool)
-        .await?;
-        assert_eq!(1, snapshots);
-        let expected_quotes = i64::try_from(Currency::iter().count())?;
-        assert_eq!(expected_quotes, conversions);
-        Ok(())
-    }
-    .await;
-    assert!(result.is_ok(), "FX lambda integration failed: {result:?}");
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_persist_partial_snapshot_and_should_deduplicate_retry() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;

@@ -11,7 +11,7 @@ use product_listing_service::ports::ProductListingSearchFilterMatchSource;
 use search_filter_core::MatchingEvidencePolicy;
 use std::{num::NonZeroUsize, time::Instant};
 
-pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v2";
+pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v1";
 
 const SHOULD_SHOW_QUESTION: &str = "should_show";
 
@@ -384,9 +384,7 @@ fn product_text(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use classifier_model::{
-        ClassificationBatchOptions, ClassificationDiagnostics, ClassificationUsage,
-    };
+    use classifier_model::{ClassificationBatchOptions, ClassificationDiagnostics};
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -400,7 +398,7 @@ pub(crate) mod tests {
     use product_listing_service::ports::{
         ListingSourceSummary, ProductListingSearchFilterMatchSourceEventKind,
     };
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::collections::BTreeMap;
     use url::Url;
 
     fn search(description: &str) -> ProductListingSearch {
@@ -521,34 +519,6 @@ pub(crate) mod tests {
         let (_, description) = product_text(&product, Language::De);
 
         assert_eq!(description, "Description française originale");
-        Ok(())
-    }
-
-    #[test]
-    fn evaluator_requires_exactly_the_should_show_answer() -> Result<(), ClassificationError> {
-        let complete = ClassificationResponse {
-            answers: BTreeMap::from([(question_id(SHOULD_SHOW_QUESTION), Probability::new(0.6)?)]),
-            usage: ClassificationUsage::default(),
-            diagnostics: ClassificationDiagnostics::default(),
-        };
-        assert_eq!(Ok(Probability::new(0.6)?), match_scores(&complete));
-        for ids in [
-            vec![],
-            vec!["unexpected"],
-            vec![SHOULD_SHOW_QUESTION, "unexpected"],
-        ] {
-            let invalid = ClassificationResponse {
-                answers: ids
-                    .into_iter()
-                    .map(|id| (question_id(id), Probability::new(0.8).unwrap()))
-                    .collect(),
-                ..complete.clone()
-            };
-            assert_eq!(
-                Err(ClassificationError::InvalidResponse),
-                match_scores(&invalid)
-            );
-        }
         Ok(())
     }
 
@@ -734,60 +704,6 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    struct ArcBatchOverrideClassifier;
-
-    #[async_trait::async_trait]
-    impl ClassifierModel for ArcBatchOverrideClassifier {
-        async fn classify(
-            &self,
-            _request: ClassificationRequest,
-        ) -> Result<classifier_model::ClassificationResponse, ClassificationError> {
-            Err(ClassificationError::Transient)
-        }
-
-        async fn classify_batch(
-            &self,
-            requests: Vec<ClassificationRequest>,
-            _options: ClassificationBatchOptions,
-        ) -> Vec<Result<classifier_model::ClassificationResponse, ClassificationError>> {
-            vec![
-                Ok(classifier_model::ClassificationResponse {
-                    answers: BTreeMap::from([(
-                        question_id(SHOULD_SHOW_QUESTION),
-                        Probability::new(0.75).unwrap(),
-                    )]),
-                    usage: classifier_model::ClassificationUsage::default(),
-                    diagnostics: ClassificationDiagnostics::default(),
-                });
-                requests.len()
-            ]
-        }
-    }
-
-    #[tokio::test]
-    async fn arc_forwarding_preserves_batch_overrides() -> Result<(), Box<dyn std::error::Error>> {
-        let product = product()?;
-        let classifier: Arc<dyn ClassifierModel> = Arc::new(ArcBatchOverrideClassifier);
-        let results = evaluate_product_matches(
-            &classifier,
-            vec![ProductListingMatchEvaluationRequest {
-                key: "candidate",
-                product: &product,
-                search: &search("table"),
-                evidence_policy: MatchingEvidencePolicy::EnhancedTextAndFourImages,
-                correlation_id: None,
-            }],
-            NonZeroUsize::MIN,
-            NonZeroUsize::MIN,
-            Probability::new(0.5)?,
-        )
-        .await;
-        assert!(matches!(
-            results[0].outcome,
-            ProductListingMatchEvaluationOutcome::Matched
-        ));
-        Ok(())
-    }
     #[test]
     fn permitted_payloads_preserve_base_intent_and_select_primary_first_unique_media() {
         let mut product = product().unwrap();

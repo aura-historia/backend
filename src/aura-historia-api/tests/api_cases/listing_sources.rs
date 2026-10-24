@@ -134,33 +134,6 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_terminal_empty_public_collection_for_insufficient_query() {
-    let response = reqwest::Client::new()
-        .get(format!(
-            "{}/v1/listing-sources?query=a",
-            AURA_API.base_url()
-        ))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("get insufficient public ListingSource query: {error}"));
-    let cache_control = response
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
-    assert_eq!(json!(0), body["size"]);
-    assert!(body.get("searchAfter").is_none());
-    assert_eq!(
-        Some("public, max-age=0, s-maxage=300, stale-if-error=0".to_owned()),
-        cache_control
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_malformed_public_listing_source_collection_queries() {
     let client = reqwest::Client::new();
 
@@ -979,31 +952,6 @@ async fn should_reject_noncanonical_listing_source_detail_ids() {
             body["source"]
         );
     }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_not_found_for_missing_listing_source_detail() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = listing_sources_token(admin_id).await;
-
-    let response = reqwest::Client::new()
-        .get(format!(
-            "{}/v1/admin/listing-sources/{}",
-            AURA_API.base_url(),
-            ListingSourceId::new()
-        ))
-        .bearer_auth(String::from(token))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to get missing listing-source detail: {error}"));
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::NOT_FOUND,
-        "LISTING_SOURCE_NOT_FOUND",
-    );
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

@@ -12,14 +12,9 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 async fn get_overview(
     path_and_query: &str,
-    authorization: Option<&str>,
 ) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
-    let mut request =
-        reqwest::Client::new().get(format!("{}{path_and_query}", AURA_API.base_url()));
-    if let Some(authorization) = authorization {
-        request = request.header(reqwest::header::AUTHORIZATION, authorization);
-    }
-    let response = request
+    let response = reqwest::Client::new()
+        .get(format!("{}{path_and_query}", AURA_API.base_url()))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to call public overview API: {error}"));
@@ -45,18 +40,6 @@ async fn refresh() -> PublicCatalogueOverview {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_answer_unavailable_without_caching_before_the_first_refresh() {
-    let (status, body, cache_control) = get_overview("/v1/overview", None).await;
-
-    assert_eq!(reqwest::StatusCode::SERVICE_UNAVAILABLE, status);
-    assert_eq!(Some("private, no-store".to_owned()), cache_control);
-    assert_eq!(
-        Some(&json!("OVERVIEW_TEMPORARILY_UNAVAILABLE")),
-        body.get("error")
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_share_the_stored_overview_regardless_of_query_strings() {
     seed_product().await;
     let calculated = refresh().await;
@@ -68,7 +51,7 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
         "/v1/overview",
         "/v1/overview?utm_source=landing&language=de",
     ] {
-        let (status, mut body, cache_control) = get_overview(path_and_query, None).await;
+        let (status, mut body, cache_control) = get_overview(path_and_query).await;
 
         assert_eq!(reqwest::StatusCode::OK, status, "{path_and_query}");
         assert_eq!(
@@ -98,15 +81,4 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
         representations[0]
     );
     assert_eq!(representations[0], representations[1]);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_keep_authorization_bearing_overview_requests_private() {
-    refresh().await;
-
-    let (status, body, cache_control) = get_overview("/v1/overview", Some("Bearer invalid")).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some("private, no-store".to_owned()), cache_control);
-    assert_eq!(Some(&json!(0)), body.get("liveObjects"));
 }

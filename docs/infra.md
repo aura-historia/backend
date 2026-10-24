@@ -84,26 +84,30 @@ engine availability, backups, retention/removal policies, quotas and cost before
 execution; dev resources may be destructive on deletion. Retained resources still
 require ownership and recovery planning.
 
+### Fresh database baseline
+
+The [initial business schema](../migrations/20260725090000_initial_business_schema.sql)
+is the complete baseline for a fresh database. Bootstrap provisions roles and applies the
+baseline through the normal reviewed deployment path.
+
+The pre-production consolidation replaces migration history and resets application-owned
+wire and evaluator versions to 1. Existing pre-consolidation SQLx ledgers are incompatible;
+the migrator must reject them. Never edit ledger checksums or mark the baseline applied
+to bypass that check. An environment with existing business state needs a separately
+reviewed preservation or reset plan before adopting this baseline. Subsequent schema
+changes use new forward migrations without rewriting applied history.
+
+Address ID tombstones, identity guards and private-resolution erasure/fences are required
+by the baseline. Retained CDC, queue and archive custody follows the
+[activation and handoff procedure](durable-worker-runbook.md#activation-and-legacy-handoff).
+
 ### Local Cognito session revocation
 
-Apply [the additive session-cutoff migration](../migrations/20261018063800_cognito_session_revocation.sql)
-through the reviewed forward migration path before deploying the API version
-that reads it. Deploy all API instances/versions that can serve traffic before relying
-on local revocation; older versions ignore the cutoff. Do not roll back to a version
-that ignores it while affected JWTs can still be valid. Keep issuer, API and database
-clocks synchronized within the 60-second allowance. The
-[authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
+Local Cognito session revocation requires all serving API versions to honor the persisted
+cutoff. Do not roll back to a version that ignores it while affected JWTs can still be
+valid. Keep issuer, API and database clocks synchronized within the 60-second allowance.
+The [authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
 owns cutoff, provider-failure and out-of-band revocation semantics.
-
-### Removing geography creation receipts
-
-The [receipt cleanup migration](../migrations/20261014120000_remove_geography_creation_receipts.sql)
-requires the keyless address/Party-location runtime to be deployed first. That runtime
-works with both schemas. After reviewed platform preparation and compatibility review, deploy the compatible
-runtime against the current schema under maintenance. Drain receipt-dependent
-versions, then invoke the qualified candidate migrator with the exact reviewed ledger
-and pending checksum evidence to apply cleanup. After cleanup, rollback targets must also support the keyless schema.
-Address ID tombstones, identity guards and private-resolution erasure/fences remain required.
 
 ## Deployment inputs and approvals
 
@@ -152,6 +156,8 @@ administration credentials.
 The target requester submits pinned request, bundle, report and control-source
 versions to its native pipeline. All mutations and verification share one ordered
 `Deploy` stage in QUEUED mode, plus the durable environment exclusion record.
+Native CloudFormation action roles trust only their owning pipeline role. Notification
+rules wait for their SNS publish policy before creation.
 CodePipeline stage queueing alone is not a whole-release lock. The candidate
 migrator is deployed before invocation, pending SQL runs before application
 changes, then native API/MCP CodeDeploy alias rollout and bounded health checks
@@ -163,7 +169,9 @@ protected durable resources.
 GitHub monitoring is bounded. Cancelling a GitHub runner does not cancel AWS work,
 resume DMS or release an environment hold. Inspect native execution links and the
 versioned environment record after failure; do not infer success from a workflow
-badge. SQL may have committed while application deployment failed. Reconciliation
+badge. The monitor retries an initially missing native execution for at most two
+minutes; authorization errors and terminal failure statuses still fail immediately.
+SQL may have committed while application deployment failed. Reconciliation
 must preserve that schema evidence and the previous verified application baseline.
 
 ### Operator setup and cutover
@@ -205,6 +213,13 @@ Before enabling normal requests:
    Configure a strong review model explicitly, qualified read-only inspector and
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
+   The reviewer calls the Anthropic Messages API directly with Opus 5.5 at high
+   effort. Its planner role reads only the target's Anthropic API key parameter
+   at runtime; never copy that key into GitHub secrets, logs or release evidence.
+   The verdict uses schema-constrained JSON. Thinking and response text share
+   the bounded output budget. Thinking blocks
+   are discarded; malformed, truncated, refused or tool-bearing responses hold
+   deployment. Token usage and effort are retained with the review evidence.
 6. Establish a verified environment baseline and current schema observation under
    the protected maintenance procedure. A baseline assertion must reflect the
    deployed versions and artifacts, not merely the requested source. Confirm SNS
@@ -225,7 +240,7 @@ Before enabling normal requests:
 | `DELIVERY_PROD_REQUESTER_ROLE_ARN`, `DELIVERY_DEV_REQUESTER_ROLE_ARN` | `<target>DeploymentRequesterRoleArn` |
 | `DELIVERY_PROD_PIPELINE`, `DELIVERY_DEV_PIPELINE` | `<target>DeploymentPipelineName` |
 | `DELIVERY_PROD_MAINTENANCE_ROLE_ARN`, `DELIVERY_DEV_MAINTENANCE_ROLE_ARN` | `<target>MaintenanceRoleArn` |
-| `DELIVERY_REVIEW_MODEL_ID` | Explicit approved model selection |
+| `DELIVERY_REVIEW_MODEL_ID` | `claude-opus-5-5` for the direct Anthropic reviewer |
 | `DELIVERY_DEV_ENABLED` | Same explicit flag as delivery provisioning; default false |
 
 Parameter names and types belong in configuration/constructs, not a second
@@ -237,9 +252,17 @@ configurations and verify the new credential before revoking the old one.
 Never put credentials in source, CLI arguments, logs or release evidence.
 Provider/consent-specific requirements live in [marketing consent](marketing-consent.md).
 
-For federated login, verify the provider's enabled/live use case, required scopes
-and Meta-to-Cognito redirect URI separately from frontend callbacks. Review the
-pinned provider version in configuration and test hosted sign-in. Before rollout,
+Production managed login uses `https://auth.aura-historia.com`. The identity stack
+imports an ACM certificate from `us-east-1` and publishes
+`CognitoCustomDomainCloudFrontDomainName`; create a DNS-only CNAME from the custom
+hostname to that output after provisioning identity. The parent domain must resolve
+before Cognito can create the custom domain. Register
+`https://auth.aura-historia.com/oauth2/idpresponse` in both Google and Meta. The
+retained Amazon Cognito prefix domain can also be registered as a redirect URI;
+frontend app callbacks are separate from these provider-to-Cognito redirects.
+
+For federated login, verify the provider's enabled/live use case and required scopes.
+Review the pinned provider version in configuration and test hosted sign-in. Before rollout,
 measure cold/warm private pre-sign-up paths and failure cases with margin under
 Cognito's fixed trigger deadline. Hold if timing or fail-closed behavior is
 unverified. User-pool/schema/client replacement needs an explicit identity and

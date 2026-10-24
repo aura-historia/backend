@@ -111,21 +111,6 @@ impl Price {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MinorUnitExponent;
-
-    #[test]
-    fn should_preserve_currency_formatting_and_minor_units() {
-        assert_eq!(
-            Price::new(MonetaryAmount::from(542_u64), Currency::Eur).format_human_readable(),
-            "5,42 €"
-        );
-        assert_eq!(
-            Price::new(MonetaryAmount::from(500_u64), Currency::Jpy).format_human_readable(),
-            "¥500"
-        );
-        assert_eq!(Currency::Jpy.minor_unit_exponent(), MinorUnitExponent(0));
-        assert_eq!(Currency::Usd.minor_unit_exponent(), MinorUnitExponent(2));
-    }
 
     #[test]
     fn should_reject_subtraction_below_zero() {

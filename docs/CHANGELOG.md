@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-23 — Bounded listing shipping reads (#2444)
+
+- **Breaking change:** search, similar listings, watchlist, saved-search matches and auction catalogues return a bounded `item.shipping` summary with optional `eligibility`, `requiredInputs`, `explanations` and an independent `collection` summary. `userState.shipping` adds at most one `pricePreview` (service, explicit basis and price, in the requested currency when convertible), required `attribution` and a `display` valuation only when the preview was converted. Collections no longer return terms, converted per-zone rates, options or zone/service indices, including the detail-shaped watchlist, match and catalogue items (`PersonalizedProductListingCollectionDetailsData`).
+- **Breaking change:** detail by ID/slug and the watchlist update response keep effective terms in a read representation without `schema`, null assertions, dispatch origins or collection sites. A converted value appears as `display_price` beside the source `price`, with one shared `display` valuation only when a value was converted. `userState.shipping` keeps a minimal `destination` and lists self-contained `options` naming their service and rate; `charge` appears only when calculable.
+- Listing reads no longer return `listingRevision`, `sourceRevision`, `defaultRevision`, `profile`, `listingEvidence`, `evaluatedAt`, `shippingReasons`, `collectionReasons`, `notices`, `reasons`, `applicability`, `selectedZone`, `serviceIndex`, `bindingQuote` or `completeLandedCost`. Absent optional values are omitted instead of serialized as null, and `item.shipping` is omitted when nothing is asserted. MCP tools share these shapes and generated output schemas. Shipping management, delivery configuration, import and write protocols are unchanged. See [shipping](shipping.md#shipping-on-listing-reads) and [OpenAPI](swagger.yaml).
+
 ## 2026-10-23 — Complete partner MCP catalogue (#2255)
 
 - Compose the 36 selected partner tools with the existing 38 public and private-user tools in one 74-operation catalogue. Clients must follow `tools/list` continuation across both pages. Partner tools retain current delegated scopes and service-owned source/party authority, complete shared contracts, version checks and explicit partial/admission outcomes. WooCommerce secret configuration remains excluded. See the [partner manifest](../src/aura-historia-mcp/partner-operations.json) and [workflow and retry contract](mcp.md#partner-workflow).

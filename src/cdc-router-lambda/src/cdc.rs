@@ -914,7 +914,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn publishes_schema_two_compact_jobs_only_after_full_record_validation() {
+    async fn publishes_schema_one_compact_jobs_only_after_full_record_validation() {
         let (router, publisher) = fanout();
         let fixtures: &[(&str, usize)] = &[
             (
@@ -962,7 +962,7 @@ mod tests {
         assert_eq!(10, bodies.len());
         for body in bodies.iter() {
             let job: Value = serde_json::from_str(body).unwrap();
-            assert_eq!(2, job["schema_version"]);
+            assert_eq!(1, job["schema_version"]);
             assert!(job["idempotency_key"].is_string());
             assert!(job["ordering_key"].is_string());
             assert!(body.len() <= wire::MAX_JOB_BYTES);

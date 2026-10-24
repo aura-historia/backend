@@ -72,7 +72,7 @@ mod tests {
             Ok(self.result)
         }
     }
-    const JOB: &str = r#"{"schema_version":2,"scope":"geo-resolution","idempotency_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn:1","ordering_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn","job_type":"GEO_RESOLUTION","payload":{"resolution_id":"gres_01h455vb4pex5vy7enb1p677vn","generation":1}}"#;
+    const JOB: &str = r#"{"schema_version":1,"scope":"geo-resolution","idempotency_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn:1","ordering_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn","job_type":"GEO_RESOLUTION","payload":{"resolution_id":"gres_01h455vb4pex5vy7enb1p677vn","generation":1}}"#;
     #[tokio::test]
     async fn only_confirmed_completion_acknowledges_and_malformed_jobs_never_invoke_the_use_case() {
         let stub = Stub {

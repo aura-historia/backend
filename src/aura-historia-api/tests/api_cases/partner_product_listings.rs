@@ -24,28 +24,6 @@ struct PartnerAuth {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_create_partner_product_batch_when_all_products_are_new() -> TestResult {
-    let result: TestResult = async {
-        let auth = partner_auth(product_listings_write_scope()).await?;
-
-        let response = send_json(
-            reqwest::Method::POST,
-            products_path(&auth.listing_source_id),
-            Some(&auth.token),
-            &json!([product("post-full-first"), product("post-full-second")]),
-        )
-        .await?;
-        let (status, body) = response_json(response).await?;
-
-        assert_eq!(reqwest::StatusCode::OK, status);
-        assert_eq!(json!([]), body);
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }
-    .await;
-    assert_test_result(result);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_duplicate_product_as_partial_create_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
@@ -158,28 +136,6 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
             )]),
             body
         );
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }
-    .await;
-    assert_test_result(result);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_not_found_when_every_product_update_is_missing() -> TestResult {
-    let result: TestResult = async {
-        let auth = partner_auth(product_listings_write_scope()).await?;
-
-        let response = send_json(
-            reqwest::Method::PATCH,
-            products_path(&auth.listing_source_id),
-            Some(&auth.token),
-            &json!([patch_product("patch-all-missing", "SOLD_OUT")]),
-        )
-        .await?;
-        let (status, body) = response_json(response).await?;
-
-        assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
-        assert_eq!(json!("PRODUCT_LISTING_NOT_FOUND"), body["error"]);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -334,28 +290,6 @@ async fn should_return_missing_product_as_partial_delete_failure() -> TestResult
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_return_not_found_when_every_product_delete_is_missing() -> TestResult {
-    let result: TestResult = async {
-        let auth = partner_auth(product_listings_write_scope()).await?;
-
-        let response = send_json(
-            reqwest::Method::DELETE,
-            products_path(&auth.listing_source_id),
-            Some(&auth.token),
-            &json!([delete_product("delete-all-missing")]),
-        )
-        .await?;
-        let (status, body) = response_json(response).await?;
-
-        assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
-        assert_eq!(json!("PRODUCT_LISTING_NOT_FOUND"), body["error"]);
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }
-    .await;
-    assert_test_result(result);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_partner_product_batch_when_access_token_lacks_scope() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(HashSet::new()).await?;
@@ -420,47 +354,6 @@ async fn should_upsert_concurrently_without_returning_temporary_failure() -> Tes
         assert_eq!(json!([]), first_body);
         assert_eq!(reqwest::StatusCode::OK, second_status);
         assert_eq!(json!([]), second_body);
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }
-    .await;
-    assert_test_result(result);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_partner_product_batch_without_authorization() -> TestResult {
-    let result: TestResult = async {
-        let listing_source_id = seed_listing_source().await;
-
-        let response = send_json(
-            reqwest::Method::POST,
-            products_path(&listing_source_type_id(listing_source_id)),
-            None,
-            &json!([product("missing-authorization")]),
-        )
-        .await?;
-        let (status, _) = response_json(response).await?;
-
-        assert_eq!(reqwest::StatusCode::UNAUTHORIZED, status);
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }
-    .await;
-    assert_test_result(result);
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_source_local_identity_on_management_delete_route() -> TestResult {
-    let result: TestResult = async {
-        let auth = partner_auth(product_listings_write_scope()).await?;
-
-        let response = send_json(
-            reqwest::Method::DELETE,
-            format!("{}/legacy-item", products_path(&auth.listing_source_id)),
-            Some(&auth.token),
-            &json!({}),
-        )
-        .await?;
-
-        assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;

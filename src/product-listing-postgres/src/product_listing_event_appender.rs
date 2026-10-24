@@ -56,7 +56,7 @@ impl ProductListingEventAppender for SqlxProductListingEventAppender<'_> {
         .bind(event.aggregate_id.as_uuid())
         .bind(event.payload.event_type().as_str())
         .bind("DOMAIN")
-        .bind(product_listing_event_codec::schema_version(&event.payload))
+        .bind(product_listing_event_codec::PRODUCT_LISTING_EVENT_SCHEMA_VERSION)
         .bind(
             product_listing_event_codec::encode(&event.payload).map_err(|error| {
                 ProductListingEventAppendError::PayloadSerializationFailed {

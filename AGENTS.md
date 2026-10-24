@@ -40,6 +40,11 @@
 - Amend the existing canonical document when one covers the contract instead of creating overlapping documentation. Keep documentation concise and identify stable operator requirements.
 - Describe the final contract once. Avoid task-by-task histories, repeated guarantees, exhaustive test/example catalogues and rollout instructions for intermediate states that never deployed. Keep examples only when they explain a non-obvious rule; prefer links to executable tests and the owning runbook.
 
+## Tests
+
+- Put unit tests in a trailing `#[cfg(test)] mod tests { ... }` of the file that contains the code under test, not in sibling `tests.rs`, `*_tests.rs` or `tests/` module files. Tests that need only the public API go in the crate's `tests/` directory. `docs/arch.md` (test visibility and testing strategy) owns the rule; `ci/check-test-layout.py` enforces it.
+- Test each behavior at the cheapest layer that proves it. Do not repeat validation, mapping, registration or error-mapping assertions in integration or acceptance tests when unit tests already prove them; those tests are for SQL, transactions, concurrency, composition and the exposed contract.
+
 ## Validation
 
 Start with a focused package or test, for example `cargo test --locked -p product-listing-postgres --all-features --test public_catalogue_overview`. Use `--locked` so validation does not update dependencies. Plain Cargo tests start their own local fixtures. Integration and some library tests require Linux, Docker and the Docker CLI; use fake test credentials and isolated local services.
@@ -50,6 +55,7 @@ Run broader validation when the change warrants it:
 
 ```sh
 cargo fmt --all -- --check
+python3 ci/check-test-layout.py
 cargo check --locked --workspace
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 cargo depgraph-check check

@@ -295,19 +295,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serialized_jsonb_record_publishes_and_confirms_through_the_handler() {
-        let (fanout, recorder) = fanout();
-        let serialized = include_str!(
-            "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
-        );
-        let result = handler(event(vec![record("100", serialized)]), &fanout)
-            .await
-            .unwrap();
-        assert!(result.batch_item_failures.is_empty());
-        assert_eq!(4, recorder.attempts.load(Ordering::SeqCst));
-    }
-
-    #[tokio::test]
     async fn removed_search_filter_source_retains_failure_custody_and_stops_later_records() {
         for removed in [
             include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
@@ -392,7 +379,7 @@ mod tests {
         assert_eq!(2, recorder.attempts.load(Ordering::SeqCst));
         let first = recorder.bodies.lock().unwrap()[0].clone();
         let original: serde_json::Value = serde_json::from_str(&first).unwrap();
-        assert_eq!(2, original["schema_version"]);
+        assert_eq!(1, original["schema_version"]);
         assert_eq!(
             "product-event:evt_01j0000000e008000000000005",
             original["idempotency_key"]

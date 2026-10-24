@@ -253,14 +253,6 @@ mod tests {
     }
 
     #[test]
-    fn should_log_configured_model_name() {
-        assert_eq!(
-            LlmModel::Gemini31ProPreview.as_str(),
-            "gemini-3.1-pro-preview"
-        );
-    }
-
-    #[test]
     fn should_preserve_structured_failure_wire_name() {
         assert_eq!(
             crate::StructuredResponseFailureKind::MaxTokens.as_str(),

@@ -51,7 +51,6 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
 pub const SCHEMA_VERSION: u8 = 1;
-const DELIVERY_SCHEMA_VERSION: u8 = 2;
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const GROUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-group.v1";
 const DEDUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-dedup.v1";
@@ -70,8 +69,7 @@ pub enum CodecError {
 
 type Result<T> = std::result::Result<T, CodecError>;
 
-/// Version-dispatched durable envelope. The Rust name remains compatible with earlier callers.
-/// Earlier operations require v1; delivery requires v2. Unknown fields/versions are rejected.
+/// Durable v1 envelope for every operation. Unknown fields and versions are rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IngestionEnvelopeV1 {
@@ -172,13 +170,7 @@ impl IngestionEnvelopeV1 {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.schema_version
-            != if matches!(self.payload, WirePayload::ChangeDelivery(_)) {
-                DELIVERY_SCHEMA_VERSION
-            } else {
-                SCHEMA_VERSION
-            }
-        {
+        if self.schema_version != SCHEMA_VERSION {
             return Err(CodecError::UnsupportedVersion);
         }
         if self.input_count == 0
@@ -836,14 +828,7 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
 pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnvelopeV1> {
     let m = &message.metadata;
     let mut value = IngestionEnvelopeV1 {
-        schema_version: if matches!(
-            message.intent,
-            ProductListingIngestionIntent::ChangeDelivery(_)
-        ) {
-            DELIVERY_SCHEMA_VERSION
-        } else {
-            SCHEMA_VERSION
-        },
+        schema_version: SCHEMA_VERSION,
         submission_id: m.submission_id.as_str().into(),
         command_id: m.command_id.as_str().into(),
         index: m.index,

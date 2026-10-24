@@ -15,6 +15,9 @@ runs:
     - name: Format check
       shell: bash
       run: cargo fmt --all -- --check
+    - name: Check test layout
+      shell: bash
+      run: python3 ci/check-test-layout.py
     - name: Check geographic reference reproducibility
       shell: bash
       run: python3 src/geo/scripts/generate_reference.py --check

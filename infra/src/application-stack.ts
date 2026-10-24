@@ -322,6 +322,14 @@ export class ApplicationIdentityStack extends cdk.Stack {
     }
     new cdk.CfnOutput(this, "CognitoUserPoolId", { value: this.identity.userPool.userPoolId });
     new cdk.CfnOutput(this, "CognitoUserPoolClientPublicId", { value: this.identity.publicClient.userPoolClientId });
+    new cdk.CfnOutput(this, "CognitoHostedUIDomain", {
+      value: (this.identity.customDomain ?? this.identity.domain).baseUrl(),
+    });
+    if (this.identity.customDomain) {
+      new cdk.CfnOutput(this, "CognitoCustomDomainCloudFrontDomainName", {
+        value: this.identity.customDomain.cloudFrontEndpoint,
+      });
+    }
   }
 }
 
@@ -590,7 +598,7 @@ function computeOutputs(
   },
 ): void {
   new cdk.CfnOutput(stack, "CognitoHostedUIDomain", {
-    value: cdk.Fn.sub("https://${Domain}.auth.${AWS::Region}.amazoncognito.com", {
+    value: resources.identity.customDomain?.baseUrl() ?? cdk.Fn.sub("https://${Domain}.auth.${AWS::Region}.amazoncognito.com", {
       Domain: resources.identity.domain.domainName,
     }),
   });

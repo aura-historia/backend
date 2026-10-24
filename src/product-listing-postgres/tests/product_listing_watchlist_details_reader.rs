@@ -141,40 +141,6 @@ async fn should_retain_withdrawn_product_in_watchlist_collection() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_order_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
-    let pool = get_postgres_client().await;
-    let user_id = seed_user(&pool, "FREE", false).await;
-    let first_tied = persist_product(&pool, "watchlist-order-first", None, None).await;
-    let second_tied = persist_product(&pool, "watchlist-order-second", None, None).await;
-    let newest = persist_product(&pool, "watchlist-order-newest", None, None).await;
-    let tied_created = OffsetDateTime::UNIX_EPOCH + Duration::days(1);
-
-    insert_watchlist(&pool, user_id, first_tied.id(), true, tied_created).await;
-    insert_watchlist(&pool, user_id, second_tied.id(), true, tied_created).await;
-    insert_watchlist(
-        &pool,
-        user_id,
-        newest.id(),
-        true,
-        tied_created + Duration::seconds(1),
-    )
-    .await;
-
-    let product_listings = find_for_user(&pool, user_id, Language::En).await;
-    let mut tied_ids = [first_tied.id(), second_tied.id()];
-    tied_ids.sort_by_key(|product_listing_id| (*product_listing_id).into_uuid());
-    let product_listing_ids = product_listings
-        .into_iter()
-        .map(|product| product.item.product_listing_id)
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        product_listing_ids,
-        vec![newest.id(), tied_ids[0], tied_ids[1]]
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_page_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;

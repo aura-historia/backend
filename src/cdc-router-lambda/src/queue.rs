@@ -183,10 +183,10 @@ mod tests {
     fn prepared_job(scope: WorkerScope) -> PreparedJob {
         let body = match scope {
             WorkerScope::MarketingConsentSync => {
-                r#"{"schema_version":2,"scope":"marketing-consent-sync","idempotency_key":"marketing-consent:mci_01h455vb4pex5vy7enb1p677vn","ordering_key":"marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","job_type":"MARKETING_CONSENT_SYNC_INTENT_CREATED","payload":{"marketing_consent_sync_intent_id":"mci_01h455vb4pex5vy7enb1p677vn"}}"#
+                r#"{"schema_version":1,"scope":"marketing-consent-sync","idempotency_key":"marketing-consent:mci_01h455vb4pex5vy7enb1p677vn","ordering_key":"marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","job_type":"MARKETING_CONSENT_SYNC_INTENT_CREATED","payload":{"marketing_consent_sync_intent_id":"mci_01h455vb4pex5vy7enb1p677vn"}}"#
             }
             WorkerScope::NotificationDelivery => {
-                r#"{"schema_version":2,"scope":"notification-delivery","idempotency_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","ordering_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","job_type":"NOTIFICATION_DELIVERY_CREATED","payload":{"notification_delivery_id":"nd_01h455vb4pex5vy7enb1p677vn"}}"#
+                r#"{"schema_version":1,"scope":"notification-delivery","idempotency_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","ordering_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","job_type":"NOTIFICATION_DELIVERY_CREATED","payload":{"notification_delivery_id":"nd_01h455vb4pex5vy7enb1p677vn"}}"#
             }
             _ => panic!("test scope is not configured"),
         };

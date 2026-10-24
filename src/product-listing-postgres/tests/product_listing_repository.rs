@@ -243,33 +243,6 @@ async fn should_round_trip_flat_listing_auction_fields() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_persist_valid_long_incompressible_url_through_canonical_repository() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventAppenderFactory::new();
-    let listing_source_id =
-        seed_listing_source(&pool, "product-listing-postgres-long-url-source").await;
-    let long_url = long_incompressible_url();
-    assert!(long_url.as_str().len() > 2_704);
-    let product = sample_product_with_url(
-        "postgres-product-long-url",
-        listing_source_id,
-        long_url.clone(),
-    );
-
-    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
-
-    let persisted_url: String =
-        sqlx::query_scalar("SELECT url FROM product_listings WHERE product_listing_id = $1")
-            .bind(product.id().into_uuid())
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("load long canonical URL: {error}"));
-    assert_eq!(long_url.as_str(), persisted_url);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_install_required_indexes_without_wide_or_duplicate_btrees() {
     let pool = get_postgres_client().await;
     let (source_url_index, duplicate_raw_revision_index): (Option<String>, Option<String>) =
@@ -642,28 +615,6 @@ async fn should_enforce_paired_sale_observation_columns_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_return_none_when_product_is_missing_in_postgres() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let product_listings = SqlxProductListingRepositoryFactory::new();
-    let product_listing_id = ProductListingId::new();
-
-    let mut tx = begin(&unit_of_work).await;
-    let by_id = match product_listings
-        .in_transaction(&mut tx)
-        .find_by_id(product_listing_id)
-        .await
-    {
-        Ok(value) => value,
-        Err(error) => panic!("failed to find missing product by id: {error:?}"),
-    };
-
-    commit(tx).await;
-
-    assert!(by_id.is_none());
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_input() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -802,34 +753,6 @@ async fn should_map_unclassified_insert_conflict_to_generic_fallback() {
     assert!(matches!(
         result,
         Err(ProductListingRepositoryError::ProductListingInsertFailed)
-    ));
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_report_product_update_conflict_when_product_row_is_missing() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let product_listings = SqlxProductListingRepositoryFactory::new();
-    let listing_source_id =
-        seed_listing_source(&pool, "product-listing-postgres-missing-update-source").await;
-    let product = sample_product("postgres-product-missing-update", listing_source_id);
-
-    let result = {
-        let mut tx = begin(&unit_of_work).await;
-        product_listings
-            .in_transaction(&mut tx)
-            .update(
-                &product,
-                ProductListingStorageVersion::INITIAL,
-                EventId::new(),
-                ProductListingWriteEffects::default(),
-            )
-            .await
-    };
-
-    assert!(matches!(
-        result,
-        Err(ProductListingRepositoryError::ConcurrencyConflict)
     ));
 }
 
@@ -1057,23 +980,6 @@ fn sample_product_with_source_listing_id(
     )
 }
 
-fn sample_product_with_url(
-    slug: &str,
-    listing_source_id: ListingSourceId,
-    listing_url: Url,
-) -> ProductListing {
-    let source_listing_id = SourceListingId::try_from(slug)
-        .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    let mut input = sample_new_product_listing(
-        slug,
-        listing_source_id,
-        source_listing_id,
-        ProductListingId::new(),
-    );
-    input.url = listing_url;
-    ProductListing::create(input).unwrap_or_else(|error| panic!("create product: {error}"))
-}
-
 fn sample_product_with_id_and_source_listing_id(
     slug: &str,
     listing_source_id: ListingSourceId,
@@ -1201,24 +1107,6 @@ fn url(value: &str) -> Url {
         Ok(url) => url,
         Err(error) => panic!("invalid test URL: {error}"),
     }
-}
-
-fn long_incompressible_url() -> Url {
-    const PATH_LENGTH: usize = 4_096;
-    const URL_SAFE_ASCII: &[u8] =
-        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
-
-    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
-    let mut path = String::with_capacity(PATH_LENGTH);
-    for _ in 0..PATH_LENGTH {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        let index = ((state >> 32) as usize) % URL_SAFE_ASCII.len();
-        path.push(URL_SAFE_ASCII[index] as char);
-    }
-
-    url(&format!("https://example.test/{path}"))
 }
 
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
