@@ -169,7 +169,9 @@ protected durable resources.
 GitHub monitoring is bounded. Cancelling a GitHub runner does not cancel AWS work,
 resume DMS or release an environment hold. Inspect native execution links and the
 versioned environment record after failure; do not infer success from a workflow
-badge. SQL may have committed while application deployment failed. Reconciliation
+badge. The monitor retries an initially missing native execution for at most two
+minutes; authorization errors and terminal failure statuses still fail immediately.
+SQL may have committed while application deployment failed. Reconciliation
 must preserve that schema evidence and the previous verified application baseline.
 
 ### Operator setup and cutover

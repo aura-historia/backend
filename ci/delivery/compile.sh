@@ -4,6 +4,8 @@ set -euo pipefail
 cd /candidate
 export CARGO_TARGET_DIR=/output/target
 export CARGO_HOME=/output/cargo
+export RUSTUP_HOME=/output/rustup
+export RUSTUP_TOOLCHAIN=1.98.0
 export CARGO_INCREMENTAL=0
 export SOURCE_DATE_EPOCH=315532800
 export AWS_EC2_METADATA_DISABLED=true
@@ -19,6 +21,11 @@ capture_memory() {
 trap 'capture_memory "${1:-compile}"' EXIT
 if [ "${1:-}" = prepare ]; then
   # Dependencies and tool installers run without publication credentials as well.
+  # Keep the image's toolchain and the added target across disposable containers.
+  if [ ! -d "$RUSTUP_HOME" ]; then
+    cp -R /usr/local/rustup "$RUSTUP_HOME"
+  fi
+  rustup target add x86_64-unknown-linux-musl
   cargo install cargo-lambda --version 1.9.0 --locked
   python3 -m venv /output/tools
   /output/tools/bin/pip install ziglang==0.14.1
@@ -27,7 +34,7 @@ if [ "${1:-}" = prepare ]; then
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.xz -o /output/node.tar.xz
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/SHASUMS256.txt -o /output/node-shasums
   (cd /output && sed -n 's#  node-v26.0.0-linux-x64.tar.xz$#  node.tar.xz#p' node-shasums | sha256sum --check -)
-  tar -xf /output/node.tar.xz -C /output
+  tar --no-same-owner -xf /output/node.tar.xz -C /output
   export PATH=/output/node-v26.0.0-linux-x64/bin:/output/cargo/bin:/output/tools/bin:$PATH
   cargo fetch --locked
   npm --prefix infra ci --ignore-scripts
