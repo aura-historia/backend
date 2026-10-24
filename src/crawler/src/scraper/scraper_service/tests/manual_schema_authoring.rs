@@ -329,3 +329,72 @@ async fn should_attach_failing_page_without_generation_when_authoring_is_review(
 async fn should_attach_failing_page_without_generation_when_authoring_is_auto() {
     assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Auto).await;
 }
+
+/// The schema cache serves `stale` on the first read and `approved` on every later one, as when a
+/// review is approved while the page is scraped. Generation fails the test.
+fn schema_service_approving_during_scrape(
+    stale: ListingSourceProductSchema,
+    approved: ListingSourceProductSchema,
+) -> MockProductListingSchemaService {
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut schema_svc = MockProductListingSchemaService::new();
+    schema_svc.expect_find_product_schema().returning(move |_| {
+        let first_read = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+        let schemas = if first_read {
+            stale.clone()
+        } else {
+            approved.clone()
+        };
+        Box::pin(async move { Ok(Some(schemas)) })
+    });
+    schema_svc.expect_create_product_schemas().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc.expect_save_product_schemas().never();
+    schema_svc
+}
+
+/// A page that fails the schemas read before an approval is selected again against the approved
+/// schemas, instead of opening a review whose candidate drops them.
+async fn assert_page_uses_schemas_approved_during_scrape(authoring: CrawlerAuthoringMode) {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let service = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&url, 1),
+        schema_service_approving_during_scrape(
+            cached_schemas(id, vec![stale_schema()]),
+            cached_schemas(id, vec![stale_schema(), minimal_schema()]),
+        ),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        authoring,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    let scraped = result
+        .unwrap_or_else(|error| panic!("expected a scraped product: {error}"))
+        .unwrap_or_else(|| panic!("expected a scraped product"));
+    assert_eq!(
+        scraped.raw_input.raw_values().value().get("title"),
+        Some(&json!({ "action": "SET", "value": "Biedermeier Chair" }))
+    );
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_use_schemas_approved_during_scrape_when_authoring_is_manual() {
+    assert_page_uses_schemas_approved_during_scrape(CrawlerAuthoringMode::Manual).await;
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_use_schemas_approved_during_scrape_when_authoring_is_review() {
+    assert_page_uses_schemas_approved_during_scrape(CrawlerAuthoringMode::Review).await;
+}

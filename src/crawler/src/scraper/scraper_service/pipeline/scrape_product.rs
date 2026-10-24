@@ -558,32 +558,53 @@ impl ScraperServiceImpl {
 
     /// Selects the best-ranked plausible cached schema for the page in `page`, or authors a fresh
     /// one when none applies. Returns the schema list the selection used with the selection.
+    ///
+    /// Scraping continues while a product-schema review is pending, so its approval can replace the
+    /// live schemas after `schemas` was read. A page that failed the stale list is therefore
+    /// selected once more against the live list before it may author a schema; otherwise it would
+    /// open a review whose candidate drops the schemas just approved.
     async fn select_schema_for_page(
         &self,
-        schemas: ListingSourceProductSchema,
+        mut schemas: ListingSourceProductSchema,
         page: FetchedPage<'_>,
     ) -> Result<(ListingSourceProductSchema, SelectedSchemaCandidate), ScraperError> {
-        let reason = match self
-            .select_cached_schema(
-                page.listing_source_id,
-                page.url,
-                page.html,
-                &schemas.product_schemas,
-            )
-            .await
-        {
-            ExistingSchemaSelection::Selected(selection) => return Ok((schemas, *selection)),
-            ExistingSchemaSelection::GenerateNewSchema { reason } => reason,
-        };
-        let ctx = page.with_existing_schemas(&schemas.product_schemas);
-        self.wait_instead_of_authoring(&ctx).await?;
-        debug!(
-            domain = page.domain,
-            schemas = schemas.product_schemas.len(),
-            fresh_schema_generation_reason = reason.as_str(),
-            "Cached selection exhausted; generating new schema"
-        );
-        let selection = self.generate_fresh_schema_for_page(ctx).await?;
-        Ok((schemas, selection))
+        let mut reread = false;
+        loop {
+            let reason = match self
+                .select_cached_schema(
+                    page.listing_source_id,
+                    page.url,
+                    page.html,
+                    &schemas.product_schemas,
+                )
+                .await
+            {
+                ExistingSchemaSelection::Selected(selection) => return Ok((schemas, *selection)),
+                ExistingSchemaSelection::GenerateNewSchema { reason } => reason,
+            };
+            let ctx = page.with_existing_schemas(&schemas.product_schemas);
+            self.wait_instead_of_authoring(&ctx).await?;
+            if !reread
+                && let Some(live) = self
+                    .product_schemas_changed_since(page.listing_source_id, ctx.existing_schemas)
+                    .await?
+            {
+                debug!(
+                    schemas = live.product_schemas.len(),
+                    "Live product schemas changed during the scrape; selecting again"
+                );
+                reread = true;
+                schemas = live;
+                continue;
+            }
+            debug!(
+                domain = page.domain,
+                schemas = schemas.product_schemas.len(),
+                fresh_schema_generation_reason = reason.as_str(),
+                "Cached selection exhausted; generating new schema"
+            );
+            let selection = self.generate_fresh_schema_for_page(ctx).await?;
+            return Ok((schemas, selection));
+        }
     }
 }

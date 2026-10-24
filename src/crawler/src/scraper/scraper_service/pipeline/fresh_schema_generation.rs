@@ -1,5 +1,7 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_GENERATION_PAGE, SchemaReviewPageInput};
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
@@ -45,6 +47,23 @@ impl ScraperServiceImpl {
             }),
             None => Ok(()),
         }
+    }
+
+    /// The ListingSource's live product schemas when they differ from `read`. Only an approved
+    /// review changes them while a page is scraped, so without a review gate they never differ.
+    pub(crate) async fn product_schemas_changed_since(
+        &self,
+        listing_source_id: &ListingSourceId,
+        read: &[ProductCssSelectorSchema],
+    ) -> Result<Option<ListingSourceProductSchema>, ScraperError> {
+        if self.review_repository.is_none() {
+            return Ok(None);
+        }
+        let live = self
+            .schema_service
+            .find_product_schema(listing_source_id)
+            .await?;
+        Ok(live.filter(|live| live.product_schemas != read))
     }
 
     /// Authors a fresh schema for a page that failed every cached schema: opens a manual review in
