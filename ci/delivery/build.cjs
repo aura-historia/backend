@@ -407,7 +407,13 @@ function publishAssemblyAssets(
   )) {
     const document = json(template);
     rewrite(document);
-    fs.writeFileSync(template, JSON.stringify(document, null, 2) + '\n');
+    // GetTemplate replaces literal non-ASCII characters with '?'. JSON escapes
+    // preserve the exact values through native template and change-set readback.
+    const encoded = JSON.stringify(document, null, 2).replace(
+      /[\u007f-\uffff]/g,
+      (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    );
+    fs.writeFileSync(template, encoded + '\n');
   }
 }
 function synthesize(
