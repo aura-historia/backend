@@ -100,6 +100,9 @@ def prepare_security(image):
     finally:
         run(["docker", "rm", container])
     private_json(directory / "internal_users.yml", {"_meta": {"type": "internalusers", "config_version": 2}})
+
+
+def write_operator_config():
     curl = PRIVATE / "admin-curl"
     curl.write_text(f'cacert = "{OPERATOR / "root-ca.pem"}"\ncert = "{OPERATOR / "admin.pem"}"\nkey = "{OPERATOR / "admin-key.pem"}"\n')
 
@@ -234,6 +237,7 @@ def main():
         state = {"instance": secrets.token_hex(16), "complete": False}
         private_json(state_path, state)
     create_certificates()
+    write_operator_config()
     credential_path = PRIVATE / "runtime-credentials.json"
     if not credential_path.exists():
         private_json(credential_path, {role: {"username": "aura_prod_" + role.replace("-", "_"), "password": secrets.token_urlsafe(48)}
