@@ -1193,7 +1193,6 @@ async fn persist_approved_schema_edit(
     Ok(())
 }
 
-/// Drops the cached schema matrix after the review's page set changed.
 /// Attaches `pages` to the pending review `review_id` as waiting pages, whatever role they were
 /// collected under: once per page under the reviewer-page identity, up to [`MAX_WAITING_PAGES`].
 /// Drops the cached schema matrix when a page was attached, so the next refresh covers it. The
@@ -1273,6 +1272,7 @@ async fn insert_review_page(
     Ok(())
 }
 
+/// Drops the cached schema matrix after the review's page set changed.
 async fn drop_cached_schema_matrix(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
