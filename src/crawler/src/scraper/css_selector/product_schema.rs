@@ -393,8 +393,8 @@ fn tolerate_optional_miss(
 fn image_rule_has_existing_empty_container(rule: &ExtractionRule, html: &Html) -> bool {
     let mut found_container = false;
 
-    for container_selector in std::iter::once(&rule.selector)
-        .chain(rule.additional_selectors.iter())
+    for container_selector in rule
+        .selectors()
         .flat_map(|selector| image_container_selectors(selector.as_ref()))
     {
         let Ok(container_selector) = scraper::Selector::parse(&container_selector) else {

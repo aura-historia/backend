@@ -143,9 +143,14 @@ pub enum ExtractionError {
 }
 
 impl ExtractionRule {
+    /// The primary selector followed by the additional selectors, in the order the
+    /// rule evaluates them.
+    pub(crate) fn selectors(&self) -> impl Iterator<Item = &CssSelector> {
+        std::iter::once(&self.selector).chain(self.additional_selectors.iter())
+    }
+
     pub(crate) fn validate(&self) -> Result<(), ExtractionError> {
-        parse_selector(&self.selector)?;
-        for selector in &self.additional_selectors {
+        for selector in self.selectors() {
             parse_selector(selector)?;
         }
         if let ExtractionKind::Attribute { name } = &self.extract
@@ -209,52 +214,71 @@ impl ExtractionRule {
         boundaries: TextBoundaries,
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
-        let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
+        match self.cardinality {
+            ExtractionCardinality::First => self.extract_first(html, boundaries),
+            ExtractionCardinality::All => self.extract_all(html, boundaries, without_value),
+        }
+    }
 
+    /// Cardinality `first`: the first value of each selector, in selector order.
+    fn extract_first(
+        &self,
+        html: &Html,
+        boundaries: TextBoundaries,
+    ) -> Result<RuleExtraction, ExtractionError> {
+        let mut extraction = RuleExtraction::default();
+
+        for css_selector in self.selectors() {
+            let parsed = parse_selector(css_selector)?;
+            extraction.values.extend(self.first_value(
+                html.select(&parsed),
+                css_selector,
+                boundaries,
+            )?);
+        }
+
+        if extraction.values.is_empty() {
+            return Err(self.no_element_matched());
+        }
+
+        Ok(extraction)
+    }
+
+    /// Cardinality `all`: every element of every selector, in selector order.
+    fn extract_all(
+        &self,
+        html: &Html,
+        boundaries: TextBoundaries,
+        without_value: ElementWithoutValue,
+    ) -> Result<RuleExtraction, ExtractionError> {
         let mut extraction = RuleExtraction::default();
         let mut first_skipped_error = None;
 
-        for css_selector in all_selectors {
+        for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            let elements = html.select(&parsed);
-
-            match self.cardinality {
-                ExtractionCardinality::First => {
-                    extraction.values.extend(self.first_value(
-                        elements,
-                        css_selector,
-                        boundaries,
-                    )?);
-                }
-                ExtractionCardinality::All => {
-                    for element in elements {
-                        match extract_from_element(
-                            &element,
-                            &self.extract,
-                            css_selector,
-                            boundaries,
-                        ) {
-                            Ok(value) => extraction.values.push(value),
-                            Err(error) if without_value == ElementWithoutValue::Skipped => {
-                                extraction.skipped_elements += 1;
-                                first_skipped_error.get_or_insert(error);
-                            }
-                            Err(error) => return Err(error),
-                        }
+            for element in html.select(&parsed) {
+                match extract_from_element(&element, &self.extract, css_selector, boundaries) {
+                    Ok(value) => extraction.values.push(value),
+                    Err(error) if without_value == ElementWithoutValue::Skipped => {
+                        extraction.skipped_elements += 1;
+                        first_skipped_error.get_or_insert(error);
                     }
+                    Err(error) => return Err(error),
                 }
             }
         }
 
         if extraction.values.is_empty() {
-            return Err(
-                first_skipped_error.unwrap_or_else(|| ExtractionError::NoElementMatched {
-                    selector: self.selector.to_string(),
-                }),
-            );
+            return Err(first_skipped_error.unwrap_or_else(|| self.no_element_matched()));
         }
 
         Ok(extraction)
+    }
+
+    fn no_element_matched(&self) -> ExtractionError {
+        ExtractionError::NoElementMatched {
+            selector: self.selector.to_string(),
+        }
     }
 
     /// How many of the elements `selector` (this rule's primary or an additional
