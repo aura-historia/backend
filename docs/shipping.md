@@ -373,7 +373,7 @@ component acquisition; its age alone has no eligibility effect.
 | 503/lost response | Retry identical content/keys; a missing response does not prove rollback. |
 
 [Canonical import fixtures](fixtures/shipping-imports.json) exercise API and queue contracts.
-[Domain fixtures/tests](../src/shipping-core/src/tests.rs) include the shared gallery profile:
+[Domain fixtures/tests](../src/shipping-core/tests/shipping.rs) include the shared gallery profile:
 painting shipping changes from EUR 80 to EUR 95 (8000 to 9500 minor units) while cabinet prohibition and
 independent collection retain their meanings.
 

@@ -1,4 +1,14 @@
-use crate::{
+use geo::{
+    AddressText, CountryCode, GeoPoint, GeographicDescription, PostalCode, SpatialPosition,
+    SpatialPrecision, SubdivisionCode, reference::ReferenceRelease,
+};
+use listing_source_core::ListingSourceId;
+use money::{Currency, Price};
+use party_core::party_location::{
+    PartyLocation, PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle,
+    PartyLocationRole,
+};
+use shipping_core::{
     InvalidShippingValue,
     assessment::{
         AssessedCharge, AssessmentReason as Reason, EffectiveDeliveryTerms, MissingInput,
@@ -33,16 +43,6 @@ use crate::{
         ShippingServiceCode, ShippingServiceTerms, SiteAssertions,
     },
     time::{CollectionArrangement, LeadTimes, TimeBasis, TimeRange, TimeTrigger, TimeUnit},
-};
-use geo::{
-    AddressText, CountryCode, GeoPoint, GeographicDescription, PostalCode, SpatialPosition,
-    SpatialPrecision, SubdivisionCode, reference::ReferenceRelease,
-};
-use listing_source_core::ListingSourceId;
-use money::{Currency, Price};
-use party_core::party_location::{
-    PartyLocation, PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle,
-    PartyLocationRole,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2021,9 +2021,9 @@ fn cross_source_predicate_facts_remain_undetermined_instead_of_proving_nonmember
 
 #[test]
 fn country_rule_requires_its_explicit_dispatch_location_to_remain_eligible() {
-    use crate::fixtures::gallery;
-    use crate::{assessment::AssessmentReason, terms::ShippingEligibility};
     use party_core::{party_id::PartyId, party_location::*, party_location_id::PartyLocationId};
+    use shipping_core::fixtures::gallery;
+    use shipping_core::{assessment::AssessmentReason, terms::ShippingEligibility};
     let g = gallery();
     let id = PartyLocationId::new();
     let base = match g.profile.content().terms.shipping().unwrap() {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{McpStartupError, RotatingMcpRouter};
+use aura_historia_mcp::{McpStartupError, RotatingMcpRouter};
 use aura_historia_runtime::{ProductListingConfig, RotatingRuntime};
 use platform_lambda_bootstrap::LambdaPostgresConfig;
 use platform_postgres::{
@@ -23,7 +23,7 @@ fn should_refresh_credentials_for_each_public_invocation_and_reject_refresh_fail
     command
         .args([
             "--exact",
-            "public::tests::rotation::rotation_probe",
+            "rotation::rotation_probe",
             "--ignored",
             "--nocapture",
         ])
@@ -106,9 +106,9 @@ async fn rotation_probe() -> Result<(), TestError> {
     assert_eq!(old_list, same_list);
     let mut expected = std::collections::BTreeSet::new();
     for manifest in [
-        include_str!("../../../public-operations.json"),
-        include_str!("../../../authenticated-operations.json"),
-        include_str!("../../../partner-operations.json"),
+        include_str!("../../public-operations.json"),
+        include_str!("../../authenticated-operations.json"),
+        include_str!("../../partner-operations.json"),
     ] {
         let manifest: Value = serde_json::from_str(manifest)?;
         for operation in manifest["operations"].as_array().unwrap() {
@@ -200,7 +200,7 @@ async fn lambda_catalogue(app: Router, params: Value) -> Result<Value, TestError
         "body":body("tools/list",params).to_string(), "isBase64Encoded":false
     }))?;
     let service = lambda_http::service_fn(move |request| {
-        crate::lambda::handle_http_api_v2_request(app.clone(), request)
+        aura_historia_mcp::lambda::handle_http_api_v2_request(app.clone(), request)
     });
     let mut context = Context::default();
     context.deadline = (SystemTime::now().duration_since(UNIX_EPOCH)? + Duration::from_secs(30))

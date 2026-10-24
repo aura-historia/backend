@@ -144,7 +144,7 @@ calls still retain their conflict/missing outcomes; deactivation/removal are des
 do not grant authority or authorize retries. A mutation timeout leaves the outcome unknown;
 inspect current state before deciding whether to retry. REST and MCP reuse shared watchlist
 contracts and the same typed runtime service family. The
-[operation fixtures](../src/aura-historia-mcp/src/tools/watchlist/tests.rs) and
+[operation fixtures](../src/aura-historia-mcp/src/tools/watchlist.rs) and
 [local database acceptance](../src/aura-historia-mcp/tests/watchlist_postgres.rs) cover the boundary.
 
 ## Public catalogue
@@ -219,10 +219,10 @@ without substituting a later/current rate. Existing empty histories succeed; unk
 return `NOT_FOUND`. There is no event cap, clipped tail or invented cursor. An oversized complete
 history fails explicitly with no partial result.
 
-The [combined public acceptance suite](../src/aura-historia-mcp/src/public/tests/mod.rs) uses
+The [combined public acceptance suite](../src/aura-historia-mcp/tests/public_release.rs) uses
 fake inbound services and official SDK clients through the same registry as production. Family
 contract/operation suites retain detailed input, mapping, validation and error parity coverage.
-The [personalization suite](../src/aura-historia-mcp/src/public/tests/personalization/mod.rs)
+The [personalization suite](../src/aura-historia-mcp/tests/public_release/personalization/mod.rs)
 exercises real listing and shipping handlers through HTTP, including all read-scope combinations,
 private-section omission and protective policy. The public authentication suite checks all ten
 context paths, including operations with no personalized output.
@@ -302,7 +302,7 @@ Runtime ingestion dependencies reuse one SDK publisher per warm service family. 
 submission scopes publication to its request deadline with 500 ms reserved to encode the
 admission report. Infrastructure injects `PRODUCT_LISTING_INGESTION_QUEUE_URL` and permits
 only `sqs:SendMessage` to that FIFO queue; workers retain their existing execution authority.
-The [family fixtures](../src/aura-historia-mcp/src/tools/partner_product_listing_ingestion/tests.rs)
+The [family fixtures](../src/aura-historia-mcp/src/tools/partner_product_listing_ingestion.rs)
 and [raw transport fixtures](../src/aura-historia-mcp/tests/transport/admission.rs) exercise these
 local contracts.
 

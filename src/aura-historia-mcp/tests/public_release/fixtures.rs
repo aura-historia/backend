@@ -1,5 +1,4 @@
 //! Deterministic inbound-service fixtures; no HTTP, database or provider calls.
-use super::super::PublicServices;
 use application::{
     operation_context::{OperationContext, Principal},
     pagination::{Cursor, CursoredResult},
@@ -8,6 +7,7 @@ use application::{
 use async_trait::async_trait;
 use auction_core::{AuctionFormat, AuctionId, AuctionSchedule};
 use auction_service::{ports::*, use_cases::*};
+use aura_historia_mcp::public::PublicServices;
 use aura_historia_runtime::*;
 use fxrate_core::FxRateId;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};

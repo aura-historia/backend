@@ -8121,6 +8121,7 @@ dependencies = [
  "money",
  "party-core",
  "serde_json",
+ "shipping-core",
  "thiserror 2.0.21",
  "uuid",
 ]
