@@ -164,6 +164,7 @@ export class DeliveryStack extends cdk.Stack {
         imageScanOnPush: true, removalPolicy: cdk.RemovalPolicy.RETAIN,
       });
       repository.grantPullPush(builder);
+      repository.grant(builder, "ecr:DescribeRepositories", "ecr:ListImages", "ecr:DescribeImages");
     }
     const vars = (pipeline: codepipeline.Pipeline, extra: Record<string, string> = {}) => Object.fromEntries([
       ...(pipelineVariables.get(pipeline) ?? ["RequestKey", "RequestVersion", "RequestDigest", "BundleDigest", "ReportKey", "ReportVersion", "ReportDigest"].map((variableName) => new codepipeline.Variable({ variableName }))).map((variable) => [`DELIVERY_${variable.variableName.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()}`,
