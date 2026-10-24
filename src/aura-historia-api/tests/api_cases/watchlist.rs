@@ -447,7 +447,9 @@ async fn should_reactivate_watchlist_with_shipping_on_single_connection_pool_wit
 
     assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert_watchlist_product(&body, product_listing_id, true, false);
-    assert!(body["item"]["shipping"].is_object());
+    // The single-listing write response uses detail shipping. The listing asserts no
+    // terms, so only the private destination assessment is disclosed.
+    assert!(body["item"].get("shipping").is_none());
     assert_eq!(
         "DE",
         body["userState"]["shipping"]["destination"]["country"]
@@ -612,7 +614,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
             body["item"]["pricing"]["display"]["price"]
         );
         assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
-        assert!(body["item"]["shipping"].is_object());
+        assert!(body["item"].get("shipping").is_none());
     }
 }
 
@@ -765,7 +767,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
     assert_watchlist_product(&body, product_listing_id, true, false);
     assert_eq!(serde_json::json!("WITHDRAWN"), body["item"]["lifecycle"]);
     assert!(body["item"]["availability"].is_null());
-    assert!(body["item"]["shipping"].is_null());
+    assert!(body["item"].get("shipping").is_none());
     assert!(body["userState"].get("shipping").is_none());
 
     let deactivated = client
@@ -783,7 +785,7 @@ async fn should_allow_notification_only_and_deactivation_updates_for_withdrawn_p
     assert_watchlist_product(&body, product_listing_id, false, false);
     assert_eq!(serde_json::json!("WITHDRAWN"), body["item"]["lifecycle"]);
     assert!(body["item"]["availability"].is_null());
-    assert!(body["item"]["shipping"].is_null());
+    assert!(body["item"].get("shipping").is_none());
     assert!(body["userState"].get("shipping").is_none());
     let entry = watchlist_entry_snapshot(user_id, product_listing_id).await;
     assert_eq!(serde_json::json!("INACTIVE_BY_USER"), entry["state"]);
@@ -873,7 +875,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
         assert_eq!(serde_json::json!({}), body["item"]["pricing"]["display"]);
         assert_eq!(serde_json::json!([]), body["item"]["images"]);
         assert!(body["item"]["availability"].is_null());
-        assert!(body["item"]["shipping"].is_null());
+        assert!(body["item"].get("shipping").is_none());
         assert!(body["userState"].get("shipping").is_none());
     }
 }

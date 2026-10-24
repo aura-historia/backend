@@ -5175,7 +5175,7 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+                      $ref: "#/components/schemas/PersonalizedProductListingCollectionDetailsData"
                   size:
                     type: integer
                     minimum: 0
@@ -17915,9 +17915,6 @@ components:
       additionalProperties: false
       required:
       - referenceRelease
-      - country
-      - subdivision
-      - postalCode
       properties:
         referenceRelease:
           type: string
@@ -17926,13 +17923,12 @@ components:
         country:
           type: string
           pattern: ^[A-Z]{2}$
-          nullable: true
         subdivision:
           type: string
-          nullable: true
         postalCode:
           type: string
-          nullable: true
+      description: Minimal effective destination area facts. Absent facts are omitted; no street, coordinates,
+        address identity or provider evidence is returned.
     DeliveryAssessmentAttribution:
       type: object
       additionalProperties: false
@@ -17940,226 +17936,110 @@ components:
       properties:
         provider: {type: string}
         attributionUrl: {type: string}
-    DeliveryAssertionEvidence:
+      description: Required attribution of geographic provider evidence behind the assessed destination.
+    DeliveryAssessmentEligibility:
+      type: string
+      enum:
+      - OFFERED
+      - NOT_OFFERED
+      - SUBJECT_TO_CONFIRMATION
+      description: Assessed eligibility. Omitted eligibility means unknown or unasserted; only NOT_OFFERED
+        is an established negative.
+    DeliveryAssessmentRequiredInputs:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        enum:
+        - DESTINATION
+        - DESTINATION_COUNTRY
+        - DESTINATION_SUBDIVISION
+        - POSTAL_CODE
+        - QUANTITY
+        - LOTS
+        - SHIPMENTS
+        - SELLER_ORDERS
+        - VARIANT
+      description: Caller-suppliable inputs whose absence leaves eligibility undetermined. Present only
+        when eligibility is omitted.
+    DeliveryAssessmentExplanationDataQualifyingAmountRequired:
       type: object
       additionalProperties: false
-      required: [verifiedAt]
+      required: [code, scope]
       properties:
-        verifiedAt:
-          type: string
-          format: date-time
-      description: Last successful assertion observation. Terms remain valid until updated, withdrawn,
-        or their source loses authority. Observation age alone never withdraws terms. Failed recrawls,
-        unrelated edits, evidence-only corrections and lifecycle commands do not advance this time.
-    DeliveryAssessmentProfileBasis:
+        code: {type: string, enum: [QUALIFYING_AMOUNT_REQUIRED]}
+        scope: {type: string, enum: [ITEM, LOT, SHIPMENT, SELLER_ORDER]}
+      description: A condition depends on a qualifying amount at this scope, which browsing never supplies.
+    DeliveryAssessmentExplanationDataCode:
       type: object
       additionalProperties: false
-      required:
-      - shippingProfileId
-      - termsRevision
-      - managementRevision
-      - lifecycle
-      - evidence
-      properties:
-        shippingProfileId:
-          type: string
-          pattern: ^shp_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        termsRevision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-        managementRevision:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-        lifecycle:
-          type: string
-          enum:
-          - ACTIVE
-          - RETIRED
-        evidence:
-          $ref: '#/components/schemas/DeliveryAssertionEvidence'
-    DeliveryAssessmentReason:
-      type: object
-      additionalProperties: false
-      required:
-      - code
+      required: [code]
       properties:
         code:
           type: string
           enum:
-          - MISSING_INPUT
-          - NO_SOURCE_DEFAULT
-          - PROFILE_ABSENT
-          - PROFILE_RETIRED
-          - SOURCE_MISMATCH
-          - AMBIGUOUS_DEPENDENCY
-          - LOCATION_ABSENT
-          - LOCATION_RETIRED
-          - REFERENCE_RELEASE_MISMATCH
-          - UNRESOLVED_AREA
-          - UNSUPPORTED_POSTAL_SHAPE
-          - COUNTRY_MISMATCH
-          - SUBDIVISION_MISMATCH
-          - POSTAL_MISMATCH
-          - CLASS_MISMATCH
-          - INCOMPLETE_CLASS_MEMBERSHIP
-          - VARIANT_MISMATCH
-          - VARIANT_UNAVAILABLE
-          - MIXED_VARIANT_APPLICABILITY
-          - QUANTITY_OUTSIDE_RANGE
-          - QUALIFYING_THRESHOLD_NOT_MET
-          - CURRENCY_MISMATCH
-          - EXCLUDED
-          - EARLIER_ZONE_UNDETERMINED
           - INCOMPLETE_COVERAGE
-          - OUTSIDE_COMPLETE_COVERAGE
-          - NO_APPLICABLE_SERVICE
-          - NO_SHIPPING_ASSERTION
-          - NO_COLLECTION_ASSERTION
-          - NO_ELIGIBILITY_ASSERTION
-          - SUPPRESSED_INHERITANCE
-          - ASSERTION_CLEARED
-          - SHIPPING_PROHIBITED
-          - SHIPPING_DEPENDENCY_REPLACED
-          - SHIPPING_DEPENDENCY_UNDETERMINED
-          - UNKNOWN_CHARGE_BASIS
-          - NO_CURRENCY_ASSERTION
-          - PRICE_ON_REQUEST
-          - EXTERNALLY_CALCULATED_PRICE
-          - ARITHMETIC_OVERFLOW
-        input:
-          type: string
-          enum:
-          - DESTINATION
-          - DESTINATION_COUNTRY
-          - DESTINATION_SUBDIVISION
-          - POSTAL_CODE
-          - ORIGIN_COUNTRY
-          - QUANTITY
-          - LOTS
-          - SHIPMENTS
-          - SELLER_ORDERS
-          - VARIANT
-          - CLASS_MEMBERSHIP
-          - QUALIFYING_AMOUNT
-        scope:
-          type: string
-          enum:
-          - ITEM
-          - LOT
-          - SHIPMENT
-          - SELLER_ORDER
-        index:
-          type: integer
-          minimum: 0
-      description: MISSING_INPUT includes input, plus scope for QUALIFYING_AMOUNT. EARLIER_ZONE_UNDETERMINED
-        includes index. Other codes include no additional fields or private dependency text.
+          - UNRESOLVED_TERMS
+          - SHIPPING_UNDETERMINED
+          - NOT_ASSERTED
+      description: INCOMPLETE_COVERAGE means partial coverage neither includes nor excludes the destination
+        or service. UNRESOLVED_TERMS means seller-side origin/class facts, areas or dependencies cannot be
+        interpreted conservatively. SHIPPING_UNDETERMINED means collection depends on undetermined shipping.
+        NOT_ASSERTED means applicable terms assert no eligibility.
+    DeliveryAssessmentExplanations:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        oneOf:
+        - $ref: '#/components/schemas/DeliveryAssessmentExplanationDataQualifyingAmountRequired'
+        - $ref: '#/components/schemas/DeliveryAssessmentExplanationDataCode'
+      description: Bounded explanation of an undetermined outcome, derived from the assessment rather than
+        a raw reason trace. Present only when eligibility is omitted.
+    DeliveryAssessmentSummaryData:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
+      description: Assessed collection outcome. Omitted when collection is unasserted. Collection can remain
+        offered when shipping is prohibited.
     DeliveryAssessmentCharge:
       oneOf:
       - $ref: '#/components/schemas/ShippingPriceDataFixed'
       - $ref: '#/components/schemas/ShippingPriceDataFrom'
       - $ref: '#/components/schemas/ShippingPriceDataEstimatedRange'
-      description: Arithmetic advertised charge for its explicit basis and count; never a quote or landed
-        cost. Null when unavailable, inapplicable or necessary count/currency/basis is absent.
+      description: Arithmetic advertised charge in source currency for its explicit basis and count; never a
+        quote or landed cost. Omitted unless every count its basis needs is known, so browsing calculates none.
     DeliveryAssessmentOption:
       type: object
       additionalProperties: false
-      required:
-      - serviceIndex
-      - applicability
-      - eligibility
-      - charge
-      - reasons
+      required: [service]
       properties:
-        serviceIndex:
-          type: integer
-          minimum: 0
-          description: Zero-based service index within the selected zone of item.shipping.terms.
-        applicability:
-          type: string
-          enum:
-          - MATCH
-          - NO_MATCH
-          - UNDETERMINED
-        eligibility:
-          type: string
-          enum:
-          - OFFERED
-          - NOT_OFFERED
-          - SUBJECT_TO_CONFIRMATION
-          - null
-          nullable: true
-        charge:
-          anyOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentCharge'
-          - type: object
-            nullable: true
-            enum:
-            - null
-        reasons:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeliveryAssessmentReason'
-      description: Eligibility and calculated charge for a service in the selected advertised zone.
-        Service identity, advertised price/basis/components and durations remain in item.shipping.terms.
-    DeliveryAssessmentCollection:
-      type: object
-      additionalProperties: false
-      required:
-      - eligibility
-      - applicability
-      - reasons
-      properties:
-        eligibility:
-          type: string
-          enum:
-          - OFFERED
-          - NOT_OFFERED
-          - SUBJECT_TO_CONFIRMATION
-          - null
-          nullable: true
-        applicability:
-          type: string
-          enum:
-          - MATCH
-          - NO_MATCH
-          - UNDETERMINED
-        reasons:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeliveryAssessmentReason'
-      description: Independent collection can remain offered when shipping is prohibited. Arrangement/windows
-        are in terms.collection; site is always null pending explicit permitted disclosure.
+        service: {type: string, minLength: 1, maxLength: 128}
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
+        rate: {$ref: '#/components/schemas/ListingShippingRateData'}
+        charge: {$ref: '#/components/schemas/DeliveryAssessmentCharge'}
+      description: A service of the destination's selected zone whose conditions do not definitely exclude it,
+        identified by its code with a copy of its advertised rate. Inputs and explanations cover only its own
+        applicability.
     ShippingDisplayData:
       type: object
       additionalProperties: false
-      required: [currency, fxRateId, capturedAt, rates]
+      required: [currency, fxRateId, capturedAt]
       description: >-
-        Converted current effective advertised rates. Source terms retain their original amounts/currencies.
-        HalfUp rounding uses currency minor-unit exponents. FROM and ESTIMATED_RANGE retain uncertainty;
-        FREE with known currency remains zero. Unknown-currency free, external, on-request and absent rates
-        have no entry. Conversion supplies no quantity, applicability, binding quote or complete landed cost.
+        Valuation of every requested-currency value in this shipping object, from the persisted browsing FX
+        snapshot (pinned for search continuation). Present only when a value was converted; same-currency
+        reads omit it. HalfUp rounding uses currency minor-unit exponents.
       properties:
         currency: {$ref: '#/components/schemas/CurrencyData'}
-        fxRateId: {type: string, description: 'Immutable persisted browsing FX snapshot, pinned for search continuation.'}
+        fxRateId: {type: string}
         capturedAt: {type: string, format: date-time}
-        rates:
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [zoneIndex, serviceIndex, price, basis]
-            properties:
-              zoneIndex: {type: integer, minimum: 0, description: Zero-based zone index in effective terms.}
-              serviceIndex: {type: integer, minimum: 0, description: Zero-based service index within that zone.}
-              price:
-                oneOf:
-                - {$ref: '#/components/schemas/ShippingPriceDataFree'}
-                - {$ref: '#/components/schemas/ShippingPriceDataFixed'}
-                - {$ref: '#/components/schemas/ShippingPriceDataFrom'}
-                - {$ref: '#/components/schemas/ShippingPriceDataEstimatedRange'}
-              basis: {type: string, nullable: true, enum: [PER_ITEM, PER_LOT, PER_SHIPMENT, PER_SELLER_ORDER, null]}
     ShippingMatchValuationData:
       type: object
       additionalProperties: false
@@ -18176,103 +18056,294 @@ components:
           properties:
             amount: {type: integer, format: int64, minimum: 0, maximum: 9223372036854775807}
             currency: {$ref: '#/components/schemas/CurrencyData'}
-    AdvertisedListingShippingData:
+    ListingShippingSummaryData:
       type: object
       additionalProperties: false
+      minProperties: 1
       description: >-
-        Effective advertised shipping and collection terms, shared by every viewer. Source defaults
-        and listing overrides are resolved from current PostgreSQL state. Dispatch origins and
-        collection sites are always null. Invalid shipping dependencies return 500 SHIPPING_STORAGE_ERROR;
-        unavailable shipping reads return 503 SHIPPING_TEMPORARILY_UNAVAILABLE. Missing or withdrawn listings and hidden entries have
-        shipping null. Clients render these terms generically without a destination. Display conversion uses
-        persisted browsing FX, never historical sale-observation FX. Missing snapshot/unavailable FX reads
-        return 503; invalid snapshot, missing required quote or overflow return 500. Shared listing FX
-        resolution retains endpoint errors; shipping enrichment uses SHIPPING_TEMPORARILY_UNAVAILABLE
-        or SHIPPING_STORAGE_ERROR. No provider is called. Currency and query predicates isolate
-        anonymous caches; credential-bearing responses and errors remain private, no-store.
-      required: [terms, display, listingRevision, sourceRevision, defaultRevision, profile, listingEvidence, evaluatedAt, shippingReasons, collectionReasons, notices]
+        Bounded destination-independent shipping of a collection item, shared by every viewer. Its size never
+        grows with the advertised policy: it contains no terms, zones, service lists, per-zone conversions or
+        management metadata. Omitted when nothing is asserted or the listing is hidden/withdrawn; omission is
+        not a no-shipping assertion. Current PostgreSQL state is used even when indexed membership lags.
+        Invalid shipping dependencies return 500 SHIPPING_STORAGE_ERROR; unavailable shipping reads return 503
+        SHIPPING_TEMPORARILY_UNAVAILABLE.
       properties:
-        display:
-          anyOf:
-          - $ref: '#/components/schemas/ShippingDisplayData'
-          - type: object
-            nullable: true
-            enum:
-            - null
-        terms:
-          $ref: '#/components/schemas/AdvertisedDeliveryTermsData'
-        listingRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
-        sourceRevision: {type: integer, minimum: 1, maximum: 9223372036854775807}
-        defaultRevision: {type: integer, minimum: 1, maximum: 9223372036854775807, nullable: true}
-        profile:
-          anyOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentProfileBasis'
-          - type: object
-            nullable: true
-            enum:
-            - null
-        listingEvidence:
-          anyOf:
-          - $ref: '#/components/schemas/DeliveryAssertionEvidence'
-          - type: object
-            nullable: true
-            enum:
-            - null
-        evaluatedAt: {type: string, format: date-time}
-        shippingReasons:
-          type: array
-          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
-        collectionReasons:
-          type: array
-          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
-        notices:
-          type: array
-          items:
-            type: string
-            enum: [ASSIGNMENT_UNRESOLVED, INTEGRATION_MISMATCH, PROFILE_INTEGRATION_MISMATCH]
-    PersonalizedListingShippingData:
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
+        collection: {$ref: '#/components/schemas/DeliveryAssessmentSummaryData'}
+    ListingShippingDetailData:
       type: object
       additionalProperties: false
+      minProperties: 1
       description: >-
-        Evaluation for the authenticated owner's selected browsing destination. Omitted when
-        no destination is selected or the listing is hidden/withdrawn. A saved address or explicit
-        country/postal preference can supply the destination; owning addresses alone selects none.
-        Destination facts include submitted assertions and compatible permitted unexpired derived
-        evidence. No street, coordinates or address identity is returned. Delegated personalization
-        requires users:read; credentials without it receive generic terms. Browsing infers no quantity, variant, shipment/order count or qualifying
-        amount. Missing inputs retain uncertainty and explained null charges. This enrichment does
-        not filter or reorder results. Authenticated responses are never cached.
-      required: [destination, attribution, evaluatedAt, eligibility, selectedZone, options, reasons, collection, bindingQuote, completeLandedCost]
+        Destination-independent shipping of a single listing read, shared by every viewer: the summary fields
+        and effective advertised terms. Terms are omitted when none resolve; the summary then explains why.
+        Omitted when nothing is asserted or the listing is hidden/withdrawn.
+        Display conversion uses persisted browsing FX, never historical sale-observation FX. Missing snapshot
+        or unavailable FX reads return 503; invalid snapshot, missing required quote or overflow return 500.
+        Currency and query predicates isolate anonymous caches; credential-bearing responses and errors remain
+        private, no-store.
       properties:
-        destination:
-          $ref: '#/components/schemas/DeliveryAssessmentGeography'
-        attribution:
-          anyOf:
-          - $ref: '#/components/schemas/DeliveryAssessmentAttribution'
-          - type: object
-            nullable: true
-            enum:
-            - null
-        evaluatedAt: {type: string, format: date-time}
-        eligibility:
-          type: string
-          enum: [OFFERED, NOT_OFFERED, SUBJECT_TO_CONFIRMATION, null]
-          nullable: true
-        selectedZone:
-          type: integer
-          minimum: 0
-          nullable: true
-          description: Zero-based zone index in item.shipping.terms.shipping.coverage.zones.
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
+        terms: {$ref: '#/components/schemas/ListingShippingTermsData'}
+        display: {$ref: '#/components/schemas/ShippingDisplayData'}
+    ShippingPricePreviewData:
+      type: object
+      additionalProperties: false
+      required: [service, basis, price]
+      properties:
+        service: {type: string, minLength: 1, maxLength: 128}
+        basis: {type: string, enum: [PER_ITEM, PER_LOT, PER_SHIPMENT, PER_SELLER_ORDER]}
+        price: {$ref: '#/components/schemas/ListingShippingPriceData'}
+      description: >-
+        One advertised rate of a service establishing the summarized eligibility in the destination's selected
+        zone, in the requested currency when its amount is convertible. Services with undetermined conditions
+        never supply it. Several candidates are compared only with one basis and exact fixed or known-currency
+        free prices in one currency: the lowest wins, then the first advertised; otherwise it is omitted. It
+        implies no purchase quantity, total, quote or global cheapest rate.
+    PersonalizedShippingSummaryData:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: >-
+        Bounded assessment of a collection item for the authenticated owner's selected browsing destination,
+        without echoing it. Omitted when nothing is assessed, no destination is selected, delegated
+        personalization lacks users:read, or the listing is hidden/withdrawn. Owning addresses alone selects
+        none. Authenticated responses are never cached.
+      properties:
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
+        pricePreview: {$ref: '#/components/schemas/ShippingPricePreviewData'}
+        collection: {$ref: '#/components/schemas/DeliveryAssessmentSummaryData'}
+        attribution: {$ref: '#/components/schemas/DeliveryAssessmentAttribution'}
+        display: {$ref: '#/components/schemas/ShippingDisplayData'}
+    PersonalizedShippingDetailData:
+      type: object
+      additionalProperties: false
+      required: [destination]
+      description: >-
+        Assessment of a single listing for the authenticated owner's selected browsing destination. Omitted
+        under the same conditions as PersonalizedShippingSummaryData. Destination facts include submitted
+        assertions and compatible permitted unexpired derived evidence. Browsing infers no quantity, variant,
+        shipment/order count or qualifying amount. This enrichment does not filter or reorder results.
+      properties:
+        destination: {$ref: '#/components/schemas/DeliveryAssessmentGeography'}
+        attribution: {$ref: '#/components/schemas/DeliveryAssessmentAttribution'}
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        requiredInputs: {$ref: '#/components/schemas/DeliveryAssessmentRequiredInputs'}
+        explanations: {$ref: '#/components/schemas/DeliveryAssessmentExplanations'}
         options:
           type: array
+          minItems: 1
+          maxItems: 64
           items: {$ref: '#/components/schemas/DeliveryAssessmentOption'}
-        reasons:
+        collection: {$ref: '#/components/schemas/DeliveryAssessmentSummaryData'}
+        display: {$ref: '#/components/schemas/ShippingDisplayData'}
+    ListingShippingPriceDataFree:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [FREE]}
+        currency: {$ref: '#/components/schemas/ShippingCurrencyCode'}
+    ListingShippingPriceDataExternallyCalculated:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [EXTERNALLY_CALCULATED]}
+        currency: {$ref: '#/components/schemas/ShippingCurrencyCode'}
+    ListingShippingPriceDataOnRequest:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [ON_REQUEST]}
+        currency: {$ref: '#/components/schemas/ShippingCurrencyCode'}
+    ListingShippingPriceData:
+      oneOf:
+      - $ref: '#/components/schemas/ListingShippingPriceDataFree'
+      - $ref: '#/components/schemas/ShippingPriceDataFixed'
+      - $ref: '#/components/schemas/ShippingPriceDataFrom'
+      - $ref: '#/components/schemas/ShippingPriceDataEstimatedRange'
+      - $ref: '#/components/schemas/ListingShippingPriceDataExternallyCalculated'
+      - $ref: '#/components/schemas/ListingShippingPriceDataOnRequest'
+      discriminator:
+        propertyName: kind
+        mapping:
+          FREE: '#/components/schemas/ListingShippingPriceDataFree'
+          FIXED: '#/components/schemas/ShippingPriceDataFixed'
+          FROM: '#/components/schemas/ShippingPriceDataFrom'
+          ESTIMATED_RANGE: '#/components/schemas/ShippingPriceDataEstimatedRange'
+          EXTERNALLY_CALCULATED: '#/components/schemas/ListingShippingPriceDataExternallyCalculated'
+          ON_REQUEST: '#/components/schemas/ListingShippingPriceDataOnRequest'
+      description: Every advertised price kind. On-request and externally calculated prices stay explicit;
+        an omitted currency is unasserted.
+    ListingShippingRateData:
+      type: object
+      additionalProperties: false
+      required: [price]
+      properties:
+        price: {$ref: '#/components/schemas/ListingShippingPriceData'}
+        display_price:
+          allOf:
+          - $ref: '#/components/schemas/ListingShippingPriceData'
+          description: Requested-currency value of a fixed, from or range amount advertised in another currency;
+            price keeps the source value. Valued by the enclosing display.
+        basis: {type: string, enum: [PER_ITEM, PER_LOT, PER_SHIPMENT, PER_SELLER_ORDER]}
+        qualifying_scope: {type: string, enum: [ITEM, LOT, SHIPMENT, SELLER_ORDER]}
+        components:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: string
+            enum: [INCLUDED, EXCLUDED]
+          description: 'Keys: TRANSPORT, PACKING, INSURANCE, HANDLING, INSTALLATION, IMPORT_DUTY, TAX. Absence
+            is no inclusion assertion.'
+    ListingShippingApplicabilityData:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        class: {type: string, minLength: 1, maxLength: 128}
+        variants:
           type: array
-          items: {$ref: '#/components/schemas/DeliveryAssessmentReason'}
-        collection:
-          $ref: '#/components/schemas/DeliveryAssessmentCollection'
-        bindingQuote: {type: boolean, enum: [false]}
-        completeLandedCost: {type: boolean, enum: [false]}
+          minItems: 1
+          maxItems: 64
+          items: {type: string, minLength: 1, maxLength: 128}
+        quantity: {$ref: '#/components/schemas/ShippingQuantityData'}
+        threshold: {$ref: '#/components/schemas/ShippingThresholdData'}
+      description: Asserted conditions, all of which must hold. Omitted for unconditional rules.
+    ListingShippingTimeData:
+      type: object
+      additionalProperties: false
+      required: [minimum, maximum, unit]
+      properties:
+        minimum: {type: integer, minimum: 0, maximum: 4294967295}
+        maximum: {type: integer, minimum: 0, maximum: 4294967295}
+        unit: {type: string, enum: [HOURS, DAYS, WEEKS]}
+        basis: {type: string, enum: [CALENDAR, BUSINESS]}
+        trigger: {type: string, enum: [ORDER, ORDER_CONFIRMATION, PAYMENT, DISPATCH, READY_FOR_COLLECTION]}
+    ListingShippingLeadTimesData:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        handling: {$ref: '#/components/schemas/ListingShippingTimeData'}
+        transit: {$ref: '#/components/schemas/ListingShippingTimeData'}
+        total: {$ref: '#/components/schemas/ListingShippingTimeData'}
+      description: Independent duration assertions; never computed dates.
+    ListingShippingServiceData:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: {type: string, minLength: 1, maxLength: 128}
+        applicability: {$ref: '#/components/schemas/ListingShippingApplicabilityData'}
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        rate: {$ref: '#/components/schemas/ListingShippingRateData'}
+        lead_times: {$ref: '#/components/schemas/ListingShippingLeadTimesData'}
+        features:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, enum: [TRACKING, INSURED, WHITE_GLOVE, INSTALLATION, PACKING]}
+        arranger: {$ref: '#/components/schemas/ShippingActorData'}
+        performer: {$ref: '#/components/schemas/ShippingActorData'}
+    ListingShippingZoneData:
+      type: object
+      additionalProperties: false
+      required: [areas, services]
+      properties:
+        areas:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: {$ref: '#/components/schemas/ShippingAreaData'}
+        applicability: {$ref: '#/components/schemas/ListingShippingApplicabilityData'}
+        services:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: {$ref: '#/components/schemas/ListingShippingServiceData'}
+      description: Zones are ordered; the first matching zone applies and service codes are unique within it.
+    ListingShippingCoverageData:
+      type: object
+      additionalProperties: false
+      required: [reference_release, completeness, zones]
+      properties:
+        reference_release: {type: string, enum: [iso-codes-4.20.1]}
+        completeness: {type: string, enum: [PARTIAL, COMPLETE]}
+        applicability: {$ref: '#/components/schemas/ListingShippingApplicabilityData'}
+        exclusions:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: {$ref: '#/components/schemas/ShippingAreaData'}
+        zones:
+          type: array
+          maxItems: 64
+          items: {$ref: '#/components/schemas/ListingShippingZoneData'}
+      description: Exclusions precede zones. The dispatch origin is never disclosed.
+    ListingShippingPolicyDataCoverage:
+      type: object
+      additionalProperties: false
+      required: [kind, coverage]
+      properties:
+        kind: {type: string, enum: [COVERAGE]}
+        coverage: {$ref: '#/components/schemas/ListingShippingCoverageData'}
+    ListingShippingPolicyData:
+      oneOf:
+      - $ref: '#/components/schemas/ShippingPolicyDataProhibited'
+      - $ref: '#/components/schemas/ListingShippingPolicyDataCoverage'
+      discriminator:
+        propertyName: kind
+        mapping:
+          PROHIBITED: '#/components/schemas/ShippingPolicyDataProhibited'
+          COVERAGE: '#/components/schemas/ListingShippingPolicyDataCoverage'
+    ListingShippingCollectionArrangementDataWindow:
+      type: object
+      additionalProperties: false
+      required: [kind, duration]
+      properties:
+        kind: {type: string, enum: [WINDOW]}
+        duration: {$ref: '#/components/schemas/ListingShippingTimeData'}
+    ListingShippingCollectionArrangementData:
+      oneOf:
+      - $ref: '#/components/schemas/ShippingCollectionArrangementDataByAppointment'
+      - $ref: '#/components/schemas/ShippingCollectionArrangementDataContactToArrange'
+      - $ref: '#/components/schemas/ListingShippingCollectionArrangementDataWindow'
+      discriminator:
+        propertyName: kind
+        mapping:
+          BY_APPOINTMENT: '#/components/schemas/ShippingCollectionArrangementDataByAppointment'
+          CONTACT_TO_ARRANGE: '#/components/schemas/ShippingCollectionArrangementDataContactToArrange'
+          WINDOW: '#/components/schemas/ListingShippingCollectionArrangementDataWindow'
+    ListingShippingCollectionData:
+      type: object
+      additionalProperties: false
+      required: [dependency]
+      properties:
+        applicability: {$ref: '#/components/schemas/ListingShippingApplicabilityData'}
+        dependency: {type: string, enum: [INDEPENDENT, SHIPPING]}
+        eligibility: {$ref: '#/components/schemas/DeliveryAssessmentEligibility'}
+        arrangement: {$ref: '#/components/schemas/ListingShippingCollectionArrangementData'}
+      description: Collection sites are never disclosed; a referenced location does not authorize publishing its address.
+    ListingShippingTermsData:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        shipping: {$ref: '#/components/schemas/ListingShippingPolicyData'}
+        collection: {$ref: '#/components/schemas/ListingShippingCollectionData'}
+      description: >-
+        Public read projection of effective advertised terms. Unlike the strict AdvertisedDeliveryTermsData
+        protocol used by management and imports, it carries no schema marker and omits absent assertions and
+        empty optional collections. This contract supplies no quote.
     ProductListingDeliveryCommandData:
       type: object
       additionalProperties: false
@@ -19857,7 +19928,6 @@ components:
       type: object
       description: Lightweight ProductListing summary for search and similar-listing results.
       required:
-        - shipping
         - productListingId
         - eventId
         - source
@@ -19871,12 +19941,7 @@ components:
         - updated
       properties:
         shipping:
-          anyOf:
-          - $ref: '#/components/schemas/AdvertisedListingShippingData'
-          - type: object
-            nullable: true
-            enum:
-            - null
+          $ref: '#/components/schemas/ListingShippingSummaryData'
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -19975,7 +20040,6 @@ components:
       type: object
       description: Canonical ProductListing detail inside a personalized response wrapper.
       required:
-        - shipping
         - productListingId
         - eventId
         - source
@@ -19992,12 +20056,124 @@ components:
         - updated
       properties:
         shipping:
+          $ref: '#/components/schemas/ListingShippingDetailData'
+        productListingId:
+          type: string
+        productListingTitleSlugId:
+          type: string
+          minLength: 8
+          maxLength: 120
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$"
+          description: Immutable Aura-owned public locator. Omitted when the listing is redacted as hidden.
+          example: museum-cabinet-18-19-century-a1b2c3
+        eventId:
+          type: string
+        source:
+          $ref: "#/components/schemas/ProductListingSourceData"
+        sourceListingId:
+          type: string
+        productTitle:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+          description: Original normalized title. Styled letters and digits are presented as ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; titles stored before a normalization change, including legacy trailing whitespace, are presented in current normalized form.
+        productDescription:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        description:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        pricing:
+          type: object
+          required:
+            - source
+            - display
+            - valuation
+          properties:
+            source:
+              $ref: "#/components/schemas/ProductListingPricingData"
+            display:
+              $ref: "#/components/schemas/ProductListingPricingData"
+            valuation:
+              $ref: "#/components/schemas/ProductListingPricingValuationData"
+        availability:
           anyOf:
-          - $ref: '#/components/schemas/AdvertisedListingShippingData'
+          - $ref: '#/components/schemas/ListingAvailabilityData'
           - type: object
             nullable: true
             enum:
             - null
+        lifecycle:
+          $ref: "#/components/schemas/ListingLifecycleData"
+        url:
+          type: string
+          format: uri
+        viewUrl:
+          type: string
+          format: uri
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductListingImageData"
+        contentPolicy:
+          anyOf:
+          - $ref: '#/components/schemas/ContentPolicyData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+        auction:
+          anyOf:
+          - $ref: '#/components/schemas/AuctionSummaryData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+          description: Current parent Auction presentation from the joined PostgreSQL detail read. Null when the
+            listing has no parent Auction.
+        lot:
+          anyOf:
+          - $ref: '#/components/schemas/ProductListingLotData'
+          - type: object
+            nullable: true
+            enum:
+            - null
+          description: Listing-owned lot facts. Null when the listing has no lot facts.
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+          description: Time of the last committed change to listing-owned state, including enrichment (translations, embedding, geography, shipping summary, content assessment and delivery evidence). Strictly increasing per listing, with each new value at millisecond precision; FX changes and response-time composition do not advance it.
+    ProductListingCollectionDetailsData:
+      type: object
+      description: Canonical ProductListing detail inside a collection (watchlist, saved-search matches and auction
+        catalogue). Identical to ProductListingDetailsData except that shipping is the bounded collection summary.
+      required:
+        - productListingId
+        - eventId
+        - source
+        - sourceListingId
+        - pricing
+        - availability
+        - lifecycle
+        - url
+        - viewUrl
+        - images
+        - auction
+        - lot
+        - created
+        - updated
+      properties:
+        shipping:
+          $ref: '#/components/schemas/ListingShippingSummaryData'
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -20193,6 +20369,21 @@ components:
           description:
             Present only for a valid user or delegated-user bearer token. A delegated token receives only the
             sections its read scopes permit and no `userState` when none applies.
+    PersonalizedProductListingCollectionDetailsData:
+      type: object
+      description: Canonical Product detail in a collection, with optional user-specific state and bounded shipping.
+      required:
+        - item
+      properties:
+        item:
+          $ref: "#/components/schemas/ProductListingCollectionDetailsData"
+        userState:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingCollectionUserStateData"
+          nullable: true
+          description:
+            Present only for a valid user or delegated-user bearer token. A delegated token receives only the
+            sections its read scopes permit and no `userState` when none applies.
     PersonalizedProductListingSummaryData:
       type: object
       description: Canonical Product summary with optional user-specific state.
@@ -20203,7 +20394,7 @@ components:
           $ref: "#/components/schemas/ProductListingSummaryData"
         userState:
           allOf:
-            - $ref: "#/components/schemas/ProductListingUserStateData"
+            - $ref: "#/components/schemas/ProductListingCollectionUserStateData"
           nullable: true
           description:
             Present only for a valid user or delegated-user bearer token. A delegated token receives only the
@@ -20280,7 +20471,21 @@ components:
         "
       properties:
         shipping:
-          $ref: '#/components/schemas/PersonalizedListingShippingData'
+          $ref: '#/components/schemas/PersonalizedShippingDetailData'
+        watchlist:
+          $ref: "#/components/schemas/WatchlistUserStateData"
+        contentVisibility:
+          $ref: "#/components/schemas/ContentVisibilityUserStateData"
+        notification:
+          $ref: "#/components/schemas/NotificationUserStateData"
+        searchFilter:
+          $ref: "#/components/schemas/SearchFilterUserStateData"
+    ProductListingCollectionUserStateData:
+      type: object
+      description: ProductListingUserStateData for collection items; `shipping` is the bounded collection summary.
+      properties:
+        shipping:
+          $ref: '#/components/schemas/PersonalizedShippingSummaryData'
         watchlist:
           $ref: "#/components/schemas/WatchlistUserStateData"
         contentVisibility:
@@ -22667,7 +22872,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+            $ref: "#/components/schemas/PersonalizedProductListingCollectionDetailsData"
           description: Persisted matches in ascending match-creation order.
         size:
           type: integer
@@ -24968,7 +25173,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+            $ref: "#/components/schemas/PersonalizedProductListingCollectionDetailsData"
         pageSize:
           type: integer
           format: int64

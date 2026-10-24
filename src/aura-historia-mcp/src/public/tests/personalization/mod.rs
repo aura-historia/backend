@@ -91,7 +91,12 @@ fn assert_private_fields(value: &Value, fields: &BTreeSet<&str>) {
         );
     }
     if fields.contains("shipping") {
-        assert_eq!("DE", state["shipping"]["destination"]["country"]);
+        assert_eq!("OFFERED", state["shipping"]["eligibility"]);
+        assert!(
+            state["shipping"].get("pricePreview").is_some()
+                || state["shipping"]["destination"]["country"] == "DE",
+            "collections preview a rate; details echo the minimal destination: {value}"
+        );
     }
 }
 

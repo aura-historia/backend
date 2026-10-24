@@ -49,3 +49,4 @@ serde_json = { workspace = true }
 serde_qs = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 time = { workspace = true, features = ["macros"] }
+yaml_serde = { workspace = true }

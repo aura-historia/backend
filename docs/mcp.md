@@ -178,6 +178,8 @@ availability, orderability and unspecified-availability predicates. Geography in
 subdivisions, numeric origin, radius/unit, mode and distance order. Shared contracts preserve
 presentation defaults, size clamping, localization/fallback, source-local identifiers, full image
 collections and long URLs, content policy, shipping disclosure and withdrawn-listing handling.
+Collection tools return bounded shipping summaries and single-listing tools return detail
+shipping, as [listing reads](shipping.md#shipping-on-listing-reads) define.
 Anonymous results omit `userState`. Delegated listing results disclose `watchlist` only with
 `watchlist:read`, `searchFilter` (including saved-search references and match feedback) only with
 `search-filters:read`, `notification` only with `notifications:read`, and `contentVisibility` and

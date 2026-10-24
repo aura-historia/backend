@@ -346,6 +346,7 @@ where
             .details(
                 context,
                 std::slice::from_mut(&mut details),
+                crate::shipping::ShippingReadPurpose::Detail,
                 request.currency,
                 current_shipping_snapshot,
                 valuation_at,

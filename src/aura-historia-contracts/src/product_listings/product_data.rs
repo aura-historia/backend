@@ -1,3 +1,7 @@
+use crate::shipping::listing::{
+    ListingShippingDetailData, ListingShippingProjection, ListingShippingSummaryData,
+    PersonalizedShippingDetailData, PersonalizedShippingSummaryData,
+};
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule};
 
@@ -18,6 +22,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_service::ports::{ListingSourceSummary, ProductListingAuctionSummary};
+use product_listing_service::shipping::{AdvertisedShipping, PersonalizedShipping};
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
     PersonalizedProductListingSummary, ProductListingDetailsView,
@@ -44,10 +49,13 @@ pub struct PersonalizedData<ItemData, UserStateData> {
 use time::OffsetDateTime;
 use url::Url;
 
+/// `Shipping` follows the response purpose: details by default, summaries in collections.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ProductListingDetailsData {
-    shipping: Option<crate::shipping::listing::AdvertisedShippingData>,
+pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Shipping")]
+    shipping: Option<Shipping>,
     #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,9 +100,10 @@ pub struct ProductListingDetailsData {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ProductListingUserStateData {
+pub struct ProductListingUserStateData<Shipping = PersonalizedShippingDetailData> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    shipping: Option<crate::shipping::listing::PersonalizedShippingData>,
+    #[schemars(with = "Shipping")]
+    shipping: Option<Shipping>,
     #[serde(skip_serializing_if = "Option::is_none")]
     watchlist: Option<WatchlistUserStateData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -164,7 +173,9 @@ impl From<ListingSourceSummary> for ListingSourceSummaryData {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingSummaryData {
-    shipping: Option<crate::shipping::listing::AdvertisedShippingData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "ListingShippingSummaryData")]
+    shipping: Option<ListingShippingSummaryData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geography: Option<crate::geographic_search::ListingGeographyData>,
     #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
@@ -312,12 +323,12 @@ pub struct ProductListingAuctionData {
     reported_closed_at: Option<OffsetDateTime>,
 }
 
-impl ProductListingDetailsData {
+impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
+    ProductListingDetailsData<Shipping>
+{
     fn from_view(view: ProductListingDetailsView) -> Self {
         Self {
-            shipping: view
-                .shipping
-                .map(crate::shipping::listing::AdvertisedShippingData),
+            shipping: view.shipping.and_then(Shipping::project),
             product_listing_id: view.product_listing_id,
             product_listing_title_slug_id: view.product_listing_title_slug_id,
             event_id: view.event_id,
@@ -342,7 +353,9 @@ impl ProductListingDetailsData {
     }
 }
 
-impl From<ProductListingDetailsView> for ProductListingDetailsData {
+impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
+    From<ProductListingDetailsView> for ProductListingDetailsData<Shipping>
+{
     fn from(view: ProductListingDetailsView) -> Self {
         Self::from_view(view)
     }
@@ -523,12 +536,12 @@ impl From<ProductListingPricingValuation> for ProductListingPricingValuationData
     }
 }
 
-impl From<ProductListingUserStateView> for ProductListingUserStateData {
+impl<Shipping: ListingShippingProjection<Source = PersonalizedShipping>>
+    From<ProductListingUserStateView> for ProductListingUserStateData<Shipping>
+{
     fn from(state: ProductListingUserStateView) -> Self {
         Self {
-            shipping: state
-                .shipping
-                .map(crate::shipping::listing::PersonalizedShippingData),
+            shipping: state.shipping.and_then(Shipping::project),
             watchlist: state.watchlist.map(Into::into),
             content_visibility: state.content_visibility.map(Into::into),
             notification: state.notification.map(Into::into),
@@ -580,7 +593,7 @@ impl ProductListingSummaryData {
         Self {
             shipping: summary
                 .shipping
-                .map(crate::shipping::listing::AdvertisedShippingData),
+                .and_then(ListingShippingSummaryData::project),
             product_listing_id: summary.product_listing_id,
             product_listing_title_slug_id: summary.product_listing_title_slug_id,
             event_id: summary.event_id,
@@ -622,16 +635,41 @@ impl From<product_listing_service::use_cases::ProductListingImageView> for Produ
 
 pub type PersonalizedProductListingDetailsData =
     PersonalizedData<ProductListingDetailsData, ProductListingUserStateData>;
-pub type PersonalizedProductListingSummaryData =
-    PersonalizedData<ProductListingSummaryData, ProductListingUserStateData>;
+/// A detail-shaped listing inside a collection carries the bounded collection shipping.
+pub type PersonalizedProductListingCollectionDetailsData = PersonalizedData<
+    ProductListingDetailsData<ListingShippingSummaryData>,
+    ProductListingUserStateData<PersonalizedShippingSummaryData>,
+>;
+pub type PersonalizedProductListingSummaryData = PersonalizedData<
+    ProductListingSummaryData,
+    ProductListingUserStateData<PersonalizedShippingSummaryData>,
+>;
 
-pub fn personalized_product_details_data(
+fn personalized_details<Public, Private>(
     personalized: PersonalizedProductListingDetailsView,
-) -> PersonalizedProductListingDetailsData {
+) -> PersonalizedData<ProductListingDetailsData<Public>, ProductListingUserStateData<Private>>
+where
+    Public: ListingShippingProjection<Source = AdvertisedShipping>,
+    Private: ListingShippingProjection<Source = PersonalizedShipping>,
+{
     PersonalizedData {
         item: ProductListingDetailsData::from_view(personalized.item),
         user_state: personalized.user_state.map(Into::into),
     }
+}
+
+/// A single listing read with complete advertised terms.
+pub fn personalized_product_details_data(
+    personalized: PersonalizedProductListingDetailsView,
+) -> PersonalizedProductListingDetailsData {
+    personalized_details(personalized)
+}
+
+/// A detail-shaped collection item with bounded shipping.
+pub fn personalized_product_collection_details_data(
+    personalized: PersonalizedProductListingDetailsView,
+) -> PersonalizedProductListingCollectionDetailsData {
+    personalized_details(personalized)
 }
 
 pub fn personalized_product_summary_data(
@@ -704,12 +742,14 @@ mod tests {
 
     #[test]
     fn should_omit_undisclosed_user_state_sections() -> Result<(), serde_json::Error> {
-        let data = ProductListingUserStateData::from(ProductListingUserStateView {
-            notification: Some(NotificationUserState {
-                unseen_notification_ids: Vec::new(),
-            }),
-            ..Default::default()
-        });
+        let data = ProductListingUserStateData::<PersonalizedShippingDetailData>::from(
+            ProductListingUserStateView {
+                notification: Some(NotificationUserState {
+                    unseen_notification_ids: Vec::new(),
+                }),
+                ..Default::default()
+            },
+        );
 
         assert_eq!(
             serde_json::json!({"notification": {"unseenNotificationIds": []}}),
