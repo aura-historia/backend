@@ -27,7 +27,7 @@ if [ "${1:-}" = prepare ]; then
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.xz -o /output/node.tar.xz
   curl --fail --location --silent --show-error https://nodejs.org/dist/v26.0.0/SHASUMS256.txt -o /output/node-shasums
   (cd /output && sed -n 's#  node-v26.0.0-linux-x64.tar.xz$#  node.tar.xz#p' node-shasums | sha256sum --check -)
-  tar -xf /output/node.tar.xz -C /output
+  tar --no-same-owner -xf /output/node.tar.xz -C /output
   export PATH=/output/node-v26.0.0-linux-x64/bin:/output/cargo/bin:/output/tools/bin:$PATH
   cargo fetch --locked
   npm --prefix infra ci --ignore-scripts
