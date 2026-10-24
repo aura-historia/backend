@@ -308,6 +308,10 @@ both environments. Per-target assemblies may differ while application bytes rema
 identical. CDK file assets are published and referenced by exact key/version before
 assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 
+CloudFormation templates use JSON Unicode escapes so native template readback
+preserves their exact values. Baseline and change-set comparisons explicitly read
+the `Original` template; processed dynamic references are not the submitted template.
+
 One on-demand shared build group and the initial compute size are provisional,
 not a measured performance/capacity claim. Before enabling paid release builds,
 an explicitly approved benchmark must record cold/warm duration, peak memory,
