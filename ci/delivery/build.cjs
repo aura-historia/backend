@@ -343,6 +343,22 @@ function publishImages(candidate, output, catalog, sourceSha, buildId, store) {
     };
   });
 }
+function packageAssemblyAsset(assembly, archive, asset) {
+  const source = path.resolve(assembly, asset.path);
+  if (
+    !source.startsWith(assembly + path.sep) ||
+    fs.lstatSync(source).isSymbolicLink()
+  )
+    throw new Error('Invalid CDK asset source');
+  if (asset.packaging === 'file') return source;
+  if (asset.packaging !== 'zip')
+    throw new Error('Unsupported CDK asset packaging');
+  const entries = fileTree(source).map((entry) => path.relative(source, entry));
+  for (const entry of entries)
+    fs.utimesSync(path.join(source, entry), 315532800, 315532800);
+  run('zip', ['-X', '-q', archive, ...entries], { cwd: source });
+  return archive;
+}
 function publishAssemblyAssets(
   assembly,
   output,
@@ -351,7 +367,7 @@ function publishAssemblyAssets(
   store,
   artifacts,
 ) {
-  const replacements = [];
+  const replacements = [], publishedAssets = new Map();
   for (const manifestFile of fileTree(assembly).filter((file) =>
     file.endsWith('.assets.json'),
   )) {
@@ -359,32 +375,23 @@ function publishAssemblyAssets(
     if (Object.keys(manifest.dockerImages || {}).length)
       throw new Error('Synth-time Docker bundling is forbidden');
     for (const [id, asset] of Object.entries(manifest.files || {})) {
-      const source = path.resolve(assembly, asset.source.path);
-      if (
-        !source.startsWith(assembly + path.sep) ||
-        fs.lstatSync(source).isSymbolicLink()
-      )
-        throw new Error('Invalid CDK asset source');
-      let file = source;
-      if (asset.source.packaging === 'zip') {
-        file = path.join(output, `cdk-${target}-${id}.zip`);
-        const entries = fileTree(source).map((entry) =>
-          path.relative(source, entry),
+      const sourceDigest = digest(asset.source);
+      let published = publishedAssets.get(id);
+      if (published && published.sourceDigest !== sourceDigest)
+        throw new Error('Repeated CDK asset ID has different sources');
+      if (!published) {
+        const file = packageAssemblyAsset(
+          assembly, path.join(output, `cdk-${target}-${id}.zip`), asset.source,
         );
-        for (const entry of entries)
-          fs.utimesSync(path.join(source, entry), 315532800, 315532800);
-        run('zip', ['-X', '-q', file, ...entries], { cwd: source });
-      } else if (asset.source.packaging !== 'file')
-        throw new Error('Unsupported CDK asset packaging');
-      const reference = store.publishFile(
-        bucket,
-        file,
-        'ASSET',
-        `cdk-${target}-${id}`,
-      );
-      artifacts.push(reference);
+        const reference = store.publishFile(
+          bucket, file, 'ASSET', `cdk-${target}-${id}`,
+        );
+        published = { sourceDigest, reference };
+        publishedAssets.set(id, published);
+        artifacts.push(reference);
+      }
       for (const destination of Object.values(asset.destinations))
-        replacements.push({ from: destination.objectKey, to: reference });
+        replacements.push({ from: destination.objectKey, to: published.reference });
     }
   }
   function rewrite(value) {
