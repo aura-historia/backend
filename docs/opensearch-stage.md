@@ -1,11 +1,12 @@
-# Stage OpenSearch
+# Self-hosted OpenSearch
 
 ## Ownership and state
 
 The backend operator owns the independent host, persistent volume, credentials,
-certificates and firewall. [`compose.yaml`](../opensearch/stage/compose.yaml) pins
-the engine and resource limits; it is not proof of the running version or capacity.
-A single stage host is an outage domain, not a production availability design.
+certificates and firewall. The [dev](../opensearch/stage/compose.yaml) and
+[production](../opensearch/prod/compose.yaml) Compose projects pin their engine and
+resource limits; neither proves the running version or capacity.
+A single host is an outage domain, not a high-availability design.
 Verify actual host/DNS, security, assets, capacity and AWS connectivity before activation.
 
 PostgreSQL owns business state; OpenSearch contains only rebuildable ProductListing
@@ -16,7 +17,71 @@ content-free deletion tombstones must survive delayed writes, and readers must e
 fences or configure a TTL to clear them. Rebuild rules belong in the
 [projection runbook](durable-worker-runbook.md#projection-fences-and-rebuild).
 
-## Reproducible host setup
+## Production host setup
+
+Use a reviewed source ref in a dedicated, stable checkout and a fresh volume.
+Keep that checkout in place for Docker's configuration and certificate bind mounts;
+switch development branches in a separate checkout. Production uses
+`https://opensearch.aura-historia.com` on HTTPS 443, which already matches the AWS
+application egress policy. Point its DNS A record directly at the approved host,
+with Cloudflare proxying disabled, and keep TCP 80/443 reachable for Caddy's
+automatic public certificate issuance and renewal. Administration is available
+only at `https://localhost:19201` with the private operator client certificate.
+Transport/node/admin keys and runtime credentials are generated independently of
+dev; production does not load demo certificates or demo users.
+
+The [production bootstrap](../opensearch/prod/bootstrap.py) requires Python 3,
+OpenSSL, Docker Compose and the normal OpenSearch host prerequisites below. It
+checks for at least 100 GiB free Docker storage and enough available RAM for the
+configured container limit plus 8 GiB host headroom. The default container limit
+is 32 GiB, with a 16 GiB heap and no swap. Its four-CPU quota and increased CPU
+weight cap and prioritize work; they do not exclusively reserve cores.
+
+The independent external Docker volumes survive Compose removal and grow on the
+host filesystem as data grows. They are not a dedicated disk or a space quota.
+Allocation/rebalancing stops at the configured 60/50 GiB free disk watermarks;
+the 40 GiB flood stage blocks index writes. Other host processes can consume that
+headroom, so monitor the host filesystem and the node together. Dedicated space
+guarantees require separate storage or filesystem quotas. Never prune these
+production volumes or remove deletion fences to reclaim space.
+
+From the repository root:
+
+```sh
+python3 opensearch/prod/bootstrap.py
+docker compose -f opensearch/prod/compose.yaml --profile public up -d
+# Wait for public TLS issuance, then verify and publish only runtime credentials:
+python3 opensearch/prod/bootstrap.py --verify-public --publish-ssm
+```
+
+Bootstrap creates only its own labelled volumes, initializes security once, installs
+the shared roles/pipeline and creates the empty product index. It refuses unknown
+existing volumes and an existing product index. An interrupted first initialization
+needs inspection before retrying; never delete populated storage to make it retry.
+Subsequent completed invocations perform read-only verification. Ordinary restarts
+use Compose, without replaying security initialization or index creation.
+
+The ignored mode-0700 `opensearch/prod/.private/` directory owns the operator CA/key,
+client certificate, initialization identity and mode-0600 runtime credentials.
+Keep it in access-controlled operator backups; never commit or print its contents.
+For local administration use `curl --config opensearch/prod/.private/admin-curl`
+with the loopback URL, without disabling TLS verification. Check private certificate
+expiry before the 825-day node/admin lifetime and rotate certificates through a
+reviewed restart; Caddy renews its public certificate independently. The private
+admin key is not mounted into the running search node or public gateway.
+
+The verifier checks trusted local/public TLS, reader search, denied reader writes,
+denied projector reads and blocked public administration. Initialization exercises
+one non-business document before public activation and removes it, leaving an empty
+product index. Publishing writes only the endpoint and two scoped credential pairs
+to `/opensearch/prod/` in the approved workload account. It does not grant a pipeline
+or application search administration access. Fresh sanitized mapping/alias evidence
+is saved in `.private/observation.json` for release review.
+
+These checks prove host/public behavior. The private Lambda/Fargate readiness gate
+below is still required after AWS platform creation and before application activation.
+
+## Dev host setup
 
 Use a reviewed source ref. Require Docker Engine/Compose, `jq`, persistent disk,
 spare RAM for the configured container limit and `vm.max_map_count >= 262144`.
@@ -45,8 +110,10 @@ random-password users mapped only to their role. Role names use `reader` and
 `product_projector` (filenames use hyphens). The reader searches ProductListings;
 the product projector indexes only ProductListing documents. Neither receives
 administration or index-management rights.
-Single-document indexing also requires the internal `indices:data/write/bulk*`
-actions, scoped to the product index. Do not substitute the broader `write`
+Single-document indexing also requires cluster permission `indices:data/write/bulk`
+and index-level `indices:data/write/bulk*`, with document writes scoped to the
+product index. The vector mapping explicitly selects 16-bit FP16 quantization.
+Do not substitute the broader `write`
 or `index` action groups: they also grant mapping or other document-write rights.
 
 Only after confirming the product index/pipeline are absent, apply the fresh-install assets:

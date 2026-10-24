@@ -1,0 +1,94 @@
+name: aura-opensearch-prod
+
+x-opensearch-image: &opensearch-image opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  opensearch:
+    image: *opensearch-image
+    restart: unless-stopped
+    environment:
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms16g -Xmx16g}
+    mem_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
+    mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-24g}
+    memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
+    cpus: ${OPENSEARCH_CPUS:-4.0}
+    cpu_shares: 2048
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [IPC_LOCK]
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    stop_grace_period: 120s
+    logging: *logging
+    volumes:
+      - data:/usr/share/opensearch/data
+      - node-certificates:/usr/share/opensearch/config/certificates:ro
+      - ./opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+    ports:
+      - 127.0.0.1:19201:9200
+    networks: [search]
+    healthcheck:
+      test: [CMD-SHELL, 'test "$$(curl --silent --cacert config/certificates/root-ca.pem --max-time 5 --output /dev/null --write-out "%{http_code}" https://localhost:9200/)" = 401']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  securityadmin:
+    image: *opensearch-image
+    profiles: [bootstrap]
+    user: "0:0"
+    entrypoint: [/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh]
+    command: [-h, opensearch, -p, "9200", -cn, aura-prod, -cacert, /operator/root-ca.pem, -cert, /operator/admin.pem, -key, /operator/admin-key.pem, -cd, /security]
+    mem_limit: 1g
+    cpus: 1.0
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./.private/operator:/operator:ro
+      - ./.private/security:/security:ro
+    networks: [search]
+
+  gateway:
+    image: caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    profiles: [public]
+    restart: unless-stopped
+    depends_on:
+      opensearch: {condition: service_healthy}
+    mem_limit: 256m
+    cpus: 0.5
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    logging: *logging
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.private/operator/root-ca.pem:/certificates/root-ca.pem:ro
+      - gateway-data:/data
+    tmpfs: [/config:size=16m, /tmp:size=16m]
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    networks: [search]
+
+volumes:
+  data:
+    external: true
+    name: aura-historia-opensearch-prod-data
+  node-certificates:
+    external: true
+    name: aura-historia-opensearch-prod-certificates
+  gateway-data:
+    external: true
+    name: aura-historia-opensearch-prod-gateway
+
+networks:
+  search:

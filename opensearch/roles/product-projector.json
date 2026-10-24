@@ -1,5 +1,5 @@
 {
-  "cluster_permissions": [],
+  "cluster_permissions": ["indices:data/write/bulk"],
   "index_permissions": [
     {"index_patterns": ["product-listings"], "allowed_actions": ["indices:data/write/index", "indices:data/write/bulk*"]}
   ],
