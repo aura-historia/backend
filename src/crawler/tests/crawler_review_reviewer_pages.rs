@@ -1,9 +1,10 @@
 use crawler::review::model::{
-    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, STATUS_PENDING_REVIEW,
+    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
+    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, STATUS_PENDING_REVIEW,
     SchemaReviewPageInput,
 };
 use crawler::review::repository::{
-    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, ReviewRepositoryError,
+    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
 };
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -503,4 +504,214 @@ async fn should_not_count_seed_pages_against_reviewer_page_limit() {
         .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
         .await
         .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Pages waiting on a pending review
+// ---------------------------------------------------------------------------
+
+async fn mark_schema_matrix_cached(pool: &PgPool, review_id: CrawlerReviewId) {
+    sqlx::query(
+        "UPDATE crawler_reviews SET validation_summary = validation_summary || '{\"schema_matrix\": {}}' \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+fn pages_with_role(pages: &[CrawlerReviewPage], role: &str) -> Vec<String> {
+    pages
+        .iter()
+        .filter(|page| page.role == role)
+        .map(|page| page.url.clone())
+        .collect()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_attach_waiting_page_once_and_drop_cached_matrix_when_schema_review_is_pending() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    mark_schema_matrix_cached(&pool, review_id).await;
+    let waiting_url = url("https://example.com/products/archived");
+
+    let joined = repository
+        .join_pending_schema_review(&listing_source_id, &waiting_url, SOLD_HTML)
+        .await
+        .unwrap();
+    // The same page under another spelling joins again without a second attachment.
+    let rejoined = repository
+        .join_pending_schema_review(
+            &listing_source_id,
+            &url("https://www.example.com/products/archived/"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(joined, Some(review_id));
+    assert_eq!(rejoined, Some(review_id));
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        pages_with_role(&detail.pages, PAGE_ROLE_WAITING_PAGE),
+        vec![waiting_url.to_string()]
+    );
+    assert!(
+        detail
+            .review
+            .validation_summary
+            .get("schema_matrix")
+            .is_none()
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_attach_at_most_max_waiting_pages_when_more_pages_wait_on_schema_review() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+
+    for index in 0..=MAX_WAITING_PAGES {
+        let joined = repository
+            .join_pending_schema_review(
+                &listing_source_id,
+                &url(&format!("https://example.com/products/waiting-{index}")),
+                SOLD_HTML,
+            )
+            .await
+            .unwrap();
+        assert_eq!(joined, Some(review_id));
+    }
+
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    assert_eq!(
+        pages_with_role(&pages, PAGE_ROLE_WAITING_PAGE).len(),
+        MAX_WAITING_PAGES
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_join_when_no_product_schema_review_is_pending() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    repository
+        .reject_review(review_id, Some("not a product page"), false)
+        .await
+        .unwrap();
+
+    let joined = repository
+        .join_pending_schema_review(
+            &listing_source_id,
+            &url("https://example.com/products/archived"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(joined, None);
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    assert!(pages_with_role(&pages, PAGE_ROLE_WAITING_PAGE).is_empty());
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_attach_pages_of_a_joining_schema_review_as_waiting_pages() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    let waiting_url = "https://example.com/products/archived";
+
+    let joined = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema()],
+            vec![SchemaReviewPageInput {
+                url: waiting_url.to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),
+                raw_html: SOLD_HTML.to_string(),
+            }],
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(joined, review_id);
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    assert_eq!(
+        pages_with_role(&pages, PAGE_ROLE_WAITING_PAGE),
+        vec![waiting_url.to_string()]
+    );
+    assert!(pages_with_role(&pages, PAGE_ROLE_TRIGGERING_GENERATION_PAGE).is_empty());
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_remove_waiting_page_when_reviewer_removes_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    repository
+        .join_pending_schema_review(
+            &listing_source_id,
+            &url("https://example.com/products/archived"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let waiting = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|page| page.role == PAGE_ROLE_WAITING_PAGE)
+        .unwrap();
+
+    repository
+        .remove_reviewer_page(waiting.review_page_id)
+        .await
+        .unwrap();
+
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    assert!(pages_with_role(&pages, PAGE_ROLE_WAITING_PAGE).is_empty());
+    assert_eq!(pages.len(), 1);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    let waiting_url = "https://example.com/products/archived";
+    repository
+        .join_pending_schema_review(&listing_source_id, &url(waiting_url), SOLD_HTML)
+        .await
+        .unwrap();
+
+    repository
+        .reject_review(review_id, Some("not a product page"), false)
+        .await
+        .unwrap();
+
+    assert!(
+        !repository
+            .has_rejected_schema_review_for_page(
+                &listing_source_id,
+                "manual_schema_required",
+                waiting_url,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        repository
+            .has_rejected_schema_review_for_page(
+                &listing_source_id,
+                "manual_schema_required",
+                "https://www.example.com/products/1",
+            )
+            .await
+            .unwrap()
+    );
 }

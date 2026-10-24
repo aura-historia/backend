@@ -49,16 +49,6 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
-        if let Some(review_id) = self
-            .pending_product_schema_review_id(listing_source_id)
-            .await?
-        {
-            return Err(ScraperError::PendingSchemaReview {
-                url: url.clone(),
-                review_id,
-            });
-        }
-
         self.consume_llm_budget_or_err(listing_source_id, url)
             .await?;
 

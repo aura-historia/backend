@@ -1,6 +1,8 @@
 use crate::network::policy::NetworkErrorKind;
 
-use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
@@ -12,7 +14,7 @@ use crate::scraper::scraper_service::domain::product::{
 };
 use crate::scraper::scraper_service::html_fetcher::FetchError;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
-    ExistingSchemaSelection, apply_cached_schemas,
+    ExistingSchemaSelection, SelectedSchemaCandidate, apply_cached_schemas,
 };
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -114,6 +116,35 @@ impl ScraperServiceImpl {
         }
 
         Ok(schemas)
+    }
+}
+
+/// A fetched product page a schema is selected for.
+#[derive(Clone, Copy)]
+struct FetchedPage<'a> {
+    listing_source_id: &'a ListingSourceId,
+    domain: &'a str,
+    url: &'a Url,
+    html: &'a str,
+    expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+}
+
+impl<'a> FetchedPage<'a> {
+    fn with_existing_schemas<'s>(
+        self,
+        existing_schemas: &'s [ProductCssSelectorSchema],
+    ) -> FreshSchemaGenerationContext<'s>
+    where
+        'a: 's,
+    {
+        FreshSchemaGenerationContext {
+            listing_source_id: self.listing_source_id,
+            domain: self.domain,
+            url: self.url,
+            html: self.html,
+            existing_schemas,
+            expected_last_captured_raw_input_sha256: self.expected_last_captured_raw_input_sha256,
+        }
     }
 }
 
@@ -250,16 +281,6 @@ impl ScraperServiceImpl {
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
-
-        if let Some(review_id) = self
-            .pending_product_schema_review_id(listing_source_id)
-            .await?
-        {
-            return Err(ScraperError::PendingSchemaReview {
-                url: url.clone(),
-                review_id,
-            });
-        }
 
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, "Fetching product page HTML");
@@ -487,35 +508,18 @@ impl ScraperServiceImpl {
             return Ok(None);
         }
 
-        // Select the best-ranked plausible cached schema.
-        let selection = match self
-            .select_cached_schema(
-                listing_source_id,
-                &effective_url,
-                &html,
-                &listing_source_product_schemas.product_schemas,
-            )
-            .await
-        {
-            ExistingSchemaSelection::Selected(selection) => *selection,
-            ExistingSchemaSelection::GenerateNewSchema { reason } => {
-                debug!(
-                    domain,
-                    schemas = listing_source_product_schemas.product_schemas.len(),
-                    fresh_schema_generation_reason = reason.as_str(),
-                    "Cached selection exhausted; generating new schema"
-                );
-                self.generate_fresh_schema_for_page(FreshSchemaGenerationContext {
+        let (listing_source_product_schemas, selection) = self
+            .select_schema_for_page(
+                listing_source_product_schemas,
+                FetchedPage {
                     listing_source_id,
                     domain,
                     url: &effective_url,
                     html: &html,
-                    existing_schemas: &listing_source_product_schemas.product_schemas,
                     expected_last_captured_raw_input_sha256,
-                })
-                .await?
-            }
-        };
+                },
+            )
+            .await?;
 
         let mut effective_schemas = listing_source_product_schemas.product_schemas;
         if selection.fresh_schema {
@@ -550,5 +554,57 @@ impl ScraperServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
         }))
+    }
+
+    /// Selects the best-ranked plausible cached schema for the page in `page`, or authors a fresh
+    /// one when none applies. Returns the schema list the selection used with the selection.
+    ///
+    /// Scraping continues while a product-schema review is pending, so its approval can replace the
+    /// live schemas after `schemas` was read. A page that failed the stale list is therefore
+    /// selected once more against the live list before it may author a schema; otherwise it would
+    /// open a review whose candidate drops the schemas just approved.
+    async fn select_schema_for_page(
+        &self,
+        mut schemas: ListingSourceProductSchema,
+        page: FetchedPage<'_>,
+    ) -> Result<(ListingSourceProductSchema, SelectedSchemaCandidate), ScraperError> {
+        let mut reread = false;
+        loop {
+            let reason = match self
+                .select_cached_schema(
+                    page.listing_source_id,
+                    page.url,
+                    page.html,
+                    &schemas.product_schemas,
+                )
+                .await
+            {
+                ExistingSchemaSelection::Selected(selection) => return Ok((schemas, *selection)),
+                ExistingSchemaSelection::GenerateNewSchema { reason } => reason,
+            };
+            let ctx = page.with_existing_schemas(&schemas.product_schemas);
+            self.wait_instead_of_authoring(&ctx).await?;
+            if !reread
+                && let Some(live) = self
+                    .product_schemas_changed_since(page.listing_source_id, ctx.existing_schemas)
+                    .await?
+            {
+                debug!(
+                    schemas = live.product_schemas.len(),
+                    "Live product schemas changed during the scrape; selecting again"
+                );
+                reread = true;
+                schemas = live;
+                continue;
+            }
+            debug!(
+                domain = page.domain,
+                schemas = schemas.product_schemas.len(),
+                fresh_schema_generation_reason = reason.as_str(),
+                "Cached selection exhausted; generating new schema"
+            );
+            let selection = self.generate_fresh_schema_for_page(ctx).await?;
+            return Ok((schemas, selection));
+        }
     }
 }
