@@ -84,26 +84,30 @@ engine availability, backups, retention/removal policies, quotas and cost before
 execution; dev resources may be destructive on deletion. Retained resources still
 require ownership and recovery planning.
 
+### Fresh database baseline
+
+The [initial business schema](../migrations/20260725090000_initial_business_schema.sql)
+is the complete baseline for a fresh database. Bootstrap provisions roles and applies the
+baseline through the normal reviewed deployment path.
+
+The pre-production consolidation replaces migration history and resets application-owned
+wire and evaluator versions to 1. Existing pre-consolidation SQLx ledgers are incompatible;
+the migrator must reject them. Never edit ledger checksums or mark the baseline applied
+to bypass that check. An environment with existing business state needs a separately
+reviewed preservation or reset plan before adopting this baseline. Subsequent schema
+changes use new forward migrations without rewriting applied history.
+
+Address ID tombstones, identity guards and private-resolution erasure/fences are required
+by the baseline. Retained CDC, queue and archive custody follows the
+[activation and handoff procedure](durable-worker-runbook.md#activation-and-legacy-handoff).
+
 ### Local Cognito session revocation
 
-Apply [the additive session-cutoff migration](../migrations/20261018063800_cognito_session_revocation.sql)
-through the reviewed forward migration path before deploying the API version
-that reads it. Deploy all API instances/versions that can serve traffic before relying
-on local revocation; older versions ignore the cutoff. Do not roll back to a version
-that ignores it while affected JWTs can still be valid. Keep issuer, API and database
-clocks synchronized within the 60-second allowance. The
-[authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
+Local Cognito session revocation requires all serving API versions to honor the persisted
+cutoff. Do not roll back to a version that ignores it while affected JWTs can still be
+valid. Keep issuer, API and database clocks synchronized within the 60-second allowance.
+The [authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
 owns cutoff, provider-failure and out-of-band revocation semantics.
-
-### Removing geography creation receipts
-
-The [receipt cleanup migration](../migrations/20261014120000_remove_geography_creation_receipts.sql)
-requires the keyless address/Party-location runtime to be deployed first. That runtime
-works with both schemas. After reviewed platform preparation and compatibility review, deploy the compatible
-runtime against the current schema under maintenance. Drain receipt-dependent
-versions, then invoke the qualified candidate migrator with the exact reviewed ledger
-and pending checksum evidence to apply cleanup. After cleanup, rollback targets must also support the keyless schema.
-Address ID tombstones, identity guards and private-resolution erasure/fences remain required.
 
 ## Deployment inputs and approvals
 

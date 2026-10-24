@@ -480,7 +480,7 @@ async fn gallery_inherits_rates_without_copying_and_cabinet_retains_collection()
     assert_eq!(3, removed.version.into_inner());
     assert_eq!(3, events(&pool, &cabinet).await);
     let versions:Vec<i16>=sqlx::query_scalar("SELECT event_type_schema_version FROM product_listing_events WHERE product_listing_id=$1 ORDER BY event_time,event_id").bind(current.product_listing_id.into_uuid()).fetch_all(&pool).await.unwrap();
-    assert_eq!(vec![1, 2, 2], versions);
+    assert_eq!(vec![1, 1, 1], versions);
 }
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn replacement_suppression_assertion_removal_and_noops_have_distinct_revisions() {

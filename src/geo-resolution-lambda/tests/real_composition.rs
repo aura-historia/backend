@@ -110,7 +110,7 @@ fn job(work: ResolutionWork) -> String {
     // Exact compact wire format used by CDC and DLQ redrive, without address/evidence.
     let id = work.id.to_string();
     serde_json::json!({
-        "schema_version":2, "scope":"geo-resolution", "job_type":"GEO_RESOLUTION",
+        "schema_version":1, "scope":"geo-resolution", "job_type":"GEO_RESOLUTION",
         "idempotency_key":format!("geo-resolution:{id}:{}", work.generation),
         "ordering_key":format!("geo-resolution:{id}"),
         "payload": { "resolution_id":id, "generation":work.generation }

@@ -311,25 +311,20 @@ fn product_event_routing_facts(
         .get("payload")
         .ok_or(CdcRouteError::MissingColumn("payload"))?;
 
-    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION
-        && !(schema_version == 2
-            && event_group == "DOMAIN"
-            && matches!(
-                event_type.as_str(),
-                "PRODUCT_LISTING_DISCOVERED" | "PRODUCT_LISTING_CHANGED"
-            ))
-    {
+    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
         return Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version });
     }
 
-    let mut legacy_shape = payload.clone();
-    let delivery_changed = schema_version == 2 && event_type == "PRODUCT_LISTING_CHANGED";
-    if schema_version == 2 {
-        let delivery = legacy_shape
+    let mut shape = payload.clone();
+    let delivery = if event_group == "DOMAIN" {
+        shape
             .as_object_mut()
-            .ok_or(CdcRouteError::InvalidProductListingEventPayload)?
-            .remove("delivery")
-            .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
+            .and_then(|object| object.remove("delivery"))
+    } else {
+        None
+    };
+    let delivery_changed = delivery.is_some() && event_type == "PRODUCT_LISTING_CHANGED";
+    if let Some(delivery) = delivery {
         delivery::validate(&delivery, delivery_changed)?;
         if event_type == "PRODUCT_LISTING_DISCOVERED"
             && delivery.get("source_id") != payload.get("listingSourceId")
@@ -337,7 +332,7 @@ fn product_event_routing_facts(
             return Err(CdcRouteError::InvalidProductListingEventPayload);
         }
     }
-    let payload = &legacy_shape;
+    let payload = &shape;
     let event_kind = match (event_type.as_str(), event_group.as_str()) {
         ("PRODUCT_LISTING_DISCOVERED", "DOMAIN") => {
             validate_discovered_payload(payload)?;
@@ -1679,7 +1674,7 @@ mod tests {
     }
 
     #[test]
-    fn consent_insert_creates_one_compact_schema_two_fifo_job() {
+    fn consent_insert_creates_one_compact_schema_one_fifo_job() {
         let jobs = route_change(&change(
             "marketing_email_consent_sync_intents",
             "insert",
@@ -1707,7 +1702,7 @@ mod tests {
         ));
         let prepared = aura_historia_jobs::prepare(job).unwrap();
         let body: Value = serde_json::from_str(prepared.body()).unwrap();
-        assert_eq!(2, body["schema_version"]);
+        assert_eq!(1, body["schema_version"]);
         assert_eq!("marketing-consent-sync", body["scope"]);
         assert_eq!("MARKETING_CONSENT_SYNC_INTENT_CREATED", body["job_type"]);
         assert_eq!(
@@ -1876,7 +1871,7 @@ mod tests {
         }
     }
     #[test]
-    fn delivery_v2_projects_without_price_notifications_or_private_job_content() {
+    fn delivery_projects_without_price_notifications_or_private_job_content() {
         let config = product_listing_core::delivery::ListingDelivery::inherited(
             "ls_01h455vb4pex5vy7enb1p677v1".parse().unwrap(),
         );
@@ -1884,7 +1879,7 @@ mod tests {
             crate::delivery::StoredDeliveryReferences,
         >(&config)
         .unwrap();
-        let row = serde_json::json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":2,"payload":{"delivery":{"previous":null,"current":current}}});
+        let row = serde_json::json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"delivery":{"previous":null,"current":current}}});
         let jobs = route_change(&change("product_listing_events", "insert", row.clone())).unwrap();
         assert_eq!(
             vec![WorkerQueue::ProductListingOpenSearch],
@@ -1894,15 +1889,67 @@ mod tests {
             let body = aura_historia_jobs::wire::encode(&job).unwrap();
             assert!(!body.contains("LISTING_DELIVERY") && !body.contains("selection"));
         }
-        let mut v1 = row.clone();
-        v1["event_type_schema_version"] = serde_json::json!(1);
-        assert!(route_change(&change("product_listing_events", "insert", v1)).is_err());
+        let mut unsupported = row.clone();
+        unsupported["event_type_schema_version"] = serde_json::json!(2);
+        assert!(route_change(&change("product_listing_events", "insert", unsupported)).is_err());
         let mut corrupt = row;
         corrupt["payload"]["delivery"]
             .as_object_mut()
             .unwrap()
             .remove("previous");
         assert!(route_change(&change("product_listing_events", "insert", corrupt)).is_err());
+    }
+
+    #[test]
+    fn should_validate_optional_delivery_in_discovered_events() {
+        use listing_source_core::ListingSourceId;
+
+        let source = ListingSourceId::new();
+        let delivery =
+            shipping_json::listing_delivery::encode::<crate::delivery::StoredDeliveryReferences>(
+                &product_listing_core::delivery::ListingDelivery::inherited(source),
+            )
+            .unwrap();
+        let row = json!({
+            "event_id": EventId::new().into_uuid(),
+            "product_listing_id": ProductListingId::new().into_uuid(),
+            "event_type": "PRODUCT_LISTING_DISCOVERED",
+            "event_group": "DOMAIN",
+            "event_type_schema_version": 1,
+            "payload": {
+                "listingSourceId": source.into_uuid(),
+                "sourceListingId": "fixture-source-id",
+                "title": null,
+                "description": null,
+                "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                "availability": null,
+                "url": "https://example.test/product",
+                "imageCount": 0,
+                "auction": null
+            }
+        });
+        let without_delivery =
+            route_change(&change("product_listing_events", "insert", row.clone())).unwrap();
+        let mut with_delivery = row;
+        with_delivery["payload"]["delivery"] = delivery;
+        assert_eq!(
+            without_delivery,
+            route_change(&change(
+                "product_listing_events",
+                "insert",
+                with_delivery.clone()
+            ))
+            .unwrap()
+        );
+        for (field, value) in [
+            ("listingSourceId", json!(ListingSourceId::new().into_uuid())),
+            ("delivery", Value::Null),
+            ("unexpected", json!(true)),
+        ] {
+            let mut corrupt = with_delivery.clone();
+            corrupt["payload"][field] = value;
+            assert!(route_change(&change("product_listing_events", "insert", corrupt)).is_err());
+        }
     }
 }
 

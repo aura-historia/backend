@@ -11,7 +11,7 @@ use product_listing_service::ports::ProductListingSearchFilterMatchSource;
 use search_filter_core::MatchingEvidencePolicy;
 use std::{num::NonZeroUsize, time::Instant};
 
-pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v2";
+pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v1";
 
 const SHOULD_SHOW_QUESTION: &str = "should_show";
 

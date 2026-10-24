@@ -63,17 +63,6 @@ pub(crate) enum ProductListingEventCodecError {
     },
 }
 
-pub(crate) fn schema_version(payload: &ProductListingEventPayload) -> i16 {
-    if match payload {
-        ProductListingEventPayload::Discovered(v) => v.delivery().is_some(),
-        ProductListingEventPayload::Changed(v) => v.delivery().is_some(),
-    } {
-        2
-    } else {
-        1
-    }
-}
-
 pub(crate) fn encode(
     payload: &ProductListingEventPayload,
 ) -> Result<Value, ProductListingEventCodecError> {
@@ -120,7 +109,7 @@ fn decode_domain_payload_with_group(
             event_group: event_group.to_owned(),
         });
     }
-    if !matches!(schema_version, 1 | 2) {
+    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
         return Err(ProductListingEventCodecError::UnsupportedSchemaVersion {
             event_type: event_type.to_owned(),
             schema_version,
@@ -128,17 +117,12 @@ fn decode_domain_payload_with_group(
     }
 
     let mut shape = payload.clone();
-    if schema_version == 2 {
-        let object = shape
-            .as_object_mut()
-            .ok_or_else(|| invalid_field("payload", "expected object"))?;
-        let delivery = object.remove("delivery").ok_or_else(|| {
-            ProductListingEventCodecError::MissingField {
-                field: "delivery".into(),
-            }
-        })?;
+    let delivery = shape
+        .as_object_mut()
+        .and_then(|object| object.remove("delivery"));
+    if let Some(delivery) = &delivery {
         if delivery.is_null() {
-            return Err(invalid_field("delivery", "v2 delivery must be present"));
+            return Err(invalid_field("delivery", "delivery must be present"));
         }
         if event_kind == ProductListingEventType::Changed {
             let change = delivery
@@ -160,7 +144,7 @@ fn decode_domain_payload_with_group(
                 .and_then(TryInto::try_into)
         }
         ProductListingEventType::Changed => {
-            if schema_version == 1 || shape.as_object().is_none_or(|v| !v.is_empty()) {
+            if delivery.is_none() || shape.as_object().is_none_or(|v| !v.is_empty()) {
                 validate_changed_shape(&shape)?;
             }
             serde_json::from_value::<ChangedDto>(payload.clone())
@@ -2227,7 +2211,7 @@ mod tests {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
     }
     #[test]
-    fn delivery_v2_roundtrip_retains_strict_historical_v1_and_rejects_corruption() {
+    fn should_roundtrip_v1_delivery_and_reject_corruption() {
         use product_listing_core::delivery::ListingDelivery;
         let delivery = ListingDelivery::inherited(ListingSourceId::new());
         let payload = changed_payload(RehydratedProductListingChanged {
@@ -2243,24 +2227,40 @@ mod tests {
             sale_observation: None,
         });
         let wire = encode(&payload).unwrap();
-        assert_eq!(2, schema_version(&payload));
         assert_eq!(
             payload,
-            decode("PRODUCT_LISTING_CHANGED", 2, &wire).unwrap()
+            decode("PRODUCT_LISTING_CHANGED", 1, &wire).unwrap()
         );
-        assert!(decode("PRODUCT_LISTING_CHANGED", 1, &wire).is_err());
-        let historical = discovered_payload();
-        let historical_wire = encode(&historical).unwrap();
-        assert_eq!(1, schema_version(&historical));
+        for version in [0, 2, 3] {
+            assert!(decode("PRODUCT_LISTING_CHANGED", version, &wire).is_err());
+        }
+        let discovered = discovered_payload();
+        let discovered_wire = encode(&discovered).unwrap();
         assert_eq!(
-            historical,
-            decode("PRODUCT_LISTING_DISCOVERED", 1, &historical_wire).unwrap()
+            discovered,
+            decode("PRODUCT_LISTING_DISCOVERED", 1, &discovered_wire).unwrap()
         );
-        assert!(decode("PRODUCT_LISTING_DISCOVERED", 2, &historical_wire).is_err());
+        assert!(decode("PRODUCT_LISTING_DISCOVERED", 2, &discovered_wire).is_err());
+        let mut with_delivery = discovered_wire.clone();
+        let source =
+            parse_listing_source_id(with_delivery["listingSourceId"].as_str().unwrap()).unwrap();
+        with_delivery["delivery"] =
+            crate::delivery_codec::encode(&ListingDelivery::inherited(source)).unwrap();
+        let discovered = decode("PRODUCT_LISTING_DISCOVERED", 1, &with_delivery).unwrap();
+        assert_eq!(with_delivery, encode(&discovered).unwrap());
+        for event_type in ["PRODUCT_LISTING_DISCOVERED", "PRODUCT_LISTING_CHANGED"] {
+            let mut null_delivery = if event_type == "PRODUCT_LISTING_DISCOVERED" {
+                discovered_wire.clone()
+            } else {
+                wire.clone()
+            };
+            null_delivery["delivery"] = Value::Null;
+            assert!(decode(event_type, 1, &null_delivery).is_err());
+        }
         for field in ["previous", "current"] {
             let mut corrupt = wire.clone();
             corrupt["delivery"].as_object_mut().unwrap().remove(field);
-            assert!(decode("PRODUCT_LISTING_CHANGED", 2, &corrupt).is_err());
+            assert!(decode("PRODUCT_LISTING_CHANGED", 1, &corrupt).is_err());
         }
         for field in [
             "schema",
@@ -2277,19 +2277,19 @@ mod tests {
                 .unwrap()
                 .remove(field);
             assert!(
-                decode("PRODUCT_LISTING_CHANGED", 2, &corrupt).is_err(),
+                decode("PRODUCT_LISTING_CHANGED", 1, &corrupt).is_err(),
                 "{field}"
             );
         }
         let mut equal = wire.clone();
         equal["delivery"]["previous"] = equal["delivery"]["current"].clone();
-        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &equal).is_err());
+        assert!(decode("PRODUCT_LISTING_CHANGED", 1, &equal).is_err());
         let mut invalid = wire.clone();
         invalid["delivery"]["current"]["integration"] =
             json!({"kind":"PROVIDER","method":"WOOCOMMERCE","domain":"synthetic.example"});
-        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &invalid).is_err());
+        assert!(decode("PRODUCT_LISTING_CHANGED", 1, &invalid).is_err());
         let mut future = wire;
         future["delivery"]["current"]["schema"] = json!("LISTING_DELIVERY_V999");
-        assert!(decode("PRODUCT_LISTING_CHANGED", 2, &future).is_err());
+        assert!(decode("PRODUCT_LISTING_CHANGED", 1, &future).is_err());
     }
 }

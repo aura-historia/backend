@@ -146,7 +146,7 @@ impl NotificationDeliveryJobDisposition {
     }
 }
 
-/// Decode and execute one compact schema-2 delivery wake-up without exposing SQS transport
+/// Decode and execute one compact schema-1 delivery wake-up without exposing SQS transport
 /// metadata to the notification service. Lease ownership and finalization remain PostgreSQL-owned.
 pub async fn process_notification_delivery_job(
     body: &str,
@@ -341,7 +341,7 @@ mod tests {
     }
 
     fn valid_body() -> String {
-        r#"{"schema_version":2,"scope":"notification-delivery","job_type":"NOTIFICATION_DELIVERY_CREATED","idempotency_key":"notification-delivery:nd_01j0000000e008000000000007","ordering_key":"notification-delivery:nd_01j0000000e008000000000007","payload":{"notification_delivery_id":"nd_01j0000000e008000000000007"}}"#.to_owned()
+        r#"{"schema_version":1,"scope":"notification-delivery","job_type":"NOTIFICATION_DELIVERY_CREATED","idempotency_key":"notification-delivery:nd_01j0000000e008000000000007","ordering_key":"notification-delivery:nd_01j0000000e008000000000007","payload":{"notification_delivery_id":"nd_01j0000000e008000000000007"}}"#.to_owned()
     }
 
     fn events<const N: usize>(records: [(Option<&str>, String); N]) -> LambdaEvent<SqsEvent> {

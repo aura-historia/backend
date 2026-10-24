@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(2, recorder.attempts.load(Ordering::SeqCst));
         let first = recorder.bodies.lock().unwrap()[0].clone();
         let original: serde_json::Value = serde_json::from_str(&first).unwrap();
-        assert_eq!(2, original["schema_version"]);
+        assert_eq!(1, original["schema_version"]);
         assert_eq!(
             "product-event:evt_01j0000000e008000000000005",
             original["idempotency_key"]
