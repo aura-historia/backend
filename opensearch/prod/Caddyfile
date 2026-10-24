@@ -1,0 +1,15 @@
+opensearch.aura-historia.com {
+	# Caddy obtains and renews public TLS; administration stays on loopback.
+	@runtime path /product-listings/_search /product-listings/_doc/*
+	handle @runtime {
+		reverse_proxy https://opensearch:9200 {
+			transport http {
+				tls_trust_pool file /certificates/root-ca.pem
+				tls_server_name opensearch
+			}
+		}
+	}
+	handle {
+		respond 403
+	}
+}

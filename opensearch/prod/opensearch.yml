@@ -1,0 +1,25 @@
+cluster.name: aura-prod
+node.name: prod-1
+network.host: 0.0.0.0
+discovery.type: single-node
+bootstrap.memory_lock: true
+
+plugins.security.ssl.transport.pemcert_filepath: certificates/node.pem
+plugins.security.ssl.transport.pemkey_filepath: certificates/node-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: certificates/root-ca.pem
+plugins.security.ssl.transport.enforce_hostname_verification: true
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: certificates/node.pem
+plugins.security.ssl.http.pemkey_filepath: certificates/node-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: certificates/root-ca.pem
+plugins.security.authcz.admin_dn:
+  - CN=aura-opensearch-prod-admin
+plugins.security.nodes_dn:
+  - CN=opensearch
+plugins.security.allow_default_init_securityindex: false
+plugins.security.restapi.roles_enabled: [security_rest_api_access]
+
+action.auto_create_index: false
+cluster.routing.allocation.disk.watermark.low: 60gb
+cluster.routing.allocation.disk.watermark.high: 50gb
+cluster.routing.allocation.disk.watermark.flood_stage: 40gb

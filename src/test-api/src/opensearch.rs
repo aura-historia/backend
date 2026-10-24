@@ -175,7 +175,7 @@ async fn set_up_domain() -> Result<(), BoxError> {
     aws_sdk_opensearch::Client::new(get_aws_config().await)
         .create_domain()
         .domain_name(TEST_DOMAIN_NAME)
-        .engine_version("OpenSearch_3.5")
+        .engine_version("OpenSearch_3.9")
         .access_policies(test_access_policies())
         .send()
         .await

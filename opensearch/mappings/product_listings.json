@@ -232,6 +232,7 @@
                         "encoder": {
                             "name": "sq",
                             "parameters": {
+                                "bits": 16,
                                 "type": "fp16",
                                 "clip": false
                             }
