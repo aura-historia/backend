@@ -49,7 +49,7 @@ rustc --version | head -1 | grep -F '1.98.0'
 cargo lambda --version | grep -E '^cargo-lambda 1\.9\.0($| )'
 node --version | grep -Fx 'v26.0.0'
 while IFS= read -r binary; do
-  cargo lambda build --locked --offline --release --target x86_64-unknown-linux-musl --output-format zip --bin "$binary"
+  cargo lambda build --locked --offline --release --target x86_64-unknown-linux-musl --output-format zip --package "$binary" --bin "$binary"
   cp "/output/target/lambda/$binary/bootstrap.zip" "/output/lambdas/$binary.zip"
 done < /control/lambdas.txt
 while IFS= read -r template; do
