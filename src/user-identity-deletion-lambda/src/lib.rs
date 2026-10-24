@@ -64,7 +64,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use user_core::user_id::UserId;
     use user_service::ports::user_identity_deletion::UserIdentityDeletionError;
-    const JOB: &str = r#"{"schema_version":2,"scope":"user-identity-deletion","idempotency_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","ordering_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","job_type":"USER_IDENTITY_DELETION","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn"}}"#;
+    const JOB: &str = r#"{"schema_version":1,"scope":"user-identity-deletion","idempotency_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","ordering_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","job_type":"USER_IDENTITY_DELETION","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn"}}"#;
     struct Stub {
         outcome: u8,
         calls: AtomicUsize,

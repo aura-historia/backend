@@ -64,6 +64,12 @@ explicitly reconcile the hold under the protected maintenance identity.
    ownership, drained/preserved work and rollback posture are proven. Rollback needs a
    compatible artifact and a coordinated mapping/backlog plan, not removed legacy source.
 
+The [fresh database baseline](infra.md#fresh-database-baseline) accepts only the final
+version-1 contracts. Pre-consolidation version-2 worker jobs and delivery ingestion/events
+cannot be relabeled or replayed into it. Resolve retained Kinesis, queue/DLQ, archive and
+in-flight custody with compatible artifacts before cutover; database recreation alone
+does not settle that work.
+
 ## First CDC start on a new stage
 
 CDK configures the source endpoint's slot name and a stopped CDC-only task. Neither
@@ -247,8 +253,8 @@ active claims, malformed input and dependency failures retain SQS retry/DLQ cust
 Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redrive. There
 is no scheduled shipping expiry or pending-work recovery scan.
 
-Apply the migration with compatible shipping/event codecs, CDC table selection, dedicated
-queue/consumer, ingestion delivery envelope v2 and strict nested shipping mapping under the
+Verify the baseline schema, compatible shipping/event codecs, CDC table selection, dedicated
+queue/consumer, ingestion delivery envelope v1 and strict nested shipping mapping under the
 [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
 Fence/drain incompatible old complete-projector binaries before activating shipping work;
 old document builders omit shipping even when they read a newer listing fence.

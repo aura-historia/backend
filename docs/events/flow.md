@@ -36,7 +36,7 @@ drain Kinesis/SQS, discard retained contracts or authorize a new slot/start posi
 
 Account removal atomically appends `user_identity_deletion_requests`. DMS selects only
 its deleted user ID; provider identities and delivery state stay outside CDC. Inserts
-route schema-2 `USER_IDENTITY_DELETION` jobs to the isolated `user-identity-deletion`
+route schema-1 `USER_IDENTITY_DELETION` jobs to the isolated `user-identity-deletion`
 Standard queue. The worker rereads retained identity state and acknowledges only committed
 completion. Unknown targets, active claims and uncertain provider effects remain retryable.
 [Account lifecycle](../account-lifecycle.md) owns provider and re-registration rules;
@@ -49,7 +49,7 @@ profile/default signals, retained deletion fences and protected history. Only th
 minimal address-free signals atomically coalesce durable shipping dependency work.
 Terms, evidence, creation receipts and original signals remain outside ordinary CDC.
 Only `listing_shipping_wakeups` (work UUID and positive bigint generation) is selected;
-schema-2 `LISTING_SHIPPING` jobs target the isolated `listing-shipping` worker scope.
+schema-1 `LISTING_SHIPPING` jobs target the isolated `listing-shipping` worker scope.
 Workers reread current committed dependencies and checkpoint bounded pages. See the
 [projection contract](../shipping.md#effective-shipping-discovery-projection) and
 [recovery runbook](../durable-worker-runbook.md#listing-shipping-recovery).
@@ -160,15 +160,14 @@ Cached reuse emits a subject-specific RESOLVED signal for a new source binding;
 source revision changes clear reviewed geography and atomically emit INVALIDATED,
 including when they retain the same resolution identity. Unchanged binding replays are silent.
 
-Jobs use schema version **2** and typed application IDs; version 1 is rejected.
-ProductListing event payloads have their own version, independent of the job envelope.
-Domain events containing delivery use version 2 with a required `delivery` discovery
-assertion or complete previous/current change; version 1 remains strict and readable.
-The CDC router validates the versioned configuration and emits existing compact event jobs.
-Delivery-only changes project the listing without triggering price/availability watchlist
+Jobs use schema version **1** and typed application IDs; other versions are rejected.
+ProductListing event payloads have their own version 1, independent of the job envelope.
+Both discovered and changed events may include `delivery`; a discovered assertion must be
+complete, and a change must contain both previous and current values. Delivery-only
+changes project the listing without triggering price/availability watchlist
 notifications or image embedding. Protected delivery terms never enter ordinary jobs or
-public history. Ingestion `CHANGE_DELIVERY` uses envelope version 2; earlier operations
-retain their exact version 1 codecs, semantic fingerprints and retry identities.
+public history. All ingestion operations, including `CHANGE_DELIVERY`, use envelope
+version 1 with strict codecs, verified semantic fingerprints and stable retry identities.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
 credentials, signatures and signed request headers still never enter it.

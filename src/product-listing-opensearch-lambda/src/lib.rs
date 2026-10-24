@@ -441,7 +441,7 @@ mod tests {
 
     fn valid_body() -> String {
         format!(
-            r#"{{"schema_version":2,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{EVENT_ID}","ordering_key":"product:{PRODUCT_LISTING_ID}","payload":{{"event_id":"{EVENT_ID}","product_listing_id":"{PRODUCT_LISTING_ID}"}}}}"#,
+            r#"{{"schema_version":1,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{EVENT_ID}","ordering_key":"product:{PRODUCT_LISTING_ID}","payload":{{"event_id":"{EVENT_ID}","product_listing_id":"{PRODUCT_LISTING_ID}"}}}}"#,
         )
     }
 

@@ -477,7 +477,7 @@ async fn insert_event(
 
 fn event(event_id: EventId, product_listing_id: ProductListingId) -> LambdaEvent<SqsEvent> {
     let body = format!(
-        r#"{{"schema_version":2,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{event_id}","ordering_key":"product:{product_listing_id}","payload":{{"event_id":"{event_id}","product_listing_id":"{product_listing_id}"}}}}"#,
+        r#"{{"schema_version":1,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{event_id}","ordering_key":"product:{product_listing_id}","payload":{{"event_id":"{event_id}","product_listing_id":"{product_listing_id}"}}}}"#,
     );
     event_with_context(body, Duration::from_secs(60))
 }
@@ -487,7 +487,7 @@ fn exhausted_event(
     product_listing_id: ProductListingId,
 ) -> LambdaEvent<SqsEvent> {
     let body = format!(
-        r#"{{"schema_version":2,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{event_id}","ordering_key":"product:{product_listing_id}","payload":{{"event_id":"{event_id}","product_listing_id":"{product_listing_id}"}}}}"#,
+        r#"{{"schema_version":1,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{event_id}","ordering_key":"product:{product_listing_id}","payload":{{"event_id":"{event_id}","product_listing_id":"{product_listing_id}"}}}}"#,
     );
     event_with_context(body, Duration::ZERO)
 }
