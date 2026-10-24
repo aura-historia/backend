@@ -20,24 +20,15 @@ use url::Url;
 pub const MANUAL_SCHEMA_REASON: &str = "manual_schema_required";
 
 impl ScraperServiceImpl {
-    /// Opens the pending manual schema review for `listing_source_id`, or joins the one already
-    /// pending as a waiting page, and returns the error that makes the page wait until it is
-    /// approved.
-    ///
-    /// The candidate keeps `existing_schemas` and appends a starter schema for the operator to
-    /// rewrite; approval replaces the ListingSource's schemas with the reviewed list.
-    ///
-    /// Rejecting a manual review is the operator's verdict that its page is not a product
-    /// page: the URL is then classified as other instead of reopening the same review.
-    pub(crate) async fn open_manual_schema_review(
+    /// Rejecting a manual review is the operator's verdict that its page is not a product page.
+    /// Returns the error that classifies `url` as other instead of reopening the same review, or
+    /// `None` when no operator rejected a manual review over it.
+    pub(crate) async fn rejected_manual_page(
         &self,
         review_repository: &CrawlerReviewRepository,
         listing_source_id: &ListingSourceId,
         url: &Url,
-        html: &str,
-        existing_schemas: &[ProductCssSelectorSchema],
-        pages: Vec<SchemaReviewPageInput>,
-    ) -> ScraperError {
+    ) -> Option<ScraperError> {
         match review_repository
             .has_rejected_schema_review_for_page(
                 listing_source_id,
@@ -49,30 +40,31 @@ impl ScraperServiceImpl {
             Ok(true) => {
                 self.mark_url_other_best_effort(listing_source_id, url, None)
                     .await;
-                return ScraperError::NotProductPage {
+                Some(ScraperError::NotProductPage {
                     url: url.clone(),
                     details: "an operator rejected the manual schema review for this page"
                         .to_owned(),
-                };
+                })
             }
-            Ok(false) => {}
-            Err(error) => {
-                return review_error_to_schema_service_error(error.into()).into();
-            }
+            Ok(false) => None,
+            Err(error) => Some(review_error_to_schema_service_error(error.into()).into()),
         }
-        match self
-            .join_pending_product_schema_review(listing_source_id, url, html)
-            .await
-        {
-            Ok(Some(review_id)) => {
-                return ScraperError::PendingSchemaReview {
-                    url: url.clone(),
-                    review_id,
-                };
-            }
-            Ok(None) => {}
-            Err(error) => return error.into(),
-        }
+    }
+
+    /// Opens the pending manual schema review for `listing_source_id` and returns the error that
+    /// makes the page wait until it is approved. A review that another worker opened meanwhile is
+    /// joined instead. The caller has already checked [`Self::rejected_manual_page`].
+    ///
+    /// The candidate keeps `existing_schemas` and appends a starter schema for the operator to
+    /// rewrite; approval replaces the ListingSource's schemas with the reviewed list.
+    pub(crate) async fn open_manual_schema_review(
+        &self,
+        review_repository: &CrawlerReviewRepository,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        existing_schemas: &[ProductCssSelectorSchema],
+        pages: Vec<SchemaReviewPageInput>,
+    ) -> ScraperError {
         let mut schemas = existing_schemas.to_vec();
         schemas.push(starter_schema());
         let validation_summary = json!({

@@ -108,15 +108,14 @@ impl ScraperServiceImpl {
             })
             .collect::<Vec<_>>();
         if let Some(review_repository) = self.manual_schema_review_repository() {
+            if let Some(error) = self
+                .rejected_manual_page(review_repository, listing_source_id, url)
+                .await
+            {
+                return Err(error);
+            }
             return Err(self
-                .open_manual_schema_review(
-                    review_repository,
-                    listing_source_id,
-                    url,
-                    html,
-                    &[],
-                    pages,
-                )
+                .open_manual_schema_review(review_repository, listing_source_id, url, &[], pages)
                 .await);
         }
 

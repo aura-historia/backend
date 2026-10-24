@@ -21,6 +21,35 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
 }
 
 impl ScraperServiceImpl {
+    /// Makes a page that failed every cached schema wait instead of authoring a schema: in manual
+    /// mode a page an operator rejected is classified as other, and in every mode the page joins a
+    /// pending product-schema review. Returns `Ok` when the page may author a fresh schema.
+    pub(crate) async fn wait_instead_of_authoring(
+        &self,
+        ctx: &FreshSchemaGenerationContext<'_>,
+    ) -> Result<(), ScraperError> {
+        if let Some(review_repository) = self.manual_schema_review_repository()
+            && let Some(error) = self
+                .rejected_manual_page(review_repository, ctx.listing_source_id, ctx.url)
+                .await
+        {
+            return Err(error);
+        }
+        match self
+            .join_pending_product_schema_review(ctx.listing_source_id, ctx.url, ctx.html)
+            .await?
+        {
+            Some(review_id) => Err(ScraperError::PendingSchemaReview {
+                url: ctx.url.clone(),
+                review_id,
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Authors a fresh schema for a page that failed every cached schema: opens a manual review in
+    /// manual mode, otherwise generates one with the LLM. The caller has already let the page
+    /// [wait](Self::wait_instead_of_authoring) where it must.
     #[tracing::instrument(
         skip(self, ctx),
         fields(
@@ -40,20 +69,10 @@ impl ScraperServiceImpl {
                     review_repository,
                     ctx.listing_source_id,
                     ctx.url,
-                    ctx.html,
                     ctx.existing_schemas,
                     vec![triggering_page(&ctx)],
                 )
                 .await);
-        }
-        if let Some(review_id) = self
-            .join_pending_product_schema_review(ctx.listing_source_id, ctx.url, ctx.html)
-            .await?
-        {
-            return Err(ScraperError::PendingSchemaReview {
-                url: ctx.url.clone(),
-                review_id,
-            });
         }
 
         let (generated_schema, reapplied, evaluation) = self
