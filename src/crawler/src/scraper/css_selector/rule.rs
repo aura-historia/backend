@@ -68,7 +68,9 @@ pub struct ExtractionRule {
     #[schemars(description = "Primary CSS-Selector for the value to extract")]
     pub selector: CssSelector,
 
-    #[schemars(description = "Additional CSS-Selectors for the values to extract")]
+    #[schemars(
+        description = "Additional CSS-Selectors, evaluated after the primary selector in order. With cardinality `first` they are fallbacks: the first selector that yields a value wins and the later ones are not evaluated. With cardinality `all` they aggregate: the matches of every selector are collected in selector order, each element at most once; an element nested inside, or containing, an element the rule already extracted is skipped, so a container and its paragraphs are never captured together."
+    )]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_selectors: Vec<CssSelector>,
 
@@ -76,7 +78,9 @@ pub struct ExtractionRule {
     #[serde(flatten)]
     pub extract: ExtractionKind,
 
-    #[schemars(description = "How many values to extract")]
+    #[schemars(
+        description = "How many values to extract: `first` (default) takes the first value of the first selector that yields one, `all` takes every matched element of every selector."
+    )]
     #[serde(default)]
     pub cardinality: ExtractionCardinality,
 }
@@ -164,15 +168,20 @@ impl ExtractionRule {
         Ok(())
     }
 
-    /// Apply this extraction rule to the given parsed HTML document,
+    /// Apply this extraction rule to the given parsed HTML document.
     ///
-    /// Every configured selector (primary + additional) is evaluated in order.
-    /// Results from each selector are aggregated into a single `Vec<String>`.
+    /// The primary selector and the additional selectors are evaluated in that order;
+    /// the cardinality decides what the additional selectors mean:
     ///
-    /// - **`First` cardinality**: takes the first matched element per selector.
-    ///   For text extraction, empty/whitespace-only matches are skipped until a
-    ///   non-empty value is found.
-    /// - **`All` cardinality**: takes all matched elements per selector.
+    /// - **`First` cardinality**: the additional selectors are fallbacks. The first
+    ///   selector that yields a value wins and the later ones are not evaluated. For
+    ///   text extraction, empty/whitespace-only matches are skipped until a non-empty
+    ///   value is found.
+    /// - **`All` cardinality**: the additional selectors aggregate. Every matched element
+    ///   of every selector is taken, in selector order, each element at most once: an
+    ///   element nested inside, or containing, an element the rule already extracted is
+    ///   skipped, so a description container and its own paragraphs are never captured
+    ///   together.
     ///
     /// Text extraction separates lines at `<br>` and block boundaries, and table cells
     /// with a space, wherever markup whitespace does not already separate them.
@@ -220,31 +229,29 @@ impl ExtractionRule {
         }
     }
 
-    /// Cardinality `first`: the first value of each selector, in selector order.
+    /// Cardinality `first`: the first value of the first selector that yields one. The
+    /// later selectors are fallbacks for pages where the earlier ones miss.
     fn extract_first(
         &self,
         html: &Html,
         boundaries: TextBoundaries,
     ) -> Result<RuleExtraction, ExtractionError> {
-        let mut extraction = RuleExtraction::default();
-
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            extraction.values.extend(self.first_value(
-                html.select(&parsed),
-                css_selector,
-                boundaries,
-            )?);
+            if let Some(value) = self.first_value(html.select(&parsed), css_selector, boundaries)? {
+                return Ok(RuleExtraction {
+                    values: vec![value],
+                    skipped_elements: 0,
+                });
+            }
         }
 
-        if extraction.values.is_empty() {
-            return Err(self.no_element_matched());
-        }
-
-        Ok(extraction)
+        Err(self.no_element_matched())
     }
 
-    /// Cardinality `all`: every element of every selector, in selector order.
+    /// Cardinality `all`: every element of every selector, in selector order, each
+    /// element at most once. An element nested inside, or containing, an element the
+    /// rule already extracted holds the same content and is skipped.
     fn extract_all(
         &self,
         html: &Html,
@@ -252,13 +259,24 @@ impl ExtractionRule {
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut extraction = RuleExtraction::default();
+        let mut extracted = ExtractedElements::new();
         let mut first_skipped_error = None;
 
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
             for element in html.select(&parsed) {
+                let overlapping_elements = element
+                    .ancestors()
+                    .chain(element.descendants())
+                    .map(|node| node.id());
+                if extracted.contains_any(overlapping_elements) {
+                    continue;
+                }
                 match extract_from_element(&element, &self.extract, css_selector, boundaries) {
-                    Ok(value) => extraction.values.push(value),
+                    Ok(value) => {
+                        extracted.insert(element.id());
+                        extraction.values.push(value);
+                    }
                     Err(error) if without_value == ElementWithoutValue::Skipped => {
                         extraction.skipped_elements += 1;
                         first_skipped_error.get_or_insert(error);
@@ -311,6 +329,25 @@ impl ExtractionRule {
                 .map(|element| extract_from_element(&element, kind, css_selector, boundaries))
                 .transpose(),
         }
+    }
+}
+
+/// The elements a rule with cardinality `all` has extracted so far, by node id. The id
+/// type is inferred from the elements: `scraper` does not re-export `ego_tree::NodeId`.
+struct ExtractedElements<Id>(HashSet<Id>);
+
+impl<Id: Eq + std::hash::Hash> ExtractedElements<Id> {
+    fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    fn insert(&mut self, id: Id) {
+        self.0.insert(id);
+    }
+
+    /// Whether any of `ids` was extracted.
+    fn contains_any(&self, mut ids: impl Iterator<Item = Id>) -> bool {
+        !self.0.is_empty() && ids.any(|id| self.0.contains(&id))
     }
 }
 
@@ -865,35 +902,47 @@ mod tests {
         assert_eq!(r.apply(&doc).unwrap(), vec!["a.png", "b.png", "c.png"]);
     }
 
-    // ─── Additional selectors: aggregation ─────────────────────────────
+    // ─── Additional selectors: fallback for `first`, aggregation for `all` ──
 
     #[test]
-    fn should_aggregate_results_from_primary_and_additional_selectors_in_order() {
+    fn should_take_only_the_primary_value_when_it_matches_for_first_cardinality() {
         let doc = html("<h1>Primary</h1><h2>Additional</h2>");
         let r = rule_with_additional("h1", vec!["h2"], text_kind(), ExtractionCardinality::First);
-        assert_eq!(r.apply(&doc).unwrap(), vec!["Primary", "Additional"]);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Primary"]);
     }
 
     #[test]
-    fn should_aggregate_results_from_all_three_selectors_in_order() {
+    fn should_fall_back_to_the_first_additional_selector_that_matches_for_first_cardinality() {
+        let doc = html("<h1></h1><h3>Third</h3><h4>Fourth</h4>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["h2", "h3", "h4"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Third"]);
+    }
+
+    #[test]
+    fn should_aggregate_results_from_all_three_selectors_in_order_for_all_cardinality() {
         let doc = html("<h1>First</h1><h2>Second</h2><h3>Third</h3>");
         let r = rule_with_additional(
             "h1",
             vec!["h2", "h3"],
             text_kind(),
-            ExtractionCardinality::First,
+            ExtractionCardinality::All,
         );
         assert_eq!(r.apply(&doc).unwrap(), vec!["First", "Second", "Third"]);
     }
 
     #[test]
-    fn should_skip_non_matching_additional_selector_without_error() {
+    fn should_skip_non_matching_additional_selector_without_error_for_all_cardinality() {
         let doc = html("<h1>Primary</h1><h3>Third</h3>");
         let r = rule_with_additional(
             "h1",
             vec!["h2", "h3"],
             text_kind(),
-            ExtractionCardinality::First,
+            ExtractionCardinality::All,
         );
         assert_eq!(r.apply(&doc).unwrap(), vec!["Primary", "Third"]);
     }
@@ -959,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn should_aggregate_first_element_per_selector_for_first_cardinality() {
+    fn should_take_the_first_element_of_the_primary_selector_only_for_first_cardinality() {
         let doc = html(
             r#"<div class="gallery"><img src="a.png"/><img src="b.png"/></div><div class="extra"><img src="c.png"/><img src="d.png"/></div>"#,
         );
@@ -969,7 +1018,7 @@ mod tests {
             attr_kind("src"),
             ExtractionCardinality::First,
         );
-        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png", "c.png"]);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png"]);
     }
 
     #[test]
@@ -990,8 +1039,116 @@ mod tests {
         // if additional_selectors lists "h3" before "h2", results
         // follow selector order.
         let doc = html("<h2>Two</h2><h3>Three</h3>");
-        let r = rule_with_additional("h3", vec!["h2"], text_kind(), ExtractionCardinality::First);
+        let r = rule_with_additional("h3", vec!["h2"], text_kind(), ExtractionCardinality::All);
         assert_eq!(r.apply(&doc).unwrap(), vec!["Three", "Two"]);
+    }
+
+    // ─── Overlapping selectors never capture the same content twice ────
+
+    /// A description block the way Wick and Van Leest render it: a container with a
+    /// title and paragraphs, selected as the container and again as its paragraphs.
+    const DESCRIPTION_HTML: &str = r#"<div class="desc"><h2>Details</h2><p>Walnut.</p><p>Circa 1830.</p></div><p class="note">Restored.</p>"#;
+
+    #[test]
+    fn should_keep_the_container_only_when_its_paragraphs_are_also_selected_for_all_cardinality() {
+        let doc = html(DESCRIPTION_HTML);
+        let r = rule_with_additional(
+            ".desc",
+            vec![".desc p", ".desc h2", ".note"],
+            text_kind(),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["Details\nWalnut.\nCirca 1830.", "Restored."]
+        );
+    }
+
+    #[test]
+    fn should_skip_a_container_of_already_extracted_paragraphs_for_all_cardinality() {
+        let doc = html(DESCRIPTION_HTML);
+        let r = rule_with_additional(
+            ".desc p",
+            vec![".desc", ".note"],
+            text_kind(),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["Walnut.", "Circa 1830.", "Restored."]
+        );
+    }
+
+    #[test]
+    fn should_extract_an_element_once_when_two_selectors_match_it_for_all_cardinality() {
+        let doc = html(DESCRIPTION_HTML);
+        let r = rule_with_additional(
+            ".desc p",
+            vec!["div p", "p"],
+            text_kind(),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["Walnut.", "Circa 1830.", "Restored."]
+        );
+    }
+
+    #[test]
+    fn should_skip_nested_matches_of_one_selector_for_all_cardinality() {
+        let doc =
+            html(r#"<div class="a"><div class="a">Inner</div></div><div class="a">Other</div>"#);
+        let r = rule("div.a", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Inner", "Other"]);
+    }
+
+    #[test]
+    fn should_keep_identical_text_of_separate_elements_for_all_cardinality() {
+        let doc = html("<p>Walnut.</p><p>Walnut.</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Walnut.", "Walnut."]);
+    }
+
+    #[test]
+    fn should_take_one_value_when_selectors_overlap_for_first_cardinality() {
+        let doc = html(DESCRIPTION_HTML);
+        let r = rule_with_additional(
+            ".desc",
+            vec![".desc p"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["Details\nWalnut.\nCirca 1830."]
+        );
+    }
+
+    /// Van Leest's gallery, selected once as its links and again as the images inside
+    /// them: every image came out twice.
+    #[test]
+    fn should_extract_a_gallery_image_once_when_its_link_and_its_img_are_both_selected() {
+        let doc = html(
+            r#"<div class="gallery"><a href="/full/a.jpg"><img src="/thumb/a.jpg"></a><a href="/full/b.jpg"><img src="/thumb/b.jpg"></a></div>"#,
+        );
+        let r = rule_with_additional(
+            ".gallery a",
+            vec![".gallery img"],
+            image_url_kind(),
+            ExtractionCardinality::All,
+        );
+
+        let images = r.apply_image_url_candidate_groups(&doc).unwrap();
+
+        assert_eq!(
+            images
+                .values
+                .iter()
+                .map(|group| image_candidates(group)[0])
+                .collect::<Vec<_>>(),
+            vec!["/full/a.jpg", "/full/b.jpg"]
+        );
+        assert_eq!(images.skipped_elements, 0);
     }
 
     #[test]
@@ -1101,16 +1258,31 @@ mod tests {
 
     #[test]
     fn should_return_invalid_selector_when_additional_is_malformed() {
-        let doc = html("<h1>Valid</h1>");
+        let doc = html("<h1></h1>");
         let r = rule_with_additional(
             "h1",
             vec!["[[[bad"],
             text_kind(),
             ExtractionCardinality::First,
         );
-        // Primary matches, but the additional selector is still parsed → error
         let err = r.apply(&doc).unwrap_err();
         assert!(matches!(err, ExtractionError::InvalidSelector { .. }));
+    }
+
+    /// A matching primary selector does not evaluate the fallbacks, so `validate` is
+    /// what rejects a malformed additional selector before a schema is persisted.
+    #[test]
+    fn should_reject_a_malformed_additional_selector_on_validation() {
+        let r = rule_with_additional(
+            "h1",
+            vec!["[[[bad"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert!(matches!(
+            r.validate().unwrap_err(),
+            ExtractionError::InvalidSelector { .. }
+        ));
     }
 
     #[test]
@@ -1171,7 +1343,7 @@ mod tests {
 
     #[test]
     fn should_return_missing_attribute_when_additional_selector_element_lacks_attribute() {
-        let doc = html(r#"<a href="ok.html">Link</a><span>No href</span>"#);
+        let doc = html(r#"<span>No href</span>"#);
         let r = rule_with_additional(
             "a",
             vec!["span"],
@@ -1778,27 +1950,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case::two_selectors_both_match(
+    #[case::primary_matches(
         "h1", vec!["h2"],
         "<h1>A</h1><h2>B</h2>",
-        vec!["A", "B"],
+        vec!["A"],
     )]
-    #[case::three_selectors_all_match(
+    #[case::primary_blank(
         "h1", vec!["h2", "h3"],
-        "<h1>A</h1><h2>B</h2><h3>C</h3>",
-        vec!["A", "B", "C"],
+        "<h1> </h1><h2>B</h2><h3>C</h3>",
+        vec!["B"],
     )]
     #[case::middle_selector_does_not_match(
         "h1", vec!["h2", "h3"],
-        "<h1>A</h1><h3>C</h3>",
-        vec!["A", "C"],
+        "<h3>C</h3>",
+        vec!["C"],
     )]
     #[case::only_additional_matches(
         "h1", vec!["h2"],
         "<h2>B</h2>",
         vec!["B"],
     )]
-    fn should_aggregate_results_for_various_selector_combinations_when_first_cardinality(
+    fn should_fall_back_through_the_selectors_in_order_when_first_cardinality(
         #[case] primary: &str,
         #[case] additional: Vec<&str>,
         #[case] raw_html: &str,
@@ -1883,7 +2055,7 @@ mod tests {
     }
 
     #[test]
-    fn should_aggregate_results_in_realistic_product_page_with_additional_selectors() {
+    fn should_take_the_old_layout_price_only_when_a_page_still_renders_both_layouts() {
         let doc = Html::parse_document(
             r#"
             <html><body>
@@ -1899,7 +2071,7 @@ mod tests {
             text_kind(),
             ExtractionCardinality::First,
         );
-        assert_eq!(r.apply(&doc).unwrap(), vec!["€19.90", "€29.90"]);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["€19.90"]);
     }
 
     #[test]
@@ -1931,7 +2103,7 @@ mod tests {
     }
 
     #[test]
-    fn should_collect_first_image_per_gallery_section_with_first_cardinality() {
+    fn should_collect_the_first_image_of_the_first_gallery_only_with_first_cardinality() {
         let doc = Html::parse_document(
             r#"
             <html><body>
@@ -1953,9 +2125,6 @@ mod tests {
             attr_kind("src"),
             ExtractionCardinality::First,
         );
-        assert_eq!(
-            r.apply(&doc).unwrap(),
-            vec!["primary1.jpg", "secondary1.jpg"]
-        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["primary1.jpg"]);
     }
 }

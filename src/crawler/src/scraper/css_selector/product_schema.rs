@@ -6,7 +6,7 @@ use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -203,9 +203,11 @@ impl ProductCssSelectorSchema {
     ///
     /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
-    /// (`description`, `images`) all results are kept as a `Vec<String>`; `images` keeps
-    /// the first image URL candidate of each gallery element, where [`Self::extract`]
-    /// keeps the element's whole ordered group.
+    /// (`description`, `images`, raw attributes) all results are kept as a
+    /// `Vec<String>`; `description` and raw attributes keep equal text from separate
+    /// elements once, in order, while `images` keeps its duplicates as raw evidence for
+    /// the plausibility checks. `images` keeps the first image URL candidate of each
+    /// gallery element, where [`Self::extract`] keeps the element's whole ordered group.
     ///
     /// Text separates lines at `<br>` and block boundaries, except in
     /// `source_listing_id`, which joins its text as written so a captured identity stays
@@ -255,10 +257,10 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => {
+            Some(rule) => keep_first_occurrences(
                 tolerate_optional_miss("description", rule.apply(html), OptionalMissLog::Warn)
-                    .map_err(ApplySchemaError::Description)?
-            }
+                    .map_err(ApplySchemaError::Description)?,
+            ),
         };
 
         // A miss yields `None`, exactly like a schema without the rule, so plausibility
@@ -309,7 +311,7 @@ impl ProductCssSelectorSchema {
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
-            let values: Vec<String> =
+            let values = keep_first_occurrences(
                 tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
@@ -317,7 +319,8 @@ impl ProductCssSelectorSchema {
                     })?
                     .into_iter()
                     .filter(|value| !value.trim().is_empty())
-                    .collect();
+                    .collect(),
+            );
             if !values.is_empty() {
                 raw_attributes.insert(field.clone(), values);
             }
@@ -338,6 +341,17 @@ impl ProductCssSelectorSchema {
             skipped_image_elements: images.skipped_elements,
         })
     }
+}
+
+/// Keeps the first occurrence of each value, in order. A text that separate elements
+/// repeat, such as a product note printed twice on the page, is one value of a
+/// description or raw attribute.
+fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
 }
 
 /// Log level of an optional-rule miss.
@@ -971,6 +985,72 @@ mod tests {
             result.description,
             vec!["Fragment one", "Fragment two", "Fragment three"]
         );
+    }
+
+    #[test]
+    fn should_keep_equal_description_text_from_separate_elements_once_in_order() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="x.jpg">
+                <p class="desc">Walnut, circa 1830.</p>
+                <p class="desc">Restored in 1990.</p>
+                <p class="desc">Walnut, circa 1830.</p>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            description: Some(text_rule_all("p.desc")),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(
+            result.description,
+            vec!["Walnut, circa 1830.", "Restored in 1990."]
+        );
+    }
+
+    #[test]
+    fn should_keep_equal_raw_attribute_text_from_separate_elements_once_in_order() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="x.jpg">
+                <span class="material">Walnut</span>
+                <span class="material">Brass</span>
+                <span class="material">Walnut</span>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [("rawMaterial".to_string(), text_rule_all(".material"))].into(),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(
+            result.raw_attributes.get("rawMaterial"),
+            Some(&vec!["Walnut".to_string(), "Brass".to_string()])
+        );
+    }
+
+    #[test]
+    fn should_keep_duplicate_images_as_raw_evidence() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="a.jpg"><img src="a.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: attr_rule_all("img", "src"),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(result.images, vec!["a.jpg", "a.jpg"]);
     }
 
     #[test]
