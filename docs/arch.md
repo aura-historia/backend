@@ -482,9 +482,11 @@ Tests in a crate-level `tests/` directory compile as separate crates and MUST us
 
 Therefore:
 
-- private implementation and real-infrastructure adapter tests belong beside the implementation;
+- private implementation and real-infrastructure adapter tests belong beside the implementation: in a trailing `#[cfg(test)] mod tests` of the source file that contains the code under test, not in sibling `tests.rs`, `*_tests.rs` or `tests/` module files;
 - black-box contract tests belong in `/tests`;
 - implementation details MUST NOT be made `pub` merely so a `/tests` test can access them.
+
+When a file's tests outgrow it, split the production module by responsibility and let its tests follow. Test-only helpers shared by several files of one crate MAY live in a `test_support` module that contains no tests. The [layout check](../ci/check-test-layout.py) enforces this placement and lists each reviewed exception, such as a scenario suite for one orchestrating component.
 
 ## 6. Use cases
 
@@ -1639,7 +1641,9 @@ Inbound use-case contracts MUST be usable through the runtime's chosen dispatch 
 
 ## 20. Testing strategy
 
-Test placement follows visibility and architectural intent. Private implementation tests belong beside the implementation; black-box tests under `tests/` exercise the deliberate public API. Do not widen production visibility merely for a test, even one using real infrastructure. Shared test fixtures and runners are code-level details, not architecture rules.
+Test placement follows visibility and architectural intent. Private implementation tests belong beside the implementation (§5.5); black-box tests under `tests/` exercise the deliberate public API. Do not widen production visibility merely for a test, even one using real infrastructure. Shared test fixtures and runners are code-level details, not architecture rules.
+
+Prove each behavior once, at the cheapest layer that can observe it. Isolated-infrastructure and acceptance tests are for what lower layers cannot prove: SQL, transactions, concurrency, composition, delivery and the exposed contract. They SHOULD NOT repeat validation, mapping, registration or error-mapping assertions that unit tests already make on the same path.
 
 - Core tests verify invariants, transitions, and no-op/event behavior without infrastructure.
 - Service tests use fakes or mocks for ports to verify orchestration, authorization, transaction/commit behavior, batching, error mapping, and optional-data policy.
