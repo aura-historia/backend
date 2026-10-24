@@ -13,6 +13,32 @@ function foundation(enabledTargets: readonly ("dev" | "prod")[] = ["prod"]) {
 }
 const template = foundation();
 
+test("reviewer profiles grant backing models only through the approved profile", () => {
+  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+    .filter((statement) => statement.Action === "bedrock:InvokeModel");
+  expect(statements).toEqual(expect.arrayContaining([
+    expect.objectContaining({ Resource: { Ref: "prodReviewerModelArn" } }),
+    expect.objectContaining({
+      Resource: { Ref: "prodReviewerFoundationModelArns" },
+      Condition: { StringEquals: { "bedrock:InferenceProfileArn": { Ref: "prodReviewerModelArn" } } },
+    }),
+  ]));
+  const parameters = template.toJSON().Parameters;
+  const allowed = new RegExp(parameters.prodReviewerFoundationModelArns.AllowedPattern);
+  expect(allowed.test("arn:aws:bedrock:eu-central-1::foundation-model/anthropic.claude-sonnet-4-6")).toBe(true);
+  expect(allowed.test("arn:aws:bedrock:*::foundation-model/*")).toBe(false);
+});
+
+test("maintenance accepts observed DMS task identifiers without allowing wildcard task access", () => {
+  const allowed = new RegExp(template.toJSON().Parameters.prodMaintenanceDmsTaskArn.AllowedPattern);
+  for (const resource of ["liz4s522bnf7zipgqaix32x73m", "2PVREMWNPGYJCVU2IBPTOYTIV4", "approved-task"]) {
+    expect(allowed.test(`arn:aws:dms:eu-central-1:550663032924:task:${resource}`)).toBe(true);
+  }
+  expect(allowed.test("arn:aws:dms:eu-central-1:550663032924:task:*")).toBe(false);
+  expect(allowed.test("arn:aws:dms:eu-central-1:550663032924:rep:liz4s522bnf7zipgqaix32x73m")).toBe(false);
+});
+
 test("manual delivery has no source triggers, reserved builders, mandatory dev target or build VPC", () => {
   const pipelines = Object.values(template.findResources("AWS::CodePipeline::Pipeline"));
   expect(pipelines.map((resource) => resource.Properties.Name).sort()).toEqual(["aura-deploy-prod", "aura-release-build"]);

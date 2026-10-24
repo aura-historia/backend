@@ -209,6 +209,9 @@ Before enabling normal requests:
    Configure a strong review model explicitly, qualified read-only inspector and
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
+   For a Bedrock inference profile, authorize its exact ARN and all backing
+   foundation-model ARNs in its destination regions. Backing model permissions
+   must be restricted to invocation through that approved profile.
 6. Establish a verified environment baseline and current schema observation under
    the protected maintenance procedure. A baseline assertion must reflect the
    deployed versions and artifacts, not merely the requested source. Confirm SNS
