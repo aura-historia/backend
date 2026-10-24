@@ -39,7 +39,7 @@ and verify old credentials fail; changing the initial-password variable alone is
 
 Use a mode-0600 `.admin-curl` file with Basic credentials; `insecure` is allowed **only
 for loopback administration** at `https://127.0.0.1:19200`. Never pass passwords on
-CLI arguments. PUT the checked-in [role files](../opensearch/stage/roles/) to
+CLI arguments. PUT the checked-in [role files](../opensearch/roles/) to
 `/_plugins/_security/api/roles/aura_stage_<role>` and privately create distinct
 random-password users mapped only to their role. Role names use `reader` and
 `product_projector` (filenames use hyphens). The reader searches ProductListings;
@@ -52,7 +52,7 @@ or `index` action groups: they also grant mapping or other document-write rights
 Only after confirming the product index/pipeline are absent, apply the fresh-install assets:
 
 ```sh
-curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @opensearch/stage/hybrid-search-pipeline.json https://127.0.0.1:19200/_search/pipeline/hybrid-search-pipeline
+curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @opensearch/hybrid-search-pipeline.json https://127.0.0.1:19200/_search/pipeline/hybrid-search-pipeline
 jq '.settings += {"number_of_shards":1,"number_of_replicas":0}' opensearch/mappings/product_listings.json | curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @- https://127.0.0.1:19200/product-listings
 ```
 

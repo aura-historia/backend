@@ -4,7 +4,7 @@ import { join } from "node:path";
 describe("stage product-projector permissions", () => {
   test("allows only indexing and bulk writes on its own index", () => {
     const manifest = JSON.parse(readFileSync(
-      join(__dirname, "../../opensearch/stage/roles/product-projector.json"),
+      join(__dirname, "../../opensearch/roles/product-projector.json"),
       "utf8",
     ));
 
