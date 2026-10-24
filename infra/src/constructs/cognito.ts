@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import type * as ses from "aws-cdk-lib/aws-ses";
@@ -24,6 +25,7 @@ export class Identity extends Construct {
   readonly userPool: cognito.UserPool;
   readonly publicClient: cognito.UserPoolClient;
   readonly domain: cognito.UserPoolDomain;
+  readonly customDomain: cognito.UserPoolDomain | undefined;
 
   constructor(scope: Construct, id: string, props: IdentityProps) {
     super(scope, id);
@@ -120,6 +122,16 @@ export class Identity extends Construct {
         domainPrefix: `primary-userpool-${props.stageName}`,
       },
     });
+    if (props.config.cognitoCustomDomain) {
+      this.customDomain = this.userPool.addDomain("PrimaryUserPoolCustomDomain", {
+        customDomain: {
+          domainName: props.config.cognitoCustomDomain.domainName,
+          certificate: acm.Certificate.fromCertificateArn(
+            this, "CustomDomainCertificate", props.config.cognitoCustomDomain.certificateArn,
+          ),
+        },
+      });
+    }
   }
 
   private configureUserPool(props: IdentityProps): void {

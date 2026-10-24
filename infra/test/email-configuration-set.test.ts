@@ -80,7 +80,10 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
     expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolClient")))
       .toEqual(["IdentityPrimaryUserPoolPrimaryUserPoolClientPublic80694516"]);
     expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolDomain")))
-      .toEqual(["IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955"]);
+      .toEqual(stage === "prod" ? [
+        "IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955",
+        "IdentityPrimaryUserPoolPrimaryUserPoolCustomDomainCB5E75CB",
+      ] : ["IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955"]);
     expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolIdentityProvider")))
       .toEqual(["IdentityGoogleIdentityProviderB503749B", "IdentityFacebookIdentityProviderD75F6B2A"]);
     expect(pool.Properties.Schema).toEqual([
