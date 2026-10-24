@@ -1,7 +1,7 @@
 use super::*;
-use crate::AuraTokenGate;
 use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use async_trait::async_trait;
+use aura_historia_mcp::AuraTokenGate;
 use user_core::{
     access_token::{RawAccessToken, Scope},
     user_id::UserId,

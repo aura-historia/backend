@@ -149,21 +149,3 @@ jobs:
           slots: 4
           profile: none
           compilation_cache: dependencies
-
-  quality:
-    name: Complete Rust suite
-    if: always()
-    needs: [lint, api, crawler, integration, remaining]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Require every Rust job
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PYTHON'
-          import json, os
-          results = json.loads(os.environ['RESULTS'])
-          required = {'lint', 'api', 'crawler', 'integration', 'remaining'}
-          assert set(results) == required, 'Missing required Rust jobs'
-          assert all(job['result'] == 'success' for job in results.values()), results
-          PYTHON

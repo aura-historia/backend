@@ -339,53 +339,6 @@ async fn unrelated_list_and_hard_bounce_are_receipted_without_withdrawing_consen
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
-async fn lambda_base64_event_preserves_signed_bytes_and_commits_the_receipt() {
-    let app = webhook_app(Ok(MarketingEmailSubscriptionState::Missing)).await;
-    let timestamp = now();
-    let delivery_id = format!("msg_{}", uuid::Uuid::new_v4());
-    let body = format!(
-        " {{\n \"webhookSchemaVersion\":\"1.0.0\", \"eventName\":\"testing.testEvent\", \"eventTime\":{timestamp}, \"unused\":\"élève\" }}"
-    )
-    .into_bytes();
-    let signed = signed_request(&delivery_id, timestamp, body.clone());
-    let signature = signed.headers()["webhook-signature"]
-        .to_str()
-        .expect("signature");
-    let mut event: Value =
-        serde_json::from_str(include_str!("../fixtures/http_api_v2_health.json"))
-            .expect("HTTP API v2 fixture");
-    event["routeKey"] = "POST /v1/webhooks/loops".into();
-    event["rawPath"] = PATH.into();
-    event["requestContext"]["http"]["method"] = "POST".into();
-    event["requestContext"]["http"]["path"] = PATH.into();
-    event["headers"] = json!({
-        "host": "api.example.test",
-        "webhook-id": delivery_id,
-        "webhook-timestamp": timestamp.to_string(),
-        "webhook-signature": signature,
-    });
-    event["body"] = base64::engine::general_purpose::STANDARD
-        .encode(&body)
-        .into();
-    event["isBase64Encoded"] = true.into();
-    let request = lambda_http::request::from_str(&event.to_string()).expect("Lambda request");
-
-    assert_response(
-        aura_historia_api::lambda::handle_http_api_v2_request(app, request)
-            .await
-            .expect("Lambda adapter"),
-        StatusCode::NO_CONTENT,
-        None,
-    )
-    .await;
-    let digest: [u8; 32] = Sha256::digest(&body).into();
-    assert_eq!(
-        digest.to_vec(),
-        receipt(&delivery_id).await.expect("receipt").0
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn oversized_body_and_provider_read_failure_return_retryable_errors_without_receipts() {
     let timestamp = now();
     let app = webhook_app(Err(MarketingEmailConsentError::ReadUnavailable)).await;

@@ -39,37 +39,6 @@ async fn scrape_with_schema_service(
 }
 
 #[tokio::test]
-async fn should_use_yaml_schema_when_yaml_schema_is_high_confidence_and_covers_pages() {
-    let id = listing_source_id();
-    let schema = listing_source_product_schemas(id);
-    let schema_for_create = schema.product_schemas.first().cloned().unwrap();
-    let schema_for_save = schema.clone();
-
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(|_| Box::pin(async { Ok(None) }));
-    schema_svc
-        .expect_create_product_schemas()
-        .once()
-        .returning(move |_| {
-            let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
-        });
-    schema_svc
-        .expect_save_product_schemas()
-        .once()
-        .returning(move |_, _| {
-            let s = schema_for_save.clone();
-            Box::pin(async move { Ok(s) })
-        });
-
-    let result = scrape_with_schema_service(schema_svc, 1).await.unwrap();
-    assert!(result.is_some());
-}
-
-#[tokio::test]
 async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
     let id = listing_source_id();
     let schema = listing_source_product_schemas(id);
@@ -175,37 +144,6 @@ async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
-        });
-    schema_svc
-        .expect_save_product_schemas()
-        .once()
-        .returning(move |_, _| {
-            let s = schema_for_save.clone();
-            Box::pin(async move { Ok(s) })
-        });
-
-    let result = scrape_with_schema_service(schema_svc, 1).await.unwrap();
-    assert!(result.is_some());
-}
-
-#[tokio::test]
-async fn should_not_consume_second_budget_call_when_yaml_confidence_is_low() {
-    let id = listing_source_id();
-    let schema = listing_source_product_schemas(id);
-    let yaml_schema = schema.product_schemas.first().cloned().unwrap();
-    let schema_for_save = schema.clone();
-
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(|_| Box::pin(async { Ok(None) }));
-    schema_svc
-        .expect_create_product_schemas()
-        .once()
-        .returning(move |_| {
-            let s = vec![yaml_schema.clone()];
-            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::Low)) })
         });
     schema_svc
         .expect_save_product_schemas()

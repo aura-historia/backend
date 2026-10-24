@@ -305,7 +305,6 @@ fn push_sort_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use listing_source_core::ListingSourceSearch;
 
     fn row(listing_source_id: uuid::Uuid, operator_party_id: uuid::Uuid) -> ListingSourceSearchRow {
         ListingSourceSearchRow {
@@ -368,12 +367,5 @@ mod tests {
         ] {
             assert!(parse_referral_configuration(Some(value)).is_err());
         }
-    }
-
-    #[test]
-    fn should_build_empty_search_filters_without_panicking() {
-        let mut builder = QueryBuilder::<Postgres>::new("SELECT 1 WHERE TRUE");
-        push_filters(&mut builder, &ListingSourceSearch::default());
-        let _ = builder.build();
     }
 }

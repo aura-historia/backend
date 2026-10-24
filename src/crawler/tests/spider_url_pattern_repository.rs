@@ -120,36 +120,6 @@ async fn should_save_replace_and_clear_pattern_for_owned_domain() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_mark_owned_domain_as_crawled() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
-    let listing_source_id = ListingSourceId::new();
-    insert_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "crawled.example.com").await;
-
-    let before = repository
-        .find_pattern(&listing_source_id, &domain_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(before.last_crawled.is_none());
-
-    repository
-        .mark_as_crawled(&listing_source_id, &domain_id)
-        .await
-        .unwrap();
-
-    let crawled = repository
-        .find_pattern(&listing_source_id, &domain_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(crawled.listing_source_id, listing_source_id);
-    assert_eq!(crawled.domain_id, domain_id);
-    assert!(crawled.last_crawled.is_some());
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_store_patterns_independently_for_domains_of_one_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());

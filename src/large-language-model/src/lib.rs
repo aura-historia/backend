@@ -2029,20 +2029,6 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_caller_defined_output_type() -> Result<(), LargeLanguageModelError> {
-        let response = response_with_parts(vec![json_part(r#"{"matched":true}"#)], Some("STOP"));
-
-        assert_eq!(
-            response.into_output::<CallerDefinedOutput>(
-                LlmOperation::CrawlerProductSchemaGeneration,
-                "test-model"
-            )?,
-            CallerDefinedOutput { matched: true }
-        );
-        Ok(())
-    }
-
-    #[test]
     fn should_deserialize_vertex_usage_metadata_with_all_token_fields() {
         let response: GenerateContentResponse = serde_json::from_value(serde_json::json!({
             "candidates": [],

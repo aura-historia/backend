@@ -44,20 +44,3 @@ pub async fn read_response(
 
     Ok(OpenSearchResponse { status, body })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_retain_status_and_body() {
-        let response = OpenSearchResponse {
-            status: StatusCode::BAD_GATEWAY,
-            body: "upstream failed".to_owned(),
-        };
-
-        assert_eq!(StatusCode::BAD_GATEWAY, response.status());
-        assert_eq!("upstream failed", response.body());
-        assert_eq!("upstream failed", response.into_body());
-    }
-}

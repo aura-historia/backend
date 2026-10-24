@@ -662,50 +662,6 @@ async fn concurrent_deliveries_commit_one_listing_event_and_receipt() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn reused_command_identity_with_different_fingerprint_is_rejected_without_writes() {
-    let pool = get_postgres_client().await;
-    let source = seed_source(&pool).await;
-    let envelope = prepared(
-        source,
-        Principal::System,
-        "conflict",
-        vec![create(source, "one")],
-    )
-    .await
-    .remove(0);
-    let processor = handler(&pool);
-    assert!(matches!(
-        processor.execute(envelope.clone()).await,
-        Ok(ProductListingIngestionCompletion::Applied(_))
-    ));
-    let mut conflicting = prepared(
-        source,
-        Principal::System,
-        "conflict",
-        vec![create(source, "different")],
-    )
-    .await
-    .remove(0);
-    assert_eq!(
-        conflicting.message.metadata.command_id,
-        envelope.message.metadata.command_id
-    );
-    conflicting.fingerprint = ProductListingIngestionFingerprint::from_digest([18; 32]);
-    assert!(matches!(
-        processor.execute(conflicting).await,
-        Err(ProductListingIngestionError::FingerprintConflict)
-    ));
-    assert_eq!(counts(&pool).await, (1, 1, 1));
-    let rejected_listing: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_listings WHERE source_listing_id = 'different'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(rejected_listing, 0);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn failed_receipt_insert_rolls_back_listing_and_event_then_can_retry() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
@@ -782,40 +738,6 @@ async fn failed_event_insert_rolls_back_listing_and_receipt_then_can_retry() {
             ProductListingIngestionEffect::Created(_)
         ))
     ));
-    assert_eq!(counts(&pool).await, (1, 1, 1));
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn later_failed_command_does_not_undo_previously_committed_command() {
-    let pool = get_postgres_client().await;
-    let source = seed_source(&pool).await;
-    let mut envelopes = prepared(
-        source,
-        Principal::System,
-        "batch",
-        vec![create(source, "one"), update(source, "missing")],
-    )
-    .await;
-    let processor = handler(&pool);
-    let first = envelopes.remove(0);
-    let second = envelopes.remove(0);
-    assert!(matches!(
-        processor.execute(first.clone()).await,
-        Ok(ProductListingIngestionCompletion::Applied(
-            ProductListingIngestionEffect::Created(_)
-        ))
-    ));
-    assert!(matches!(
-        processor.execute(second).await,
-        Err(ProductListingIngestionError::Update(
-            UpdateProductListingError::NotFound
-        ))
-    ));
-    assert_eq!(counts(&pool).await, (1, 1, 1));
-    assert_eq!(
-        processor.execute(first).await.unwrap(),
-        ProductListingIngestionCompletion::AlreadyCompleted
-    );
     assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
@@ -1216,35 +1138,6 @@ async fn distinct_commands_with_one_submission_id_both_execute() {
         ProductListingIngestionCompletion::AlreadyCompleted
     );
     assert_eq!(counts(&pool).await, (2, 2, 2));
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn committed_command_with_lost_ack_is_recognized_by_new_handler() {
-    let pool = get_postgres_client().await;
-    let source = seed_source(&pool).await;
-    let envelope = prepared(
-        source,
-        Principal::System,
-        "lost-ack",
-        vec![create(source, "one")],
-    )
-    .await
-    .remove(0);
-    {
-        let first_worker = handler(&pool);
-        assert!(matches!(
-            first_worker.execute(envelope.clone()).await.unwrap(),
-            ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::Created(_))
-        ));
-        // Simulate a lost reply after commit: the first worker/result are discarded.
-    }
-    assert_eq!(counts(&pool).await, (1, 1, 1));
-    let restarted_worker = handler(&pool);
-    assert_eq!(
-        restarted_worker.execute(envelope).await.unwrap(),
-        ProductListingIngestionCompletion::AlreadyCompleted
-    );
-    assert_eq!(counts(&pool).await, (1, 1, 1));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

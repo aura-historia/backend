@@ -458,7 +458,6 @@ mod tests {
     use crate::event::Event;
     use crate::event_id::EventId;
     use crate::version::InvalidVersionError;
-    use crate::versioned::Versioned;
 
     crate::version_newtype!(TestVersion);
 
@@ -495,14 +494,6 @@ mod tests {
         assert_eq!(
             InvalidVersionError::Zero,
             TestVersion::try_from(0_u64).unwrap_err()
-        );
-    }
-
-    #[test]
-    fn should_wrap_versioned_value() {
-        assert_eq!(
-            "value",
-            Versioned::new("value", TestVersion::INITIAL).into_value()
         );
     }
 

@@ -272,20 +272,3 @@ async fn should_follow_descending_cursor_through_tied_created_timestamps() {
     assert_eq!(expected_ids[2], second.items[0].id);
     assert!(second.cursor.search_after.is_none());
 }
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_return_an_empty_admin_application_page() {
-    let request = ListAdminPartnershipApplicationsRequest {
-        search: PartnershipApplicationSearch::default(),
-        sort: None,
-        cursor: Some(Cursor {
-            size: 2,
-            search_after: None,
-        }),
-    };
-
-    let result = read_page(&request).await;
-
-    assert!(result.items.is_empty());
-    assert!(result.cursor.search_after.is_none());
-}

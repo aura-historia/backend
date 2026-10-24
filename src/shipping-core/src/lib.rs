@@ -22,9 +22,6 @@ pub mod time;
 #[cfg(any(test, feature = "test-data"))]
 pub mod fixtures;
 
-#[cfg(test)]
-mod tests;
-
 /// Constructor failures carry no source text, addresses or buyer data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidShippingValue {

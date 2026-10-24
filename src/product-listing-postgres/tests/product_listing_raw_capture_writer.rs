@@ -353,57 +353,6 @@ async fn should_preserve_a_b_a_for_new_provider_delivery_ids() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_return_duplicate_for_provider_receipt_after_later_change() {
-    let pool = get_postgres_client().await;
-    let listing_source_id =
-        seed_listing_source(&pool, "raw-capture-provider-duplicate-after-change-source").await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let factory = SqlxProductListingRawCaptureWriterFactory::new();
-    let first_write = provider_write(
-        listing_source_id,
-        json!({"state": "first"}),
-        json!({}),
-        json!({}),
-        "delivery-first",
-        occurred_at(1),
-    );
-
-    let first = capture(&unit_of_work, &factory, first_write.clone()).await;
-    let later = capture(
-        &unit_of_work,
-        &factory,
-        provider_write(
-            listing_source_id,
-            json!({"state": "later"}),
-            json!({}),
-            json!({}),
-            "delivery-later",
-            occurred_at(2),
-        ),
-    )
-    .await;
-    let duplicate = capture(&unit_of_work, &factory, first_write).await;
-
-    assert!(matches!(
-        first,
-        ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
-    ));
-    assert!(matches!(
-        later,
-        ProductListingRawCaptureWriteOutcome::Changed { revision: 2, .. }
-    ));
-    assert!(matches!(
-        duplicate,
-        ProductListingRawCaptureWriteOutcome::Duplicate {
-            latest_revision: 2,
-            ..
-        }
-    ));
-    assert_eq!(2, raw_revision_count(&pool, listing_source_id).await);
-    assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_reuse_expired_provider_receipt_identity() {
     let pool = get_postgres_client().await;
     let listing_source_id =

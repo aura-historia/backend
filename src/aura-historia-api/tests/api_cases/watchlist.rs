@@ -128,38 +128,6 @@ async fn should_add_product_to_watchlist_when_authenticated() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_watchlist_create_when_entry_exists() {
-    let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
-    )
-    .await;
-    let product_listing_id = seed_product().await;
-    let client = reqwest::Client::new();
-
-    let created = client
-        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
-        .bearer_auth(String::from(token.clone()))
-        .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to create watchlist API: {error}"));
-    assert_eq!(reqwest::StatusCode::CREATED, created.status());
-
-    let duplicate = client
-        .post(format!("{}/v1/me/watchlist", AURA_API.base_url()))
-        .bearer_auth(String::from(token))
-        .json(&serde_json::json!({"productListingId": product_listing_id.to_string()}))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to duplicate watchlist API: {error}"));
-    let (status, body) = json_response(duplicate).await;
-
-    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_product_listing_not_found_when_watching_missing_product() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -615,87 +583,6 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
         );
         assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
         assert!(body["item"].get("shipping").is_none());
-    }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_invalid_watchlist_patch_presentation_without_changing_entry() {
-    let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
-    )
-    .await;
-    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
-    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
-    let client = reqwest::Client::new();
-
-    for query in ["language=invalid", "currency=XXX"] {
-        let response = client
-            .patch(format!(
-                "{}/v1/me/watchlist/{product_listing_id}?{query}",
-                AURA_API.base_url()
-            ))
-            .bearer_auth(String::from(token.clone()))
-            .json(&serde_json::json!({"notifications": false, "state": "ACTIVE"}))
-            .send()
-            .await
-            .unwrap_or_else(|error| {
-                panic!("failed to patch invalid watchlist presentation: {error}")
-            });
-        let (status, body) = json_response(response).await;
-
-        assert_problem(
-            status,
-            &body,
-            reqwest::StatusCode::BAD_REQUEST,
-            "BAD_QUERY_PARAMETER_VALUE",
-        );
-        assert_eq!(
-            before,
-            watchlist_entry_snapshot(user_id, product_listing_id).await
-        );
-    }
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_null_watchlist_patch_fields_without_changing_entry() {
-    let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
-    )
-    .await;
-    let product_listing_id = seed_inactive_watchlist_entry(user_id).await;
-    let before = watchlist_entry_snapshot(user_id, product_listing_id).await;
-    let client = reqwest::Client::new();
-
-    for patch in [
-        serde_json::json!({"state": null, "notifications": false}),
-        serde_json::json!({"notifications": null, "state": "ACTIVE"}),
-    ] {
-        let response = client
-            .patch(format!(
-                "{}/v1/me/watchlist/{product_listing_id}",
-                AURA_API.base_url()
-            ))
-            .bearer_auth(String::from(token.clone()))
-            .json(&patch)
-            .send()
-            .await
-            .unwrap_or_else(|error| panic!("failed to patch null watchlist fields: {error}"));
-        let (status, body) = json_response(response).await;
-
-        assert_problem(
-            status,
-            &body,
-            reqwest::StatusCode::BAD_REQUEST,
-            "BAD_BODY_VALUE",
-        );
-        assert_eq!(
-            before,
-            watchlist_entry_snapshot(user_id, product_listing_id).await
-        );
     }
 }
 

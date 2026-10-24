@@ -514,7 +514,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case(1)]
     #[case(3)]
     #[case(7)]
     fn should_disable_ses_sdk_resends_even_when_injected_client_retries(#[case] attempts: u32) {

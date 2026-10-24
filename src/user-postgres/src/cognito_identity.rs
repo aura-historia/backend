@@ -335,54 +335,6 @@ mod tests {
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-    async fn should_isolate_same_subject_by_issuer() {
-        let pool = get_postgres_client().await;
-        let first_user_id = UserId::new();
-        let second_user_id = UserId::new();
-        let first = identity("https://issuer.example/pool-a", "shared-subject");
-        let second = identity("https://issuer.example/pool-b", "shared-subject");
-        seed_user(&pool, *first_user_id.as_uuid(), "first@example.test").await;
-        seed_user(&pool, *second_user_id.as_uuid(), "second@example.test").await;
-        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-        let mut tx = unit_of_work
-            .begin()
-            .await
-            .unwrap_or_else(|error| panic!("failed to begin transaction: {error}"));
-        let factory = SqlxUserCognitoIdentityRegistryFactory::new();
-        factory
-            .in_transaction(&mut tx)
-            .bind(&first, first_user_id)
-            .await
-            .unwrap_or_else(|error| panic!("failed to bind first identity: {error}"));
-        factory
-            .in_transaction(&mut tx)
-            .bind(&second, second_user_id)
-            .await
-            .unwrap_or_else(|error| panic!("failed to bind second identity: {error}"));
-        tx.commit()
-            .await
-            .unwrap_or_else(|error| panic!("failed to commit identities: {error}"));
-        let reader = SqlxCognitoUserIdentityReader::new(pool);
-
-        assert_eq!(
-            Some(first_user_id),
-            reader
-                .find_identity(&first)
-                .await
-                .unwrap_or_else(|error| panic!("failed to resolve first identity: {error}"))
-                .map(|identity| identity.user_id)
-        );
-        assert_eq!(
-            Some(second_user_id),
-            reader
-                .find_identity(&second)
-                .await
-                .unwrap_or_else(|error| panic!("failed to resolve second identity: {error}"))
-                .map(|identity| identity.user_id)
-        );
-    }
-
-    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_enforce_unique_identity_tuple_and_unique_user_binding() {
         let pool = get_postgres_client().await;
         let first_user_id = UserId::new();

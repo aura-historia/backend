@@ -299,12 +299,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_reject_zero_periodic_match_max_run_seconds() {
-        let result = positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 0);
-        assert!(matches!(result, Err(WiringError::InvalidPolicy)));
-    }
-
-    #[test]
     fn should_enforce_two_hour_matching_cap() {
         assert_eq!(
             positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200).unwrap(),

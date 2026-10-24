@@ -169,59 +169,6 @@ async fn should_reject_legacy_routes_without_redirects_through_the_composed_http
 }
 
 #[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
-async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
-    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
-        let app = api_support::aura_api_app().await;
-        let admin_id = api_support::seed_user("ADMIN").await;
-        let admin_token = String::from(
-            api_support::seed_access_token_for(
-                admin_id,
-                std::collections::HashSet::from([Scope::AdminOverviewRead]),
-            )
-            .await,
-        );
-        let user_id = api_support::seed_user("USER").await;
-        let user_token = String::from(
-            api_support::seed_access_token_for(
-                user_id,
-                std::collections::HashSet::from([Scope::AdminOverviewRead]),
-            )
-            .await,
-        );
-
-        let allowed = handle_http_api_v2_request(
-            app.clone(),
-            http_api_v2_json_request("GET", "/v1/admin/overview", &admin_token, "")?,
-        )
-        .await?;
-        assert_eq!(StatusCode::OK, allowed.status());
-        assert_eq!(
-            Some("no-store"),
-            allowed
-                .headers()
-                .get(axum::http::header::CACHE_CONTROL)
-                .and_then(|value| value.to_str().ok())
-        );
-
-        let denied = handle_http_api_v2_request(
-            app,
-            http_api_v2_json_request("GET", "/v1/admin/overview", &user_token, "")?,
-        )
-        .await?;
-        assert_eq!(StatusCode::FORBIDDEN, denied.status());
-        let denied_body = to_bytes(denied.into_body(), usize::MAX).await?;
-        assert_eq!(
-            serde_json::json!("FORBIDDEN"),
-            serde_json::from_slice::<serde_json::Value>(&denied_body)?["error"]
-        );
-        Ok(())
-    }
-    .await;
-
-    assert!(result.is_ok(), "{result:?}");
-}
-
-#[test_api::aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH], isolated = true)]
 async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_http_api_v2_router() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;

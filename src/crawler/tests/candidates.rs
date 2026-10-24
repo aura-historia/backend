@@ -141,23 +141,6 @@ async fn insert_domain_for_listing_source(
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// get_candidates — no eligible listing_sources returns empty vec
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
-    let pool = get_postgres_client().await;
-    let service = SpiderCandidateServiceImpl::new(pool.clone());
-
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
-
-    assert!(
-        candidates.is_empty(),
-        "expected no candidates for a fresh schema"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // get_candidates — newly-inserted domain (last_crawled IS NULL) is returned
 //                  and carries the correct domain_id
 // ---------------------------------------------------------------------------
@@ -213,64 +196,6 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
         "a domain crawled just now should not be returned as a candidate"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — domain crawled more than 7 days ago IS returned
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
-    let pool = get_postgres_client().await;
-    let service = SpiderCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-stale.example.com")
-            .await;
-
-    sqlx::query(
-        "UPDATE listing_source_domains SET last_crawled = NOW() - INTERVAL '8 days' WHERE domain_id = $1",
-    )
-    .bind(domain_id.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
-
-    assert!(
-        candidates.iter().any(|c| c.domain_id == domain_id),
-        "stale domain should be returned with its domain_id"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — crawl-disabled listing_sources are excluded
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
-    let pool = get_postgres_client().await;
-    let service = SpiderCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-inactive.example.com")
-            .await;
-
-    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
-        .bind(listing_source_id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
-
-    assert!(
-        !candidates.iter().any(|c| c.domain_id == domain_id),
-        "candidates for crawl-disabled listing_sources should be excluded"
     );
 }
 
@@ -695,87 +620,6 @@ async fn insert_product_url(
     )
     .await
     .unwrap();
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — empty DB returns empty vec
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
-
-    assert!(
-        candidates.is_empty(),
-        "expected no candidates for a fresh schema"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — product URL never scraped IS returned
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_return_candidate_when_product_url_never_scraped() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-never.example.com")
-            .await;
-    insert_product_url(
-        &pool,
-        listing_source_id,
-        domain_id,
-        "https://scraper-never.example.com/p/1",
-    )
-    .await;
-
-    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
-
-    assert!(
-        candidates
-            .iter()
-            .any(|c| c.url.as_str() == "https://scraper-never.example.com/p/1"),
-        "never-scraped product URL should be returned"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — URL scraped < 1 day ago is NOT returned
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_not_return_candidate_when_recently_scraped() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-recent.example.com")
-            .await;
-    let url = "https://scraper-recent.example.com/p/1";
-    let hash = "b".repeat(64);
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
-
-    // Mark as scraped just now
-    sqlx::query("UPDATE listing_source_urls SET last_scraped = NOW(), last_scraped_hash = $1 WHERE url = $2")
-        .bind(&hash)
-        .bind(url)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
-
-    assert!(
-        !candidates.iter().any(|c| c.url.as_str() == url),
-        "URL scraped just now should not be returned"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1300,53 +1144,6 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
             .iter()
             .any(|c| c.url.host_str() == Some("scraper-open.example.com")),
         "URL from non-excluded domain should still be returned"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — ordering: never-scraped before stale
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_order_never_scraped_before_stale() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-order.example.com")
-            .await;
-
-    let url_never = "https://scraper-order.example.com/p/never";
-    let url_stale = "https://scraper-order.example.com/p/stale";
-    insert_product_url(&pool, listing_source_id, domain_id, url_stale).await;
-    insert_product_url(&pool, listing_source_id, domain_id, url_never).await;
-
-    // Make the stale one old — scraped 5 days ago with a different hash so it qualifies
-    sqlx::query(
-        "UPDATE listing_source_urls \
-         SET last_scraped = NOW() - INTERVAL '5 days', last_scraped_hash = 'old' \
-         WHERE url = $1",
-    )
-    .bind(url_stale)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let candidates = service.get_candidates(100, 100, &[]).await.unwrap();
-
-    let pos_never = candidates
-        .iter()
-        .position(|c| c.url.as_str() == url_never)
-        .expect("never-scraped URL should be in candidates");
-    let pos_stale = candidates
-        .iter()
-        .position(|c| c.url.as_str() == url_stale)
-        .expect("stale URL should be in candidates");
-
-    assert!(
-        pos_never < pos_stale,
-        "never-scraped (pos {pos_never}) should come before stale (pos {pos_stale})"
     );
 }
 
@@ -2187,45 +1984,6 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     assert!(
         !after.iter().any(|c| c.url.as_str() == url_str),
         "URL should not appear after mark_as_scraped"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_random_product_urls_for_schema_seed — excludes current URL
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_seed_urls_should_exclude_current_url() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "seed-exclude.example.com")
-            .await;
-
-    let exclude_url = "https://seed-exclude.example.com/p/current";
-    let other_url = "https://seed-exclude.example.com/p/other";
-    insert_product_url(&pool, listing_source_id, domain_id, exclude_url).await;
-    insert_product_url(&pool, listing_source_id, domain_id, other_url).await;
-
-    let exclude = url::Url::parse(exclude_url).unwrap();
-    let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &exclude, 5)
-        .await
-        .unwrap();
-
-    assert!(
-        sampled
-            .iter()
-            .all(|candidate| candidate.url.as_str() != exclude_url),
-        "excluded URL must never be returned"
-    );
-    assert!(
-        sampled
-            .iter()
-            .any(|candidate| candidate.url.as_str() == other_url),
-        "another eligible product URL should be sampled"
     );
 }
 

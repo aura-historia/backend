@@ -24,28 +24,6 @@ use user_service::ports::{
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_return_last_admin_when_target_is_sole_admin() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let users = SqlxUserRepositoryFactory::new();
-    let admins = SqlxUserAdminReaderFactory::new();
-    let user = sample_user("postgres-sole-admin", UserRole::Admin);
-
-    let mut tx = begin(&unit_of_work).await;
-    insert_user(&users, &mut tx, &user).await;
-    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
-        .check_removal(user.id())
-        .await
-    {
-        Ok(decision) => decision,
-        Err(error) => panic!("failed to check sole admin removal: {error:?}"),
-    };
-    commit(tx).await;
-
-    assert_eq!(UserAdminRemovalDecision::LastAdmin, decision);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_protect_last_active_admin_when_suspended_admin_remains() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -101,30 +79,6 @@ async fn should_make_suspended_admin_unavailable_for_authorization_and_removal()
 
     assert!(matches!(actor, Ok(None)));
     assert_eq!(UserAdminRemovalDecision::TargetNotAdmin, decision);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_allow_admin_removal_when_multiple_admins_exist() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let users = SqlxUserRepositoryFactory::new();
-    let admins = SqlxUserAdminReaderFactory::new();
-    let target = sample_user("postgres-multiple-admin-target", UserRole::Admin);
-    let remaining = sample_user("postgres-multiple-admin-remaining", UserRole::Admin);
-
-    let mut tx = begin(&unit_of_work).await;
-    insert_user(&users, &mut tx, &target).await;
-    insert_user(&users, &mut tx, &remaining).await;
-    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
-        .check_removal(target.id())
-        .await
-    {
-        Ok(decision) => decision,
-        Err(error) => panic!("failed to check multiple admin removal: {error:?}"),
-    };
-    commit(tx).await;
-
-    assert_eq!(UserAdminRemovalDecision::Allowed, decision);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

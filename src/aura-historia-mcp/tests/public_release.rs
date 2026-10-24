@@ -1,11 +1,17 @@
+//! Complete public catalogue over local HTTP, Lambda and official SDK clients with fake services.
+#[path = "public_release/authentication.rs"]
 mod authentication;
+#[path = "public_release/fixtures.rs"]
 mod fixtures;
+#[path = "public_release/personalization/mod.rs"]
 mod personalization;
+#[path = "public_release/rotation.rs"]
 mod rotation;
+#[path = "public_release/sdk.rs"]
 mod sdk;
 
-use super::*;
-use crate::{AnonymousGate, MAX_RESPONSE_BYTES, TransportConfig, router};
+use aura_historia_mcp::public::*;
+use aura_historia_mcp::{AnonymousGate, MAX_RESPONSE_BYTES, TransportConfig, router};
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -24,11 +30,11 @@ const LISTING_ID: &str = "pl_01k6k0w000e008000000000001";
 const AUCTION_ID: &str = "auc_01k6k0w000e008000000000004";
 
 fn manifest() -> Value {
-    serde_json::from_str(include_str!("../../../public-operations.json")).unwrap()
+    serde_json::from_str(include_str!("../public-operations.json")).unwrap()
 }
 fn search_input() -> Value {
     let mut input: Value = serde_json::from_str(include_str!(
-        "../../../../aura-historia-contracts/tests/fixtures/listing-search.json"
+        "../../aura-historia-contracts/tests/fixtures/listing-search.json"
     ))
     .unwrap();
     input.as_object_mut().unwrap().remove("searchAfter");
@@ -179,7 +185,7 @@ async fn should_publish_exactly_the_selected_operations_with_shared_schemas_and_
             .count()
     );
     assert!(list["result"].get("nextCursor").is_none());
-    let swagger = include_str!("../../../../../docs/swagger.yaml");
+    let swagger = include_str!("../../../docs/swagger.yaml");
     for (tool, operation) in tools.iter().zip(operations) {
         let name = operation["operationId"].as_str().unwrap();
         assert_eq!(tool["name"], operation["name"]);
@@ -350,7 +356,7 @@ async fn should_preserve_complete_large_public_results_through_the_actual_lambda
     let fixture = Arc::new(Fixture::default());
     let app = app(&fixture);
     let service = lambda_http::service_fn(move |request| {
-        crate::lambda::handle_http_api_v2_request(app.clone(), request)
+        aura_historia_mcp::lambda::handle_http_api_v2_request(app.clone(), request)
     });
     for name in ["getProductListing", "getProductListingHistory"] {
         let body = body(

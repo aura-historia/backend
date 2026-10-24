@@ -47,6 +47,4 @@ watchlist-service = { workspace = true }
 [dev-dependencies]
 listing-source-core = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
-uuid = { workspace = true, features = ["v7"] }
