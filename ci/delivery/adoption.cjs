@@ -57,8 +57,9 @@ async function verifyStacks(
     )
       throw new Error('Baseline stack is missing or not settled');
     const live = parseTemplate(
-      api(ctx, 'cloudformation', 'get-template', ['--stack-name', name])
-        .TemplateBody,
+      api(ctx, 'cloudformation', 'get-template', [
+        '--stack-name', name, '--template-stage', 'Original',
+      ]).TemplateBody,
     );
     if (digest(live) !== digest(candidate.template))
       throw new Error(`Actual template differs from selected bundle: ${name}`);
