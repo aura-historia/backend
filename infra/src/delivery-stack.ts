@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { Construct } from "constructs";
 import { ARTIFACT_BUCKET_NAME, type StageName } from "./config";
 import { CONTAINER_IMAGE_CATALOG } from "./container-image-catalog";
-import { createEnvironmentRoles, type EnvironmentRoles } from "./delivery-iam";
+import { createEnvironmentRoles } from "./delivery-iam";
 
 export interface DeliveryStackProps extends cdk.StackProps {
   readonly enabledTargets?: readonly StageName[];
@@ -181,11 +181,11 @@ export class DeliveryStack extends cdk.Stack {
     this.releases.grantPut(buildRequester, "tests/*");
     readRelease(buildRequester);
     for (const stage of targets) {
-      const roles = createEnvironmentRoles(this, stage, this.releases, artifacts);
-      this.createDeployment(stage, { artifacts, source, project, admission, requester, readRelease, vars, roles, topic });
+      this.createDeployment(stage, { artifacts, source, project, admission, requester, readRelease, vars, topic });
     }
-    new codestarnotifications.NotificationRule(this, "BuildFailures", { source: this.buildPipeline,
+    const buildFailures = new codestarnotifications.NotificationRule(this, "BuildFailures", { source: this.buildPipeline,
       events: ["codepipeline-pipeline-pipeline-execution-failed"], targets: [topic] });
+    topic.grantPublish(new iam.ServicePrincipal("codestar-notifications.amazonaws.com")).applyBefore(buildFailures);
     if (props.monthlyBudgetUsd !== undefined) {
       if (!Number.isFinite(props.monthlyBudgetUsd) || props.monthlyBudgetUsd <= 0) throw new Error("Budget must be positive USD.");
       new budgets.CfnBudget(this, "DeliveryBudget", {
@@ -212,7 +212,7 @@ export class DeliveryStack extends cdk.Stack {
     requester: (name: string, environment: string) => iam.Role;
     readRelease: (role: iam.IGrantable) => unknown;
     vars: (pipeline: codepipeline.Pipeline, extra?: Record<string, string>) => Record<string, codebuild.BuildEnvironmentVariable>;
-    roles: EnvironmentRoles; topic: sns.ITopic;
+    topic: sns.ITopic;
   }): void {
     const variables = ["RequestKey", "RequestVersion", "RequestDigest", "BundleDigest", "ReportKey", "ReportVersion", "ReportDigest"]
       .map((variableName) => new codepipeline.Variable({ variableName, defaultValue: "UNAUTHORIZED" }));
@@ -220,9 +220,10 @@ export class DeliveryStack extends cdk.Stack {
       pipelineName: `aura-deploy-${stage}`, pipelineType: codepipeline.PipelineType.V2, executionMode: codepipeline.ExecutionMode.QUEUED,
       artifactBucket: context.artifacts, variables, restartExecutionOnUpdate: false,
     });
+    const roles = createEnvironmentRoles(this, stage, this.releases, context.artifacts, pipeline.role);
     const { control } = context.source(pipeline, false);
     const prepared = new codepipeline.Artifact("Prepared");
-    const prepare = context.project(`${stage}-admission`, "node ci/delivery/pipeline.cjs admit", context.roles.planner);
+    const prepare = context.project(`${stage}-admission`, "node ci/delivery/pipeline.cjs admit", roles.planner);
     context.readRelease(prepare);
     this.releases.grantPut(prepare, `environments/${this.account}/${this.region}/${stage}.json`);
     const migration = context.project(`${stage}-migrate`, 'DELIVERY_PREPARED_DIR="$CODEBUILD_SRC_DIR_Prepared/prepared" node ci/delivery/pipeline.cjs migrate');
@@ -259,13 +260,13 @@ export class DeliveryStack extends cdk.Stack {
       service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     const deploy = pipeline.addStage({ stageName: "Deploy", actions: [context.admission(pipeline, stage)] });
     deploy.addAction(new actions.CodeBuildAction({ actionName: "RevalidateAndHold", project: prepare, input: control,
-      outputs: [prepared], environmentVariables: context.vars(pipeline, { DELIVERY_TARGET: stage, DELIVERY_TARGET_CONFIG: `ci/delivery/targets/${stage}.json`, DELIVERY_EXECUTION_ROLE_ARN: context.roles.execution.roleArn, DELIVERY_MIGRATION_EXECUTION_ROLE_ARN: context.roles.migrationExecution.roleArn }), variablesNamespace: "Admission", runOrder: 2 }));
+      outputs: [prepared], environmentVariables: context.vars(pipeline, { DELIVERY_TARGET: stage, DELIVERY_TARGET_CONFIG: `ci/delivery/targets/${stage}.json`, DELIVERY_EXECUTION_ROLE_ARN: roles.execution.roleArn, DELIVERY_MIGRATION_EXECUTION_ROLE_ARN: roles.migrationExecution.roleArn }), variablesNamespace: "Admission", runOrder: 2 }));
     const native = (boundary: string, order: number) => {
       const action = new actions.CloudFormationCreateUpdateStackAction({
         actionName: `Deploy${boundary}`, stackName: `application-${stage}-${boundary.toLowerCase()}`,
         templatePath: prepared.atPath(`prepared/${boundary.toLowerCase()}.template.json`),
         templateConfiguration: prepared.atPath(`prepared/${boundary.toLowerCase()}.config.json`),
-        adminPermissions: false, deploymentRole: boundary === "Migrate" ? context.roles.migrationExecution : context.roles.execution, role: context.roles.action,
+        adminPermissions: false, deploymentRole: boundary === "Migrate" ? roles.migrationExecution : roles.execution, role: roles.action,
         cfnCapabilities: [cdk.CfnCapabilities.NAMED_IAM], runOrder: order,
       });
       deploy.addAction(action);
@@ -289,7 +290,7 @@ export class DeliveryStack extends cdk.Stack {
       "cloudformation:DescribeChangeSet", "cloudformation:DescribeStacks", "cloudformation:DescribeStackResources",
       "cloudformation:ListStackResources", "cloudformation:GetTemplate"], resources: [this.formatArn({
       service: "cloudformation", resource: "stack", resourceName: `application-${stage}-*/*` })] }));
-    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [context.roles.execution.roleArn, context.roles.migrationExecution.roleArn],
+    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [roles.execution.roleArn, roles.migrationExecution.roleArn],
       conditions: { StringEquals: { "iam:PassedToService": "cloudformation.amazonaws.com" } } }));
     grantInspectionReads(planRole);
     planRole.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
@@ -329,12 +330,13 @@ export class DeliveryStack extends cdk.Stack {
     this.releases.grantPut(requestRole, "reports/*");
     this.releases.grantPut(requestRole, "tests/*");
     context.readRelease(requestRole);
-    new codestarnotifications.NotificationRule(this, `${stage}DeploymentFailures`, { source: pipeline,
+    const deploymentFailures = new codestarnotifications.NotificationRule(this, `${stage}DeploymentFailures`, { source: pipeline,
       events: ["codepipeline-pipeline-pipeline-execution-failed"], targets: [context.topic] });
+    context.topic.grantPublish(new iam.ServicePrincipal("codestar-notifications.amazonaws.com")).applyBefore(deploymentFailures);
     new cdk.CfnOutput(this, `${stage}DeploymentPipelineName`, { value: pipeline.pipelineName });
     new cdk.CfnOutput(this, `${stage}DeploymentRequesterRoleArn`, { value: requestRole.roleArn });
-    new cdk.CfnOutput(this, `${stage}MigrationCloudFormationExecutionRoleArn`, { value: context.roles.migrationExecution.roleArn });
-    new cdk.CfnOutput(this, `${stage}CloudFormationExecutionRoleArn`, { value: context.roles.execution.roleArn });
+    new cdk.CfnOutput(this, `${stage}MigrationCloudFormationExecutionRoleArn`, { value: roles.migrationExecution.roleArn });
+    new cdk.CfnOutput(this, `${stage}CloudFormationExecutionRoleArn`, { value: roles.execution.roleArn });
     this.deployments.set(stage, pipeline);
   }
 }
