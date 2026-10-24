@@ -310,6 +310,7 @@ export class DeliveryStack extends cdk.Stack {
     ] }));
     const maintenance = context.requester(`${stage}Maintenance`, `aws-${stage}-maintenance`);
     context.readRelease(maintenance);
+    this.grantImageReads(maintenance);
     this.releases.grantPut(maintenance, `environments/${this.account}/${this.region}/${stage}.json`);
     const taskArn = new cdk.CfnParameter(this, `${stage}MaintenanceDmsTaskArn`, { type: "String",
       allowedPattern: "^arn:aws:dms:[a-z0-9-]+:[0-9]{12}:task:[A-Za-z0-9-]+$" });
@@ -319,7 +320,10 @@ export class DeliveryStack extends cdk.Stack {
     grantInspectionReads(maintenance);
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codepipeline:GetPipelineExecution", "codepipeline:ListActionExecutions"], resources: [pipeline.pipelineArn] }));
-    maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codebuild:BatchGetBuilds"], resources: [this.formatArn({ service: "codebuild", resource: "build", resourceName: `aura-delivery-${stage}-*:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
+    maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codebuild:ListBuildsForProject", "codebuild:BatchGetBuilds"],
+      resources: ["admission", "migrate", "verify"].map((phase) => this.formatArn({
+        service: "codebuild", resource: "project", resourceName: `aura-delivery-${stage}-${phase}`,
+      })) }));
     maintenance.addToPolicy(new iam.PolicyStatement({ actions: ["codedeploy:GetDeployment", "codedeploy:ListDeployments", "codedeploy:GetDeploymentGroup", "codedeploy:ListApplications", "codedeploy:ListDeploymentGroups"], resources: ["*"] }));
     this.releases.grantPut(maintenance, "evidence/*");
     this.releases.grantPut(maintenance, `maintenance/${stage}/*`);
