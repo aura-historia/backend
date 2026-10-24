@@ -305,7 +305,8 @@ Partially uploaded objects cannot make a bundle eligible. Reuse reads and valida
 existing immutable versions; corruption is a failure, never permission to overwrite.
 Registry references use immutable digests. Mail uses `mail/<build-id>/mjml/…` for
 both environments. Per-target assemblies may differ while application bytes remain
-identical. CDK file assets are published and referenced by exact key/version before
+identical. Shared CDK file assets are registered once per target; repeated asset
+identities must name the same source. Assets are published and referenced by exact key/version before
 assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 
 CloudFormation templates use JSON Unicode escapes so native template readback

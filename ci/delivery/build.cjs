@@ -367,7 +367,7 @@ function publishAssemblyAssets(
   store,
   artifacts,
 ) {
-  const replacements = [];
+  const replacements = [], publishedAssets = new Map();
   for (const manifestFile of fileTree(assembly).filter((file) =>
     file.endsWith('.assets.json'),
   )) {
@@ -375,18 +375,23 @@ function publishAssemblyAssets(
     if (Object.keys(manifest.dockerImages || {}).length)
       throw new Error('Synth-time Docker bundling is forbidden');
     for (const [id, asset] of Object.entries(manifest.files || {})) {
-      const file = packageAssemblyAsset(
-        assembly, path.join(output, `cdk-${target}-${id}.zip`), asset.source,
-      );
-      const reference = store.publishFile(
-        bucket,
-        file,
-        'ASSET',
-        `cdk-${target}-${id}`,
-      );
-      artifacts.push(reference);
+      const sourceDigest = digest(asset.source);
+      let published = publishedAssets.get(id);
+      if (published && published.sourceDigest !== sourceDigest)
+        throw new Error('Repeated CDK asset ID has different sources');
+      if (!published) {
+        const file = packageAssemblyAsset(
+          assembly, path.join(output, `cdk-${target}-${id}.zip`), asset.source,
+        );
+        const reference = store.publishFile(
+          bucket, file, 'ASSET', `cdk-${target}-${id}`,
+        );
+        published = { sourceDigest, reference };
+        publishedAssets.set(id, published);
+        artifacts.push(reference);
+      }
       for (const destination of Object.values(asset.destinations))
-        replacements.push({ from: destination.objectKey, to: reference });
+        replacements.push({ from: destination.objectKey, to: published.reference });
     }
   }
   function rewrite(value) {
