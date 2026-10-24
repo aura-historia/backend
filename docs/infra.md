@@ -246,9 +246,17 @@ configurations and verify the new credential before revoking the old one.
 Never put credentials in source, CLI arguments, logs or release evidence.
 Provider/consent-specific requirements live in [marketing consent](marketing-consent.md).
 
-For federated login, verify the provider's enabled/live use case, required scopes
-and Meta-to-Cognito redirect URI separately from frontend callbacks. Review the
-pinned provider version in configuration and test hosted sign-in. Before rollout,
+Production managed login uses `https://auth.aura-historia.com`. The identity stack
+imports an ACM certificate from `us-east-1` and publishes
+`CognitoCustomDomainCloudFrontDomainName`; create a DNS-only CNAME from the custom
+hostname to that output after provisioning identity. The parent domain must resolve
+before Cognito can create the custom domain. Register
+`https://auth.aura-historia.com/oauth2/idpresponse` in both Google and Meta. The
+retained Amazon Cognito prefix domain can also be registered as a redirect URI;
+frontend app callbacks are separate from these provider-to-Cognito redirects.
+
+For federated login, verify the provider's enabled/live use case and required scopes.
+Review the pinned provider version in configuration and test hosted sign-in. Before rollout,
 measure cold/warm private pre-sign-up paths and failure cases with margin under
 Cognito's fixed trigger deadline. Hold if timing or fail-closed behavior is
 unverified. User-pool/schema/client replacement needs an explicit identity and

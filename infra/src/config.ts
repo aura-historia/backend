@@ -33,6 +33,11 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
+export interface CognitoCustomDomainConfig {
+  readonly domainName: string;
+  readonly certificateArn: string;
+}
+
 export interface CognitoGoogleIdentityProviderConfig {
   readonly kind: "google";
   readonly providerName: "Google";
@@ -125,6 +130,7 @@ export interface StageConfig {
   readonly apiCloudFrontAliases: string[];
   readonly apiCorsAllowOrigins: string[];
   readonly mcp: McpConfig;
+  readonly cognitoCustomDomain: CognitoCustomDomainConfig | undefined;
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoIdentityProviders: readonly CognitoIdentityProviderConfig[];
@@ -201,6 +207,10 @@ export function stageConfig(stage: StageName): StageConfig {
         : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
       reservedConcurrency: isProd ? 5 : 2,
     },
+    cognitoCustomDomain: isProd ? {
+      domainName: "auth.aura-historia.com",
+      certificateArn: ssmValue(`/certificates/${stage}/cognito-cloudfront-certificate-arn`),
+    } : undefined,
     cognitoCallbackUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
     cognitoLogoutUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
     cognitoIdentityProviders: [
