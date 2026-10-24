@@ -25,14 +25,18 @@ const routine = {
   uncertainties: [],
 };
 const config = {
-  modelId: "explicit-strong-model-from-protected-config",
-  region: "eu-central-1",
+  modelId: "claude-opus-5-5",
+  effort: "high",
+  apiKeyParameterName: "/anthropic/prod/api-key",
   maxTokens: 2048,
 };
-const provider = () => ({
-  stopReason: "end_turn",
-  output: { message: { content: [{ text: JSON.stringify(routine) }] } },
-});
+const provider = async () => new Response(JSON.stringify({
+  type: "message", role: "assistant", model: config.modelId,
+  stop_reason: "end_turn",
+  content: [{ type: "thinking", thinking: "", signature: "fixture" }, { type: "text", text: JSON.stringify(routine) }],
+  usage: { input_tokens: 1, output_tokens: 1 },
+}));
+const api = () => ({ Parameter: { Name: config.apiKeyParameterName, Value: "test-key" } });
 function binding() {
   const value = fixture.report();
   for (const key of [
@@ -48,7 +52,7 @@ function binding() {
     delete value[key];
   return value;
 }
-test("malformed/truncated/uncertain model output is held and hard policy is monotonic", () => {
+test("malformed/truncated/uncertain model output is held and hard policy is monotonic", async () => {
   assert.throws(() => parseReview('{"verdict":'), SyntaxError);
   assert.throws(
     () =>
@@ -60,8 +64,8 @@ test("malformed/truncated/uncertain model output is held and hard policy is mono
       ),
     /Inconsistent/,
   );
-  const result = review(
-    {},
+  const result = await review(
+    { target: "prod" },
     {
       hardFindings: [
         { code: "CAPTURED_RELATION_CHANGED", path: "public.users" },
@@ -70,11 +74,11 @@ test("malformed/truncated/uncertain model output is held and hard policy is mono
     },
     binding(),
     config,
-    { api: provider },
+    { api, fetch: provider },
   );
   assert.equal(result.report.verdict, "MAINTENANCE_REQUIRED");
   assert.equal(result.report.findings[0].code, "CAPTURED_RELATION_CHANGED");
-  const unavailable = review({}, { hardFindings: [] }, binding(), config, {
+  const unavailable = await review({ target: "prod" }, { hardFindings: [] }, binding(), config, {
     api: () => {
       throw new Error("provider unavailable");
     },

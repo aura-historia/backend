@@ -608,34 +608,8 @@ function pipelineFixture(directory) {
         ],
       };
     }
-    if (service === "bedrock-runtime")
-      return {
-        stopReason: "end_turn",
-        output: {
-          message: {
-            content: [
-              {
-                text: JSON.stringify({
-                  verdict: "ROUTINE",
-                  reasons: [
-                    {
-                      code: "COMPATIBLE",
-                      path: "src/worker/lib.rs",
-                      detail: "Retained contract unchanged",
-                    },
-                  ],
-                  oldNewCompatible: true,
-                  queuedMessagesCompatible: true,
-                  sqlCompatible: true,
-                  searchCompatible: true,
-                  uncertainties: [],
-                }),
-              },
-            ],
-          },
-        },
-        usage: { inputTokens: 1, outputTokens: 1 },
-      };
+    if (service === "ssm" && operation === "get-parameter")
+      return { Parameter: { Name: "/anthropic/prod/api-key", Value: "test-key" } };
     throw new Error(`Unexpected API ${service}/${operation}`);
   };
   const env = {
@@ -646,7 +620,7 @@ function pipelineFixture(directory) {
     DELIVERY_TESTS_FILE: ".delivery/tests.json",
     DELIVERY_REPO_DIR: directory,
     AWS_ACCOUNT_ID: "123456789012",
-    DELIVERY_REVIEW_MODEL_ID: "explicit-strong-model",
+    DELIVERY_REVIEW_MODEL_ID: "claude-opus-5-5",
     WORKFLOW_REVISION: tests.workflowRevision,
     INVOCATION_REVISION: tests.invocationRevision,
     GITHUB_RUN_ID: tests.runId,
@@ -655,6 +629,14 @@ function pipelineFixture(directory) {
   return {
     store,
     api,
+    fetch: async () => new Response(JSON.stringify({
+      type: "message", role: "assistant", model: "claude-opus-5-5", stop_reason: "end_turn",
+      content: [{ type: "text", text: JSON.stringify({
+        verdict: "ROUTINE", reasons: [{ code: "COMPATIBLE", path: "src/worker/lib.rs", detail: "Retained contract unchanged" }],
+        oldNewCompatible: true, queuedMessagesCompatible: true, sqlCompatible: true, searchCompatible: true, uncertainties: [],
+      }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })),
     stateStore,
     env,
     schema,

@@ -15,8 +15,9 @@
   ],
   "reviewer": {
     "modelId": "${DELIVERY_REVIEW_MODEL_ID}",
-    "region": "eu-central-1",
-    "maxTokens": 8192
+    "effort": "high",
+    "apiKeyParameterName": "/anthropic/prod/api-key",
+    "maxTokens": 16000
   },
   "runtimeExecutionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/aura-historia/delivery/aura-delivery-prod-cloudformation",
   "migrationExecutionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/aura-historia/delivery/aura-delivery-prod-migration-cloudformation",

@@ -217,6 +217,7 @@ test("prepare through native admission, candidate migration and verified worker 
     const prepared = await preparation.prepare(env, {
       store,
       api,
+      fetch: scenario.fetch,
       stateStore,
       snapshots: async () => ({
         before: schema,

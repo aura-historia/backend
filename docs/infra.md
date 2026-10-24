@@ -211,9 +211,13 @@ Before enabling normal requests:
    Configure a strong review model explicitly, qualified read-only inspector and
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
-   For a Bedrock inference profile, authorize its exact ARN and all backing
-   foundation-model ARNs in its destination regions. Backing model permissions
-   must be restricted to invocation through that approved profile.
+   The reviewer calls the Anthropic Messages API directly with Opus 5.5 at high
+   effort. Its planner role reads only the target's Anthropic API key parameter
+   at runtime; never copy that key into GitHub secrets, logs or release evidence.
+   The verdict uses schema-constrained JSON. Thinking and response text share
+   the bounded output budget. Thinking blocks
+   are discarded; malformed, truncated, refused or tool-bearing responses hold
+   deployment. Token usage and effort are retained with the review evidence.
 6. Establish a verified environment baseline and current schema observation under
    the protected maintenance procedure. A baseline assertion must reflect the
    deployed versions and artifacts, not merely the requested source. Confirm SNS
@@ -234,7 +238,7 @@ Before enabling normal requests:
 | `DELIVERY_PROD_REQUESTER_ROLE_ARN`, `DELIVERY_DEV_REQUESTER_ROLE_ARN` | `<target>DeploymentRequesterRoleArn` |
 | `DELIVERY_PROD_PIPELINE`, `DELIVERY_DEV_PIPELINE` | `<target>DeploymentPipelineName` |
 | `DELIVERY_PROD_MAINTENANCE_ROLE_ARN`, `DELIVERY_DEV_MAINTENANCE_ROLE_ARN` | `<target>MaintenanceRoleArn` |
-| `DELIVERY_REVIEW_MODEL_ID` | Explicit approved model selection |
+| `DELIVERY_REVIEW_MODEL_ID` | `claude-opus-5-5` for the direct Anthropic reviewer |
 | `DELIVERY_DEV_ENABLED` | Same explicit flag as delivery provisioning; default false |
 
 Parameter names and types belong in configuration/constructs, not a second
