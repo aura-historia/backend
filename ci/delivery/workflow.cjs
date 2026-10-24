@@ -317,15 +317,18 @@ function build() {
     }),
   });
 }
+function pipelineExecution(name, executionId) {
+  return storage.aws('codepipeline', 'get-pipeline-execution', [
+    '--pipeline-name',
+    name,
+    '--pipeline-execution-id',
+    executionId,
+  ]).pipelineExecution;
+}
 async function waitPipeline(name, executionId, timeoutSeconds = 7200) {
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() < deadline) {
-    const execution = storage.aws('codepipeline', 'get-pipeline-execution', [
-      '--pipeline-name',
-      name,
-      '--pipeline-execution-id',
-      executionId,
-    ]).pipelineExecution;
+    const execution = pipelineExecution(name, executionId);
     if (execution.status === 'Succeeded') return execution;
     if (
       ['Failed', 'Stopped', 'Superseded', 'Cancelled'].includes(
