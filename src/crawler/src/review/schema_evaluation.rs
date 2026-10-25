@@ -7,15 +7,20 @@ use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, SchemaExtraction,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
+use crate::scraper::plausibility::{
+    CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
+};
 use scraper::{Html, Selector};
+use std::collections::HashMap;
 
-/// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
+/// A review page as the matrix evaluates it: how the matrix refers to it, its HTML and
+/// the identity its listing was captured under, if known.
 struct MatrixPage<'a> {
     page_reference: SchemaPageReference,
     url: &'a str,
     role: &'a str,
     raw_html: &'a str,
+    captured_identity: Option<&'a str>,
 }
 
 fn parse_page(raw_html: &str) -> Html {
@@ -24,10 +29,13 @@ fn parse_page(raw_html: &str) -> Html {
     Html::parse_document(raw_html)
 }
 
+/// Evaluates the schemas on the live review pages. `captured_identities` maps a page URL
+/// to the source listing id its listing was captured under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
     schemas: &[ProductCssSelectorSchema],
     pages: &[(CrawlerReviewPage, String)],
+    captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
     let pages: Vec<MatrixPage<'_>> = pages
         .iter()
@@ -38,6 +46,7 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
             url: &page.url,
             role: &page.role,
             raw_html,
+            captured_identity: captured_identities.get(&page.url).map(String::as_str),
         })
         .collect();
     SchemaMatrix {
@@ -58,6 +67,8 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
             url: &page.url,
             role: &page.role,
             raw_html: &page.raw_html,
+            // Generated-schema inputs carry no capture state.
+            captured_identity: None,
         })
         .collect();
     SchemaMatrix {
@@ -67,7 +78,8 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
 }
 
 /// Evaluates every candidate on every page. Each page is parsed once, and every candidate
-/// evaluates it before the next page is parsed, so a single parsed page is held at a time.
+/// evaluates it, and the identities they derive from it are compared, before the next page
+/// is parsed, so a single parsed page is held at a time.
 fn evaluate_candidates(
     schemas: &[ProductCssSelectorSchema],
     pages: &[MatrixPage<'_>],
@@ -80,10 +92,13 @@ fn evaluate_candidates(
         .collect();
     for page in pages {
         let html = parse_page(page.raw_html);
-        for (schema, candidate) in schemas.iter().zip(&mut candidates) {
-            candidate
-                .pages
-                .push(evaluate_schema_page(schema, page, &html));
+        let mut page_evaluations: Vec<SchemaPageEvaluation> = schemas
+            .iter()
+            .map(|schema| evaluate_schema_page(schema, page, &html))
+            .collect();
+        add_identity_agreement_findings(&mut page_evaluations, page.captured_identity);
+        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
+            candidate.pages.push(evaluation);
         }
     }
     for candidate in &mut candidates {
@@ -116,13 +131,38 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
     }
 }
 
+/// Compares the identities the candidates that apply to one page derive from it, with
+/// each other and with the page's captured identity. `page_evaluations` holds every
+/// candidate's evaluation of that page, in candidate order. A withdrawn extraction is left
+/// out: runtime selection never captures it.
+fn add_identity_agreement_findings(
+    page_evaluations: &mut [SchemaPageEvaluation],
+    captured_identity: Option<&str>,
+) {
+    let findings = {
+        let extractions: Vec<_> = page_evaluations
+            .iter()
+            .map(|evaluation| {
+                evaluation
+                    .apply_ok
+                    .then_some(evaluation.extracted.as_ref())
+                    .flatten()
+            })
+            .collect();
+        IdentityAgreementFindings::of(&extractions, captured_identity)
+    };
+    for (evaluation, findings) in page_evaluations.iter_mut().zip(findings) {
+        evaluation.identity_agreement_findings = findings;
+    }
+}
+
 /// Deterministic approval requires every page to be covered by some candidate, no
 /// optional rule that matched nothing on every page its candidate applied to, and no
 /// failed plausibility check. The generator had those exact pages in hand, so a total
-/// miss is a defective selector, not page variance. A failed check, per page or across
-/// pages, shows a selector capturing something other than the product's value, even
-/// where runtime selection would route the page to another candidate, so the schemas
-/// stay in human review.
+/// miss is a defective selector, not page variance. A failed check, per page, across
+/// pages or across the schemas of a page, shows a selector capturing something other than
+/// the product's value, even where runtime selection would route the page to another
+/// candidate, so the schemas stay in human review.
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
@@ -133,8 +173,8 @@ pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> 
             .any(SchemaPageEvaluation::fails_plausibility_checks)
 }
 
-/// A review page on which a candidate's extraction failed a per-page or cross-page
-/// plausibility check.
+/// A review page on which a candidate's extraction failed a per-page, cross-page or
+/// identity agreement check.
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ImplausiblePage<'a> {
     schema_index: usize,
@@ -143,6 +183,7 @@ pub(crate) struct ImplausiblePage<'a> {
     role: &'a str,
     plausibility_findings: &'a PlausibilityFindings,
     cross_page_findings: &'a CrossPageFindings,
+    identity_agreement_findings: &'a IdentityAgreementFindings,
 }
 
 pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_>> {
@@ -161,6 +202,7 @@ pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_
                     role: &page.role,
                     plausibility_findings: &page.plausibility_findings,
                     cross_page_findings: &page.cross_page_findings,
+                    identity_agreement_findings: &page.identity_agreement_findings,
                 })
         })
         .collect()
@@ -300,6 +342,8 @@ fn evaluate_schema_page(
         // Filled once every page is evaluated. Runtime selection never sees them, so
         // they leave `apply_ok` alone.
         cross_page_findings: CrossPageFindings::default(),
+        // Filled once every candidate has evaluated the page, for the same reason.
+        identity_agreement_findings: IdentityAgreementFindings::default(),
         fields,
     }
 }
@@ -391,17 +435,28 @@ fn evaluate_rule(
                 error: Some(error),
                 required,
                 skipped_element_count: None,
+                empty_element_count: 0,
             };
         }
     };
-    let selector_match_count = Some(rule.match_count(html, &parsed));
-    let additional_selector_match_counts = rule
+    let additional_selectors: Vec<Option<Selector>> = rule
         .additional_selectors
         .iter()
+        .map(|additional| Selector::parse(additional.as_ref()).ok())
+        .collect();
+    let selector_match_count = Some(rule.match_count(html, &parsed));
+    let additional_selector_match_counts = additional_selectors
+        .iter()
         .map(|additional| {
-            Selector::parse(additional.as_ref()).map_or(0, |parsed| rule.match_count(html, &parsed))
+            additional
+                .as_ref()
+                .map_or(0, |parsed| rule.match_count(html, parsed))
         })
         .collect();
+    let empty_element_count = std::iter::once(&parsed)
+        .chain(additional_selectors.iter().flatten())
+        .map(|parsed| rule.empty_element_count(html, parsed))
+        .sum();
 
     SelectorFieldEvaluation {
         field: field.to_string(),
@@ -411,6 +466,7 @@ fn evaluate_rule(
         error: None,
         required,
         skipped_element_count: None,
+        empty_element_count,
     }
 }
 
@@ -419,7 +475,10 @@ mod tests {
     use super::*;
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
     use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
-    use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
+    use crate::scraper::plausibility::{
+        IdentityAgreementCheck, IdentityAgreementFinding, PlausibilityCheck, PlausibilityField,
+        PlausibilityFinding,
+    };
     use std::cell::Cell;
 
     fn text_rule(selector: &str) -> ExtractionRule {
@@ -527,9 +586,24 @@ mod tests {
 
     #[test]
     fn should_parse_each_page_once_for_every_candidate() {
-        let schemas = vec![schema("h1"), schema("h2"), schema_with_price("h1")];
-        let pages = vec![page(PAGE_ROLE_PRIMARY, "h1"), page(PAGE_ROLE_SEED, "h2")];
+        // The third candidate reads the identity from another element of the primary page,
+        // so the candidates that apply there disagree on it.
+        let schemas = vec![
+            schema("h1"),
+            schema("h2"),
+            ProductCssSelectorSchema {
+                source_listing_id: Some(text_rule("#sku")),
+                ..schema_with_price("h1")
+            },
+        ];
+        let mut primary = page(PAGE_ROLE_PRIMARY, "h1");
+        primary.raw_html = primary
+            .raw_html
+            .replace("<body>", "<body><span id=\"sku\">SKU-2</span>");
+        let pages = vec![primary, page(PAGE_ROLE_SEED, "h2")];
         let live_pages: Vec<_> = pages.iter().map(live_review_page).collect();
+        // The seed page's listing was captured under another identity.
+        let captured = HashMap::from([(pages[1].url.clone(), "SKU-OLD".to_owned())]);
 
         let (input_matrix, input_parses) =
             with_page_parses(|| evaluate_schema_matrix_for_inputs(&schemas, &pages));
@@ -538,28 +612,68 @@ mod tests {
                 CrawlerReviewId::new(),
                 &schemas,
                 &live_pages,
+                &captured,
             )
         });
 
         assert_eq!(input_parses, pages.len());
         assert_eq!(live_parses, pages.len());
-        for matrix in [input_matrix, live_matrix] {
+        let differs = |check, value: &str| {
+            vec![IdentityAgreementFinding {
+                field: PlausibilityField::SourceListingId,
+                check,
+                values: vec![value.to_owned()],
+            }]
+        };
+        let differs_from_captured = differs(
+            IdentityAgreementCheck::DiffersFromCapturedIdentity,
+            "SKU-OLD",
+        );
+        for (matrix, seed_page_findings) in [
+            (input_matrix, Vec::new()),
+            (live_matrix, differs_from_captured),
+        ] {
             // Every candidate applies its own selectors to the shared parse of each page,
-            // in schema and page order.
-            let applied: Vec<(usize, Vec<bool>)> = matrix
+            // and the identities they derive from it are compared, in schema and page order.
+            let evaluated: Vec<_> = matrix
                 .candidates
                 .iter()
                 .map(|candidate| {
-                    let pages = candidate.pages.iter().map(|page| page.apply_ok).collect();
+                    let pages: Vec<_> = candidate
+                        .pages
+                        .iter()
+                        .map(|page| {
+                            let findings = page.identity_agreement_findings.as_slice().to_vec();
+                            (page.apply_ok, findings)
+                        })
+                        .collect();
                     (candidate.schema_index, pages)
                 })
                 .collect();
             assert_eq!(
-                applied,
+                evaluated,
                 vec![
-                    (0, vec![true, false]),
-                    (1, vec![false, true]),
-                    (2, vec![true, false]),
+                    (
+                        0,
+                        vec![
+                            (
+                                true,
+                                differs(IdentityAgreementCheck::DiffersFromOtherSchemas, "SKU-2")
+                            ),
+                            (false, Vec::new()),
+                        ]
+                    ),
+                    (1, vec![(false, Vec::new()), (true, seed_page_findings)]),
+                    (
+                        2,
+                        vec![
+                            (
+                                true,
+                                differs(IdentityAgreementCheck::DiffersFromOtherSchemas, "SKU")
+                            ),
+                            (false, Vec::new()),
+                        ]
+                    ),
                 ]
             );
         }
@@ -680,6 +794,18 @@ mod tests {
             assert_eq!(extracted_price(&matrix), None);
         }
 
+        /// Both leave the price empty; the empty-element count tells the reviewer which.
+        #[test]
+        fn should_tell_a_price_rule_matching_only_empty_elements_from_one_matching_nothing() {
+            let empty = matrix_for_price(text_rule(".price"), "<span class=\"price\"> </span>");
+            let unmatched = matrix_for_price(text_rule(".price"), "");
+
+            assert_eq!(price_field(&empty).selector_match_count, Some(0));
+            assert_eq!(price_field(&empty).empty_element_count, 1);
+            assert_eq!(price_field(&unmatched).selector_match_count, Some(0));
+            assert_eq!(price_field(&unmatched).empty_element_count, 0);
+        }
+
         #[test]
         fn should_count_a_price_rule_as_missing_when_its_only_match_is_whitespace() {
             let matrix =
@@ -717,6 +843,7 @@ mod tests {
             let matrix = matrix_for_price(price, "<span class=\"sale-price\"> </span>");
 
             assert_eq!(price_field(&matrix).additional_selector_match_counts, [0]);
+            assert_eq!(price_field(&matrix).empty_element_count, 1);
             assert_eq!(
                 optional_rules_missing_on_every_page(&matrix),
                 vec![missing_on_the_page("price", ".price")]
@@ -925,6 +1052,54 @@ mod tests {
             page.error.as_deref(),
             Some("implausible extraction: `title` contains CSS or script tokens")
         );
+    }
+
+    /// A title element the page leaves empty shows as a blank title next to the rest of
+    /// the extraction; a title selector that matches nothing shows as an apply error.
+    #[test]
+    fn should_tell_an_empty_title_element_from_an_unmatched_title_selector() {
+        let pages = vec![
+            page(PAGE_ROLE_PRIMARY, "h2"),
+            SchemaReviewPageInput {
+                url: "https://example.com/untitled".to_string(),
+                role: PAGE_ROLE_SEED.to_string(),
+                raw_html: "<html><body><span id=\"product-id\">SKU</span><h1 itemprop=\"name\"></h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
+            },
+        ];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+
+        let [unmatched, empty] = matrix.candidates[0].pages.as_slice() else {
+            panic!("expected one evaluation per page");
+        };
+        assert_eq!(
+            unmatched.error.as_deref(),
+            Some(
+                "failed to extract `title`: no element matched selector `h1` (or any additional selectors)"
+            )
+        );
+        assert!(unmatched.extracted.is_none());
+        assert!(!empty.apply_ok);
+        assert_eq!(
+            empty.error.as_deref(),
+            Some("implausible extraction: `title` is blank")
+        );
+        assert_eq!(
+            empty.plausibility_findings.as_slice(),
+            [finding(PlausibilityField::Title, PlausibilityCheck::Blank)]
+        );
+        assert_eq!(
+            empty.extracted.as_ref().map(|raw| raw.state.as_str()),
+            Some("Available")
+        );
+        let title_empty_elements = |page: &SchemaPageEvaluation| {
+            page.fields
+                .iter()
+                .find(|field| field.field == "title")
+                .map(|field| (field.selector_match_count, field.empty_element_count))
+        };
+        assert_eq!(title_empty_elements(unmatched), Some((Some(0), 0)));
+        assert_eq!(title_empty_elements(empty), Some((Some(0), 1)));
     }
 
     #[test]
@@ -1323,6 +1498,223 @@ mod tests {
                 "/images/primary.jpg\u{1f}/images/fallback-800x600.jpg".to_string(),
             ])
         );
+    }
+
+    /// Hingstons Antiques: the add-to-cart button carries the identity on an active page
+    /// and disappears when the product sells, so a schema written for the sold page reads
+    /// the identity from another element.
+    mod identity_agreement {
+        use super::*;
+        use crate::review::model::CrawlerReviewPage;
+        use crate::scraper::plausibility::{IdentityAgreementCheck, IdentityAgreementFinding};
+
+        const ACTIVE_URL: &str = "https://shop.example/product/chair";
+        const SOLD_URL: &str = "https://shop.example/product/sold-chair";
+
+        fn attribute_rule(selector: &str, name: &str) -> ExtractionRule {
+            ExtractionRule {
+                selector: CssSelector::from(selector),
+                additional_selectors: Vec::new(),
+                extract: ExtractionKind::Attribute { name: name.into() },
+                cardinality: ExtractionCardinality::First,
+            }
+        }
+
+        fn identity_schema(identity: ExtractionRule) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                source_listing_id: Some(identity),
+                state: text_rule(".stock"),
+                ..schema("h1")
+            }
+        }
+
+        /// The active-template schema: its identity and its state are the add-to-cart
+        /// button, so it does not apply to a sold page.
+        fn button_schema() -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                state: text_rule("button.single_add_to_cart_button"),
+                ..identity_schema(attribute_rule("button.single_add_to_cart_button", "value"))
+            }
+        }
+
+        fn container_schema() -> ProductCssSelectorSchema {
+            identity_schema(attribute_rule("div.product", "id"))
+        }
+
+        fn product_html(post_id: u32, sold: bool) -> String {
+            let (stock, button) = if sold {
+                ("Sold".to_owned(), String::new())
+            } else {
+                (
+                    "In stock".to_owned(),
+                    format!(
+                        "<button class=\"single_add_to_cart_button\" value=\"{post_id}\">Add</button>"
+                    ),
+                )
+            };
+            format!(
+                "<html><body><div class=\"product\" id=\"product-{post_id}\"><h1>Chair {post_id}</h1><p class=\"stock\">{stock}</p>{button}<img src=\"/images/{post_id}.jpg\"></div></body></html>"
+            )
+        }
+
+        fn input_page(url: &str, role: &str, html: String) -> SchemaReviewPageInput {
+            SchemaReviewPageInput {
+                url: url.to_owned(),
+                role: role.to_owned(),
+                raw_html: html,
+            }
+        }
+
+        fn identity_findings_of(
+            matrix: &SchemaMatrix,
+            candidate: usize,
+        ) -> Vec<Vec<IdentityAgreementFinding>> {
+            matrix.candidates[candidate]
+                .pages
+                .iter()
+                .map(|page| page.identity_agreement_findings.as_slice().to_vec())
+                .collect()
+        }
+
+        fn differs(check: IdentityAgreementCheck, value: &str) -> IdentityAgreementFinding {
+            IdentityAgreementFinding {
+                field: PlausibilityField::SourceListingId,
+                check,
+                values: vec![value.to_owned()],
+            }
+        }
+
+        #[test]
+        fn should_block_deterministic_approval_when_two_schemas_derive_different_identities_from_a_page()
+         {
+            let schemas = vec![button_schema(), container_schema()];
+            let pages = vec![
+                input_page(ACTIVE_URL, PAGE_ROLE_PRIMARY, product_html(53036, false)),
+                input_page(SOLD_URL, PAGE_ROLE_SEED, product_html(53037, true)),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert_eq!(
+                identity_findings_of(&matrix, 0),
+                vec![
+                    vec![differs(
+                        IdentityAgreementCheck::DiffersFromOtherSchemas,
+                        "product-53036"
+                    )],
+                    vec![],
+                ]
+            );
+            assert_eq!(
+                identity_findings_of(&matrix, 1),
+                vec![
+                    vec![differs(
+                        IdentityAgreementCheck::DiffersFromOtherSchemas,
+                        "53036"
+                    )],
+                    vec![],
+                ],
+                "the sold page has no other applying schema to disagree with"
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(implausible_pages(&matrix).len(), 2);
+        }
+
+        #[test]
+        fn should_report_a_conflict_with_the_captured_identity_when_only_the_new_schema_applies() {
+            let schemas = vec![button_schema(), container_schema()];
+            let review_id = CrawlerReviewId::new();
+            let sold_page = CrawlerReviewPage {
+                review_page_id: crate::CrawlerReviewPageId::new(),
+                review_id,
+                url: SOLD_URL.to_owned(),
+                role: PAGE_ROLE_PRIMARY.to_owned(),
+                html_hash: String::new(),
+                fetched: time::OffsetDateTime::now_utc(),
+            };
+            let captured = HashMap::from([(SOLD_URL.to_owned(), "53036".to_owned())]);
+
+            let matrix = evaluate_schema_matrix_for_live_review_pages(
+                review_id,
+                &schemas,
+                &[(sold_page, product_html(53036, true))],
+                &captured,
+            );
+
+            assert!(!matrix.candidates[0].pages[0].apply_ok);
+            assert_eq!(identity_findings_of(&matrix, 0), vec![vec![]]);
+            assert_eq!(
+                identity_findings_of(&matrix, 1),
+                vec![vec![differs(
+                    IdentityAgreementCheck::DiffersFromCapturedIdentity,
+                    "53036"
+                )]]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_pass_identity_agreement_when_the_sold_schema_derives_the_captured_identity() {
+            let schemas = vec![
+                button_schema(),
+                identity_schema(attribute_rule("div.product", "data-product_id")),
+            ];
+            let pages = vec![
+                input_page(ACTIVE_URL, PAGE_ROLE_PRIMARY, product_html(53036, false)),
+                input_page(SOLD_URL, PAGE_ROLE_SEED, product_html(53037, true)),
+            ]
+            .into_iter()
+            .map(|mut page| {
+                page.raw_html = page.raw_html.replace(
+                    "<div class=\"product\" id=\"product-",
+                    "<div class=\"product\" data-product_id=\"",
+                );
+                page
+            })
+            .collect::<Vec<_>>();
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(
+                matrix
+                    .candidates
+                    .iter()
+                    .flat_map(|candidate| &candidate.pages)
+                    .all(|page| page.identity_agreement_findings.is_empty())
+            );
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// Wick's inquiry form, Lennox Cato's SKU span and Hickmet's product-id input are
+        /// absent on sold, archived and POA pages: the identity rule is applied to every
+        /// review page, and a page where it yields nothing fails the gate.
+        #[test]
+        fn should_block_deterministic_approval_when_the_identity_is_empty_on_a_sold_variant() {
+            let schemas = vec![identity_schema(attribute_rule(
+                "button.single_add_to_cart_button",
+                "value",
+            ))];
+            let pages = vec![
+                input_page(ACTIVE_URL, PAGE_ROLE_PRIMARY, product_html(53036, false)),
+                input_page(SOLD_URL, PAGE_ROLE_SEED, product_html(53037, true)),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+            assert!(matrix.candidates[0].pages.iter().all(|page| page.apply_ok));
+            assert_eq!(
+                matrix.candidates[0].pages[1]
+                    .plausibility_findings
+                    .as_slice(),
+                [finding(
+                    PlausibilityField::SourceListingId,
+                    PlausibilityCheck::Blank
+                )]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            assert_eq!(implausible_pages(&matrix).len(), 1);
+        }
     }
 
     /// The `images` field reports how many matched gallery elements the rule skipped

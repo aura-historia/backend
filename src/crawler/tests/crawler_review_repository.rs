@@ -931,6 +931,101 @@ async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_mat
     );
 }
 
+/// The live matrix compares each page's extraction with the identity the page's listing
+/// was captured under, read from the crawler URL of the review's ListingSource that names
+/// the page, however the two URLs spell it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_captured_one() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "example.com").await;
+    let captured_url = "https://example.com/products/1";
+    let uncaptured_url = "https://example.com/products/2";
+    // A reviewer page is stored as fetched: the shop redirects to the trailing slash that
+    // the crawler URL's normalization drops.
+    let respelled_crawler_url = "https://example.com/products/3";
+    let respelled_page_url = "https://example.com/products/3/";
+    for (url, identity) in [
+        (captured_url, Some("53036")),
+        (uncaptured_url, None),
+        (respelled_crawler_url, Some("53037")),
+    ] {
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_source_listing_id) \
+             VALUES ($1, $2, $3, 'product', $3, $4)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(domain_id.as_uuid())
+        .bind(url)
+        .bind(identity)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let html = "<html><body><span class=\"id\">product-53036</span><h1>Chair</h1><span class=\"state\">Sold</span><img class=\"product\" src=\"a.jpg\"></body></html>";
+    let pages = [captured_url, uncaptured_url, respelled_page_url]
+        .into_iter()
+        .map(|url| SchemaReviewPageInput {
+            url: url.to_owned(),
+            role: PAGE_ROLE_PRIMARY.to_owned(),
+            raw_html: html.to_owned(),
+        })
+        .collect();
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            pages,
+            json!({}),
+        )
+        .await
+        .unwrap();
+
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages
+                .into_iter()
+                .map(|page| (page, html.to_owned()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+
+    let findings: Vec<(String, serde_json::Value)> = evaluated.matrix.candidates[0]
+        .pages
+        .iter()
+        .map(|page| {
+            (
+                page.url.clone(),
+                serde_json::to_value(&page.identity_agreement_findings).unwrap(),
+            )
+        })
+        .collect();
+    assert!(findings.contains(&(
+        captured_url.to_owned(),
+        json!([{
+            "field": "source_listing_id",
+            "check": "DIFFERS_FROM_CAPTURED_IDENTITY",
+            "values": ["53036"]
+        }])
+    )));
+    assert!(findings.contains(&(uncaptured_url.to_owned(), json!([]))));
+    assert!(findings.contains(&(
+        respelled_page_url.to_owned(),
+        json!([{
+            "field": "source_listing_id",
+            "check": "DIFFERS_FROM_CAPTURED_IDENTITY",
+            "values": ["53037"]
+        }])
+    )));
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_pages() {
     let pool = get_postgres_client().await;
@@ -1286,4 +1381,122 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
     .unwrap();
     assert_eq!(pattern.as_deref(), Some("/item/"));
     assert_eq!(state, "MATCHED");
+}
+
+async fn pending_schema_review(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+) -> CrawlerReviewId {
+    repository
+        .create_schema_review(
+            listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_repair_request_without_a_note_or_once_the_review_is_closed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    for note in [None, Some(" \n ")] {
+        assert!(matches!(
+            repository.request_repair(review_id, note).await,
+            Err(ReviewRepositoryError::MissingRepairNote)
+        ));
+    }
+    let review = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(review.repair_request, None);
+
+    repository.reject_review(review_id, None).await.unwrap();
+    assert!(matches!(
+        repository.request_repair(review_id, Some("fix the title")).await,
+        Err(ReviewRepositoryError::NotPending(id)) if id == review_id
+    ));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    repository
+        .request_repair(review_id, Some("title misses sold pages"))
+        .await
+        .unwrap();
+    repository
+        .request_repair(review_id, Some("title and state miss sold pages"))
+        .await
+        .unwrap();
+    let repaired = schema("h1.product-title");
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [repaired.clone()] }))
+        .await
+        .unwrap();
+    let waiting = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(waiting.status, STATUS_PENDING_REVIEW);
+    assert_eq!(
+        waiting
+            .repair_request
+            .as_ref()
+            .map(|request| request.note.as_str()),
+        Some("title and state miss sold pages")
+    );
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&listing_source_id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap(),
+        Some(review_id)
+    );
+    repository.approve_review(review_id, None).await.unwrap();
+
+    let approved = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(approved.status, STATUS_APPROVED);
+    assert_eq!(approved.repair_request, waiting.repair_request);
+    let live = ListingSourceProductSchemaRepositoryImpl::new(&pool)
+        .find_product_schema(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(live.product_schemas, vec![repaired]);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_to_store_a_repair_request_without_both_its_time_and_note() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    for half_recorded in [
+        "UPDATE crawler_reviews SET repair_requested = NOW() WHERE review_id = $1",
+        "UPDATE crawler_reviews SET repair_note = 'fix the title' WHERE review_id = $1",
+        "UPDATE crawler_reviews SET repair_requested = NOW(), repair_note = ' ' WHERE review_id = $1",
+    ] {
+        let error = sqlx::query(half_recorded)
+            .bind(review_id.as_uuid())
+            .execute(&pool)
+            .await
+            .expect_err(half_recorded);
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|error| error.constraint()),
+            Some("crawler_reviews_repair_request_shape_check"),
+            "{half_recorded}"
+        );
+    }
 }

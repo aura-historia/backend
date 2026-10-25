@@ -318,6 +318,47 @@ async fn should_generate_fresh_schema_when_every_cached_extraction_is_implausibl
     );
 }
 
+/// A cached schema finds the title element but the page leaves it empty: no schema can
+/// supply the title, so the page spends no LLM call, while a schema of another template
+/// that matches nothing does not count.
+#[tokio::test]
+async fn should_report_missing_title_without_generation_when_the_title_element_is_empty() {
+    let id = listing_source_id();
+    let url = product_url();
+    let other_template = schema_with(|schema| schema.title = text_rule("h1.product-name"));
+    let mut schema_svc = schema_service_with_cached(id, vec![other_template, item_title_schema()]);
+    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc.expect_create_product_schemas().never();
+    schema_svc.expect_save_product_schemas().never();
+    let mut cand_svc = MockScraperCandidateService::new();
+    cand_svc
+        .expect_try_increment_listing_source_llm_calls_with_limit()
+        .never();
+    let service = service(fetcher_returning(untitled_html()), schema_svc, cand_svc);
+
+    let err = service.scrape(normal_request(&id, &url)).await.unwrap_err();
+
+    let ScraperError::MissingRequiredValue {
+        url: reported_url,
+        findings,
+    } = &err
+    else {
+        panic!("expected MissingRequiredValue, got {err:?}");
+    };
+    assert_eq!(reported_url, &url);
+    assert_eq!(
+        findings.as_slice(),
+        [PlausibilityFinding {
+            field: PlausibilityField::Title,
+            check: PlausibilityCheck::Blank,
+        }]
+    );
+    assert_eq!(
+        err.to_string(),
+        "Required value missing from 'https://example.com/products/123': `title` is blank"
+    );
+}
+
 #[tokio::test]
 async fn should_capture_without_images_when_image_policy_rejects_all_candidates() {
     let id = listing_source_id();

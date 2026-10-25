@@ -47,6 +47,29 @@ impl ReviewPageIdentity {
     pub(super) fn of_stored(stored_url: &str) -> Option<Self> {
         Url::parse(stored_url).ok().map(|url| Self::of(&url))
     }
+
+    /// The spellings a crawler URL naming the same page as `url` can be stored under: `url`
+    /// and its crawler normalization, each on http and https, with and without `www.`.
+    pub(super) fn spellings(url: &Url) -> Vec<String> {
+        let mut spellings = Vec::new();
+        for base in [url.clone(), CrawledUrl::new(url.clone()).as_url().clone()] {
+            let Some(host) = base.host_str().map(canonical_crawler_domain) else {
+                continue;
+            };
+            for scheme in ["https", "http"] {
+                for host in [host.clone(), format!("www.{host}")] {
+                    let mut spelling = base.clone();
+                    if spelling.set_scheme(scheme).is_ok() && spelling.set_host(Some(&host)).is_ok()
+                    {
+                        spellings.push(spelling.to_string());
+                    }
+                }
+            }
+        }
+        spellings.sort_unstable();
+        spellings.dedup();
+        spellings
+    }
 }
 
 pub(super) fn without_credentials(url: &Url) -> Url {
@@ -133,6 +156,31 @@ mod tests {
         ] {
             assert_ne!(stored, Some(ReviewPageIdentity::of(&url(raw))), "{raw}");
         }
+    }
+
+    #[test]
+    fn should_spell_a_page_url_as_the_crawler_may_have_stored_it() {
+        let page = url("https://example.com/products/1/");
+
+        let spellings = ReviewPageIdentity::spellings(&page);
+
+        for stored in [
+            "https://example.com/products/1",
+            "https://example.com/products/1/",
+            "https://www.example.com/products/1",
+            "http://example.com/products/1",
+        ] {
+            assert!(
+                spellings.iter().any(|spelling| spelling == stored),
+                "{stored}"
+            );
+        }
+        let identity = ReviewPageIdentity::of(&page);
+        assert!(
+            spellings
+                .iter()
+                .all(|spelling| ReviewPageIdentity::of_stored(spelling).as_ref() == Some(&identity))
+        );
     }
 
     #[test]

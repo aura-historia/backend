@@ -16,6 +16,7 @@ use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
@@ -43,6 +44,8 @@ pub enum ReviewRepositoryError {
     NotFound(CrawlerReviewId),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
+    #[error("a needs-repair verdict needs a note saying what to repair")]
+    MissingRepairNote,
     #[error("review {0} has unsupported artifact type {1}")]
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]
@@ -212,7 +215,8 @@ impl CrawlerReviewRepository {
     pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
+                    r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              ORDER BY
@@ -292,7 +296,8 @@ impl CrawlerReviewRepository {
     ) -> Result<ReviewDetail, ReviewRepositoryError> {
         let row = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
+                    r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1",
@@ -1000,14 +1005,38 @@ impl CrawlerReviewRepository {
         &self,
         review_id: CrawlerReviewId,
         notes: Option<&str>,
-        needs_repair: bool,
     ) -> Result<(), ReviewRepositoryError> {
-        let status = if needs_repair {
-            STATUS_NEEDS_REPAIR
-        } else {
-            STATUS_REJECTED
-        };
-        self.set_review_status(review_id, status, notes).await
+        self.set_review_status(review_id, STATUS_REJECTED, notes)
+            .await
+    }
+
+    /// Records the needs-repair verdict on a pending review. The review stays pending, so its
+    /// candidate stays editable, its pages and the pages waiting on it stay attached, and no
+    /// second review opens for the same artifact; the reviewer later approves or rejects it. A
+    /// repeated verdict replaces the note.
+    pub async fn request_repair(
+        &self,
+        review_id: CrawlerReviewId,
+        note: Option<&str>,
+    ) -> Result<(), ReviewRepositoryError> {
+        let note = note
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .ok_or(ReviewRepositoryError::MissingRepairNote)?;
+        let result = sqlx::query(
+            "UPDATE crawler_reviews \
+             SET repair_requested = NOW(), repair_note = $2, updated = NOW() \
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
+        )
+        .bind(review_id.as_uuid())
+        .bind(note)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(ReviewRepositoryError::NotPending(review_id));
+        }
+        info!(review_id = %review_id, "Reviewer asked for a review to be repaired");
+        Ok(())
     }
 
     pub async fn evaluate_schema_matrix_for_live_pages(
@@ -1016,7 +1045,7 @@ impl CrawlerReviewRepository {
         pages: Vec<(CrawlerReviewPage, String)>,
     ) -> Result<EvaluatedSchemaMatrix, ReviewRepositoryError> {
         let review = sqlx::query(
-            "SELECT candidate_payload, candidate_version,
+            "SELECT listing_source_id, candidate_payload, candidate_version,
                     encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
              FROM crawler_reviews
              WHERE review_id = $1",
@@ -1027,17 +1056,75 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
         let schemas = parse_schemas_payload(&candidate_payload)?;
+        let captured_identities = self
+            .captured_identities(review.try_get("listing_source_id")?, &pages)
+            .await?;
         let mut page_ids: Vec<uuid::Uuid> = pages
             .iter()
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
         page_ids.sort_unstable();
         Ok(EvaluatedSchemaMatrix {
-            matrix: evaluate_schema_matrix_for_live_review_pages(review_id, &schemas, &pages),
+            matrix: evaluate_schema_matrix_for_live_review_pages(
+                review_id,
+                &schemas,
+                &pages,
+                &captured_identities,
+            ),
             candidate_version: review.try_get("candidate_version")?,
             candidate_hash: review.try_get("candidate_hash")?,
             page_ids,
         })
+    }
+
+    /// The source listing id each review page's listing was captured under, by page URL,
+    /// for the pages whose listing has been captured. A page is matched with the crawler URL
+    /// that names it, however the two spell it: a reviewer page is stored as fetched, often
+    /// with the trailing slash the crawler URL's normalization drops. The exact spelling
+    /// wins over another one.
+    async fn captured_identities(
+        &self,
+        listing_source_id: uuid::Uuid,
+        pages: &[(CrawlerReviewPage, String)],
+    ) -> Result<HashMap<String, String>, ReviewRepositoryError> {
+        let pages: Vec<(&str, Option<ReviewPageIdentity>)> = pages
+            .iter()
+            .map(|(page, _)| (page.url.as_str(), ReviewPageIdentity::of_stored(&page.url)))
+            .collect();
+        let spellings: Vec<String> = pages
+            .iter()
+            .flat_map(|(url, _)| {
+                let spellings = Url::parse(url)
+                    .map(|url| ReviewPageIdentity::spellings(&url))
+                    .unwrap_or_default();
+                std::iter::once((*url).to_owned()).chain(spellings)
+            })
+            .collect();
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT url, last_source_listing_id
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND url = ANY($2)
+               AND last_source_listing_id IS NOT NULL
+             ORDER BY url",
+        )
+        .bind(listing_source_id)
+        .bind(&spellings)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(pages
+            .into_iter()
+            .filter_map(|(page_url, identity)| {
+                rows.iter()
+                    .find(|(url, _)| url == page_url)
+                    .or_else(|| {
+                        rows.iter().find(|(url, _)| {
+                            identity.is_some() && ReviewPageIdentity::of_stored(url) == identity
+                        })
+                    })
+                    .map(|(_, captured)| (page_url.to_owned(), captured.clone()))
+            })
+            .collect())
     }
 
     pub async fn store_schema_matrix_if_current(
@@ -1422,10 +1509,26 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
         candidate_payload: row.try_get("candidate_payload")?,
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
+        repair_request: row_to_repair_request(&row)?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
         reviewed: row.try_get("reviewed")?,
     })
+}
+
+fn row_to_repair_request(
+    row: &sqlx::postgres::PgRow,
+) -> Result<Option<RepairRequest>, sqlx::Error> {
+    match (
+        row.try_get::<Option<OffsetDateTime>, _>("repair_requested")?,
+        row.try_get::<Option<String>, _>("repair_note")?,
+    ) {
+        (None, None) => Ok(None),
+        (Some(requested), Some(note)) => Ok(Some(RepairRequest { note, requested })),
+        _ => Err(sqlx::Error::Decode(
+            "a review's repair request must record both its time and its note".into(),
+        )),
+    }
 }
 
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {
