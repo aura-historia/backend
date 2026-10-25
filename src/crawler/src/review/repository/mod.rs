@@ -929,37 +929,14 @@ impl CrawlerReviewRepository {
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
-                let reviewed = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
-                let existing =
-                    lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
-                let schemas =
-                    approval_product_schemas(&reason, existing.as_ref(), reviewed.schemas.clone())?;
-                persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
-                if !reviewed.removed_page_schemas.is_empty() {
-                    append_removed_page_schemas(
-                        &mut transaction,
-                        &listing_source_id,
-                        &reviewed.removed_page_schemas,
-                    )
-                    .await?;
-                    info!(
-                        review_id = %review_id,
-                        listing_source_id = %listing_source_id,
-                        removed_page_template_count = reviewed.removed_page_schemas.len(),
-                        "Approved removed-page templates from a product schema review"
-                    );
-                }
-                if schemas != reviewed.schemas {
-                    // The review keeps the merged list that went live, so edits through it are
-                    // not refused as stale.
-                    sqlx::query(
-                        "UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1",
-                    )
-                    .bind(review_id.as_uuid())
-                    .bind(reviewed.with_schemas(schemas).to_payload()?)
-                    .execute(&mut *transaction)
-                    .await?;
-                }
+                make_reviewed_product_schemas_live(
+                    &mut transaction,
+                    review_id,
+                    &listing_source_id,
+                    &reason,
+                    &candidate_payload,
+                )
+                .await?;
             }
             other => {
                 return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1272,6 +1249,45 @@ async fn lock_live_product_schemas(
             })
         })
         .transpose()
+}
+
+/// Makes the reviewed candidate of the product-schema review `review_id` live inside the
+/// approval's transaction: its schemas and its removed-page templates.
+async fn make_reviewed_product_schemas_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    reason: &str,
+    candidate_payload: &serde_json::Value,
+) -> Result<(), ReviewRepositoryError> {
+    let reviewed = ProductSchemaReviewCandidate::parse(candidate_payload)?;
+    let existing = lock_live_product_schemas(transaction, listing_source_id).await?;
+    let schemas = approval_product_schemas(reason, existing.as_ref(), reviewed.schemas.clone())?;
+    persist_product_schemas(transaction, listing_source_id, &schemas).await?;
+    if !reviewed.removed_page_schemas.is_empty() {
+        append_removed_page_schemas(
+            &mut **transaction,
+            listing_source_id,
+            &reviewed.removed_page_schemas,
+        )
+        .await?;
+        info!(
+            review_id = %review_id,
+            listing_source_id = %listing_source_id,
+            removed_page_template_count = reviewed.removed_page_schemas.len(),
+            "Approved removed-page templates from a product schema review"
+        );
+    }
+    if schemas != reviewed.schemas {
+        // The review keeps the merged list that went live, so edits through it are not refused
+        // as stale.
+        sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
+            .bind(review_id.as_uuid())
+            .bind(reviewed.with_schemas(schemas).to_payload()?)
+            .execute(&mut **transaction)
+            .await?;
+    }
+    Ok(())
 }
 
 /// Writes an edit of an approved review to the live schemas and records it on the review.

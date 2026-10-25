@@ -68,23 +68,42 @@ pub(crate) async fn append_removed_page_schemas(
     listing_source_id: &ListingSourceId,
     removed_page_schemas: &[RemovedPageSchema],
 ) -> Result<(), sqlx::Error> {
-    let stored = sqlx::query_scalar::<_, serde_json::Value>(
+    let mut schemas = lock_stored_removed_page_schemas(connection, listing_source_id)
+        .await?
+        .unwrap_or_default();
+    extend_with_new_removed_page_schemas(&mut schemas, removed_page_schemas.iter().cloned());
+    store_removed_page_schemas(connection, listing_source_id, &schemas).await
+}
+
+/// Locks and reads the ListingSource's stored removed-page templates for the rest of the
+/// caller's transaction, or `None` when it stores none. A stored row that no longer decodes
+/// fails the read.
+pub(crate) async fn lock_stored_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
+    sqlx::query_scalar::<_, serde_json::Value>(
         "SELECT removed_page_schema FROM listing_source_removed_page_schemas
          WHERE listing_source_id = $1
          FOR UPDATE",
     )
     .bind(Uuid::from(*listing_source_id))
     .fetch_optional(&mut *connection)
-    .await?;
-    let mut schemas: Vec<RemovedPageSchema> = stored
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?
-        .unwrap_or_default();
-    extend_with_new_removed_page_schemas(&mut schemas, removed_page_schemas.iter().cloned());
-    let schema_json =
-        serde_json::to_value(&schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+    .await?
+    .map(serde_json::from_value)
+    .transpose()
+    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
+}
 
+/// Stores `removed_page_schemas` as the ListingSource's removed-page templates inside the
+/// caller's transaction.
+async fn store_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+    removed_page_schemas: &[RemovedPageSchema],
+) -> Result<(), sqlx::Error> {
+    let schema_json =
+        serde_json::to_value(removed_page_schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
     sqlx::query(
         "INSERT INTO listing_source_removed_page_schemas (listing_source_id, removed_page_schema, created, updated)
          VALUES ($1, $2, NOW(), NOW())
