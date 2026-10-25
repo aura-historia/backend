@@ -380,17 +380,28 @@ fn evaluate_rule(
                 error: Some(error),
                 required,
                 skipped_element_count: None,
+                empty_element_count: 0,
             };
         }
     };
-    let selector_match_count = Some(rule.match_count(html, &parsed));
-    let additional_selector_match_counts = rule
+    let additional_selectors: Vec<Option<Selector>> = rule
         .additional_selectors
         .iter()
+        .map(|additional| Selector::parse(additional.as_ref()).ok())
+        .collect();
+    let selector_match_count = Some(rule.match_count(html, &parsed));
+    let additional_selector_match_counts = additional_selectors
+        .iter()
         .map(|additional| {
-            Selector::parse(additional.as_ref()).map_or(0, |parsed| rule.match_count(html, &parsed))
+            additional
+                .as_ref()
+                .map_or(0, |parsed| rule.match_count(html, parsed))
         })
         .collect();
+    let empty_element_count = std::iter::once(&parsed)
+        .chain(additional_selectors.iter().flatten())
+        .map(|parsed| rule.empty_element_count(html, parsed))
+        .sum();
 
     SelectorFieldEvaluation {
         field: field.to_string(),
@@ -400,6 +411,7 @@ fn evaluate_rule(
         error: None,
         required,
         skipped_element_count: None,
+        empty_element_count,
     }
 }
 
@@ -604,6 +616,18 @@ mod tests {
             assert_eq!(extracted_price(&matrix), None);
         }
 
+        /// Both leave the price empty; the empty-element count tells the reviewer which.
+        #[test]
+        fn should_tell_a_price_rule_matching_only_empty_elements_from_one_matching_nothing() {
+            let empty = matrix_for_price(text_rule(".price"), "<span class=\"price\"> </span>");
+            let unmatched = matrix_for_price(text_rule(".price"), "");
+
+            assert_eq!(price_field(&empty).selector_match_count, Some(0));
+            assert_eq!(price_field(&empty).empty_element_count, 1);
+            assert_eq!(price_field(&unmatched).selector_match_count, Some(0));
+            assert_eq!(price_field(&unmatched).empty_element_count, 0);
+        }
+
         #[test]
         fn should_count_a_price_rule_as_missing_when_its_only_match_is_whitespace() {
             let matrix =
@@ -641,6 +665,7 @@ mod tests {
             let matrix = matrix_for_price(price, "<span class=\"sale-price\"> </span>");
 
             assert_eq!(price_field(&matrix).additional_selector_match_counts, [0]);
+            assert_eq!(price_field(&matrix).empty_element_count, 1);
             assert_eq!(
                 optional_rules_missing_on_every_page(&matrix),
                 vec![missing_on_the_page("price", ".price")]
@@ -889,6 +914,14 @@ mod tests {
             empty.extracted.as_ref().map(|raw| raw.state.as_str()),
             Some("Available")
         );
+        let title_empty_elements = |page: &SchemaPageEvaluation| {
+            page.fields
+                .iter()
+                .find(|field| field.field == "title")
+                .map(|field| (field.selector_match_count, field.empty_element_count))
+        };
+        assert_eq!(title_empty_elements(unmatched), Some((Some(0), 0)));
+        assert_eq!(title_empty_elements(empty), Some((Some(0), 1)));
     }
 
     #[test]

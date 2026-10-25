@@ -333,6 +333,19 @@ impl ExtractionRule {
         }
     }
 
+    /// How many of the elements `selector` matches hold no visible text, for a text rule:
+    /// the elements [`Self::match_count`] leaves out. `0` for attribute and image URL
+    /// rules, whose match count includes every element.
+    pub(crate) fn empty_element_count(&self, html: &Html, selector: &Selector) -> usize {
+        match self.extract {
+            ExtractionKind::Text => html
+                .select(selector)
+                .filter(|element| !has_visible_text(element))
+                .count(),
+            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => 0,
+        }
+    }
+
     /// The value of the first element `css_selector` matched; a text rule takes the first
     /// non-empty text instead.
     fn first_value(
