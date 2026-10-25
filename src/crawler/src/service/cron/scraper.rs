@@ -717,7 +717,7 @@ async fn reject_identity_conflict(
         "extracted source listing id `{}` differs from the captured `{captured_identity}`",
         scraped.source_listing_id
     );
-    persist_schema_outcome_cooldown(
+    persist_schema_retry_cooldown(
         candidate,
         ctx,
         SOURCE_LISTING_ID_CONFLICT_ERROR_KIND,
@@ -966,6 +966,39 @@ fn log_domain_open_result(
     }
 }
 
+/// How a scrape error that is not an HTTP failure is recorded on its URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonHttpFailureRecord {
+    /// A schema-work outcome: the URL is retried after the schema cooldown.
+    SchemaRetryCooldown,
+    /// Any other failure: recorded without delaying the next scrape.
+    ScraperFailure,
+    /// The page was evaluated and has nothing to capture: the URL counts as scraped and
+    /// keeps the outcome until a later scrape completes, without a retry.
+    ScrapedWithoutCapture,
+}
+
+impl NonHttpFailureRecord {
+    fn of(error: &ScraperError) -> Self {
+        if matches!(error, ScraperError::MissingRequiredValue { .. }) {
+            return Self::ScrapedWithoutCapture;
+        }
+        let schema_work_outcome = matches!(
+            error,
+            ScraperError::SchemaRegenerationExhausted { .. }
+                | ScraperError::FreshSchemaImplausible { .. }
+                | ScraperError::SchemaClassificationRejected { .. }
+                | ScraperError::LlmBudgetExceeded { .. }
+                | ScraperError::PendingSchemaReview { .. }
+        ) || is_schema_generation_validation_failure(error);
+        if schema_work_outcome {
+            Self::SchemaRetryCooldown
+        } else {
+            Self::ScraperFailure
+        }
+    }
+}
+
 async fn persist_non_http_failure(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -973,43 +1006,50 @@ async fn persist_non_http_failure(
     error_message: &str,
 ) {
     let error_kind = scraper_error_kind(error);
-    let has_retry_cooldown = matches!(
-        error,
-        ScraperError::SchemaRegenerationExhausted { .. }
-            | ScraperError::FreshSchemaImplausible { .. }
-            | ScraperError::SchemaClassificationRejected { .. }
-            | ScraperError::LlmBudgetExceeded { .. }
-            | ScraperError::PendingSchemaReview { .. }
-    ) || is_schema_generation_validation_failure(error);
-    if has_retry_cooldown {
-        persist_schema_outcome_cooldown(candidate, ctx, error_kind, error_message).await;
-    } else {
-        match ctx
-            .scraper_candidates
-            .mark_scraper_failure(
-                &candidate.listing_source_id,
-                &candidate.url,
-                error_kind,
-                error_message,
-                candidate.last_captured_raw_input_sha256.as_deref(),
-            )
-            .await
-        {
-            Ok(CrawlerUrlWriteOutcome::Applied) => {}
-            Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
-                listing_source_id = %candidate.listing_source_id,
-                url = %candidate.url,
-                crawler_url_write_outcome = "stale_noop",
-                "Skipped stale crawler failure metadata"
-            ),
-            Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+    match NonHttpFailureRecord::of(error) {
+        NonHttpFailureRecord::SchemaRetryCooldown => {
+            persist_schema_retry_cooldown(candidate, ctx, error_kind, error_message).await;
         }
+        NonHttpFailureRecord::ScraperFailure => {
+            persist_scraper_failure(candidate, ctx, error_kind, error_message).await;
+        }
+        NonHttpFailureRecord::ScrapedWithoutCapture => {
+            persist_scraped_without_capture(candidate, ctx, error_kind, error_message).await;
+        }
+    }
+}
+
+async fn persist_scraped_without_capture(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    outcome_kind: &str,
+    outcome_message: &str,
+) {
+    match ctx
+        .scraper_candidates
+        .mark_scraped_without_capture(
+            &candidate.listing_source_id,
+            &candidate.url,
+            outcome_kind,
+            outcome_message,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler scrape outcome"
+        ),
+        Err(error) => warn!(error = %error, "Failed to persist scraper outcome"),
     }
 }
 
 /// Records a schema outcome on the URL with the bounded schema cooldown, so the URL waits
 /// for the schemas to change instead of being retried on every scheduler pass.
-async fn persist_schema_outcome_cooldown(
+async fn persist_schema_retry_cooldown(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
     error_kind: &str,
@@ -1032,6 +1072,34 @@ async fn persist_schema_outcome_cooldown(
         },
     )
     .await;
+}
+
+async fn persist_scraper_failure(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    match ctx
+        .scraper_candidates
+        .mark_scraper_failure(
+            &candidate.listing_source_id,
+            &candidate.url,
+            error_kind,
+            error_message,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler failure metadata"
+        ),
+        Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+    }
 }
 
 async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperError) {
@@ -1084,6 +1152,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
         // The label predates plausibility checks and stays stable for persisted rows.
         ScraperError::FreshSchemaImplausible { .. } => "FreshSchemaNormalizationFailed",
+        ScraperError::MissingRequiredValue { .. } => "MissingRequiredValue",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
@@ -3348,6 +3417,56 @@ mod tests {
             let url = request.url;
             Box::pin(async move {
                 scrape_outcome(Err(ScraperError::FreshSchemaImplausible {
+                    url,
+                    findings: Default::default(),
+                }))
+            })
+        });
+
+        let job = scraper_job(
+            CrawlerCronConfig::default(),
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    /// A page that leaves a required value empty is recorded as scraped with its outcome:
+    /// no retry cooldown, and no failure that keeps the URL due on every pass.
+    #[tokio::test]
+    async fn should_mark_scraped_without_capture_for_missing_required_value() {
+        let url = url::Url::parse("https://example.com/product/1").unwrap();
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain({
+                let url = url.clone();
+                move || vec![scraper_candidate("Test ListingSource", url.clone())]
+            }));
+        scraper_candidates
+            .expect_mark_scraped_without_capture()
+            .once()
+            .withf({
+                let url = url.clone();
+                move |_, received_url, kind, message, expected_raw_input_sha256| {
+                    *received_url == url
+                        && kind == "MissingRequiredValue"
+                        && message.starts_with(
+                            "Required value missing from 'https://example.com/product/1'",
+                        )
+                        && expected_raw_input_sha256.is_none()
+                }
+            })
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        scraper_candidates.expect_mark_fetch_failure().never();
+        scraper_candidates.expect_mark_scraper_failure().never();
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::MissingRequiredValue {
                     url,
                     findings: Default::default(),
                 }))

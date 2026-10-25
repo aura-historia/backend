@@ -286,6 +286,21 @@ pub trait ScraperCandidateService: Send + Sync {
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
 
+    /// Records a scrape that evaluated the page but has nothing to capture, such as a page
+    /// that leaves a required value empty. The URL counts as scraped, so it returns at its
+    /// normal scrape interval instead of after a retry cooldown, and keeps `outcome_kind` and
+    /// `outcome_message` as its last error until a later scrape completes. Page, schema and
+    /// raw-input hashes stay those of the last completed scrape, so the next scrape
+    /// evaluates the page again.
+    async fn mark_scraped_without_capture(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        outcome_kind: &str,
+        outcome_message: &str,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
     /// Increment per-ListingSource LLM call counter used by schema generation flows.
     async fn increment_listing_source_llm_calls(
         &self,
@@ -1052,6 +1067,44 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(url_str)
         .bind(error_kind)
         .bind(error_message)
+        .bind(expected_last_captured_raw_input_sha256)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(if result.rows_affected() == 1 {
+            CrawlerUrlWriteOutcome::Applied
+        } else {
+            CrawlerUrlWriteOutcome::NoopStale
+        })
+    }
+
+    async fn mark_scraped_without_capture(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        outcome_kind: &str,
+        outcome_message: &str,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE listing_source_urls
+             SET last_scraped = NOW(),
+                 failure_count = 0,
+                 last_error_kind = $3,
+                 last_error_message = $4,
+                 last_status_code = NULL,
+                 next_retry_at = NULL,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $5::bytea",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(url.as_str())
+        .bind(outcome_kind)
+        .bind(outcome_message)
         .bind(expected_last_captured_raw_input_sha256)
         .execute(&self.pool)
         .await?;

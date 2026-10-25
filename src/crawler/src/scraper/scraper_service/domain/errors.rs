@@ -77,6 +77,15 @@ pub enum ScraperError {
         findings: PlausibilityFindings,
     },
 
+    /// A cached schema found the element of a required value, but the page leaves it empty,
+    /// so the page has nothing to capture and needs no schema work. `findings` names the
+    /// empty fields.
+    #[error("Required value missing from '{url}': {findings}")]
+    MissingRequiredValue {
+        url: Url,
+        findings: PlausibilityFindings,
+    },
+
     /// The shared kernel could not derive the captured source listing id.
     #[error("Normalization error: {0}")]
     NormalizationError(#[from] NormalizationError),

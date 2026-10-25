@@ -116,6 +116,30 @@ pub(super) fn sample_html() -> String {
         .to_string()
 }
 
+/// A product page that names no item, as Silver Objects renders some: the title element
+/// exists and is empty, while state, identity and image are present.
+pub(super) fn untitled_html() -> String {
+    r#"<!DOCTYPE html>
+    <html>
+    <body>
+      <main>
+        <span id="product-id">1208922</span>
+        <div class="item-title"><h1 class="item-title" itemprop="name"></h1></div>
+        <span id="state">Request for more info</span>
+        <img src="/galleries/chandelier-820256-nl-middle.jpg">
+      </main>
+    </body>
+    </html>"#
+        .to_string()
+}
+
+/// [`minimal_schema`] with the title rule of the template [`untitled_html`] follows.
+pub(super) fn item_title_schema() -> ProductCssSelectorSchema {
+    let mut schema = minimal_schema();
+    schema.title.selector = CssSelector::from("h1.item-title");
+    schema
+}
+
 pub(super) fn fetch_result(html: String) -> FetchedHtml {
     FetchedHtml::new(html, product_url(), reqwest::StatusCode::OK)
 }
