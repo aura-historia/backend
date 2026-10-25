@@ -7,7 +7,13 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
-use crate::scraper::css_selector::removed_page_schema_repository::append_removed_page_schemas;
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageSchema, rebase_reviewed_removed_page_schemas,
+};
+use crate::scraper::css_selector::removed_page_schema_repository::{
+    RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl, lock_stored_removed_page_schemas,
+    store_removed_page_schemas,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::utils::url::CrawledUrl;
@@ -60,7 +66,7 @@ pub enum ReviewRepositoryError {
     #[error("invalid removed-page template {index}: {reason}")]
     InvalidRemovedPageTemplate { index: usize, reason: String },
     #[error(
-        "approved review {0} already stored its removed-page templates; declare a new template on a pending review"
+        "approved review {0} cannot change removed-page templates; edit or retire them on a pending review"
     )]
     ApprovedRemovedPageTemplatesChanged(CrawlerReviewId),
     #[error("review candidate or pages changed during schema-matrix evaluation")]
@@ -517,13 +523,23 @@ impl CrawlerReviewRepository {
             notes,
         } = input;
         validate_product_schemas(schemas)?;
-        let candidate_payload = ProductSchemaReviewCandidate::of_schemas(schemas).to_payload()?;
+        // The candidate starts from the stored removed-page templates, so the reviewer edits the
+        // live list; the base records what was read for approval to rebase onto. Reading without
+        // a lock keeps the lock order of approval, which locks the review first.
+        let stored_removed_page_schemas = RemovedPageSchemaRepositoryImpl::new(&self.pool)
+            .find_removed_page_schema(listing_source_id)
+            .await?
+            .map(|stored| stored.removed_page_schemas)
+            .unwrap_or_default();
+        let removed_page_schemas_base = serde_json::to_value(&stored_removed_page_schemas)?;
+        let candidate_payload =
+            ProductSchemaReviewCandidate::new(schemas, stored_removed_page_schemas).to_payload()?;
         let requested_review_id = CrawlerReviewId::new();
         let mut transaction = self.pool.begin().await?;
         let inserted = if status == STATUS_PENDING_REVIEW {
             sqlx::query_scalar::<_, uuid::Uuid>(
-                "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
-                 VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                 VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
                  ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
                  DO NOTHING RETURNING review_id",
             )
@@ -532,13 +548,14 @@ impl CrawlerReviewRepository {
             .bind(reason)
             .bind(candidate_payload)
             .bind(validation_summary)
+            .bind(removed_page_schemas_base)
             .fetch_optional(&mut *transaction)
             .await?
         } else {
             Some(
                 sqlx::query_scalar::<_, uuid::Uuid>(
-                    "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
-                     VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END) \
+                    "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                     VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
                      RETURNING review_id",
                 )
                 .bind(requested_review_id.as_uuid())
@@ -548,6 +565,7 @@ impl CrawlerReviewRepository {
                 .bind(candidate_payload)
                 .bind(validation_summary)
                 .bind(notes)
+                .bind(removed_page_schemas_base)
                 .fetch_one(&mut *transaction)
                 .await?,
             )
@@ -885,7 +903,8 @@ impl CrawlerReviewRepository {
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let review = sqlx::query(
-            "SELECT listing_source_id, domain_id, artifact_type, reason, candidate_payload \
+            "SELECT listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
+                    removed_page_schemas_base \
              FROM crawler_reviews \
              WHERE review_id = $1 AND status = 'PENDING_REVIEW' \
              FOR UPDATE",
@@ -935,6 +954,7 @@ impl CrawlerReviewRepository {
                     &listing_source_id,
                     &reason,
                     &candidate_payload,
+                    review.try_get("removed_page_schemas_base")?,
                 )
                 .await?;
             }
@@ -1252,42 +1272,71 @@ async fn lock_live_product_schemas(
 }
 
 /// Makes the reviewed candidate of the product-schema review `review_id` live inside the
-/// approval's transaction: its schemas and its removed-page templates.
+/// approval's transaction: its schemas, and its removed-page templates in place of the stored
+/// ones, rebased onto the stored list's changes since `removed_page_schemas_base`. The review
+/// keeps what went live, so edits through it are not refused as stale.
 async fn make_reviewed_product_schemas_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     listing_source_id: &ListingSourceId,
     reason: &str,
     candidate_payload: &serde_json::Value,
+    removed_page_schemas_base: serde_json::Value,
 ) -> Result<(), ReviewRepositoryError> {
     let reviewed = ProductSchemaReviewCandidate::parse(candidate_payload)?;
     let existing = lock_live_product_schemas(transaction, listing_source_id).await?;
     let schemas = approval_product_schemas(reason, existing.as_ref(), reviewed.schemas.clone())?;
     persist_product_schemas(transaction, listing_source_id, &schemas).await?;
-    if !reviewed.removed_page_schemas.is_empty() {
-        append_removed_page_schemas(
-            &mut **transaction,
-            listing_source_id,
-            &reviewed.removed_page_schemas,
-        )
-        .await?;
-        info!(
-            review_id = %review_id,
-            listing_source_id = %listing_source_id,
-            removed_page_template_count = reviewed.removed_page_schemas.len(),
-            "Approved removed-page templates from a product schema review"
-        );
-    }
-    if schemas != reviewed.schemas {
-        // The review keeps the merged list that went live, so edits through it are not refused
-        // as stale.
+    let removed_page_schemas = replace_stored_removed_page_schemas(
+        transaction,
+        review_id,
+        listing_source_id,
+        removed_page_schemas_base,
+        reviewed.removed_page_schemas.clone(),
+    )
+    .await?;
+    let live = reviewed
+        .clone()
+        .with_schemas(schemas)
+        .with_removed_page_schemas(removed_page_schemas);
+    if live != reviewed {
         sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
             .bind(review_id.as_uuid())
-            .bind(reviewed.with_schemas(schemas).to_payload()?)
+            .bind(live.to_payload()?)
             .execute(&mut **transaction)
             .await?;
     }
     Ok(())
+}
+
+/// Replaces the ListingSource's stored removed-page templates with the `reviewed` list, rebased
+/// onto the changes other writers made since the review read the stored list as `base`, and
+/// returns the list now stored. A stored list or base that no longer decodes fails the
+/// approval.
+async fn replace_stored_removed_page_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    base: serde_json::Value,
+    reviewed: Vec<RemovedPageSchema>,
+) -> Result<Vec<RemovedPageSchema>, ReviewRepositoryError> {
+    let base: Vec<RemovedPageSchema> =
+        serde_json::from_value(base).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+    let stored = lock_stored_removed_page_schemas(transaction, listing_source_id)
+        .await?
+        .unwrap_or_default();
+    let replacement = rebase_reviewed_removed_page_schemas(&base, reviewed, &stored);
+    if replacement != stored {
+        store_removed_page_schemas(transaction, listing_source_id, &replacement).await?;
+        info!(
+            review_id = %review_id,
+            listing_source_id = %listing_source_id,
+            removed_page_template_count = replacement.len(),
+            retired_template_count = stored.iter().filter(|schema| !replacement.contains(schema)).count(),
+            "Approved removed-page templates from a product schema review"
+        );
+    }
+    Ok(replacement)
 }
 
 /// Writes an edit of an approved review to the live schemas and records it on the review.

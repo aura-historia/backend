@@ -652,9 +652,9 @@ function renderDiffPanel(schemas) {
     </div>`;
 }
 
-// Removed-page templates a reviewer declares for pages a shop serves at HTTP 200 with a
-// removal notice and no product markup. Approval stores them with the ListingSource's
-// removed-page templates; the matrix shows which review pages they match.
+// Removed-page templates for pages a shop serves at HTTP 200 with a removal notice and no
+// product markup. The list opens with the ListingSource's stored templates and approval
+// replaces them with it; the matrix shows which review pages they match.
 function currentRemovedPageTemplates() {
     return (((selectedDetail.review || {}).candidate_payload || {}).removed_page_schemas) || [];
 }
@@ -671,13 +671,13 @@ function renderRemovedPagePanel(detail, matrix) {
       <div class="panel-title">
         <strong>Removed-page templates</strong>
         <span class="muted">${editable
-            ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected.'
+            ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected. The list starts from the stored templates; approval replaces them with it, so removing a template here retires it.'
             : detail.review.status === 'APPROVED'
-                ? 'Stored when the review was approved; declare further templates on a pending review.'
+                ? 'Stored when the review was approved; edit or retire templates on a pending review.'
                 : 'This review is closed without approval; its templates were not stored.'}</span>
       </div>
       ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
-        || '<div class="muted">No removed-page template declared.</div>'}
+        || '<div class="muted">No removed-page template.</div>'}
       <div class="actions">
         <button ${disabled} onclick="addRemovedPageTemplate()" title="Starts from the clicked element when one is picked">Add template</button>
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>

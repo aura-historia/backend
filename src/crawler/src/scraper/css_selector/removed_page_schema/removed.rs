@@ -64,6 +64,32 @@ pub fn extend_with_new_removed_page_schemas(
     }
 }
 
+/// The removed-page templates an approval stores: the `reviewed` list replaces the stored one,
+/// rebased onto changes other writers made to it after the review read it as `base`. A template
+/// stored since then, such as a generated one, is kept; one retired since then stays retired
+/// unless the reviewer changed it. Each template is kept once.
+pub fn rebase_reviewed_removed_page_schemas(
+    base: &[RemovedPageSchema],
+    reviewed: Vec<RemovedPageSchema>,
+    stored: &[RemovedPageSchema],
+) -> Vec<RemovedPageSchema> {
+    let retired_since_read =
+        |schema: &RemovedPageSchema| base.contains(schema) && !stored.contains(schema);
+    let stored_since_read = stored
+        .iter()
+        .filter(|schema| !base.contains(schema))
+        .cloned();
+    let mut rebased = Vec::new();
+    extend_with_new_removed_page_schemas(
+        &mut rebased,
+        reviewed
+            .into_iter()
+            .filter(|schema| !retired_since_read(schema))
+            .chain(stored_since_read),
+    );
+    rebased
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RemovedPageSchema {
@@ -347,5 +373,67 @@ mod tests {
         let html = r#"<main id="mainCatCol"><h1>The table from 2020 is not available anymore.</h1></main>"#;
 
         assert!(!regex_schema("[unclosed").matches(html));
+    }
+
+    fn notice(text: &str) -> RemovedPageSchema {
+        RemovedPageSchema {
+            selector: CssSelector::from("p.notice"),
+            text: Some(text.to_string()),
+            regex: None,
+        }
+    }
+
+    #[test]
+    fn should_store_the_reviewed_list_when_the_stored_list_is_unchanged_since_the_review_read_it() {
+        let base = [notice("sold"), notice("withdrawn")];
+
+        let rebased =
+            rebase_reviewed_removed_page_schemas(&base, vec![notice("no longer available")], &base);
+
+        assert_eq!(rebased, vec![notice("no longer available")]);
+    }
+
+    #[test]
+    fn should_store_no_template_when_the_reviewer_retires_every_stored_one() {
+        let base = [notice("sold")];
+
+        assert!(rebase_reviewed_removed_page_schemas(&base, Vec::new(), &base).is_empty());
+    }
+
+    #[test]
+    fn should_keep_a_template_stored_after_the_review_read_the_stored_list() {
+        let base = [notice("sold")];
+        let stored = [notice("sold"), notice("page not found")];
+
+        let rebased = rebase_reviewed_removed_page_schemas(&base, Vec::new(), &stored);
+
+        assert_eq!(rebased, vec![notice("page not found")]);
+    }
+
+    #[test]
+    fn should_not_restore_a_template_retired_after_the_review_read_the_stored_list() {
+        let base = [notice("sold"), notice("withdrawn")];
+        let stored = [notice("withdrawn")];
+
+        let rebased = rebase_reviewed_removed_page_schemas(
+            &base,
+            vec![notice("sold"), notice("withdrawn"), notice("reserved")],
+            &stored,
+        );
+
+        assert_eq!(rebased, vec![notice("withdrawn"), notice("reserved")]);
+    }
+
+    #[test]
+    fn should_keep_each_template_once_when_the_reviewer_declares_one_stored_since() {
+        let stored = [notice("page not found")];
+
+        let rebased = rebase_reviewed_removed_page_schemas(
+            &[],
+            vec![notice("page not found"), notice("page not found")],
+            &stored,
+        );
+
+        assert_eq!(rebased, vec![notice("page not found")]);
     }
 }

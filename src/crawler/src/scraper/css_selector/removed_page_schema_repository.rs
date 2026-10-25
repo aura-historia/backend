@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::removed_page_schema::{
-    ListingSourceRemovedPageSchema, RemovedPageSchema, extend_with_new_removed_page_schemas,
+    ListingSourceRemovedPageSchema, RemovedPageSchema,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgPool, Row};
@@ -59,22 +59,6 @@ impl RemovedPageSchemaRepository for NullRemovedPageSchemaRepository {
     }
 }
 
-/// Appends `removed_page_schemas` to the ListingSource's stored removed-page templates inside the
-/// caller's transaction, skipping the ones already stored, so a template a reviewer approves is
-/// stored like a generated one and goes live with the rest of the approval. A stored row that no
-/// longer decodes fails the append instead of being overwritten.
-pub(crate) async fn append_removed_page_schemas(
-    connection: &mut sqlx::PgConnection,
-    listing_source_id: &ListingSourceId,
-    removed_page_schemas: &[RemovedPageSchema],
-) -> Result<(), sqlx::Error> {
-    let mut schemas = lock_stored_removed_page_schemas(connection, listing_source_id)
-        .await?
-        .unwrap_or_default();
-    extend_with_new_removed_page_schemas(&mut schemas, removed_page_schemas.iter().cloned());
-    store_removed_page_schemas(connection, listing_source_id, &schemas).await
-}
-
 /// Locks and reads the ListingSource's stored removed-page templates for the rest of the
 /// caller's transaction, or `None` when it stores none. A stored row that no longer decodes
 /// fails the read.
@@ -96,8 +80,8 @@ pub(crate) async fn lock_stored_removed_page_schemas(
 }
 
 /// Stores `removed_page_schemas` as the ListingSource's removed-page templates inside the
-/// caller's transaction.
-async fn store_removed_page_schemas(
+/// caller's transaction, replacing the stored list.
+pub(crate) async fn store_removed_page_schemas(
     connection: &mut sqlx::PgConnection,
     listing_source_id: &ListingSourceId,
     removed_page_schemas: &[RemovedPageSchema],
