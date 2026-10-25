@@ -10,13 +10,12 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
 use scraper::{Html, Selector};
 
-/// A review page as the matrix evaluates it: how the matrix refers to it and its parsed
-/// HTML. Each page is parsed once per matrix and shared by every candidate.
+/// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
 struct MatrixPage<'a> {
     page_reference: SchemaPageReference,
     url: &'a str,
     role: &'a str,
-    html: Html,
+    raw_html: &'a str,
 }
 
 fn parse_page(raw_html: &str) -> Html {
@@ -38,7 +37,7 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
             },
             url: &page.url,
             role: &page.role,
-            html: parse_page(raw_html),
+            raw_html,
         })
         .collect();
     SchemaMatrix {
@@ -58,7 +57,7 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
             page_reference: SchemaPageReference::Input { page_index },
             url: &page.url,
             role: &page.role,
-            html: parse_page(&page.raw_html),
+            raw_html: &page.raw_html,
         })
         .collect();
     SchemaMatrix {
@@ -67,25 +66,30 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
     }
 }
 
+/// Evaluates every candidate on every page. Each page is parsed once, and every candidate
+/// evaluates it before the next page is parsed, so a single parsed page is held at a time.
 fn evaluate_candidates(
     schemas: &[ProductCssSelectorSchema],
     pages: &[MatrixPage<'_>],
 ) -> Vec<SchemaCandidateEvaluation> {
-    schemas
-        .iter()
-        .enumerate()
-        .map(|(schema_index, schema)| {
-            let mut page_evaluations: Vec<SchemaPageEvaluation> = pages
-                .iter()
-                .map(|page| evaluate_schema_page(schema, page))
-                .collect();
-            add_cross_page_findings(&mut page_evaluations);
-            SchemaCandidateEvaluation {
-                schema_index,
-                pages: page_evaluations,
-            }
+    let mut candidates: Vec<SchemaCandidateEvaluation> = (0..schemas.len())
+        .map(|schema_index| SchemaCandidateEvaluation {
+            schema_index,
+            pages: Vec::with_capacity(pages.len()),
         })
-        .collect()
+        .collect();
+    for page in pages {
+        let html = parse_page(page.raw_html);
+        for (schema, candidate) in schemas.iter().zip(&mut candidates) {
+            candidate
+                .pages
+                .push(evaluate_schema_page(schema, page, &html));
+        }
+    }
+    for candidate in &mut candidates {
+        add_cross_page_findings(&mut candidate.pages);
+    }
+    candidates
 }
 
 /// Compares one candidate's extractions of the review pages, each of a different
@@ -259,8 +263,8 @@ pub(crate) fn unused_schema_indices(matrix: &SchemaMatrix) -> Vec<usize> {
 fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
     page: &MatrixPage<'_>,
+    html: &Html,
 ) -> SchemaPageEvaluation {
-    let html = &page.html;
     let extraction = schema.extract(html);
     let fields = evaluate_schema_fields(
         schema,
@@ -502,25 +506,63 @@ mod tests {
         pub(super) static PAGE_PARSES: Cell<usize> = const { Cell::new(0) };
     }
 
+    /// Runs `evaluate` and returns its result with the number of pages it parsed.
+    fn with_page_parses<T>(evaluate: impl FnOnce() -> T) -> (T, usize) {
+        PAGE_PARSES.with(|parses| parses.set(0));
+        let result = evaluate();
+        (result, PAGE_PARSES.with(Cell::get))
+    }
+
+    fn live_review_page(page: &SchemaReviewPageInput) -> (CrawlerReviewPage, String) {
+        let review_page = CrawlerReviewPage {
+            review_page_id: crate::CrawlerReviewPageId::new(),
+            review_id: CrawlerReviewId::new(),
+            url: page.url.clone(),
+            role: page.role.clone(),
+            html_hash: String::new(),
+            fetched: time::OffsetDateTime::now_utc(),
+        };
+        (review_page, page.raw_html.clone())
+    }
+
     #[test]
     fn should_parse_each_page_once_for_every_candidate() {
         let schemas = vec![schema("h1"), schema("h2"), schema_with_price("h1")];
         let pages = vec![page(PAGE_ROLE_PRIMARY, "h1"), page(PAGE_ROLE_SEED, "h2")];
-        PAGE_PARSES.with(|parses| parses.set(0));
+        let live_pages: Vec<_> = pages.iter().map(live_review_page).collect();
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let (input_matrix, input_parses) =
+            with_page_parses(|| evaluate_schema_matrix_for_inputs(&schemas, &pages));
+        let (live_matrix, live_parses) = with_page_parses(|| {
+            evaluate_schema_matrix_for_live_review_pages(
+                CrawlerReviewId::new(),
+                &schemas,
+                &live_pages,
+            )
+        });
 
-        assert_eq!(PAGE_PARSES.with(Cell::get), pages.len());
-        assert_eq!(matrix.candidates.len(), schemas.len());
-        assert!(
-            matrix
+        assert_eq!(input_parses, pages.len());
+        assert_eq!(live_parses, pages.len());
+        for matrix in [input_matrix, live_matrix] {
+            // Every candidate applies its own selectors to the shared parse of each page,
+            // in schema and page order.
+            let applied: Vec<(usize, Vec<bool>)> = matrix
                 .candidates
                 .iter()
-                .all(|candidate| candidate.pages.len() == pages.len())
-        );
-        assert!(matrix.candidates[0].pages[0].apply_ok);
-        assert!(matrix.candidates[1].pages[1].apply_ok);
-        assert!(!matrix.candidates[1].pages[0].apply_ok);
+                .map(|candidate| {
+                    let pages = candidate.pages.iter().map(|page| page.apply_ok).collect();
+                    (candidate.schema_index, pages)
+                })
+                .collect();
+            assert_eq!(
+                applied,
+                vec![
+                    (0, vec![true, false]),
+                    (1, vec![false, true]),
+                    (2, vec![true, false]),
+                ]
+            );
+        }
     }
 
     #[test]
