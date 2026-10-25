@@ -179,17 +179,34 @@ pub(crate) fn removed_page_verdict(
     if removed_page_schemas.is_empty() {
         return RemovedPageVerdict::NotRemoved;
     }
-    let parsed = scraper::Html::parse_document(html);
+    removed_page_verdict_in(
+        removed_page_schemas,
+        cached_schemas,
+        &scraper::Html::parse_document(html),
+        source_record_key,
+        last_source_listing_id,
+    )
+}
+
+/// Same as [`removed_page_verdict`] on an already parsed page, so a caller that parsed the
+/// page for other work does not parse it again.
+pub(crate) fn removed_page_verdict_in(
+    removed_page_schemas: Vec<RemovedPageSchema>,
+    cached_schemas: &[ProductCssSelectorSchema],
+    parsed: &scraper::Html,
+    source_record_key: &str,
+    last_source_listing_id: Option<&str>,
+) -> RemovedPageVerdict {
     let matches = removed_page_schemas
         .into_iter()
-        .filter_map(|schema| schema.match_page(&parsed))
+        .filter_map(|schema| schema.match_page(parsed))
         .collect::<Vec<_>>();
     if matches.is_empty() {
         return RemovedPageVerdict::NotRemoved;
     }
 
     let product_still_extracts =
-        apply_cached_schemas(cached_schemas, &parsed)
+        apply_cached_schemas(cached_schemas, parsed)
             .iter()
             .any(|candidate| {
                 let title = candidate.raw.title.trim();
