@@ -1,4 +1,5 @@
 'use strict';
+const { createHash } = require('node:crypto');
 
 const PROTOCOL = '2026-07-28';
 
@@ -36,20 +37,37 @@ function assertResponse(probe, response) {
   }
 }
 
-function candidateVersion(target, functionName) {
-  const info = target.deploymentTarget?.lambdaTarget?.lambdaFunctionInfo;
-  if (info?.functionName !== functionName || info.functionAlias !== 'live' ||
-      !/^[1-9][0-9]*$/.test(String(info.targetVersion)))
+function candidateVersion(deployment, registered, functionName) {
+  const type = deployment.revision?.revisionType;
+  const key = type === 'String' ? 'string' : type === 'AppSpecContent' ? 'appSpecContent' : null;
+  const expected = deployment.revision?.[key]?.sha256;
+  const revision = registered.revision?.[key];
+  if (!key || registered.applicationName !== deployment.applicationName ||
+      registered.revision?.revisionType !== type || !/^[a-f0-9]{64}$/.test(expected || '') ||
+      revision?.sha256 !== expected || typeof revision.content !== 'string' ||
+      createHash('sha256').update(revision.content).digest('hex') !== expected)
+    throw new Error('Deployment AppSpec does not match its registered revision.');
+  const spec = JSON.parse(revision.content);
+  const resources = spec.Resources?.length === 1 ? Object.values(spec.Resources[0]) : [];
+  const resource = resources.length === 1 ? resources[0] : null;
+  const info = resource?.Properties;
+  if (spec.version !== '0.0' || resource?.Type !== 'AWS::Lambda::Function' ||
+      info?.Name !== functionName || info.Alias !== 'live' ||
+      !/^[1-9][0-9]*$/.test(info.CurrentVersion || '') ||
+      !/^[1-9][0-9]*$/.test(info.TargetVersion || ''))
     throw new Error('Deployment does not identify one expected candidate version.');
-  return String(info.targetVersion);
+  return String(info.TargetVersion);
 }
 
 async function runHook(event, config, api, fetchRequest = fetch) {
   if (!event.DeploymentId || !event.LifecycleEventHookExecutionId) throw new Error('Invalid lifecycle event.');
-  const targets = await api('codedeploy', 'ListDeploymentTargets', { deploymentId: event.DeploymentId });
-  if (targets.nextToken || targets.targetIds?.length !== 1) throw new Error('Expected one CodeDeploy Lambda target.');
-  const target = await api('codedeploy', 'GetDeploymentTarget', { deploymentId: event.DeploymentId, targetId: targets.targetIds[0] });
-  const version = candidateVersion(target, config.functionName);
+  const { deploymentInfo } = await api('codedeploy', 'GetDeployment', { deploymentId: event.DeploymentId });
+  if (deploymentInfo?.deploymentId !== event.DeploymentId || !deploymentInfo.applicationName)
+    throw new Error('Expected the exact CodeDeploy deployment.');
+  const registered = await api('codedeploy', 'GetApplicationRevision', {
+    applicationName: deploymentInfo.applicationName, revision: deploymentInfo.revision,
+  });
+  const version = candidateVersion(deploymentInfo, registered, config.functionName);
   const isPost = event.LifecycleEventHookExecutionId.includes('AfterAllowTraffic') || config.phase === 'post';
   const samples = probes(config.kind);
   const deadline = Date.now() + 180000;
@@ -92,11 +110,11 @@ async function probePublic(kind, host, fetchRequest = fetch) {
 let clients;
 exports.handler = async (event) => {
   if (!clients) {
-    const { CodeDeployClient, ListDeploymentTargetsCommand, GetDeploymentTargetCommand, PutLifecycleEventHookExecutionStatusCommand } = require('@aws-sdk/client-codedeploy');
+    const { CodeDeployClient, GetDeploymentCommand, GetApplicationRevisionCommand, PutLifecycleEventHookExecutionStatusCommand } = require('@aws-sdk/client-codedeploy');
     const { LambdaClient, InvokeCommand, GetAliasCommand } = require('@aws-sdk/client-lambda');
     clients = { codedeploy: new CodeDeployClient({ region: process.env.AWS_REGION }),
       lambda: new LambdaClient({ region: process.env.AWS_REGION }),
-      commands: { ListDeploymentTargets: ListDeploymentTargetsCommand, GetDeploymentTarget: GetDeploymentTargetCommand, PutLifecycleEventHookExecutionStatus: PutLifecycleEventHookExecutionStatusCommand,
+      commands: { GetDeployment: GetDeploymentCommand, GetApplicationRevision: GetApplicationRevisionCommand, PutLifecycleEventHookExecutionStatus: PutLifecycleEventHookExecutionStatusCommand,
         Invoke: InvokeCommand, GetAlias: GetAliasCommand } };
   }
   const api = (service, operation, input) => clients[service].send(new clients.commands[operation](input),
