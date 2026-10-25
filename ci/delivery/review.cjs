@@ -2,6 +2,7 @@
 const { digest, validateReport } = require("./contracts.cjs");
 const { requestReview } = require("./review-request.cjs");
 const { POLICY_VERSION } = require("./inspection.cjs");
+const { serializeContext } = require("./review-context.cjs");
 const PROMPT_VERSION = "compatibility-review-v2";
 const REVIEW_FIELDS = {
   verdict: { type: "string", enum: ["ROUTINE", "MAINTENANCE_REQUIRED"] },
@@ -80,11 +81,7 @@ async function invoke(ctx, evidence, config, options = {}) {
     throw new Error(
       "Explicit strong Anthropic model, high effort, target API key and bounded token budget required",
     );
-  const serialized = JSON.stringify(evidence);
-  if (Buffer.byteLength(serialized) > (config.maxInputBytes || 1500000))
-    throw new Error(
-      "Complete context exceeds reviewer budget; explicit human review required",
-    );
+  const serialized = serializeContext(evidence, config);
   const { response, latencyMs } = await requestReview(ctx, serialized, config,
     { system: SYSTEM, schema: RESPONSE_SCHEMA }, options);
   if (
