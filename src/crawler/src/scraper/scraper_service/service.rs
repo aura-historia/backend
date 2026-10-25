@@ -7,6 +7,7 @@ use crate::scraper::css_selector::product_schema_service::ProductListingSchemaSe
 use crate::scraper::css_selector::removed_page_schema_repository::{
     NullRemovedPageSchemaRepository, RemovedPageSchemaRepository,
 };
+use crate::scraper::scraper_service::extraction::schema_review_gate::review_error_to_schema_service_error;
 use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
 use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
 use std::sync::Arc;
@@ -114,5 +115,24 @@ impl ScraperServiceImpl {
             .latest_pending_review_id(listing_source_id, ARTIFACT_PRODUCT_SCHEMA)
             .await
             .map_err(ProductListingSchemaServiceError::DatabaseError)
+    }
+
+    /// Attaches a page that failed every cached schema to the ListingSource's pending
+    /// product-schema review and returns that review, or `None` when none is pending and the
+    /// page may open or generate one.
+    pub(crate) async fn join_pending_product_schema_review(
+        &self,
+        listing_source_id: &listing_source_core::ListingSourceId,
+        url: &url::Url,
+        html: &str,
+    ) -> Result<Option<crate::CrawlerReviewId>, ProductListingSchemaServiceError> {
+        let Some(review_repository) = &self.review_repository else {
+            return Ok(None);
+        };
+
+        review_repository
+            .join_pending_schema_review(listing_source_id, url, html)
+            .await
+            .map_err(review_error_to_schema_service_error)
     }
 }

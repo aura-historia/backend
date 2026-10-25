@@ -395,12 +395,21 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
           AND (sd.scrape_failure_streak = 0
                OR sd.next_scrape_at IS NULL
                OR sd.next_scrape_at <= NOW())
-          AND NOT EXISTS (
-              SELECT 1
-              FROM crawler_reviews cr
-              WHERE cr.listing_source_id = su.listing_source_id
-                AND cr.artifact_type = 'PRODUCT_SCHEMA'
-                AND cr.status = 'PENDING_REVIEW'
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM listing_source_product_schemas ps
+                  WHERE ps.listing_source_id = su.listing_source_id
+                    AND (jsonb_typeof(ps.product_schema) <> 'array'
+                         OR jsonb_array_length(ps.product_schema) > 0)
+              )
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM crawler_reviews cr
+                  WHERE cr.listing_source_id = su.listing_source_id
+                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
+                    AND cr.status = 'PENDING_REVIEW'
+              )
           )
           AND NOT (sd.domain_id = ANY($4))
     ),
