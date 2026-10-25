@@ -10,12 +10,19 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{CrossPageFindings, PageExtraction, PlausibilityFindings};
 use scraper::{Html, Selector};
 
-/// A review page as the matrix evaluates it: how the matrix refers to it and its HTML.
+/// A review page as the matrix evaluates it: how the matrix refers to it and its parsed
+/// HTML. Each page is parsed once per matrix and shared by every candidate.
 struct MatrixPage<'a> {
     page_reference: SchemaPageReference,
     url: &'a str,
     role: &'a str,
-    raw_html: &'a str,
+    html: Html,
+}
+
+fn parse_page(raw_html: &str) -> Html {
+    #[cfg(test)]
+    tests::PAGE_PARSES.with(|parses| parses.set(parses.get() + 1));
+    Html::parse_document(raw_html)
 }
 
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
@@ -31,7 +38,7 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
             },
             url: &page.url,
             role: &page.role,
-            raw_html,
+            html: parse_page(raw_html),
         })
         .collect();
     SchemaMatrix {
@@ -51,7 +58,7 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
             page_reference: SchemaPageReference::Input { page_index },
             url: &page.url,
             role: &page.role,
-            raw_html: &page.raw_html,
+            html: parse_page(&page.raw_html),
         })
         .collect();
     SchemaMatrix {
@@ -253,12 +260,12 @@ fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
     page: &MatrixPage<'_>,
 ) -> SchemaPageEvaluation {
-    let html = Html::parse_document(page.raw_html);
-    let extraction = schema.extract(&html);
+    let html = &page.html;
+    let extraction = schema.extract(html);
     let fields = evaluate_schema_fields(
         schema,
-        &html,
-        skipped_image_elements(schema, &html, &extraction),
+        html,
+        skipped_image_elements(schema, html, &extraction),
     );
 
     // A page counts as applied only when runtime selection would accept the
@@ -409,6 +416,7 @@ mod tests {
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
     use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
     use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
+    use std::cell::Cell;
 
     fn text_rule(selector: &str) -> ExtractionRule {
         ExtractionRule {
@@ -487,6 +495,32 @@ mod tests {
                 "<html><body><span id=\"product-id\">SKU</span><{title_tag}>Title</{title_tag}>{price_html}<span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>"
             ),
         }
+    }
+
+    thread_local! {
+        /// How many pages this test thread parsed for matrix evaluation.
+        pub(super) static PAGE_PARSES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn should_parse_each_page_once_for_every_candidate() {
+        let schemas = vec![schema("h1"), schema("h2"), schema_with_price("h1")];
+        let pages = vec![page(PAGE_ROLE_PRIMARY, "h1"), page(PAGE_ROLE_SEED, "h2")];
+        PAGE_PARSES.with(|parses| parses.set(0));
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+        assert_eq!(PAGE_PARSES.with(Cell::get), pages.len());
+        assert_eq!(matrix.candidates.len(), schemas.len());
+        assert!(
+            matrix
+                .candidates
+                .iter()
+                .all(|candidate| candidate.pages.len() == pages.len())
+        );
+        assert!(matrix.candidates[0].pages[0].apply_ok);
+        assert!(matrix.candidates[1].pages[1].apply_ok);
+        assert!(!matrix.candidates[1].pages[0].apply_ok);
     }
 
     #[test]
