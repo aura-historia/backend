@@ -13,6 +13,29 @@ function foundation(enabledTargets: readonly ("dev" | "prod")[] = ["prod"]) {
 }
 const template = foundation();
 
+test("only the shared release builder uses the disposable S3 dependency cache", () => {
+  const projects = Object.values(template.findResources("AWS::CodeBuild::Project"));
+  const builder = projects.find((project) => project.Properties.Name === "aura-delivery-release-build")!;
+  expect(builder.Properties.Environment.ComputeType).toBe("BUILD_GENERAL1_XLARGE");
+  expect(builder.Properties.Cache.Type).toBe("S3");
+  const cache = JSON.parse(builder.Properties.Source.BuildSpec).cache;
+  expect(cache.paths).toEqual([".delivery-cache/**/*"]);
+  expect(cache.key).toContain("${DELIVERY_SOURCE_SHA}");
+  expect(cache["fallback-keys"]).toHaveLength(1);
+  expect(cache["fallback-keys"][0]).not.toContain("${DELIVERY_SOURCE_SHA}");
+  expect(projects.filter((project) => project.Properties.Cache?.Type === "S3")).toHaveLength(1);
+  const buckets = template.findResources("AWS::S3::Bucket");
+  const [cacheId, bucket] = Object.entries(buckets).find(([id]) => id.startsWith("BuildCache"))!;
+  expect(bucket.Properties.LifecycleConfiguration.Rules[0].ExpirationInDays).toBe(14);
+  const policies = Object.values(template.findResources("AWS::IAM::Policy"))
+    .filter((policy) => JSON.stringify(policy.Properties.PolicyDocument).includes(cacheId));
+  expect(policies).toHaveLength(1);
+  expect(JSON.stringify(policies[0].Properties.Roles)).toContain("releasebuildExecutionRole");
+  template.hasResourceProperties("AWS::ECR::Repository", {
+    RepositoryName: "aura-historia-release-builder", ImageTagMutability: "IMMUTABLE",
+  });
+});
+
 test("the reviewer reads only its target Anthropic key without model-service permissions", () => {
   const statements = Object.values(template.findResources("AWS::IAM::Policy"))
     .filter((policy) => JSON.stringify(policy.Properties.Roles).includes("prodGitHubPlanner"))

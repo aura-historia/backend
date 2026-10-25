@@ -4,11 +4,15 @@
   "cargoLambda": "1.9.0",
   "zig": "0.14.1",
   "node": "26.0.0",
+  "sccache": "0.19.0",
   "profile": "release",
   "architecture": "x86_64",
   "groups": 1,
-  "builderImage": "rust:1.98.0-bookworm@sha256:4e4a7e7939c17991ab35f2b8c2e67593980f771d28f6b1254b1850f860fd0c7f",
+  "builderImage": "${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/aura-historia-release-builder@sha256:d352103a0692567a7ac90960f8bf1cbc798f1039b4a4818c943ec7556fe04897",
   "targets": {
-    "prod": {"account": "${AWS_ACCOUNT_ID}", "region": "eu-central-1"}
+    "prod": {
+      "account": "${AWS_ACCOUNT_ID}",
+      "region": "eu-central-1"
+    }
   }
 }

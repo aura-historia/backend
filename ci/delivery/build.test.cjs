@@ -63,6 +63,7 @@ test('late manifest publication failure cannot write a completion marker', () =>
 test('build tooling identity is pinned and production works without dev', () => {
   const config = loadBuildConfig(undefined, { AWS_ACCOUNT_ID: '123456789012' });
   assert.deepEqual(Object.keys(config.targets), ['prod']);
+  assert.match(config.builderImage, /^123456789012\.dkr\.ecr\.eu-central-1\.amazonaws\.com\/aura-historia-release-builder@sha256:[a-f0-9]{64}$/);
   const enabled = loadBuildConfig(undefined, {
     AWS_ACCOUNT_ID: '123456789012',
     DELIVERY_DEV_ENABLED: 'true',

@@ -39,6 +39,7 @@ function validateConfig(config) {
     config.cargoLambda !== '1.9.0' ||
     config.zig !== '0.14.1' ||
     config.node !== '26.0.0' ||
+    config.sccache !== '0.19.0' ||
     config.groups !== 1 ||
     config.architecture !== 'x86_64' ||
     config.profile !== 'release' ||
@@ -63,6 +64,7 @@ function loadBuildConfig(
   env = process.env,
 ) {
   const config = json(filename);
+  config.builderImage = config.builderImage.replace('${AWS_ACCOUNT_ID}', env.AWS_ACCOUNT_ID);
   for (const info of Object.values(config.targets)) {
     if (info.account === '${AWS_ACCOUNT_ID}') info.account = env.AWS_ACCOUNT_ID;
   }
@@ -72,6 +74,9 @@ function loadBuildConfig(
     [
       'build.cjs',
       'compile.sh',
+      'cache-rustc.sh',
+      'cache-key.cjs',
+      'builder/Dockerfile',
       'storage.cjs',
       'gate.cjs',
       'contracts.cjs',
@@ -142,6 +147,8 @@ function completeBundle(bundle, bucket, store = storage) {
   return bundleDigest;
 }
 function dockerRun({ candidate, output, control, image, network }, args) {
+  const cache = path.resolve('.delivery-cache');
+  fs.mkdirSync(cache, { recursive: true });
   run('docker', [
     'run',
     '--rm',
@@ -154,7 +161,9 @@ function dockerRun({ candidate, output, control, image, network }, args) {
     '-e',
     'AWS_EC2_METADATA_DISABLED=true',
     '-e',
-    'CARGO_HOME=/output/cargo',
+    'CARGO_HOME=/cache/cargo',
+    '-v',
+    `${cache}:/cache`,
     '-v',
     `${candidate}:/candidate:ro`,
     '-v',
@@ -171,17 +180,15 @@ function dockerRun({ candidate, output, control, image, network }, args) {
     ...args,
   ]);
 }
-function compile(candidate, output, config, catalog) {
+function prepareCompileControl(candidate, output, config, catalog) {
   const control = path.resolve('.delivery-control', digest(config));
   fs.mkdirSync(control, { recursive: true });
   for (const directory of ['infra-node-modules', 'mjml-node-modules'])
     fs.mkdirSync(path.join(output, directory), { recursive: true });
   for (const directory of ['infra/node_modules', 'mjml/node_modules'])
     fs.mkdirSync(path.join(candidate, directory), { recursive: true });
-  fs.copyFileSync(
-    path.join(__dirname, 'compile.sh'),
-    path.join(control, 'compile.sh'),
-  );
+  for (const file of ['compile.sh', 'cache-rustc.sh'])
+    fs.copyFileSync(path.join(__dirname, file), path.join(control, file));
   fs.writeFileSync(
     path.join(control, 'lambdas.txt'),
     catalog.lambdas.join('\n') + '\n',
@@ -194,13 +201,13 @@ function compile(candidate, output, config, catalog) {
     path.join(control, 'templates.txt'),
     templates.join('\n') + '\n',
   );
-  const image = `local/aura-release-tools:${digest(config)}`;
-  const dockerfile = path.join(control, 'Dockerfile');
-  fs.writeFileSync(
-    dockerfile,
-    `FROM ${config.builderImage}\nRUN apt-get update && apt-get install -y --no-install-recommends python3-venv && rm -rf /var/lib/apt/lists/*\n`,
-  );
-  run('docker', ['build', '--file', dockerfile, '--tag', image, control]);
+  return control;
+}
+function compile(candidate, output, config, catalog) {
+  const control = prepareCompileControl(candidate, output, config, catalog);
+  const image = config.builderImage;
+  loginRegistry(image.split('/')[0]);
+  run('docker', ['pull', image]);
   const parameters = { candidate, output, control, image, network: 'bridge' };
   // Source build scripts run without credentials. Link-local metadata is explicitly
   // denied during dependency/tool fetches; compilation itself has no network.
@@ -230,6 +237,13 @@ function compile(candidate, output, config, catalog) {
     ]);
   }
 }
+function loginRegistry(registry) {
+  const password = execFileSync('aws', ['ecr', 'get-login-password'], {
+    encoding: 'utf8',
+  });
+  run('docker', ['login', '--username', 'AWS', '--password-stdin', registry],
+    { input: password, stdio: ['pipe', 'inherit', 'inherit'] });
+}
 function publishImages(candidate, output, catalog, sourceSha, buildId, store) {
   return catalog.images.map((image) => {
     const account = store.aws('sts', 'get-caller-identity').Account;
@@ -244,14 +258,7 @@ function publishImages(candidate, output, catalog, sourceSha, buildId, store) {
     )
       throw new Error('ECR publication requires an immutable repository');
     const uri = `${account}.dkr.ecr.${process.env.AWS_REGION}.amazonaws.com/${image.repository}`;
-    const password = execFileSync('aws', ['ecr', 'get-login-password'], {
-      encoding: 'utf8',
-    });
-    run(
-      'docker',
-      ['login', '--username', 'AWS', '--password-stdin', uri.split('/')[0]],
-      { input: password, stdio: ['pipe', 'inherit', 'inherit'] },
-    );
+    loginRegistry(uri.split('/')[0]);
     const tag = `build-${buildId}`;
     const listed = store.aws('ecr', 'list-images', [
       '--repository-name',
@@ -438,7 +445,7 @@ function synthesize(
     candidate,
     output,
     control: path.resolve('.delivery-control', digest(config)),
-    image: `local/aura-release-tools:${digest(config)}`,
+    image: config.builderImage,
     network: 'none',
   };
   for (const [target, info] of Object.entries(config.targets)) {
@@ -448,7 +455,7 @@ function synthesize(
       images.map((image) => [image.id, image.digest]),
     );
     const command =
-      'export PATH=/output/node-v26.0.0-linux-x64/bin:$PATH; export COMMIT_SHA="$1"; export CONTAINER_IMAGE_DIGESTS="$2"; cd infra; npm run synth -- --context stage="$3" --context account="$4" --context region="$5" --output "/output/assemblies/$3" --lookups false';
+      'export COMMIT_SHA="$1"; export CONTAINER_IMAGE_DIGESTS="$2"; cd infra; npm run synth -- --context stage="$3" --context account="$4" --context region="$5" --output "/output/assemblies/$3" --lookups false';
     dockerRun(parameters, [
       'bash',
       '-c',
@@ -590,7 +597,14 @@ async function main() {
     candidate,
     '.',
   ]);
-  compile(candidate, output, config, catalog);
+  const phaseSeconds = {};
+  const timed = (name, action) => {
+    const start = Date.now();
+    const result = action();
+    phaseSeconds[name] = (Date.now() - start) / 1000;
+    return result;
+  };
+  timed('lambdaAndMail', () => compile(candidate, output, config, catalog));
   const artifacts = catalog.lambdas.map((id) =>
     store.publishFile(
       bucket,
@@ -605,15 +619,15 @@ async function main() {
     store.immutablePut(bucket, `mail/${buildId}/${id}`, file);
   }
   artifacts.push(store.publishFile(bucket, sourceArchive, 'SOURCE', 'source'));
-  const images = publishImages(
+  const images = timed('containerImages', () => publishImages(
     candidate,
     output,
     catalog,
     request.sourceSha,
     buildId,
     store,
-  );
-  const targets = synthesize(
+  ));
+  const targets = timed('synthesisAndAssets', () => synthesize(
     candidate,
     output,
     config,
@@ -622,7 +636,7 @@ async function main() {
     artifacts,
     images,
     request.sourceSha,
-  );
+  ));
   const migrationFiles = fileTree(path.join(candidate, 'migrations')).filter(
     (file) => /\/\d+_[^/]+\.sql$/.test(file),
   );
@@ -676,14 +690,25 @@ async function main() {
     pipelineExecutionId: process.env.DELIVERY_EXECUTION_ID || null,
     codeBuildJobs: 1,
     elapsedSeconds,
+    phaseSeconds,
     computeMinutesObserved: elapsedSeconds / 60,
     memoryPeakBytes: { prepare: peak('prepare'), compile: peak('compile') },
+    containerCpu: Object.fromEntries(['prepare', 'compile'].map((phase) => {
+      const file = path.join(output, `${phase}.cpu-stat`);
+      return [phase, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null];
+    })),
     memoryScope:
       'Container cgroup peak where exposed; null means unavailable, not zero. Docker image builder memory and final billed compute minutes require native CodeBuild evidence.',
     computeChoice:
       'One shared build group is provisional until an approved cold/warm benchmark records duration and peak memory.',
     artifactBytes: artifacts.reduce((sum, asset) => sum + asset.size, 0),
-    cache: 'build-identity-scoped local target; no cross-source cache claims',
+    cache: {
+      transport: 'CodeBuild S3 snapshots; native download/upload timing is recorded by CodeBuild',
+      identity: require('./cache-key.cjs').cacheIdentity(candidate, config),
+      compiler: json(path.join(output, 'compiler-cache.json')),
+      scope: 'External dependencies only; workspace crates and final links are rebuilt',
+    },
+    compileResources: fs.readFileSync(path.join(output, 'compile.resources.txt'), 'utf8'),
   };
   store.putImmutableJson(bucket, `builds/${buildId}/metrics.json`, metrics);
   console.log(JSON.stringify(metrics));
