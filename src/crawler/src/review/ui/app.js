@@ -838,6 +838,7 @@ function renderCoverageSummary(matrix) {
       <strong>Coverage</strong>
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
+      ${renderSchemasApplyingToNoPage(matrix)}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
       ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
       ${renderPlausibilitySummary(matrix)}
@@ -1023,6 +1024,17 @@ function pageCovered(matrix, pageReference) {
             pageReferenceKey(page.page_reference) === referenceKey && page.apply_ok
         )
     );
+}
+
+// Schemas that apply to no live review page. The reviewer retires a schema whose template the
+// shop no longer uses by deleting it from the candidate; another page of its template, added to
+// the review, shows whether it is still needed.
+function renderSchemasApplyingToNoPage(matrix) {
+    const unused = matrix.candidates
+        .filter(candidate => (candidate.pages || []).length && candidate.pages.every(page => !page.apply_ok))
+        .map(candidate => escapeHtml(schemaLabel(candidate.schema_index)));
+    if (!unused.length) return '';
+    return `<div class="muted">Applies to no live page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
 }
 
 function currentCandidateFailures(matrix) {
