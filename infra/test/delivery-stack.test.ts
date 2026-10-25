@@ -20,9 +20,9 @@ test("only the shared release builder uses the disposable S3 dependency cache", 
   expect(builder.Properties.Cache.Type).toBe("S3");
   const cache = JSON.parse(builder.Properties.Source.BuildSpec).cache;
   expect(cache.paths).toEqual([".delivery-cache/**/*"]);
-  expect(cache.key).toContain("${DELIVERY_SOURCE_SHA}");
+  expect(cache.key).toContain("$DELIVERY_SOURCE_SHA");
   expect(cache["fallback-keys"]).toHaveLength(1);
-  expect(cache["fallback-keys"][0]).not.toContain("${DELIVERY_SOURCE_SHA}");
+  expect(cache["fallback-keys"][0]).not.toContain("$DELIVERY_SOURCE_SHA");
   expect(projects.filter((project) => project.Properties.Cache?.Type === "S3")).toHaveLength(1);
   const buckets = template.findResources("AWS::S3::Bucket");
   const [cacheId, bucket] = Object.entries(buckets).find(([id]) => id.startsWith("BuildCache"))!;
