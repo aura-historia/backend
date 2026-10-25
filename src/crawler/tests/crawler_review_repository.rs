@@ -842,6 +842,95 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
     assert_eq!(validation_summary["manual_schema_edits"], json!([]));
 }
 
+/// A validation summary as schema generation records it: the generated matrix, the summary
+/// that judges it and the LLM evaluation.
+fn generated_validation_summary() -> serde_json::Value {
+    json!({
+        "auto_schema_evaluation": { "decision": "APPROVE" },
+        "schema_matrix": { "review_id": null, "candidates": [] },
+        "schema_matrix_summary": { "deterministic_approval_ok": false }
+    })
+}
+
+async fn generated_schema_review(
+    pool: &PgPool,
+    repository: &CrawlerReviewRepository,
+) -> CrawlerReviewId {
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(pool, listing_source_id).await;
+    repository
+        .create_schema_review(
+            &listing_source_id,
+            "initial_schema_generation",
+            &[schema("h1")],
+            review_pages(),
+            generated_validation_summary(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn stored_validation_summary(pool: &PgPool, review_id: CrawlerReviewId) -> serde_json::Value {
+    sqlx::query_scalar("SELECT validation_summary FROM crawler_reviews WHERE review_id = $1")
+        .bind(review_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn schema_matrix_write_drops_the_generated_matrix_summary() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let review_id = generated_schema_review(&pool, &repository).await;
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages
+                .into_iter()
+                .map(|page| {
+                    (
+                        page,
+                        "<html><body><span class=\"id\">SKU</span><h1>Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_owned(),
+                    )
+                })
+                .collect(),
+        )
+        .await
+        .unwrap();
+
+    repository
+        .store_schema_matrix_if_current(review_id, &evaluated)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_validation_summary(&pool, review_id).await,
+        json!({
+            "auto_schema_evaluation": { "decision": "APPROVE" },
+            "schema_matrix": evaluated.matrix,
+        })
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_matrix() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let review_id = generated_schema_review(&pool, &repository).await;
+
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h2")] }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_validation_summary(&pool, review_id).await,
+        json!({ "auto_schema_evaluation": { "decision": "APPROVE" } })
+    );
+}
+
 /// The live matrix compares each page's extraction with the identity the page's listing
 /// was captured under, read from the crawler URL of the review's ListingSource that names
 /// the page, however the two URLs spell it.
