@@ -531,17 +531,19 @@ describe("HTTP API route policy matrix", () => {
     });
   });
 
-  test.each(STAGES)("allows Idempotency-Key requests and exposes idempotency and trace response headers in %s Gateway CORS", (stage) => {
+  test.each(STAGES)("allows wildcard origins and exposes idempotency and trace response headers in %s REST Gateway CORS", (stage) => {
     const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
 
     expect(cors.AllowHeaders).toEqual(expect.arrayContaining(["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-Id"]));
     expect(cors.AllowMethods).toEqual(["*"]);
-    expect(cors.AllowOrigins).toEqual(stageConfig(stage).apiCorsAllowOrigins);
+    expect(stageConfig(stage).apiCorsAllowOrigins).toEqual(["*"]);
+    expect(cors.AllowOrigins).toEqual(["*"]);
+    expect(cors).not.toHaveProperty("AllowCredentials");
     expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"]);
   });
 
-  test("partitions identical discovery requests across two allowed production CORS origins", () => {
+  test("partitions identical discovery requests across different browser origins", () => {
     const template = apiTemplate("prod");
     const [api] = Object.values(template.findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const [cachePolicy] = Object.values(template.findResources("AWS::CloudFront::CachePolicy")) as CloudFormationResource[];
@@ -551,13 +553,11 @@ describe("HTTP API route policy matrix", () => {
         readonly HeadersConfig: { readonly Headers: string[] };
       };
     };
-    const allowedOrigins = ["https://aura-historia.com", "https://admin.shopify.com"];
+    const origins = ["https://aura-historia.com", "https://preview-123.bitter-frog-5102.workers.dev"];
     const pathAndQuery = "/v1/listing-sources?query=source";
-    const cacheKeys = allowedOrigins.map((origin) => ({ pathAndQuery, origin }));
+    const cacheKeys = origins.map((origin) => ({ pathAndQuery, origin }));
 
-    for (const origin of allowedOrigins) {
-      expect(cors.AllowOrigins).toContain(origin);
-    }
+    expect(cors.AllowOrigins).toEqual(["*"]);
     expect(cachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers).toContain("Origin");
     expect(cacheKeys[0].pathAndQuery).toBe(cacheKeys[1].pathAndQuery);
     expect(cacheKeys[0].origin).not.toBe(cacheKeys[1].origin);

@@ -49,12 +49,15 @@ failures fail closed; opaque Aura tokens keep their existing persisted checks.
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
-and Axum response CORS must retain approved origins, required authorization/provider
-headers and `Idempotency-Key` admission/exposure. CORS is not authorization; do not
-relax raw-body limits or application checks to fix an edge integration. Header forwarding
-does not opt an operation into replay; preserve the [keyless creation exceptions](command-retries.md).
-Production Gateway CORS uses explicit approved HTTPS origins; HTTP API does not
-support host-suffix wildcards in its origin allowlist.
+and Axum response CORS must retain required authorization/provider headers and
+`Idempotency-Key` admission/exposure. REST Gateway CORS allows any Origin (`*`)
+in both stages, including preview hosts, for browser requests that do not use
+`credentials: "include"`. Clients supply bearer tokens explicitly in the
+`Authorization` header. CORS does not grant application authority; all existing
+authentication, provider proof, authorization, raw-body limits and application checks
+remain in force. Header forwarding does not opt an operation into replay; preserve
+the [keyless creation exceptions](command-retries.md). MCP uses a separate,
+explicit origin allowlist.
 
 ## Front-door controls
 
