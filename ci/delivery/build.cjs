@@ -171,7 +171,7 @@ function dockerRun({ candidate, output, control, image, network }, args) {
     ...args,
   ]);
 }
-function compile(candidate, output, config, catalog) {
+function prepareCompileControl(candidate, output, config, catalog) {
   const control = path.resolve('.delivery-control', digest(config));
   fs.mkdirSync(control, { recursive: true });
   for (const directory of ['infra-node-modules', 'mjml-node-modules'])
@@ -194,6 +194,10 @@ function compile(candidate, output, config, catalog) {
     path.join(control, 'templates.txt'),
     templates.join('\n') + '\n',
   );
+  return control;
+}
+function compile(candidate, output, config, catalog) {
+  const control = prepareCompileControl(candidate, output, config, catalog);
   const image = `local/aura-release-tools:${digest(config)}`;
   const dockerfile = path.join(control, 'Dockerfile');
   fs.writeFileSync(
