@@ -729,3 +729,103 @@ async fn should_scrape_a_product_page_the_approved_template_matches_while_a_cach
         "the cached schema's product must win over the template"
     );
 }
+
+/// Opens a review on a ListingSource whose notice page is captured as removed, saves
+/// `removed_page_schemas` in place of the stored templates the candidate opened with, and
+/// approves.
+async fn approve_reviewed_removed_page_templates(
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+    removed_page_schemas: serde_json::Value,
+) {
+    let review_id = open_pending_schema_review(repository, id).await;
+    let opened = repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review: {error}"));
+    assert_eq!(
+        opened.review.candidate_payload["removed_page_schemas"],
+        candidate_declaring_the_notice_page_removed()["removed_page_schemas"],
+        "the review must open with the stored template"
+    );
+    repository
+        .update_candidate_payload(
+            review_id,
+            json!({
+                "schemas": [minimal_schema()],
+                "removed_page_schemas": removed_page_schemas,
+            }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("edit the stored templates: {error}"));
+    repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_or_else(|error| panic!("approve the edited templates: {error}"));
+}
+
+async fn scrape_notice_page(
+    pool: &PgPool,
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+    html: &'static str,
+) -> Result<Option<ScrapedProduct>, ScraperError> {
+    manual_scraper_with_removed_page_templates(
+        pool,
+        html,
+        cached_schemas(*id, vec![minimal_schema()]),
+        repository.clone(),
+    )
+    .scrape(primary_only_request(id, &product_url()))
+    .await
+    .result
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_stop_capturing_a_notice_page_as_removed_once_a_review_retires_its_template() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+
+    approve_reviewed_removed_page_templates(&id, &repository, json!([])).await;
+    let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(result, Err(ScraperError::PendingSchemaReview { .. })),
+        "a page no template matches must wait on a schema review, got {result:?}"
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_match_what_the_edited_template_declares_once_a_review_edits_it() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    const WITHDRAWN_NOTICE_HTML: &str = r#"<!DOCTYPE html><html><body><main>
+    <h1>Biedermeier Chair</h1><p class="notice">This item was withdrawn from sale</p>
+    </main></body></html>"#;
+
+    approve_reviewed_removed_page_templates(
+        &id,
+        &repository,
+        json!([{ "selector": "p.notice", "text": "withdrawn from sale" }]),
+    )
+    .await;
+    let withdrawn = scrape_notice_page(&pool, &id, &repository, WITHDRAWN_NOTICE_HTML).await;
+    let no_longer_available =
+        scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(withdrawn, Err(ScraperError::ProductListingRemoved { .. })),
+        "the edited template must capture its notice page as removed, got {withdrawn:?}"
+    );
+    assert!(
+        matches!(
+            no_longer_available,
+            Err(ScraperError::PendingSchemaReview { .. })
+        ),
+        "the notice the template no longer declares must not be captured as removed, got {no_longer_available:?}"
+    );
+}

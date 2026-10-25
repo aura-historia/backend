@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct ProductSchemaReviewCandidate {
     pub(super) schemas: Vec<ProductCssSelectorSchema>,
-    /// Removed-page templates the reviewer declares for pages that show a removal notice at
-    /// HTTP 200. Approval appends them to the ListingSource's stored templates.
+    /// The ListingSource's removed-page templates as the reviewer would have them: the review
+    /// opens with the stored ones, and approval replaces the stored list with this one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) removed_page_schemas: Vec<RemovedPageSchema>,
 }
@@ -23,18 +23,31 @@ impl ProductSchemaReviewCandidate {
     pub(super) fn parse(
         candidate_payload: &serde_json::Value,
     ) -> Result<Self, ReviewRepositoryError> {
-        let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
-            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-        validate_product_schemas(&candidate.schemas)?;
+        let candidate = Self::read(candidate_payload)?;
         validate_removed_page_schemas(&candidate.removed_page_schemas)?;
         Ok(candidate)
     }
 
-    /// A candidate of `schemas` without removed-page templates.
-    pub(super) fn of_schemas(schemas: &[ProductCssSelectorSchema]) -> Self {
+    /// Decodes a candidate to show or evaluate it, validating its schemas but not its
+    /// removed-page templates: the review opens with the ListingSource's stored templates, and
+    /// one that today's validation rejects must stay visible for the reviewer to fix or retire.
+    /// Saving or approving the candidate still refuses it.
+    pub(super) fn read(
+        candidate_payload: &serde_json::Value,
+    ) -> Result<Self, ReviewRepositoryError> {
+        let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+        validate_product_schemas(&candidate.schemas)?;
+        Ok(candidate)
+    }
+
+    pub(super) fn new(
+        schemas: &[ProductCssSelectorSchema],
+        removed_page_schemas: Vec<RemovedPageSchema>,
+    ) -> Self {
         Self {
             schemas: schemas.to_vec(),
-            removed_page_schemas: Vec::new(),
+            removed_page_schemas,
         }
     }
 
@@ -47,6 +60,17 @@ impl ProductSchemaReviewCandidate {
     /// This candidate holding `schemas` instead of its own.
     pub(super) fn with_schemas(self, schemas: Vec<ProductCssSelectorSchema>) -> Self {
         Self { schemas, ..self }
+    }
+
+    /// This candidate holding `removed_page_schemas` instead of its own.
+    pub(super) fn with_removed_page_schemas(
+        self,
+        removed_page_schemas: Vec<RemovedPageSchema>,
+    ) -> Self {
+        Self {
+            removed_page_schemas,
+            ..self
+        }
     }
 
     pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
