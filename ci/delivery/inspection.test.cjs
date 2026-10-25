@@ -133,16 +133,18 @@ test("every approval identity is revalidated and native no-change is explicit", 
       requestId: "a".repeat(64),
     };
   const value = await prepareChangeSet(ctx, input, {
-    api: (_ctx, _service, operation) =>
-      operation === "create-change-set"
-        ? { Id: "changeset", StackId: "stack" }
-        : {
-            ChangeSetId: "changeset",
-            StackId: "stack",
-            Status: "FAILED",
-            StatusReason: "The submitted information didn't contain changes.",
-            Parameters: [],
-          },
+    api: (_ctx, _service, operation, args) => {
+      if (operation === "create-change-set")
+        return { Id: "changeset", StackId: "stack" };
+      assert.ok(args.includes("--include-property-values"));
+      return {
+        ChangeSetId: "changeset",
+        StackId: "stack",
+        Status: "FAILED",
+        StatusReason: "The submitted information didn't contain changes.",
+        Parameters: [],
+      };
+    },
   });
   assert.equal(value.status, "NO_CHANGE");
 });

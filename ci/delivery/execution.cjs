@@ -170,6 +170,7 @@ function revalidatePlans(ctx, plans, config, api) {
     const value = api(ctx, "cloudformation", "describe-change-set", [
       "--change-set-name",
       plan.changeSet.id,
+      "--include-property-values",
     ]);
     if (
       value.ChangeSetId !== plan.changeSet.id ||

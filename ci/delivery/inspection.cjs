@@ -711,6 +711,7 @@ async function prepareChangeSet(ctx, input, options = {}) {
     const result = api(ctx, "cloudformation", "describe-change-set", [
       "--change-set-name",
       created.Id,
+      "--include-property-values",
     ]);
     if (result.StackId !== created.StackId || result.ChangeSetId !== created.Id)
       throw new Error("Change-set identity mismatch");

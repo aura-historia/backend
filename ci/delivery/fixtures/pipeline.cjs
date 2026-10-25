@@ -526,8 +526,10 @@ function pipelineFixture(directory) {
       changesets.set(value.ChangeSetId, value);
       return { Id: value.ChangeSetId, StackId: value.StackId };
     }
-    if (operation === "describe-change-set")
+    if (operation === "describe-change-set") {
+      assert.ok(args.includes("--include-property-values"));
       return changesets.get(arg("--change-set-name"));
+    }
     if (operation === "invoke") {
       const arn = arg("--function-name"),
         filename = args.at(-1);

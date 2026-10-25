@@ -37,6 +37,8 @@ its binding to that inventory. Release notes cannot override native facts or har
 policy. The retained source inventory has a separate 8 MiB bound; full before/after
 file contents in that inventory do not consume the model's focused input budget.
 Oversized relevant context still holds delivery; evidence is never truncated.
+Planning and admission read the same native property-level change-set view, resolving
+available references instead of treating every possible dependent update as a change.
 
 Healthy idle CDC requires fresh successful polling, explicit zero returned records
 and zero reader age. Missing metric samples remain unknown; an absent producer
