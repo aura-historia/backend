@@ -96,6 +96,19 @@ function rawTask(status = "running") {
     ReplicationTaskStats: { StartDate: time, TablesErrored: 0 },
   };
 }
+function describeTask(task, operation, args) {
+  if (operation === "describe-replication-tasks")
+    return { ReplicationTasks: [task] };
+  if (operation === "describe-endpoints")
+    return {
+      Endpoints: [{
+        EndpointArn: args[1].split("Values=")[1],
+        EngineName: "postgres",
+        PostgreSQLSettings: { SlotName: "owned-slot" },
+      }],
+    };
+  throw new Error(operation);
+}
 const wal = () => ({
   maxPauseSeconds: 600,
   retainedBytes: 1,
@@ -116,18 +129,6 @@ test("ambiguous DMS stop/resume is observed once and deliberate stopped state st
     start = 0;
   const journal = [];
   const api = (_ctx, _service, operation, args) => {
-    if (operation === "describe-replication-tasks")
-      return { ReplicationTasks: [task] };
-    if (operation === "describe-endpoints")
-      return {
-        Endpoints: [
-          {
-            EndpointArn: args[1].split("Values=")[1],
-            EngineName: "postgres",
-            PostgreSQLSettings: { SlotName: "owned-slot" },
-          },
-        ],
-      };
     if (operation === "stop-replication-task") {
       stop++;
       task = rawTask("stopped");
@@ -138,7 +139,7 @@ test("ambiguous DMS stop/resume is observed once and deliberate stopped state st
       task = rawTask("running");
       throw new Error("lost response");
     }
-    throw new Error(operation);
+    return describeTask(task, operation, args);
   };
   const persist = async (kind, value) =>
     journal.push({ kind, digest: digest(value) });
