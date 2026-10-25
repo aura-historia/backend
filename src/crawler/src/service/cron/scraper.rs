@@ -954,23 +954,7 @@ async fn persist_non_http_failure(
             | ScraperError::PendingSchemaReview { .. }
     ) || is_schema_generation_validation_failure(error);
     if has_retry_cooldown {
-        let next_retry_at = time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
-        persist_url_failure(
-            ctx,
-            FetchFailureRequest {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                error_kind: error_kind.to_owned(),
-                error_message: error_message.to_owned(),
-                status_code: None,
-                next_retry_at,
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            },
-        )
-        .await;
+        persist_schema_outcome_cooldown(candidate, ctx, error_kind, error_message).await;
     } else {
         match ctx
             .scraper_candidates
@@ -993,6 +977,33 @@ async fn persist_non_http_failure(
             Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
         }
     }
+}
+
+/// Records a schema outcome on the URL with the bounded schema cooldown, so the URL waits
+/// for the schemas to change instead of being retried on every scheduler pass.
+async fn persist_schema_outcome_cooldown(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    let next_retry_at = time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+    persist_url_failure(
+        ctx,
+        FetchFailureRequest {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            error_kind: error_kind.to_owned(),
+            error_message: error_message.to_owned(),
+            status_code: None,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+    )
+    .await;
 }
 
 async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperError) {
