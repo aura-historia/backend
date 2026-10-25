@@ -576,7 +576,6 @@ dependencies = [
  "async-trait",
  "auction-postgres",
  "auction-service",
- "aws-config",
  "aws-sdk-sqs",
  "embedding",
  "fxrate-postgres",

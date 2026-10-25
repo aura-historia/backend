@@ -99,8 +99,9 @@ check actual JSON against schemas, including nullable clears and retained eviden
 Source-keyed integration item DTOs and HTTP-free conversions live in `partner_product_listings`.
 Synchronous `prepare_batch` validates every item before exposing command values; asynchronous
 adapters reuse individual converters while retaining their independent per-item validation.
-The same family owns indexed synchronous mutation reports and full create/update/upsert/withdraw
-fields, reusing `product_listing_fields` for Auction/lot and image representations.
+The same family owns the full create/update/upsert/withdraw fields, reusing
+`product_listing_fields` for Auction/lot and image representations, and the asynchronous
+admission report that REST returns.
 
 `product_listing_delivery` owns the shared source-keyed delivery command, pure codec and
 read/change result mappings. The ingestion adapter retains compatibility delegates to that

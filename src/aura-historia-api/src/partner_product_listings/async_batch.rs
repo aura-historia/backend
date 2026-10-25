@@ -92,10 +92,11 @@ pub(super) fn report(
     failures: Vec<BatchFailure>,
     source_ids: &[Option<String>],
 ) -> Response {
-    let admission = admission::report(result, failures, source_ids);
-    let status = status_for(admission.report.accepted_count, &admission.report.failures);
-    let mut response = (status, Json(admission.report)).into_response();
-    if let Ok(value) = HeaderValue::from_str(&admission.idempotency_key) {
+    let idempotency_key = result.idempotency_key.as_str().to_owned();
+    let report = admission::report(result, failures, source_ids);
+    let status = status_for(report.accepted_count, &report.failures);
+    let mut response = (status, Json(report)).into_response();
+    if let Ok(value) = HeaderValue::from_str(&idempotency_key) {
         response.headers_mut().insert(IDEMPOTENCY_KEY, value);
     }
     response
@@ -324,7 +325,6 @@ mod tests {
                 items: vec![make(outcome)],
             };
             let failure = admission::report(result, vec![], &[None, None])
-                .report
                 .failures
                 .into_iter()
                 .find(|failure| failure.index == 1)

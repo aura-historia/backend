@@ -33,8 +33,7 @@ pub use notifications::Notifications;
 pub use partner_listing_management::PartnerListingManagement;
 pub use partner_product_listing_batches::PartnerProductListingBatches;
 pub use partner_product_listing_ingestion::{
-    PartnerProductListingIngestion, ProductListingIngestionConfigError,
-    ProductListingIngestionDependencies, with_publication_deadline,
+    PartnerProductListingIngestion, ProductListingIngestionDependencies, with_publication_deadline,
 };
 pub use party_locations::PartyLocations;
 pub use postgres::PostgresConfigError;

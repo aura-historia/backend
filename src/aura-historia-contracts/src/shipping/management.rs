@@ -1,4 +1,4 @@
-//! Shipping profile/default wire contracts and pure use-case mappings shared by REST and MCP.
+//! Shipping profile/default wire contracts and pure use-case mappings used by REST.
 use super::terms;
 use application::error::{BoxError, box_error};
 use listing_source_core::ListingSourceId;

@@ -339,9 +339,6 @@ impl PartnerProductListingInput for WithdrawProductListingData {
     }
 }
 
-mod results;
-pub use results::*;
-
 pub mod admission;
 
 #[cfg(test)]
@@ -591,46 +588,5 @@ mod tests {
             .unwrap_or_else(|| panic!("blank source listing ID must fail"));
 
         assert_eq!(error.field, "sourceListingId");
-    }
-
-    #[test]
-    fn should_describe_exact_unsigned_batch_report_values_in_serialization_schema() {
-        use super::results::{
-            ProductListingBatchFailureCode, ProductListingBatchFailureData,
-            ProductListingBatchReportData, ProductListingBatchStatus,
-        };
-        let source = listing_source_core::ListingSourceId::new();
-        let report = ProductListingBatchReportData {
-            status: ProductListingBatchStatus::Failed,
-            input_count: usize::MAX,
-            succeeded_count: 0,
-            failed_count: usize::MAX,
-            successes: vec![],
-            failures: vec![ProductListingBatchFailureData {
-                index: usize::MAX,
-                listing_source_id: source,
-                source_listing_id: "retained".into(),
-                error: ProductListingBatchFailureCode::Forbidden,
-            }],
-        };
-        let value = serde_json::to_value(report).unwrap();
-        let schema = serde_json::to_value(
-            schemars::generate::SchemaSettings::default()
-                .for_serialize()
-                .into_generator()
-                .into_root_schema_for::<ProductListingBatchReportData>(),
-        )
-        .unwrap();
-        let validator = jsonschema::validator_for(&schema).unwrap();
-        assert!(validator.is_valid(&value));
-        assert_eq!(
-            serde_json::json!(u64::MAX),
-            schema["$defs"]["ProductListingBatchFailureData"]["properties"]["index"]["maximum"]
-        );
-        let mut invalid = value.clone();
-        invalid["failures"][0]["index"] = serde_json::from_str("18446744073709551616").unwrap();
-        assert!(!validator.is_valid(&invalid));
-        invalid["failures"][0]["index"] = serde_json::json!(-1);
-        assert!(!validator.is_valid(&invalid));
     }
 }

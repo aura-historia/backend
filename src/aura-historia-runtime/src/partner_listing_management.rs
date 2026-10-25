@@ -21,7 +21,7 @@ use product_listing_service::use_cases::{
 use sqlx::PgPool;
 use std::sync::Arc;
 
-/// Authoritative listing management and granted-source discovery shared by REST and MCP.
+/// Authoritative listing management and granted-source discovery used by REST.
 #[derive(Clone)]
 pub struct PartnerListingManagement {
     pub sources: Arc<dyn ListAdministeredListingSourcesUseCase>,

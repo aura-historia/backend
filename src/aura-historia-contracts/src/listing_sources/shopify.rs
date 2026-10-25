@@ -1,4 +1,4 @@
-//! The non-secret Shopify replacement body shared by REST and MCP.
+//! The non-secret Shopify replacement body used by REST.
 use crate::product_listing_management::MutationInputError;
 use listing_source_core::Domain;
 use listing_source_service::ports::ListingIngestionConfiguration;

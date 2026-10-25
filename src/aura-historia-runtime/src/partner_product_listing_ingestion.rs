@@ -41,14 +41,6 @@ impl ProductListingIngestionDependencies {
             SqsProductListingIngestionPublisher::new(client, queue_url),
         ))
     }
-    /// Called only when an ingestion family is selected. Client construction performs no queue IO.
-    pub async fn from_env() -> Result<Self, ProductListingIngestionConfigError> {
-        let queue_url = queue_url(std::env::var("PRODUCT_LISTING_INGESTION_QUEUE_URL").ok())?;
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .load()
-            .await;
-        Ok(Self::from_sqs(aws_sdk_sqs::Client::new(&config), queue_url))
-    }
 }
 impl PartnerProductListingIngestion {
     pub(super) fn compose(
@@ -66,57 +58,9 @@ impl PartnerProductListingIngestion {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ProductListingIngestionConfigError {
-    #[error("missing PRODUCT_LISTING_INGESTION_QUEUE_URL")]
-    MissingQueueUrl,
-    #[error("invalid product listing ingestion FIFO queue URL")]
-    InvalidQueueUrl,
-}
-fn queue_url(value: Option<String>) -> Result<String, ProductListingIngestionConfigError> {
-    let value = value.ok_or(ProductListingIngestionConfigError::MissingQueueUrl)?;
-    if !url::Url::parse(&value).is_ok_and(|url| {
-        matches!(url.scheme(), "http" | "https")
-            && url.host_str().is_some()
-            && url.query().is_none()
-            && url.fragment().is_none()
-            && url
-                .path_segments()
-                .and_then(|mut parts| parts.next_back())
-                .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
-    }) {
-        return Err(ProductListingIngestionConfigError::InvalidQueueUrl);
-    }
-    Ok(value)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn should_validate_queue_configuration_without_disclosing_its_value() {
-        assert!(matches!(
-            queue_url(None),
-            Err(ProductListingIngestionConfigError::MissingQueueUrl)
-        ));
-        for value in [
-            "",
-            "not-a-url",
-            "https://sqs.example.test/queue",
-            "https://sqs.example.test/queue.fifo?secret=value",
-            "https://sqs.example.test/queue.fifo#secret",
-        ] {
-            let error = queue_url(Some(value.into())).unwrap_err();
-            assert_eq!(
-                "invalid product listing ingestion FIFO queue URL",
-                error.to_string()
-            );
-        }
-        assert_eq!(
-            "http://127.0.0.1:9/fixture.fifo",
-            queue_url(Some("http://127.0.0.1:9/fixture.fifo".into())).unwrap()
-        );
-    }
     #[tokio::test]
     async fn should_reuse_warm_ingestion_handles_without_queue_or_database_io() {
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -143,47 +87,5 @@ mod tests {
             &first.put_configuration,
             &second.put_configuration
         ));
-    }
-}
-
-#[cfg(test)]
-mod environment_tests {
-    #[test]
-    fn should_construct_environment_dependencies_offline_with_isolated_fake_credentials() {
-        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-        command
-            .args([
-                "--exact",
-                "partner_product_listing_ingestion::environment_tests::environment_probe",
-                "--ignored",
-                "--nocapture",
-            ])
-            .env_clear()
-            .env(
-                "PRODUCT_LISTING_INGESTION_QUEUE_URL",
-                "http://127.0.0.1:9/fixture.fifo",
-            )
-            .env("AWS_REGION", "eu-central-1")
-            .env("AWS_ACCESS_KEY_ID", "fixture")
-            .env("AWS_SECRET_ACCESS_KEY", "fixture")
-            .env("AWS_EC2_METADATA_DISABLED", "true");
-        if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
-            command.env("LLVM_PROFILE_FILE", profile);
-        }
-        let output = command.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed"));
-    }
-    #[tokio::test]
-    #[ignore = "invoked in the isolated fake AWS environment"]
-    async fn environment_probe() {
-        super::ProductListingIngestionDependencies::from_env()
-            .await
-            .unwrap();
     }
 }
