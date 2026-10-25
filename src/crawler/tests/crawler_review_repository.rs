@@ -614,6 +614,7 @@ struct WaitingPageFixture {
     review_repository: CrawlerReviewRepository,
     candidates: ScraperCandidateServiceImpl,
     listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
     review_id: CrawlerReviewId,
     url: url::Url,
 }
@@ -662,19 +663,46 @@ impl WaitingPageFixture {
             review_repository,
             candidates: ScraperCandidateServiceImpl::new(pool.clone()),
             listing_source_id,
+            domain_id,
             review_id,
             url,
         }
     }
 
+    /// Adds another product URL of the ListingSource.
+    async fn add_product_url(&self, pool: &PgPool, url: &str) -> url::Url {
+        let url = url::Url::parse(url).unwrap();
+        UrlMetadataRepositoryImpl::new(pool.clone())
+            .upsert_link(
+                &self.listing_source_id,
+                &self.domain_id,
+                &url,
+                &UrlClass::ProductListing,
+            )
+            .await
+            .unwrap();
+        url
+    }
+
     /// Records that the page waits on the review for the `streak`-th time and retries after
     /// `delay`.
     async fn wait(&self, streak: u32, delay: time::Duration) -> CrawlerUrlWriteOutcome {
+        self.wait_on(&self.url, streak, delay).await
+    }
+
+    /// Records that the page at `url` waits on the review for the `streak`-th time and retries
+    /// after `delay`.
+    async fn wait_on(
+        &self,
+        url: &url::Url,
+        streak: u32,
+        delay: time::Duration,
+    ) -> CrawlerUrlWriteOutcome {
         self.candidates
             .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
                 url_failure: FetchFailureRequest {
                     listing_source_id: self.listing_source_id,
-                    url: self.url.clone(),
+                    url: url.clone(),
                     error_kind: "PendingSchemaReview".to_owned(),
                     error_message: "blocked pending product schema review".to_owned(),
                     status_code: None,
@@ -701,15 +729,24 @@ impl WaitingPageFixture {
     }
 
     async fn persisted_wait(&self, pool: &PgPool) -> (Option<Uuid>, i32, Option<OffsetDateTime>) {
-        sqlx::query_as(
-            "SELECT schema_review_waited_on, schema_review_wait_streak, next_retry_at \
-             FROM listing_source_urls WHERE url = $1",
-        )
-        .bind(self.url.as_str())
-        .fetch_one(pool)
-        .await
-        .unwrap()
+        let (_, waited_on, streak, next_retry_at) = persisted_url_wait(pool, &self.url).await;
+        (waited_on, streak, next_retry_at)
     }
+}
+
+/// The error kind, review wait and retry time persisted for the crawler URL `url`.
+async fn persisted_url_wait(
+    pool: &PgPool,
+    url: &url::Url,
+) -> (Option<String>, Option<Uuid>, i32, Option<OffsetDateTime>) {
+    sqlx::query_as(
+        "SELECT last_error_kind, schema_review_waited_on, schema_review_wait_streak, next_retry_at \
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -762,6 +799,159 @@ async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_appr
 
     assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
     assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
+}
+
+/// Approving a manual review whose candidate declares removed-page templates appends the
+/// templates and releases the pages backed off on the review in one transaction. While the
+/// stored templates do not decode, the append fails and the approval changes nothing: the
+/// review stays pending and its pages keep their wait. Once the stored row decodes, the same
+/// approval does both.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_append_removed_page_templates_and_release_backed_off_pages_in_one_approval() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    let notice_page = fixture
+        .add_product_url(&pool, "https://example.com/products/sold-chair")
+        .await;
+    assert_eq!(
+        fixture.wait(3, time::Duration::hours(2)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(
+        fixture
+            .wait_on(&notice_page, 1, time::Duration::minutes(30))
+            .await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let waiting_pages = [fixture.url.clone(), notice_page];
+    let mut waits = Vec::new();
+    for url in &waiting_pages {
+        waits.push(persisted_url_wait(&pool, url).await);
+    }
+    let generated = RemovedPageSchema {
+        selector: "#main h1".into(),
+        text: Some("Page not found".to_owned()),
+        regex: None,
+    };
+    // The stored templates are an object where the list of templates belongs.
+    let undecodable = json!(generated);
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas \
+         (listing_source_id, removed_page_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(fixture.listing_source_id.as_uuid())
+    .bind(&undecodable)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // The reviewer keeps the live schema, drops the starter schema and declares the notice
+    // page removed.
+    fixture
+        .review_repository
+        .update_candidate_payload(
+            fixture.review_id,
+            json!({
+                "schemas": [schema("h1.first")],
+                "removed_page_schemas": [notice_template("no longer available")],
+            }),
+        )
+        .await
+        .unwrap();
+
+    let refused = fixture
+        .review_repository
+        .approve_review(fixture.review_id, None)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::Database(sqlx::Error::Decode(_))
+        ),
+        "{refused:?}"
+    );
+    let review = fixture
+        .review_repository
+        .get_review(fixture.review_id)
+        .await
+        .unwrap()
+        .review;
+    assert_eq!(review.status, STATUS_PENDING_REVIEW);
+    assert_eq!(
+        stored_removed_page_templates(&pool, fixture.listing_source_id).await,
+        undecodable
+    );
+    for (url, wait) in waiting_pages.iter().zip(&waits) {
+        let kept = persisted_url_wait(&pool, url).await;
+        assert_eq!(&kept, wait, "{url} must keep its wait");
+        assert_eq!(kept.0.as_deref(), Some("PendingSchemaReview"));
+        assert_eq!(kept.1, Some(*fixture.review_id.as_uuid()));
+    }
+    assert!(
+        fixture.candidate_urls().await.is_empty(),
+        "a failed approval must not release the backed-off pages"
+    );
+
+    sqlx::query(
+        "UPDATE listing_source_removed_page_schemas SET removed_page_schema = $2 \
+         WHERE listing_source_id = $1",
+    )
+    .bind(fixture.listing_source_id.as_uuid())
+    .bind(json!([generated]))
+    .execute(&pool)
+    .await
+    .unwrap();
+    fixture
+        .review_repository
+        .approve_review(fixture.review_id, None)
+        .await
+        .unwrap();
+
+    let review = fixture
+        .review_repository
+        .get_review(fixture.review_id)
+        .await
+        .unwrap()
+        .review;
+    assert_eq!(review.status, STATUS_APPROVED);
+    assert_eq!(
+        stored_removed_page_templates(&pool, fixture.listing_source_id).await,
+        json!([generated, notice_template("no longer available")])
+    );
+    for url in &waiting_pages {
+        assert_eq!(
+            persisted_url_wait(&pool, url).await,
+            (None, None, 0, None),
+            "approval must release {url} and clear its wait"
+        );
+    }
+    let mut released = fixture.candidate_urls().await;
+    released.sort();
+    let mut expected = waiting_pages.to_vec();
+    expected.sort();
+    assert_eq!(released, expected);
+    let live = ListingSourceProductSchemaRepositoryImpl::new(&pool)
+        .find_product_schema(&fixture.listing_source_id)
+        .await
+        .unwrap()
+        .map(|live| live.product_schemas);
+    assert_eq!(live, Some(vec![schema("h1.first")]));
+}
+
+async fn stored_removed_page_templates(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+) -> serde_json::Value {
+    sqlx::query_scalar(
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
