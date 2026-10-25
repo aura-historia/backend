@@ -7,6 +7,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
+use crate::scraper::css_selector::removed_page_schema_repository::append_removed_page_schemas;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::utils::url::CrawledUrl;
@@ -28,8 +29,8 @@ use reviewer_page_url::{
     ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
 };
 use schema_payload::{
-    approval_product_schemas, decode_stored_schemas_payload, parse_schemas_payload,
-    update_schema_field_payload, validate_product_schemas,
+    ProductSchemaReviewCandidate, approval_product_schemas, update_schema_field_payload,
+    validate_product_schemas,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +57,12 @@ pub enum ReviewRepositoryError {
     InvalidUrlPatternCandidate,
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
+    #[error("invalid removed-page template {index}: {reason}")]
+    InvalidRemovedPageTemplate { index: usize, reason: String },
+    #[error(
+        "approved review {0} already stored its removed-page templates; declare a new template on a pending review"
+    )]
+    ApprovedRemovedPageTemplatesChanged(CrawlerReviewId),
     #[error("review candidate or pages changed during schema-matrix evaluation")]
     CandidateChangedDuringEvaluation,
     #[error(
@@ -510,7 +517,7 @@ impl CrawlerReviewRepository {
             notes,
         } = input;
         validate_product_schemas(schemas)?;
-        let candidate_payload = json!({ "schemas": schemas });
+        let candidate_payload = ProductSchemaReviewCandidate::of_schemas(schemas).to_payload()?;
         let requested_review_id = CrawlerReviewId::new();
         let mut transaction = self.pool.begin().await?;
         let inserted = if status == STATUS_PENDING_REVIEW {
@@ -746,7 +753,7 @@ impl CrawlerReviewRepository {
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
             }
             if artifact_type == ARTIFACT_PRODUCT_SCHEMA {
-                parse_schemas_payload(&candidate_payload)?;
+                ProductSchemaReviewCandidate::parse(&candidate_payload)?;
             }
             sqlx::query(
                 "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
@@ -764,19 +771,27 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
 
-        let schemas = parse_schemas_payload(&candidate_payload)?;
+        let candidate = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
+        let stored_templates =
+            ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
+                .map(|stored| stored.removed_page_schemas)
+                .unwrap_or_default();
+        if candidate.removed_page_schemas != stored_templates {
+            return Err(ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(
+                review_id,
+            ));
+        }
         persist_approved_schema_edit(
             &mut transaction,
             review_id,
             &listing_source_id,
             &stored_candidate_payload,
-            &schemas,
-            candidate_payload,
+            &candidate,
             validation_summary,
         )
         .await?;
         transaction.commit().await?;
-        log_approved_schema_edit(review_id, &listing_source_id, schemas.len());
+        log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
         Ok(())
     }
 
@@ -819,25 +834,20 @@ impl CrawlerReviewRepository {
                 reason.as_str(),
                 "append_schema_generation" | "normalization_schema_repair"
             ) {
-            let reviewed_schemas = parse_schemas_payload(&stored_candidate_payload)?;
-            if reviewed_schemas.len() == 1 {
+            let reviewed = ProductSchemaReviewCandidate::parse(&stored_candidate_payload)?;
+            if reviewed.schemas.len() == 1 {
                 let existing =
                     lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
-                json!({
-                    "schemas": approval_product_schemas(
-                        &reason,
-                        existing.as_ref(),
-                        reviewed_schemas,
-                    )?
-                })
+                let schemas =
+                    approval_product_schemas(&reason, existing.as_ref(), reviewed.schemas.clone())?;
+                reviewed.with_schemas(schemas).to_payload()?
             } else {
                 stored_candidate_payload.clone()
             }
         } else {
             stored_candidate_payload.clone()
         };
-        let schemas = update_schema_field_payload(&candidate_payload, schema_index, field, rule)?;
-        let candidate_payload = json!({ "schemas": schemas });
+        let candidate = update_schema_field_payload(&candidate_payload, schema_index, field, rule)?;
 
         if status == STATUS_APPROVED {
             persist_approved_schema_edit(
@@ -845,8 +855,7 @@ impl CrawlerReviewRepository {
                 review_id,
                 &listing_source_id,
                 &stored_candidate_payload,
-                &schemas,
-                candidate_payload,
+                &candidate,
                 validation_summary,
             )
             .await?;
@@ -856,7 +865,7 @@ impl CrawlerReviewRepository {
                  WHERE review_id = $1",
             )
             .bind(review_id.as_uuid())
-            .bind(candidate_payload)
+            .bind(candidate.to_payload()?)
             .execute(&mut *transaction)
             .await?;
         }
@@ -864,7 +873,7 @@ impl CrawlerReviewRepository {
         transaction.commit().await?;
 
         if status == STATUS_APPROVED {
-            log_approved_schema_edit(review_id, &listing_source_id, schemas.len());
+            log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
         }
         Ok(())
     }
@@ -920,20 +929,34 @@ impl CrawlerReviewRepository {
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
-                let reviewed_schemas = parse_schemas_payload(&candidate_payload)?;
+                let reviewed = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
                 let existing =
                     lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
                 let schemas =
-                    approval_product_schemas(&reason, existing.as_ref(), reviewed_schemas.clone())?;
+                    approval_product_schemas(&reason, existing.as_ref(), reviewed.schemas.clone())?;
                 persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
-                if schemas != reviewed_schemas {
+                if !reviewed.removed_page_schemas.is_empty() {
+                    append_removed_page_schemas(
+                        &mut transaction,
+                        &listing_source_id,
+                        &reviewed.removed_page_schemas,
+                    )
+                    .await?;
+                    info!(
+                        review_id = %review_id,
+                        listing_source_id = %listing_source_id,
+                        removed_page_template_count = reviewed.removed_page_schemas.len(),
+                        "Approved removed-page templates from a product schema review"
+                    );
+                }
+                if schemas != reviewed.schemas {
                     // The review keeps the merged list that went live, so edits through it are
                     // not refused as stale.
                     sqlx::query(
                         "UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1",
                     )
                     .bind(review_id.as_uuid())
-                    .bind(json!({ "schemas": schemas }))
+                    .bind(reviewed.with_schemas(schemas).to_payload()?)
                     .execute(&mut *transaction)
                     .await?;
                 }
@@ -1055,7 +1078,7 @@ impl CrawlerReviewRepository {
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let schemas = parse_schemas_payload(&candidate_payload)?;
+        let candidate = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
         let captured_identities = self
             .captured_identities(review.try_get("listing_source_id")?, &pages)
             .await?;
@@ -1067,7 +1090,8 @@ impl CrawlerReviewRepository {
         Ok(EvaluatedSchemaMatrix {
             matrix: evaluate_schema_matrix_for_live_review_pages(
                 review_id,
-                &schemas,
+                &candidate.schemas,
+                &candidate.removed_page_schemas,
                 &pages,
                 &captured_identities,
             ),
@@ -1183,8 +1207,8 @@ impl CrawlerReviewRepository {
             return Ok(());
         }
 
-        let reviewed_schemas = parse_schemas_payload(&review.candidate_payload)?;
-        if reviewed_schemas.len() != 1 {
+        let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
+        if reviewed.schemas.len() != 1 {
             return Ok(());
         }
 
@@ -1192,8 +1216,9 @@ impl CrawlerReviewRepository {
         let Some(existing) = repo.find_product_schema(&review.listing_source_id).await? else {
             return Ok(());
         };
-        let merged = approval_product_schemas(&review.reason, Some(&existing), reviewed_schemas)?;
-        review.candidate_payload = json!({ "schemas": merged });
+        let merged =
+            approval_product_schemas(&review.reason, Some(&existing), reviewed.schemas.clone())?;
+        review.candidate_payload = reviewed.with_schemas(merged).to_payload()?;
         Ok(())
     }
 
@@ -1258,24 +1283,24 @@ async fn persist_approved_schema_edit(
     review_id: CrawlerReviewId,
     listing_source_id: &ListingSourceId,
     stored_candidate_payload: &serde_json::Value,
-    schemas: &[ProductCssSelectorSchema],
-    candidate_payload: serde_json::Value,
+    candidate: &ProductSchemaReviewCandidate,
     validation_summary: serde_json::Value,
 ) -> Result<(), ReviewRepositoryError> {
-    let stored_schemas = decode_stored_schemas_payload(stored_candidate_payload);
+    let stored_schemas = ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
+        .map(|stored| stored.schemas);
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
     if live.is_none_or(|live| stored_schemas.as_ref() != Some(&live.product_schemas)) {
         return Err(ReviewRepositoryError::StaleApprovedReview(review_id));
     }
-    persist_product_schemas(transaction, listing_source_id, schemas).await?;
-    let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
+    persist_product_schemas(transaction, listing_source_id, &candidate.schemas).await?;
+    let validation_summary = append_manual_schema_edit(validation_summary, candidate.schemas.len());
     sqlx::query(
         "UPDATE crawler_reviews \
          SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
          WHERE review_id = $1",
     )
     .bind(review_id.as_uuid())
-    .bind(candidate_payload)
+    .bind(candidate.to_payload()?)
     .bind(validation_summary)
     .execute(&mut **transaction)
     .await?;

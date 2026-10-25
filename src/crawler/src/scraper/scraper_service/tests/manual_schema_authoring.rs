@@ -5,6 +5,10 @@ use crate::review::model::{
     SchemaReviewPageInput,
 };
 use crate::review::repository::CrawlerReviewRepository;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::removed_page_schema_repository::{
+    RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
+};
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
 use serde_json::json;
@@ -580,4 +584,148 @@ async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_
         .collect::<Vec<_>>();
     assert_eq!(waiting_pages, vec![other_url.as_str()]);
     assert_eq!(product_schema_review_count(&pool, &id).await, 1);
+}
+
+/// A sold item the shop keeps at HTTP 200 with a notice and no product markup.
+const REMOVAL_NOTICE_HTML: &str = r#"<!DOCTYPE html><html><body><main>
+    <h1>Biedermeier Chair</h1><p class="notice">This item is no longer available</p>
+    </main></body></html>"#;
+
+/// The candidate a reviewer saves to declare the notice page removed: the cached schemas kept
+/// as they are, plus a selector-bound template for the notice.
+fn candidate_declaring_the_notice_page_removed() -> serde_json::Value {
+    json!({
+        "schemas": [minimal_schema()],
+        "removed_page_schemas": [{ "selector": "p.notice", "text": "no longer available" }],
+    })
+}
+
+fn manual_scraper_with_removed_page_templates(
+    pool: &PgPool,
+    html: &'static str,
+    cached: ListingSourceProductSchema,
+    repository: CrawlerReviewRepository,
+) -> ScraperServiceImpl {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(move |_| Box::pin(async move { Ok(fetch_result(html.to_owned())) }));
+    let pool: &'static PgPool = Box::leak(Box::new(pool.clone()));
+    scraper_with_review_gate(
+        fetcher,
+        schema_service_without_generation(Some(cached)),
+        repository,
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    )
+    .with_removed_page_schema_repository(Box::new(RemovedPageSchemaRepositoryImpl::new(pool)))
+}
+
+/// Opens the manual review for the notice page, declares the page removed on it and approves.
+async fn approve_removed_page_template_for_notice_page(
+    pool: &PgPool,
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+) -> crate::CrawlerReviewId {
+    let opening = manual_scraper_with_removed_page_templates(
+        pool,
+        REMOVAL_NOTICE_HTML,
+        cached_schemas(*id, vec![minimal_schema()]),
+        repository.clone(),
+    );
+    let review_id = pending_review_id(
+        opening
+            .scrape(primary_only_request(id, &product_url()))
+            .await
+            .result,
+    );
+    repository
+        .update_candidate_payload(review_id, candidate_declaring_the_notice_page_removed())
+        .await
+        .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
+    repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
+    review_id
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_template() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let rescraping = manual_scraper_with_removed_page_templates(
+        &pool,
+        REMOVAL_NOTICE_HTML,
+        cached_schemas(id, vec![minimal_schema()]),
+        repository.clone(),
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request(&id, &product_url()))
+        .await
+        .result;
+
+    assert!(
+        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        "expected the verified removal that becomes the raw delete capture, got {result:?}"
+    );
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None,
+        "the notice page must open no second review"
+    );
+    let stored = RemovedPageSchemaRepositoryImpl::new(&pool)
+        .find_removed_page_schema(&id)
+        .await
+        .unwrap_or_else(|error| panic!("read removed-page templates: {error}"))
+        .map(|row| row.removed_page_schemas);
+    assert_eq!(
+        stored,
+        Some(vec![RemovedPageSchema {
+            selector: CssSelector::from("p.notice"),
+            text: Some("no longer available".to_owned()),
+            regex: None,
+        }])
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_scrape_a_product_page_the_approved_template_matches_while_a_cached_schema_extracts_it()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let product_with_a_sold_related_item: &'static str = Box::leak(
+        sample_html()
+            .replace(
+                "</main>",
+                r#"<aside><p class="notice">This item is no longer available</p></aside></main>"#,
+            )
+            .into_boxed_str(),
+    );
+    let service = manual_scraper_with_removed_page_templates(
+        &pool,
+        product_with_a_sold_related_item,
+        cached_schemas(id, vec![minimal_schema()]),
+        repository,
+    );
+
+    let result = service
+        .scrape(primary_only_request(&id, &product_url()))
+        .await
+        .result;
+
+    let scraped = result.unwrap_or_else(|error| panic!("expected a scraped product: {error}"));
+    assert!(
+        scraped.is_some(),
+        "the cached schema's product must win over the template"
+    );
 }

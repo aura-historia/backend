@@ -12,6 +12,12 @@ use crawler::scraper::css_selector::product_schema::{
 use crawler::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
+use crawler::scraper::css_selector::removed_page_schema::{
+    ListingSourceRemovedPageSchema, RemovedPageSchema,
+};
+use crawler::scraper::css_selector::removed_page_schema_repository::{
+    RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
+};
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -1499,4 +1505,170 @@ async fn should_refuse_to_store_a_repair_request_without_both_its_time_and_note(
             "{half_recorded}"
         );
     }
+}
+
+fn notice_template(text: &str) -> serde_json::Value {
+    json!({ "selector": "p.notice", "text": text })
+}
+
+/// Approval appends the reviewed removed-page templates to the stored ones once, keeps them on
+/// the review, and an approved review cannot change them afterwards.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_append_reviewed_removed_page_templates_on_approval_and_keep_them_fixed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let generated = RemovedPageSchema {
+        selector: "#main h1".into(),
+        text: Some("Page not found".to_owned()),
+        regex: None,
+    };
+    let now = OffsetDateTime::now_utc();
+    RemovedPageSchemaRepositoryImpl::new(&pool)
+        .insert_removed_page_schema(
+            &listing_source_id,
+            &ListingSourceRemovedPageSchema {
+                listing_source_id,
+                removed_page_schemas: vec![generated.clone()],
+                created: now,
+                updated: now,
+            },
+        )
+        .await
+        .unwrap();
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+    let candidate = json!({
+        "schemas": [schema("h1")],
+        "removed_page_schemas": [notice_template("sold"), json!(generated)],
+    });
+
+    repository
+        .update_candidate_payload(review_id, candidate.clone())
+        .await
+        .unwrap();
+    repository.approve_review(review_id, None).await.unwrap();
+
+    let stored = RemovedPageSchemaRepositoryImpl::new(&pool)
+        .find_removed_page_schema(&listing_source_id)
+        .await
+        .unwrap()
+        .map(|row| row.removed_page_schemas);
+    let reviewed = RemovedPageSchema {
+        selector: "p.notice".into(),
+        text: Some("sold".to_owned()),
+        regex: None,
+    };
+    assert_eq!(stored, Some(vec![generated, reviewed]));
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.review.candidate_payload, candidate);
+
+    let changed = json!({
+        "schemas": [schema("h1")],
+        "removed_page_schemas": [notice_template("no longer available")],
+    });
+    let refused = repository
+        .update_candidate_payload(review_id, changed)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        refused,
+        ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(id) if id == review_id
+    ));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_a_pending_candidate_whose_removed_page_regex_matches_any_text() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    let refused = repository
+        .update_candidate_payload(
+            review_id,
+            json!({
+                "schemas": [schema("h1")],
+                "removed_page_schemas": [{ "selector": "body", "regex": ".*" }],
+            }),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        refused,
+        ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. }
+    ));
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert!(
+        detail
+            .review
+            .candidate_payload
+            .get("removed_page_schemas")
+            .is_none()
+    );
+}
+
+/// A stored removed-page row that no longer decodes fails the approval instead of being
+/// overwritten with the reviewed templates: the review stays pending and nothing goes live.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_do_not_decode() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let corrupt = json!({ "selector": "#main h1", "text": "Page not found" });
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas \
+         (listing_source_id, removed_page_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(&corrupt)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            json!({
+                "schemas": [schema("h1")],
+                "removed_page_schemas": [notice_template("sold")],
+            }),
+        )
+        .await
+        .unwrap();
+
+    let refused = repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::Database(sqlx::Error::Decode(_))
+        ),
+        "{refused:?}"
+    );
+    let review = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(review.status, STATUS_PENDING_REVIEW);
+    let stored: serde_json::Value = sqlx::query_scalar(
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, corrupt);
+    assert!(
+        ListingSourceProductSchemaRepositoryImpl::new(&pool)
+            .find_product_schema(&listing_source_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
