@@ -735,11 +735,12 @@ function renderRemovedPageMatches(matrix, templates) {
     </table>`;
 }
 
+// An emptied list stays in the payload as `[]`: the server keeps the candidate's templates when
+// the key is left out, so retiring the last template must send the empty list.
 function editRemovedPageTemplates(edit) {
     const payload = schemasPayload();
     payload.removed_page_schemas = payload.removed_page_schemas || [];
     edit(payload.removed_page_schemas);
-    if (!payload.removed_page_schemas.length) delete payload.removed_page_schemas;
     selectedDetail.review.candidate_payload = payload;
     markDirty();
 }

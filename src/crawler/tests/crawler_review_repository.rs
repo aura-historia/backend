@@ -2037,7 +2037,7 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
     ));
 }
 
-/// An empty reviewed list retires every stored template.
+/// An explicitly empty reviewed list retires every stored template.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list_is_empty() {
     let pool = get_postgres_client().await;
@@ -2048,7 +2048,10 @@ async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
 
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1")] }))
+        .update_candidate_payload(
+            review_id,
+            json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
+        )
         .await
         .unwrap();
     repository.approve_review(review_id, None).await.unwrap();
@@ -2057,6 +2060,132 @@ async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list
         stored_removed_page_schemas(&pool, listing_source_id).await,
         Some(Vec::new())
     );
+}
+
+/// A candidate posted without `removed_page_schemas`, as a reviewer who edits only the schemas
+/// sends it, keeps the templates the candidate holds, so approval keeps the stored ones.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_stored_templates_through_approval_when_a_candidate_leaves_them_out() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let stored = vec![notice_schema("sold"), notice_schema("withdrawn")];
+    store_removed_page_templates(&pool, listing_source_id, stored.clone()).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.edited")] }))
+        .await
+        .unwrap();
+    repository.approve_review(review_id, None).await.unwrap();
+
+    assert_eq!(
+        stored_removed_page_schemas(&pool, listing_source_id).await,
+        Some(stored.clone())
+    );
+    let live = ListingSourceProductSchemaRepositoryImpl::new(&pool)
+        .find_product_schema(&listing_source_id)
+        .await
+        .unwrap()
+        .map(|live| live.product_schemas);
+    assert_eq!(live, Some(vec![schema("h1.edited")]));
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        detail.review.candidate_payload["removed_page_schemas"],
+        json!(stored)
+    );
+}
+
+/// An approved review's templates are read-only, but a candidate that leaves them out does not
+/// change them: the schema edit goes live and the templates stay as they are.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_accept_a_schema_edit_of_an_approved_review_that_leaves_its_templates_out() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    store_removed_page_templates(&pool, listing_source_id, vec![notice_schema("sold")]).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+    repository.approve_review(review_id, None).await.unwrap();
+
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.edited")] }))
+        .await
+        .unwrap();
+
+    let live = ListingSourceProductSchemaRepositoryImpl::new(&pool)
+        .find_product_schema(&listing_source_id)
+        .await
+        .unwrap()
+        .map(|live| live.product_schemas);
+    assert_eq!(live, Some(vec![schema("h1.edited")]));
+    assert_eq!(
+        stored_removed_page_schemas(&pool, listing_source_id).await,
+        Some(vec![notice_schema("sold")])
+    );
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        detail.review.candidate_payload,
+        json!({
+            "schemas": [schema("h1.edited")],
+            "removed_page_schemas": [notice_template("sold")],
+        })
+    );
+}
+
+/// A stored template that today's validation rejects refuses approval only: a field edit that
+/// leaves the templates alone still saves, and the template still blocks the approval.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validation() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let rejected = RemovedPageSchema {
+        selector: "p.notice".into(),
+        text: None,
+        regex: Some(".*".to_owned()),
+    };
+    store_removed_page_templates(&pool, listing_source_id, vec![rejected.clone()]).await;
+    // A generated append review: a field edit merges the live schemas into its candidate first.
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "append_schema_generation",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+
+    repository
+        .update_schema_field(review_id, 0, "price", Some(rule("span.price")))
+        .await
+        .unwrap();
+    let refused = repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_err();
+
+    let review = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(
+        review.candidate_payload["schemas"][0]["price"],
+        json!(rule("span.price"))
+    );
+    assert_eq!(
+        review.candidate_payload["removed_page_schemas"],
+        json!([rejected])
+    );
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(review.status, STATUS_PENDING_REVIEW);
 }
 
 /// Templates another writer stores or retires while a review is pending survive its approval:
@@ -2334,7 +2463,10 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
         STATUS_PENDING_REVIEW
     );
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1")] }))
+        .update_candidate_payload(
+            review_id,
+            json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
+        )
         .await
         .unwrap();
     repository.approve_review(review_id, None).await.unwrap();

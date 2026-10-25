@@ -5,7 +5,7 @@ use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The candidate a product-schema review holds, as its `candidate_payload` stores it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub(super) struct ProductSchemaReviewCandidate {
 }
 
 impl ProductSchemaReviewCandidate {
-    /// Decodes and validates a candidate payload.
+    /// Decodes and validates a candidate payload, templates included, as approval needs it.
     pub(super) fn parse(
         candidate_payload: &serde_json::Value,
     ) -> Result<Self, ReviewRepositoryError> {
@@ -28,10 +28,11 @@ impl ProductSchemaReviewCandidate {
         Ok(candidate)
     }
 
-    /// Decodes a candidate to show or evaluate it, validating its schemas but not its
+    /// Decodes a candidate to show, evaluate or edit it, validating its schemas but not its
     /// removed-page templates: the review opens with the ListingSource's stored templates, and
-    /// one that today's validation rejects must stay visible for the reviewer to fix or retire.
-    /// Saving or approving the candidate still refuses it.
+    /// one that today's validation rejects must stay visible for the reviewer to fix or retire,
+    /// without blocking edits that leave it as it is. Approving the candidate, or saving changed
+    /// templates, still refuses it.
     pub(super) fn read(
         candidate_payload: &serde_json::Value,
     ) -> Result<Self, ReviewRepositoryError> {
@@ -51,10 +52,13 @@ impl ProductSchemaReviewCandidate {
         }
     }
 
-    /// Decodes a stored candidate without validating it, to compare it with the live schemas: a
-    /// candidate that today's validation rejects is still a fact about what was approved.
-    pub(super) fn decode_stored(candidate_payload: &serde_json::Value) -> Option<Self> {
-        serde_json::from_value::<Self>(candidate_payload.clone()).ok()
+    /// Decodes a stored candidate without validating it, to compare it with the live schemas or
+    /// to apply an edit to it: a candidate that today's validation rejects is still a fact about
+    /// what was approved or what the reviewer has so far.
+    pub(super) fn decode_stored(
+        candidate_payload: &serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        serde_json::from_value::<Self>(candidate_payload.clone())
     }
 
     /// This candidate holding `schemas` instead of its own.
@@ -76,6 +80,60 @@ impl ProductSchemaReviewCandidate {
     pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
         Ok(serde_json::to_value(self)?)
     }
+}
+
+/// A reviewer's edit of a product-schema review's candidate, as `POST
+/// /api/reviews/{id}/candidate` sends it: the schemas that replace the candidate's and, when the
+/// key is present, the removed-page templates that replace its templates.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProductSchemaCandidateEdit {
+    schemas: Vec<ProductCssSelectorSchema>,
+    /// Left out, the candidate keeps its templates, so an edit of the schemas alone never
+    /// retires them; an empty list retires every one.
+    #[serde(default, deserialize_with = "present")]
+    removed_page_schemas: Option<Vec<RemovedPageSchema>>,
+}
+
+impl ProductSchemaCandidateEdit {
+    /// Decodes an edit and validates its schemas.
+    pub(super) fn parse(payload: &serde_json::Value) -> Result<Self, ReviewRepositoryError> {
+        let edit = serde_json::from_value::<Self>(payload.clone())
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+        validate_product_schemas(&edit.schemas)?;
+        Ok(edit)
+    }
+
+    /// The candidate this edit makes of `current`: the edit's schemas, and its templates when
+    /// it carries a list that differs from `current`'s, validated; otherwise `current`'s
+    /// templates as they are, so one that today's validation rejects refuses approval but not an
+    /// edit that leaves it alone.
+    pub(super) fn apply_to(
+        self,
+        current: &ProductSchemaReviewCandidate,
+    ) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
+        let removed_page_schemas = match self.removed_page_schemas {
+            Some(templates) if templates != current.removed_page_schemas => {
+                validate_removed_page_schemas(&templates)?;
+                templates
+            }
+            _ => current.removed_page_schemas.clone(),
+        };
+        Ok(ProductSchemaReviewCandidate {
+            schemas: self.schemas,
+            removed_page_schemas,
+        })
+    }
+}
+
+/// Decodes a key that is present, so an explicit `null` is refused like any other malformed
+/// value instead of reading as a left-out key.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 pub(super) fn validate_product_schemas(
@@ -126,14 +184,14 @@ pub(super) fn approval_product_schemas(
 }
 
 /// The candidate in `candidate_payload` with `field` of the schema at `schema_index` set to
-/// `rule`, validated.
+/// `rule`, its schemas validated. Its removed-page templates pass through as they are.
 pub(super) fn update_schema_field_payload(
     candidate_payload: &serde_json::Value,
     schema_index: usize,
     field: &str,
     rule: Option<ExtractionRule>,
 ) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
-    let candidate = ProductSchemaReviewCandidate::parse(candidate_payload)?;
+    let candidate = ProductSchemaReviewCandidate::read(candidate_payload)?;
     let mut schemas = candidate.schemas.clone();
     let Some(schema) = schemas.get_mut(schema_index) else {
         return Err(ReviewRepositoryError::InvalidSchemaField(format!(
@@ -305,6 +363,111 @@ mod tests {
                 "template {index} must be rejected"
             );
         }
+    }
+
+    /// A candidate holding `templates`, decoded the way an edit reads the stored candidate.
+    fn current_candidate(templates: serde_json::Value) -> ProductSchemaReviewCandidate {
+        ProductSchemaReviewCandidate::read(&serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": templates,
+        }))
+        .expect("readable candidate")
+    }
+
+    fn edit(payload: serde_json::Value) -> ProductSchemaCandidateEdit {
+        ProductSchemaCandidateEdit::parse(&payload).expect("valid edit")
+    }
+
+    #[test]
+    fn should_keep_the_current_templates_when_an_edit_leaves_them_out() {
+        let current =
+            current_candidate(serde_json::json!([removed_page_template(".notice", ".*")]));
+
+        let edited = edit(serde_json::json!({ "schemas": [schema("h1.edited")] }))
+            .apply_to(&current)
+            .expect("an edit of the schemas alone keeps the templates unvalidated");
+
+        assert_eq!(edited.schemas, vec![schema("h1.edited")]);
+        assert_eq!(edited.removed_page_schemas, current.removed_page_schemas);
+    }
+
+    #[test]
+    fn should_retire_every_template_when_an_edit_sends_an_empty_list() {
+        let current = current_candidate(serde_json::json!([removed_page_template(
+            ".notice",
+            "no longer available"
+        )]));
+
+        let edited = edit(serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": [],
+        }))
+        .apply_to(&current)
+        .expect("an empty list is a valid replacement");
+
+        assert!(edited.removed_page_schemas.is_empty());
+    }
+
+    #[test]
+    fn should_validate_templates_only_when_an_edit_changes_them() {
+        let rejected = removed_page_template(".notice", ".*");
+        let current = current_candidate(serde_json::json!([rejected.clone()]));
+
+        let unchanged = edit(serde_json::json!({
+            "schemas": [schema("h1.edited")],
+            "removed_page_schemas": [rejected.clone()],
+        }))
+        .apply_to(&current);
+        let changed = edit(serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": [rejected, removed_page_template(".notice", "sold")],
+        }))
+        .apply_to(&current);
+
+        assert!(
+            matches!(unchanged, Ok(candidate) if candidate.removed_page_schemas == current.removed_page_schemas)
+        );
+        assert!(matches!(
+            changed,
+            Err(ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn should_refuse_an_edit_with_null_templates_or_invalid_schemas() {
+        for payload in [
+            serde_json::json!({ "schemas": [schema("h1.product")], "removed_page_schemas": null }),
+            serde_json::json!({ "schemas": [] }),
+            serde_json::json!({ "schemas": [schema("[")] }),
+            serde_json::json!({ "schemas": [schema("h1.product")], "unexpected": true }),
+        ] {
+            assert!(
+                matches!(
+                    ProductSchemaCandidateEdit::parse(&payload),
+                    Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+                ),
+                "{payload} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn should_keep_a_template_validation_rejects_through_a_field_edit() {
+        let payload = serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": [removed_page_template(".notice", ".*")],
+        });
+
+        let edited = update_schema_field_payload(&payload, 0, "price", Some(text_rule(".price")))
+            .expect("a field edit leaves the templates alone");
+
+        assert_eq!(
+            edited
+                .to_payload()
+                .ok()
+                .map(|payload| payload["removed_page_schemas"].clone()),
+            Some(payload["removed_page_schemas"].clone())
+        );
     }
 
     #[test]
