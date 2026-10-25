@@ -31,4 +31,9 @@ FROM (
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
     AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
     AND c.relkind IN ('r', 'p', 'v', 'm') AND c.relname <> '_sqlx_migrations'
+    -- DMS owns this operational table; it is not part of the migration schema.
+    AND NOT (
+      n.nspname = 'dms_heartbeat' AND c.relname = 'awsdms_heartbeat'
+      AND c.relkind = 'r' AND pg_get_userbyid(c.relowner) = 'aura_replication'
+    )
 ) relations;

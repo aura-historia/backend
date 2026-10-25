@@ -450,6 +450,10 @@ the owning migration before starting capture; the replication role needs schema
 usage/create rights, not general database DDL rights. Heartbeat runs only while
 DMS runs. Keep capture pauses within the measured WAL budget; build artifacts before
 stopping capture and avoid leaving a healthy slot unattended through a long rollout.
+The shared schema inspector excludes only the regular
+`dms_heartbeat.awsdms_heartbeat` table owned by `aura_replication`, which DMS creates
+and maintains. The live inspector and migration reconstruction use that same rule;
+unexpected names, kinds, ownership or other schema changes remain visible to admission.
 
 Dev CDC alarms belong to data; prod CDC alarms use the production observability topic.
 Alarm on slot WAL lag before the retention limit as well as task failure and free
