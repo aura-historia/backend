@@ -215,6 +215,7 @@ function renderReviewQueueItem(r) {
       <div class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
         ${statusBadge(r.status)}
+        ${isWaitingForRepair(r) ? statusBadge('Waiting for repair') : ''}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
       ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
@@ -286,6 +287,7 @@ function renderDetail(detail, matrix) {
           <div class="review-title">
             <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
+            ${isWaitingForRepair(review) ? statusBadge('Waiting for repair') : ''}
             ${statusBadge(review.artifact_type)}
           </div>
           <div class="review-meta">
@@ -296,6 +298,7 @@ function renderDetail(detail, matrix) {
         </div>
         ${renderApprovalPanel(review)}
       </div>
+      ${renderRepairRequest(review)}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
@@ -315,6 +318,25 @@ function renderApprovalPanel(review) {
       <button class="primary" onclick="approveReview()">Approve</button>
       <button class="danger" onclick="rejectReview()">Reject</button>
       <button onclick="needsRepair()">Needs repair</button>
+    </div>`;
+}
+
+function isWaitingForRepair(review) {
+    return review?.status === 'PENDING_REVIEW' && Boolean(review.repair_request);
+}
+
+function renderRepairRequest(review) {
+    const request = review?.repair_request;
+    if (!request) return '';
+    const title = isWaitingForRepair(review) ? 'Waiting for repair' : 'Repair requested';
+    return `<div class="review-card repair-request-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>${title}</strong>
+          <span class="muted">${escapeHtml(request.note)}</span>
+        </div>
+        ${timeBadge(request.requested, 'Repair requested')}
+      </div>
     </div>`;
 }
 
@@ -1271,9 +1293,11 @@ async function rejectReview() {
 }
 
 async function needsRepair() {
+    const notes = (prompt('What needs repair?') || '').trim();
+    if (!notes) return;
     await api(`/api/reviews/${selectedId}/needs-repair`, {
         method: 'POST',
-        body: JSON.stringify({notes: prompt('Repair notes') || null})
+        body: JSON.stringify({notes})
     });
     await loadReviews();
     await loadSelectedReview(false);
