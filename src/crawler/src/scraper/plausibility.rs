@@ -141,6 +141,17 @@ impl PlausibilityFinding {
             (SourceListingId | Description, _) => PlausibilityImpact::ReportOnly,
         }
     }
+
+    /// A blank `title` or `state`: the page leaves a required value empty.
+    const fn is_missing_required_value(self) -> bool {
+        matches!(
+            (self.field, self.check),
+            (
+                PlausibilityField::Title | PlausibilityField::State,
+                PlausibilityCheck::Blank
+            )
+        )
+    }
 }
 
 impl fmt::Display for PlausibilityFinding {
@@ -220,6 +231,22 @@ impl PlausibilityFindings {
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         (!reasons.is_empty()).then(|| format!("implausible extraction: {}", reasons.join("; ")))
+    }
+
+    /// The rejecting findings when each one is a blank `title` or `state`: the extraction
+    /// fails only because the page leaves a required value empty where the schema found
+    /// its element. `None` when nothing rejects the extraction or something else rejects
+    /// it too.
+    pub(crate) fn missing_required_values(&self) -> Option<Self> {
+        let rejecting = self
+            .with_impact(PlausibilityImpact::RejectsCandidate)
+            .copied()
+            .collect::<Vec<_>>();
+        (!rejecting.is_empty()
+            && rejecting
+                .iter()
+                .all(|finding| finding.is_missing_required_value()))
+        .then_some(Self(rejecting))
     }
 
     fn with_impact(
@@ -541,6 +568,61 @@ mod tests {
             raw.source_listing_id = identity.to_owned();
 
             assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+    }
+
+    mod missing_required_values {
+        use super::*;
+
+        #[test]
+        fn should_name_the_blank_title_when_it_alone_rejects_the_extraction() {
+            let mut raw = plausible();
+            raw.title = String::new();
+            raw.images = vec!["/a.jpg".to_owned(), "/a.jpg".to_owned()];
+
+            let missing = PlausibilityFindings::of(&raw).missing_required_values();
+
+            assert_eq!(
+                missing.as_ref().map(PlausibilityFindings::as_slice),
+                Some([finding(Title, Blank)].as_slice())
+            );
+        }
+
+        #[test]
+        fn should_name_every_blank_required_value() {
+            let mut raw = plausible();
+            raw.title = " ".to_owned();
+            raw.state = String::new();
+
+            let missing = PlausibilityFindings::of(&raw).missing_required_values();
+
+            assert_eq!(
+                missing.map(|findings| findings.to_string()),
+                Some("`title` is blank; `state` is blank".to_owned())
+            );
+        }
+
+        #[test]
+        fn should_name_nothing_when_another_finding_also_rejects_the_extraction() {
+            let mut raw = plausible();
+            raw.title = String::new();
+            raw.state = "Sold .badge { color: red; }".to_owned();
+
+            assert_eq!(
+                PlausibilityFindings::of(&raw).missing_required_values(),
+                None
+            );
+        }
+
+        #[test]
+        fn should_name_nothing_when_nothing_rejects_the_extraction() {
+            let mut raw = plausible();
+            raw.source_listing_id = String::new();
+
+            assert_eq!(
+                PlausibilityFindings::of(&raw).missing_required_values(),
+                None
+            );
         }
     }
 

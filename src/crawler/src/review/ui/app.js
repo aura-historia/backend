@@ -735,16 +735,18 @@ function renderOptionalMissSummary(pagesWithMisses) {
     if (!pagesWithMisses.length) return '';
     const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
     const perPage = pagesWithMisses.map(page => {
-        const fields = optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ');
+        const fields = optionalFieldMisses(page).map(field =>
+            `${escapeHtml(displayName(field.field))}${matchedOnlyEmptyElements(field) ? ' (empty element)' : ''}`
+        ).join(', ');
         return `${escapeHtml(displayName(page.role))} (${fields})`;
     }).join('; ');
-    return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
+    return `<div class="muted">Optional rules yielded no value (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
 }
 
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
 // rule (not required, no selector error, not `images`, whose empty-container case is
 // decided by the page-level apply result) whose primary and additional selectors all
-// matched nothing on a page that still applied.
+// matched nothing with visible text on a page that still applied.
 function optionalFieldMisses(page) {
     if (!page?.apply_ok) return [];
     return (page.fields || []).filter(field =>
@@ -851,11 +853,20 @@ function currentMatrixPage(matrix) {
     return candidate ? selectedMatrixPage(candidate) : null;
 }
 
+// A missed rule whose selectors found elements, all without visible text: the page leaves
+// the field empty where the rule expects it, rather than the rule not fitting the page.
+function matchedOnlyEmptyElements(field) {
+    return field.empty_element_count > 0;
+}
+
 function renderOptionalFieldMisses(misses) {
-    if (!misses.length) return '';
-    return `<div class="muted">Rule matched nothing, field left empty: ${
-        misses.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`).join(', ')
-    }</div>`;
+    const fieldList = fields => fields
+        .map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`)
+        .join(', ');
+    const unmatched = misses.filter(field => !matchedOnlyEmptyElements(field));
+    const empty = misses.filter(matchedOnlyEmptyElements);
+    return (unmatched.length ? `<div class="muted">Rule matched nothing, field left empty: ${fieldList(unmatched)}</div>` : '')
+        + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
 function selectedMatrixPage(candidate) {

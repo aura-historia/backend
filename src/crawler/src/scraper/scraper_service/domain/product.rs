@@ -279,6 +279,7 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::RemovedPageSchemaDatabaseError(_)
         | ScraperError::SchemaRegenerationExhausted { .. }
         | ScraperError::FreshSchemaImplausible { .. }
+        | ScraperError::MissingRequiredValue { .. }
         | ScraperError::NormalizationError(_)
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)
