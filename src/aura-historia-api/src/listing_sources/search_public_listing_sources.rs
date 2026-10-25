@@ -457,10 +457,13 @@ mod tests {
             crate::transport::NATIVE_REQUEST_TIMEOUT,
         );
 
-        // These are distinct origins in the prod Gateway CORS allowlist. Axum's current
-        // CORS layer emits `*`; the synthesized CloudFront Origin cache key partitions
-        // origin-dependent front-door headers for the same path and query.
-        for origin in ["https://aura-historia.com", "https://admin.shopify.com"] {
+        // REST Gateway permits all browser origins; Axum also emits `*`.
+        // The synthesized CloudFront Origin cache key still partitions responses
+        // across different origins for the same path and query.
+        for origin in [
+            "https://aura-historia.com",
+            "https://preview-123.bitter-frog-5102.workers.dev",
+        ] {
             let response = app
                 .clone()
                 .oneshot(

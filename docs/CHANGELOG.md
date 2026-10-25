@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-25 — Wildcard REST browser CORS
+
+- REST Gateway CORS now returns `Access-Control-Allow-Origin: *` for browser origins in both stages, including ephemeral `*.bitter-frog-5102.workers.dev` previews. Allowed methods, headers, exposed headers, and all API authorization requirements are unchanged. Cross-origin callers may supply bearer tokens in `Authorization`, but `credentials: "include"` is incompatible with wildcard CORS. MCP's separate explicit origin restrictions and Cognito registered redirect URIs are unchanged.
+
 ## 2026-10-23 — Bounded listing shipping reads (#2444)
 
 - **Breaking change:** search, similar listings, watchlist, saved-search matches and auction catalogues return a bounded `item.shipping` summary with optional `eligibility`, `requiredInputs`, `explanations` and an independent `collection` summary. `userState.shipping` adds at most one `pricePreview` (service, explicit basis and price, in the requested currency when convertible), required `attribution` and a `display` valuation only when the preview was converted. Collections no longer return terms, converted per-zone rates, options or zone/service indices, including the detail-shaped watchlist, match and catalogue items (`PersonalizedProductListingCollectionDetailsData`).
