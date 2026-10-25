@@ -69,7 +69,7 @@ fn escape_html_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::APP_JS;
-    use crate::scraper::plausibility::{CrossPageCheck, PlausibilityCheck};
+    use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck};
 
     fn code(check: impl serde::Serialize) -> String {
         match serde_json::to_value(check) {
@@ -78,7 +78,7 @@ mod tests {
         }
     }
 
-    /// The console explains the per-page and cross-page check codes of the schema matrix
+    /// The console explains the per-page, cross-page and identity agreement check codes of the schema matrix
     /// itself, so each code must keep the crawler's description and none may go stale.
     #[test]
     fn should_describe_every_plausibility_check_code_as_the_crawler_does() {
@@ -87,6 +87,11 @@ mod tests {
             .map(|check| (code(check), check.description()))
             .chain(
                 CrossPageCheck::ALL
+                    .into_iter()
+                    .map(|check| (code(check), check.description())),
+            )
+            .chain(
+                IdentityAgreementCheck::ALL
                     .into_iter()
                     .map(|check| (code(check), check.description())),
             )

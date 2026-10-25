@@ -1,5 +1,6 @@
 //! Plausibility checks on raw extracted values. They inspect the strings a schema
-//! extracted, from one page here and across the review pages in `cross_page`, and never
+//! extracted, from one page here, across the review pages in `cross_page` and across the
+//! schemas of one page in `identity_agreement`, and never
 //! convert them into typed values: price parsing, currency, availability and language
 //! belong to the ProductListing normalization worker, which reports what it cannot
 //! normalize.
@@ -13,8 +14,12 @@ use std::collections::HashSet;
 use std::fmt;
 
 mod cross_page;
+mod identity_agreement;
 
 pub use cross_page::{CrossPageCheck, CrossPageFinding, CrossPageFindings, PageExtraction};
+pub use identity_agreement::{
+    IdentityAgreementCheck, IdentityAgreementFinding, IdentityAgreementFindings,
+};
 
 /// Longest plausible `state`, price or estimate, in characters after collapsing
 /// whitespace runs. These fields hold labels such as "In stock", "£1,250" or

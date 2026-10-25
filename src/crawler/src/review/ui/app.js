@@ -660,7 +660,8 @@ function renderCoverageSummary(matrix) {
     </div>`;
 }
 
-// Check codes of `plausibility_findings` and `cross_page_findings` in the schema matrix.
+// Check codes of `plausibility_findings`, `cross_page_findings` and
+// `identity_agreement_findings` in the schema matrix.
 const plausibilityCheckDescriptions = {
     BLANK: 'is blank',
     TOO_LONG: 'is longer than a label',
@@ -669,13 +670,19 @@ const plausibilityCheckDescriptions = {
     DUPLICATE_VALUES: 'repeats a value',
     INVALID_IDENTIFIER: 'is not a valid source listing id',
     WORD_LIST: 'is a list of words, not an identifier',
-    REPEATED_ACROSS_PAGES: 'repeats a value of another product page'
+    REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
+    DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
 
-// The per-page and cross-page plausibility checks a matrix page failed. Any of them
-// keeps a generated schema out of auto-approval.
+// The per-page, cross-page and identity agreement checks a matrix page failed. Any of
+// them keeps a generated schema out of auto-approval.
 function pageFindings(page) {
-    return [...(page?.plausibility_findings || []), ...(page?.cross_page_findings || [])];
+    return [
+        ...(page?.plausibility_findings || []),
+        ...(page?.cross_page_findings || []),
+        ...(page?.identity_agreement_findings || [])
+    ];
 }
 
 function fieldFindings(page, field) {
@@ -698,6 +705,18 @@ function renderSharedValues(findings) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
     return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+}
+
+// Identity agreement findings name the identities that contradict the extracted one: the
+// other schemas' on the same page, or the one the listing was captured under.
+function renderContradictingIdentities(findings) {
+    const values = findings
+        .filter(finding => finding.check === 'DIFFERS_FROM_OTHER_SCHEMAS' || finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY')
+        .flatMap(finding => (finding.values || []).map(value =>
+            `${finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY' ? 'captured' : 'other schema'}: ${expandableValue(value)}`
+        ));
+    if (!values.length) return '';
+    return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
 function renderPlausibilitySummary(matrix) {
@@ -881,7 +900,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : ''}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
