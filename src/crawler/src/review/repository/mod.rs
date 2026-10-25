@@ -35,8 +35,8 @@ use reviewer_page_url::{
     ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
 };
 use schema_payload::{
-    ProductSchemaReviewCandidate, approval_product_schemas, update_schema_field_payload,
-    validate_product_schemas,
+    ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, approval_product_schemas,
+    update_schema_field_payload, validate_product_schemas,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -762,17 +762,26 @@ impl CrawlerReviewRepository {
         let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
 
         if status == STATUS_PENDING_REVIEW {
-            if artifact_type == ARTIFACT_URL_PATTERN {
-                let candidate =
-                    serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload.clone())
-                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                candidate
-                    .validated_pattern()
+            let candidate_payload = match artifact_type.as_str() {
+                ARTIFACT_URL_PATTERN => {
+                    let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(
+                        candidate_payload.clone(),
+                    )
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-            }
-            if artifact_type == ARTIFACT_PRODUCT_SCHEMA {
-                ProductSchemaReviewCandidate::parse(&candidate_payload)?;
-            }
+                    candidate
+                        .validated_pattern()
+                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                    candidate_payload
+                }
+                ARTIFACT_PRODUCT_SCHEMA => {
+                    let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
+                    let current =
+                        ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
+                            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+                    edit.apply_to(&current)?.to_payload()?
+                }
+                _ => candidate_payload,
+            };
             sqlx::query(
                 "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
                  WHERE review_id = $1",
@@ -789,12 +798,12 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
 
-        let candidate = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
-        let stored_templates =
-            ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
-                .map(|stored| stored.removed_page_schemas)
-                .unwrap_or_default();
-        if candidate.removed_page_schemas != stored_templates {
+        let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
+        // A stored candidate that no longer decodes is not provably the live list.
+        let current = ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
+            .map_err(|_| ReviewRepositoryError::StaleApprovedReview(review_id))?;
+        let candidate = edit.apply_to(&current)?;
+        if candidate.removed_page_schemas != current.removed_page_schemas {
             return Err(ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(
                 review_id,
             ));
@@ -852,7 +861,7 @@ impl CrawlerReviewRepository {
                 reason.as_str(),
                 "append_schema_generation" | "normalization_schema_repair"
             ) {
-            let reviewed = ProductSchemaReviewCandidate::parse(&stored_candidate_payload)?;
+            let reviewed = ProductSchemaReviewCandidate::read(&stored_candidate_payload)?;
             if reviewed.schemas.len() == 1 {
                 let existing =
                     lock_live_product_schemas(&mut transaction, &listing_source_id).await?;
@@ -1353,6 +1362,7 @@ async fn persist_approved_schema_edit(
     validation_summary: serde_json::Value,
 ) -> Result<(), ReviewRepositoryError> {
     let stored_schemas = ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
+        .ok()
         .map(|stored| stored.schemas);
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
     if live.is_none_or(|live| stored_schemas.as_ref() != Some(&live.product_schemas)) {
