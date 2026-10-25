@@ -35,6 +35,8 @@ use tracing::{Instrument, debug, error, info, warn};
 /// LLM-budget outcomes rather than on transport, so the next pass does not re-spend
 /// LLM budget on the same ListingSource.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+/// `last_error_kind` of a URL whose schema derived another identity than the captured one.
+const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
 /// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
@@ -573,22 +575,12 @@ async fn handle_successful_scrape(
     scraped: ScrapedProduct,
 ) -> ScrapeCandidateOutcome {
     let url_moved = candidate.url != scraped.effective_url;
-    if candidate
+    if let Some(captured_identity) = candidate
         .last_source_listing_id
         .as_deref()
-        .is_some_and(|identity| identity != scraped.source_listing_id)
+        .filter(|identity| *identity != scraped.source_listing_id)
     {
-        warn!(
-            event = "crawler.product_url_move_rejected_identity_conflict",
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            source_identity = %scraped.source_listing_id,
-            "Rejecting scrape because crawler identity changed"
-        );
-        return ScrapeCandidateOutcome {
-            skipped: true,
-            ..Default::default()
-        };
+        return reject_identity_conflict(candidate, ctx, captured_identity, &scraped).await;
     }
     if url_moved {
         match ctx
@@ -698,6 +690,41 @@ async fn handle_successful_scrape(
             on_success: RawCaptureSuccessAction::MarkScraped(meta),
             on_failure: RawCaptureFailureAction::None,
         }),
+        ..Default::default()
+    }
+}
+
+/// A page whose schema derives another identity than the one its listing was captured
+/// under is not captured: the new identity would start a second listing. The conflict is
+/// a schema outcome the reviewer resolves, so the URL keeps it with the schema cooldown
+/// instead of being refetched on every scheduler pass.
+async fn reject_identity_conflict(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    captured_identity: &str,
+    scraped: &ScrapedProduct,
+) -> ScrapeCandidateOutcome {
+    warn!(
+        event = "crawler.product_url_move_rejected_identity_conflict",
+        listing_source_id = %candidate.listing_source_id,
+        url = %candidate.url,
+        captured_identity = %captured_identity,
+        source_identity = %scraped.source_listing_id,
+        "Rejecting scrape because crawler identity changed"
+    );
+    let error_message = format!(
+        "extracted source listing id `{}` differs from the captured `{captured_identity}`",
+        scraped.source_listing_id
+    );
+    persist_schema_outcome_cooldown(
+        candidate,
+        ctx,
+        SOURCE_LISTING_ID_CONFLICT_ERROR_KIND,
+        &error_message,
+    )
+    .await;
+    ScrapeCandidateOutcome {
+        errored: true,
         ..Default::default()
     }
 }
@@ -3787,5 +3814,215 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// A sold page that the active-template schemas no longer extract, as on Hingstons
+    /// Antiques, where the add-to-cart button that carried the identity disappears.
+    mod sold_page_identity {
+        use super::*;
+        use crate::scraper::css_selector::product_schema::{
+            ListingSourceProductSchema, ProductCssSelectorSchema,
+        };
+        use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
+        use crate::scraper::css_selector::rule::{
+            CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
+        };
+        use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
+        use crate::scraper::scraper_service::service::ScraperServiceImpl;
+        use product_listing_core::listing_availability::ListingAvailability;
+        use product_listing_normalization::{
+            ListingAvailabilityQuickCheck, ProductListingRawValuesNormalizationOutcome,
+            ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
+        };
+
+        const CAPTURED_IDENTITY: &str = "53036";
+
+        fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
+            ExtractionRule {
+                selector: CssSelector::from(selector),
+                additional_selectors: vec![],
+                extract,
+                cardinality: ExtractionCardinality::First,
+            }
+        }
+
+        fn attribute(selector: &str, name: &str) -> ExtractionRule {
+            rule(selector, ExtractionKind::Attribute { name: name.into() })
+        }
+
+        fn schema(identity: ExtractionRule, state_selector: &str) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                source_listing_id: Some(identity),
+                title: rule("h1", ExtractionKind::Text),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: rule(state_selector, ExtractionKind::Text),
+                images: ExtractionRule {
+                    cardinality: ExtractionCardinality::All,
+                    ..attribute("div.product img", "src")
+                },
+                raw_attributes: Default::default(),
+            }
+        }
+
+        /// The schema the listing was captured with: its identity and its state are the
+        /// add-to-cart button, which a sold page no longer renders.
+        fn active_template_schema() -> ProductCssSelectorSchema {
+            schema(
+                attribute("button.single_add_to_cart_button", "value"),
+                "button.single_add_to_cart_button",
+            )
+        }
+
+        fn sold_page() -> String {
+            r#"<!DOCTYPE html>
+            <html><body>
+              <div class="product" id="product-53036" data-product_id="53036">
+                <h1>Georgian Mahogany Chair</h1>
+                <p class="stock out-of-stock">Sold</p>
+                <img src="/images/chair-640x640.jpg">
+              </div>
+            </body></html>"#
+                .to_owned()
+        }
+
+        fn sold_candidate() -> ScraperCandidate {
+            let mut candidate = scraper_candidate(
+                "Hingstons",
+                url::Url::parse("https://example.com/product/georgian-chair").unwrap(),
+            );
+            candidate.last_source_listing_id = Some(CAPTURED_IDENTITY.to_owned());
+            candidate
+        }
+
+        /// The ListingSource's cached schemas are the active-template schema and
+        /// `sold_template`, and every fetch returns the sold page.
+        fn context(
+            candidate: &ScraperCandidate,
+            sold_template: ProductCssSelectorSchema,
+            scraper_candidates: MockScraperCandidateService,
+        ) -> ScrapeDomainContext {
+            let url = candidate.url.clone();
+            let mut fetcher = MockHtmlFetcher::new();
+            fetcher.expect_fetch().returning(move |_| {
+                let url = url.clone();
+                Box::pin(
+                    async move { Ok(FetchedHtml::new(sold_page(), url, reqwest::StatusCode::OK)) },
+                )
+            });
+            let cached = ListingSourceProductSchema {
+                listing_source_id: candidate.listing_source_id,
+                product_schemas: vec![active_template_schema(), sold_template],
+                created: time::OffsetDateTime::now_utc(),
+                updated: time::OffsetDateTime::now_utc(),
+            };
+            let mut schema_service = MockProductListingSchemaService::new();
+            schema_service
+                .expect_find_product_schema()
+                .returning(move |_| {
+                    let cached = cached.clone();
+                    Box::pin(async move { Ok(Some(cached)) })
+                });
+            let scraper_candidates = Arc::new(scraper_candidates);
+            let scraper = ScraperServiceImpl::new(
+                Box::new(fetcher),
+                Box::new(schema_service),
+                scraper_candidates.clone(),
+            );
+            let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
+            ScrapeDomainContext {
+                scraper: Arc::new(scraper),
+                scraper_candidates,
+                lock_manager: Arc::new(LocalLockManager::new()),
+                command_tx,
+                budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+                domain_id: candidate.domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            }
+        }
+
+        #[tokio::test]
+        async fn should_capture_the_listing_as_sold_when_the_sold_template_derives_the_same_identity()
+         {
+            let candidate = sold_candidate();
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates.expect_mark_fetch_failure().never();
+            let ctx = context(
+                &candidate,
+                schema(attribute("div.product", "data-product_id"), "p.stock"),
+                scraper_candidates,
+            );
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(!outcome.errored && !outcome.skipped);
+            let capture = outcome
+                .capture
+                .expect("the sold page must be captured under the listing's identity");
+            match &capture.on_success {
+                RawCaptureSuccessAction::MarkScraped(meta) => {
+                    assert_eq!(meta.source_listing_id, CAPTURED_IDENTITY);
+                }
+                _ => panic!("a sold product page must be marked scraped after capture"),
+            }
+            let resolved = match ProductListingRawValuesNormalizer::new()
+                .normalize(&capture.item.command.input)
+            {
+                ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => resolved,
+                other => panic!("the sold capture must normalize: {other:?}"),
+            };
+            assert_eq!(resolved.source_listing_id.as_ref(), CAPTURED_IDENTITY);
+            assert_eq!(
+                resolved.availability,
+                ProductListingRawValuesPatch::Set(ListingAvailabilityQuickCheck::Resolved(
+                    ListingAvailability::SoldOut
+                ))
+            );
+        }
+
+        #[tokio::test]
+        async fn should_record_an_identity_conflict_with_the_schema_cooldown_when_the_sold_template_derives_another_identity()
+         {
+            let before = time::OffsetDateTime::now_utc();
+            let candidate = sold_candidate();
+            let url = candidate.url.clone();
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .withf(
+                    move |_, received_url, kind, message, status_code, next_retry_at, _| {
+                        let cooldown =
+                            time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+                        *received_url == url
+                            && kind == SOURCE_LISTING_ID_CONFLICT_ERROR_KIND
+                            && message.contains("`product-53036`")
+                            && message.contains("`53036`")
+                            && status_code.is_none()
+                            && *next_retry_at >= before + cooldown
+                            && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
+                    },
+                )
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            scraper_candidates.expect_mark_as_scraped().never();
+            let ctx = context(
+                &candidate,
+                schema(attribute("div.product", "id"), "p.stock"),
+                scraper_candidates,
+            );
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.capture.is_none());
+            assert!(outcome.errored, "an identity conflict is a failed scrape");
+            assert!(
+                !outcome.skipped,
+                "an identity conflict has a durable outcome"
+            );
+        }
     }
 }
