@@ -6,6 +6,10 @@ use crawler::review::model::{UrlPatternDecision, UrlPatternReviewCandidate};
 use crawler::review::repository::{
     CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
 };
+use crawler::scraper::candidate_service::{
+    FetchFailureRequest, SchemaReviewWait, SchemaReviewWaitRequest, ScraperCandidateService,
+    ScraperCandidateServiceImpl,
+};
 use crawler::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
@@ -19,6 +23,10 @@ use crawler::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::spider::classification::url_metadata::{CrawlerUrlWriteOutcome, UrlClass};
+use crawler::spider::classification::url_metadata_repository::{
+    UrlMetadataRepository, UrlMetadataRepositoryImpl,
+};
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -598,6 +606,162 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
             .product_schemas,
         vec![schema("h1.first"), schema("h1.edited")]
     );
+}
+
+/// A ListingSource whose live schema fails a product page, with a pending manual review the
+/// page waits on.
+struct WaitingPageFixture {
+    review_repository: CrawlerReviewRepository,
+    candidates: ScraperCandidateServiceImpl,
+    listing_source_id: ListingSourceId,
+    review_id: CrawlerReviewId,
+    url: url::Url,
+}
+
+impl WaitingPageFixture {
+    async fn new(pool: &PgPool) -> Self {
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        let listing_source_id = ListingSourceId::new();
+        insert_listing_source(pool, listing_source_id).await;
+        let domain_id = insert_domain(pool, listing_source_id, "example.com").await;
+        let url = url::Url::parse("https://example.com/products/waiting").unwrap();
+        UrlMetadataRepositoryImpl::new(pool.clone())
+            .upsert_link(
+                &listing_source_id,
+                &domain_id,
+                &url,
+                &UrlClass::ProductListing,
+            )
+            .await
+            .unwrap();
+        let initial_review_id = review_repository
+            .create_schema_review(
+                &listing_source_id,
+                "manual_schema_required",
+                &[schema("h1.first")],
+                review_pages(),
+                json!({}),
+            )
+            .await
+            .unwrap();
+        review_repository
+            .approve_review(initial_review_id, None)
+            .await
+            .unwrap();
+        let review_id = review_repository
+            .create_schema_review(
+                &listing_source_id,
+                "manual_schema_required",
+                &[schema("h1.first"), schema("h1.second")],
+                review_pages(),
+                json!({}),
+            )
+            .await
+            .unwrap();
+        Self {
+            review_repository,
+            candidates: ScraperCandidateServiceImpl::new(pool.clone()),
+            listing_source_id,
+            review_id,
+            url,
+        }
+    }
+
+    /// Records that the page waits on the review for the `streak`-th time and retries after
+    /// `delay`.
+    async fn wait(&self, streak: u32, delay: time::Duration) -> CrawlerUrlWriteOutcome {
+        self.candidates
+            .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
+                url_failure: FetchFailureRequest {
+                    listing_source_id: self.listing_source_id,
+                    url: self.url.clone(),
+                    error_kind: "PendingSchemaReview".to_owned(),
+                    error_message: "blocked pending product schema review".to_owned(),
+                    status_code: None,
+                    next_retry_at: OffsetDateTime::now_utc() + delay,
+                    expected_last_captured_raw_input_sha256: None,
+                },
+                wait: SchemaReviewWait {
+                    review_id: self.review_id,
+                    streak,
+                },
+            })
+            .await
+            .unwrap()
+    }
+
+    async fn candidate_urls(&self) -> Vec<url::Url> {
+        self.candidates
+            .get_candidates(10, 10, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.url)
+            .collect()
+    }
+
+    async fn persisted_wait(&self, pool: &PgPool) -> (Option<Uuid>, i32, Option<OffsetDateTime>) {
+        sqlx::query_as(
+            "SELECT schema_review_waited_on, schema_review_wait_streak, next_retry_at \
+             FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(self.url.as_str())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_when_approved() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    assert_eq!(
+        fixture.wait(4, time::Duration::hours(4)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert!(
+        fixture.candidate_urls().await.is_empty(),
+        "the backed-off page must wait although cached schemas keep its source eligible"
+    );
+
+    fixture
+        .review_repository
+        .approve_review(fixture.review_id, None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        fixture.candidate_urls().await,
+        vec![fixture.url.clone()],
+        "approval must release the backed-off page for an immediate retry"
+    );
+    assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_approval_waits() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    assert_eq!(
+        fixture.wait(3, -time::Duration::minutes(1)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    // The page's retry found the review pending; the reviewer approves it before the scrape
+    // records the next, longer wait.
+    fixture
+        .review_repository
+        .approve_review(fixture.review_id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.wait(4, time::Duration::hours(4)).await,
+        CrawlerUrlWriteOutcome::NoopStale
+    );
+
+    assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
+    assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

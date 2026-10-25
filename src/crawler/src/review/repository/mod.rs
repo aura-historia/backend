@@ -997,7 +997,8 @@ impl CrawlerReviewRepository {
                 sqlx::query(
                     "UPDATE listing_source_urls \
                      SET next_retry_at = NULL, last_error_kind = NULL, \
-                         last_error_message = NULL, updated = NOW() \
+                         last_error_message = NULL, schema_review_waited_on = NULL, \
+                         schema_review_wait_streak = 0, updated = NOW() \
                      WHERE listing_source_id = $1 \
                        AND last_error_kind = 'PendingSchemaReview' \
                        AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",

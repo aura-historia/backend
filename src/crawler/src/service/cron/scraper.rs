@@ -1,10 +1,12 @@
 use super::job::CrawlerCronJob;
+use crate::CrawlerReviewId;
 use crate::network::policy::{
     NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
-    DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, ScrapeCompletion,
-    ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
+    DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, SchemaReviewWait,
+    SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidate, ScraperCandidateService,
+    next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
@@ -36,6 +38,11 @@ use tracing::{Instrument, debug, error, info, warn};
 /// neither re-spends LLM budget on the same ListingSource nor refetches a page that waits
 /// for the reviewer.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+/// Upper bound of the retry delay of a page that keeps waiting on the same pending
+/// product-schema review. Approval releases waiting pages at once; the bound keeps a page
+/// whose review closes another way from waiting much longer than a reviewer's working
+/// session.
+const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 
@@ -969,7 +976,10 @@ fn log_domain_open_result(
 /// How a scrape error that is not an HTTP failure is recorded on its URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NonHttpFailureRecord {
-    /// A schema-work outcome: the URL is retried after the schema cooldown.
+    /// The page waits on this pending product-schema review: the URL is retried after a
+    /// delay that grows while it keeps waiting on the same review.
+    SchemaReviewWait(CrawlerReviewId),
+    /// Another schema-work outcome: the URL is retried after the schema cooldown.
     SchemaRetryCooldown,
     /// Any other failure: recorded without delaying the next scrape.
     ScraperFailure,
@@ -980,8 +990,12 @@ enum NonHttpFailureRecord {
 
 impl NonHttpFailureRecord {
     fn of(error: &ScraperError) -> Self {
-        if matches!(error, ScraperError::MissingRequiredValue { .. }) {
-            return Self::ScrapedWithoutCapture;
+        match error {
+            ScraperError::MissingRequiredValue { .. } => return Self::ScrapedWithoutCapture,
+            ScraperError::PendingSchemaReview { review_id, .. } => {
+                return Self::SchemaReviewWait(*review_id);
+            }
+            _ => {}
         }
         let schema_work_outcome = matches!(
             error,
@@ -989,7 +1003,6 @@ impl NonHttpFailureRecord {
                 | ScraperError::FreshSchemaImplausible { .. }
                 | ScraperError::SchemaClassificationRejected { .. }
                 | ScraperError::LlmBudgetExceeded { .. }
-                | ScraperError::PendingSchemaReview { .. }
         ) || is_schema_generation_validation_failure(error);
         if schema_work_outcome {
             Self::SchemaRetryCooldown
@@ -1007,6 +1020,9 @@ async fn persist_non_http_failure(
 ) {
     let error_kind = scraper_error_kind(error);
     match NonHttpFailureRecord::of(error) {
+        NonHttpFailureRecord::SchemaReviewWait(review_id) => {
+            persist_schema_review_wait(candidate, ctx, review_id, error_kind, error_message).await;
+        }
         NonHttpFailureRecord::SchemaRetryCooldown => {
             persist_schema_retry_cooldown(candidate, ctx, error_kind, error_message).await;
         }
@@ -1072,6 +1088,65 @@ async fn persist_schema_retry_cooldown(
         },
     )
     .await;
+}
+
+/// Records that the page waits on a pending product-schema review. The retry delay grows
+/// with each consecutive wait on the same review, so pages that cannot succeed before the
+/// reviewer decides stop refetching every schema cooldown; approval releases them at once.
+async fn persist_schema_review_wait(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    review_id: CrawlerReviewId,
+    error_kind: &str,
+    error_message: &str,
+) {
+    let wait = SchemaReviewWait::after(candidate.schema_review_wait, review_id);
+    let next_retry_at = time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(schema_review_wait_retry_delay(wait.streak).as_secs() as i64);
+    let request = SchemaReviewWaitRequest {
+        url_failure: FetchFailureRequest {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            error_kind: error_kind.to_owned(),
+            error_message: error_message.to_owned(),
+            status_code: None,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+        wait,
+    };
+    match ctx
+        .scraper_candidates
+        .mark_waiting_on_schema_review(request)
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler schema review wait"
+        ),
+        Err(error) => warn!(
+            error = %error,
+            url = %candidate.url,
+            "Failed to persist crawler schema review wait"
+        ),
+    }
+}
+
+/// The schema cooldown doubled for each earlier consecutive wait on the same review, capped
+/// at [`SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY`].
+fn schema_review_wait_retry_delay(streak: u32) -> Duration {
+    let doublings = streak.saturating_sub(1);
+    2_u32
+        .checked_pow(doublings)
+        .and_then(|factor| SCHEMA_ERROR_RETRY_COOLDOWN.checked_mul(factor))
+        .map_or(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY, |delay| {
+            delay.min(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY)
+        })
 }
 
 async fn persist_scraper_failure(
@@ -3342,25 +3417,19 @@ mod tests {
                 vec![first, second]
             }));
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_waiting_on_schema_review()
             .once()
-            .withf(
-                move |received_listing_source_id,
-                      received_url,
-                      kind,
-                      _,
-                      _,
-                      _,
-                      expected_raw_input_sha256| {
-                    *received_listing_source_id == listing_source_id
-                        && received_url == &first_url
-                        && kind == "PendingSchemaReview"
-                        && expected_raw_input_sha256.is_none()
-                },
-            )
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .withf(move |request| {
+                request.url_failure.listing_source_id == listing_source_id
+                    && request.url_failure.url == first_url
+                    && request.url_failure.error_kind == "PendingSchemaReview"
+                    && request
+                        .url_failure
+                        .expected_last_captured_raw_input_sha256
+                        .is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        scraper_candidates.expect_mark_fetch_failure().never();
 
         // The first page waits on the pending review; a cached schema still extracts the second.
         let mut scraper_service = MockScraperService::new();
@@ -3389,6 +3458,169 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+    }
+
+    mod schema_review_wait_backoff {
+        use super::*;
+
+        const BASE: Duration = SCHEMA_ERROR_RETRY_COOLDOWN;
+
+        #[test]
+        fn should_double_the_retry_delay_for_each_consecutive_wait() {
+            assert_eq!(schema_review_wait_retry_delay(1), BASE);
+            assert_eq!(schema_review_wait_retry_delay(2), BASE * 2);
+            assert_eq!(schema_review_wait_retry_delay(3), BASE * 4);
+        }
+
+        #[test]
+        fn should_cap_the_retry_delay_however_long_the_review_stays_pending() {
+            assert_eq!(
+                schema_review_wait_retry_delay(4),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+            assert_eq!(
+                schema_review_wait_retry_delay(40),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+            assert_eq!(
+                schema_review_wait_retry_delay(u32::MAX),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+        }
+
+        #[test]
+        fn should_continue_the_streak_only_on_the_same_review() {
+            let review_id = CrawlerReviewId::new();
+            let first = SchemaReviewWait::after(None, review_id);
+            let second = SchemaReviewWait::after(Some(first), review_id);
+            let other_review = SchemaReviewWait::after(Some(second), CrawlerReviewId::new());
+
+            assert_eq!(first.streak, 1);
+            assert_eq!(second.streak, 2);
+            assert_eq!(other_review.streak, 1);
+        }
+
+        /// Scrapes one candidate that waits on `review_id` and returns the persisted wait
+        /// request.
+        async fn persisted_wait(
+            previous: Option<SchemaReviewWait>,
+            review_id: CrawlerReviewId,
+        ) -> SchemaReviewWaitRequest {
+            let url = url::Url::parse("https://example.com/product/waiting").unwrap();
+            let mut candidate = scraper_candidate("Test ListingSource", url);
+            candidate.schema_review_wait = previous;
+            let recorded = Arc::new(std::sync::Mutex::new(None));
+
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_waiting_on_schema_review()
+                .once()
+                .returning({
+                    let recorded = recorded.clone();
+                    move |request| {
+                        *recorded.lock().unwrap() = Some(request);
+                        Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                    }
+                });
+            scraper_candidates.expect_mark_fetch_failure().never();
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .once()
+                .returning(move |request| {
+                    let url = request.url;
+                    Box::pin(async move {
+                        scrape_outcome(Err(ScraperError::PendingSchemaReview { url, review_id }))
+                    })
+                });
+
+            let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+            ctx.domain_id = candidate.domain_id;
+            scrape_domain_candidates(vec![candidate], ctx).await;
+
+            recorded.lock().unwrap().take().expect("wait was persisted")
+        }
+
+        fn assert_retry_after(
+            request: &SchemaReviewWaitRequest,
+            before: time::OffsetDateTime,
+            delay: Duration,
+        ) {
+            let delay = time::Duration::seconds(delay.as_secs() as i64);
+            let next_retry_at = request.url_failure.next_retry_at;
+            assert!(
+                next_retry_at >= before + delay,
+                "{next_retry_at} is earlier than {delay}"
+            );
+            assert!(next_retry_at <= time::OffsetDateTime::now_utc() + delay);
+        }
+
+        #[tokio::test]
+        async fn should_grow_the_retry_delay_when_the_page_waits_on_the_same_review_again() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id,
+                    streak: 2,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(
+                request.wait,
+                SchemaReviewWait {
+                    review_id,
+                    streak: 3
+                }
+            );
+            assert_eq!(request.url_failure.error_kind, "PendingSchemaReview");
+            assert_retry_after(&request, before, BASE * 4);
+        }
+
+        #[tokio::test]
+        async fn should_restart_at_the_schema_cooldown_when_the_page_waits_on_a_new_review() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id: CrawlerReviewId::new(),
+                    streak: 5,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(
+                request.wait,
+                SchemaReviewWait {
+                    review_id,
+                    streak: 1
+                }
+            );
+            assert_retry_after(&request, before, BASE);
+        }
+
+        #[tokio::test]
+        async fn should_cap_the_retry_delay_when_the_review_stays_pending() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id,
+                    streak: 12,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(request.wait.streak, 13);
+            assert_retry_after(&request, before, SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY);
+        }
     }
 
     /// `FreshSchemaImplausible` must be handled identically to
@@ -3835,11 +4067,9 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_waiting_on_schema_review()
             .once()
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         scraper_candidates
             .expect_close_domain_circuit()
             .once()
