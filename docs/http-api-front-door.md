@@ -53,6 +53,8 @@ and Axum response CORS must retain approved origins, required authorization/prov
 headers and `Idempotency-Key` admission/exposure. CORS is not authorization; do not
 relax raw-body limits or application checks to fix an edge integration. Header forwarding
 does not opt an operation into replay; preserve the [keyless creation exceptions](command-retries.md).
+Production Gateway CORS uses explicit approved HTTPS origins; HTTP API does not
+support host-suffix wildcards in its origin allowlist.
 
 ## Front-door controls
 
