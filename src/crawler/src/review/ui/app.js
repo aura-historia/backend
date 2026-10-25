@@ -7,6 +7,7 @@ let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
+let removedPageTemplateRefusal = null;
 let dirty = false;
 let selectedReviewUpdatedAt = null;
 let selectedReviewStatus = null;
@@ -671,15 +672,19 @@ function renderRemovedPagePanel(detail, matrix) {
         <strong>Removed-page templates</strong>
         <span class="muted">${editable
             ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected.'
-            : 'Stored when the review was approved; declare further templates on a pending review.'}</span>
+            : detail.review.status === 'APPROVED'
+                ? 'Stored when the review was approved; declare further templates on a pending review.'
+                : 'This review is closed without approval; its templates were not stored.'}</span>
       </div>
       ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
         || '<div class="muted">No removed-page template declared.</div>'}
       <div class="actions">
-        <button ${disabled} onclick="addRemovedPageTemplate()">Add template${pickedSelector ? ' from picked selector' : ''}</button>
+        <button ${disabled} onclick="addRemovedPageTemplate()" title="Starts from the clicked element when one is picked">Add template</button>
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
         <button ${disabled} onclick="discardEdits()">Discard edits</button>
       </div>
+      ${renderRemovedPageTemplateRefusal()}
+      <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
       <h3>Matched review pages</h3>
       ${renderRemovedPageMatches(matrix, templates)}
     </div>`;
@@ -703,7 +708,7 @@ function renderRemovedPageTemplate(template, index, disabled) {
       </label>
       <div class="actions">
         <button onclick="postHighlight(currentRemovedPageTemplates()[${index}].selector, 'Removed notice', '#dc2626')">Highlight</button>
-        <button ${disabled} ${pickedSelector ? '' : 'disabled'} onclick="setRemovedPageTemplate(${index}, {selector: pickedSelector}); rerenderWorkbench()">Use picked selector</button>
+        <button ${disabled} onclick="usePickedForRemovedPageTemplate(${index})">Use clicked element</button>
         <button ${disabled} onclick="removeRemovedPageTemplate(${index})">Remove</button>
       </div>
     </div>`;
@@ -724,7 +729,7 @@ function renderRemovedPageMatches(matrix, templates) {
         <td>${escapeHtml(match.role)}</td>
         <td>${match.outcome === 'REMOVED'
             ? statusBadge('Captured as removed')
-            : statusBadge('Product wins: template over-broad for this page')}</td>
+            : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
         <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
     </table>`;
@@ -767,13 +772,43 @@ function addRemovedPageTemplate() {
     rerenderWorkbench();
 }
 
+function usePickedForRemovedPageTemplate(index) {
+    if (!pickedSelector) return;
+    setRemovedPageTemplate(index, {selector: pickedSelector});
+    rerenderWorkbench();
+    postHighlight(pickedSelector, 'Removed notice', '#dc2626');
+}
+
 function removeRemovedPageTemplate(index) {
     editRemovedPageTemplates(templates => templates.splice(index, 1));
     rerenderWorkbench();
 }
 
+// The server validates templates under the generated contract; its refusal stays on the
+// panel with the unsaved edits so the reviewer can correct them.
 async function saveRemovedPageTemplates() {
-    await saveCandidatePayload(schemasPayload());
+    const reviewId = selectedId;
+    removedPageTemplateRefusal = null;
+    try {
+        await saveCandidatePayload(schemasPayload());
+    } catch (error) {
+        removedPageTemplateRefusal = {reviewId, message: apiErrorMessage(error)};
+        rerenderWorkbench();
+    }
+}
+
+function renderRemovedPageTemplateRefusal() {
+    if (!removedPageTemplateRefusal || removedPageTemplateRefusal.reviewId !== selectedId) return '';
+    return `<div class="hint-card finding-hint"><span>${escapeHtml(removedPageTemplateRefusal.message)}</span></div>`;
+}
+
+function apiErrorMessage(error) {
+    const message = String((error && error.message) || error);
+    try {
+        return JSON.parse(message).error || message;
+    } catch (_) {
+        return message;
+    }
 }
 
 function renderJsonPanel(detail) {
@@ -1487,6 +1522,7 @@ async function deleteCurrentSchema() {
 
 async function discardEdits() {
     dirty = false;
+    removedPageTemplateRefusal = null;
     await loadSelectedReview(false);
 }
 
