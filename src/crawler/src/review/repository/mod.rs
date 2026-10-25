@@ -1046,11 +1046,13 @@ impl CrawlerReviewRepository {
         evaluated: &EvaluatedSchemaMatrix,
     ) -> Result<(), ReviewRepositoryError> {
         let matrix = serde_json::to_value(&evaluated.matrix)?;
+        // `schema_matrix_summary` judges the matrix generation stored, so it leaves with
+        // that matrix instead of standing next to a refreshed one.
         let result = sqlx::query(
             "UPDATE crawler_reviews
              SET validation_summary = jsonb_set(
                      CASE jsonb_typeof(validation_summary)
-                         WHEN 'object' THEN validation_summary
+                         WHEN 'object' THEN validation_summary - 'schema_matrix_summary'
                          ELSE jsonb_build_object('summary', validation_summary)
                      END,
                      '{schema_matrix}',
