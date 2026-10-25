@@ -358,6 +358,55 @@ impl ScraperCandidateServiceImpl {
             max_llm_calls_per_listing_source,
         }
     }
+
+    /// Writes URL failure state, fenced on the raw-input hash the candidate observed.
+    async fn update_url_failure(
+        &self,
+        failure: UrlFailureUpdate<'_>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let listing_source_id_uuid: uuid::Uuid = (*failure.listing_source_id).into();
+
+        let result = sqlx::query(
+            "UPDATE listing_source_urls
+             SET failure_count = failure_count + 1,
+                 last_error_kind = $3,
+                 last_error_message = $4,
+                 last_status_code = $5,
+                 next_retry_at = $6,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
+        )
+        .bind(listing_source_id_uuid)
+        .bind(failure.url.to_string())
+        .bind(failure.error_kind)
+        .bind(failure.error_message)
+        .bind(failure.status_code)
+        .bind(failure.next_retry_at)
+        .bind(failure.expected_last_captured_raw_input_sha256)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(if result.rows_affected() == 1 {
+            CrawlerUrlWriteOutcome::Applied
+        } else {
+            CrawlerUrlWriteOutcome::NoopStale
+        })
+    }
+}
+
+/// The URL failure columns one fenced failure write sets.
+struct UrlFailureUpdate<'a> {
+    listing_source_id: &'a ListingSourceId,
+    url: &'a Url,
+    error_kind: &'a str,
+    error_message: &'a str,
+    status_code: Option<i32>,
+    next_retry_at: OffsetDateTime,
+    expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -904,38 +953,16 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         next_retry_at: OffsetDateTime,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url_str = url.to_string();
-
-        let result = sqlx::query(
-            "UPDATE listing_source_urls
-             SET failure_count = failure_count + 1,
-                 last_error_kind = $3,
-                 last_error_message = $4,
-                 last_status_code = $5,
-                 next_retry_at = $6,
-                 updated = NOW()
-             WHERE listing_source_id = $1
-               AND url = $2
-               AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
-        )
-        .bind(listing_source_id_uuid)
-        .bind(url_str)
-        .bind(error_kind)
-        .bind(error_message)
-        .bind(status_code)
-        .bind(next_retry_at)
-        .bind(expected_last_captured_raw_input_sha256)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(if result.rows_affected() == 1 {
-            CrawlerUrlWriteOutcome::Applied
-        } else {
-            CrawlerUrlWriteOutcome::NoopStale
+        self.update_url_failure(UrlFailureUpdate {
+            listing_source_id,
+            url,
+            error_kind,
+            error_message,
+            status_code,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256,
         })
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
