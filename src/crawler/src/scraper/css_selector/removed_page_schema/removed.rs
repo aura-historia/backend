@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::page_match::{
     normalize_page_classification_text, normalized_selected_texts, removed_page_regex,
+    selected_text_rule,
 };
 
 /// The removed-page text or compiled regex a schema looks for, prepared once per
@@ -139,7 +140,13 @@ impl RemovedPageSchema {
         }
     }
 
+    /// Checks the contract every removed-page template meets, whether the LLM or a reviewer
+    /// proposes it: a valid selector with either non-blank text or a regex that does not
+    /// match any text.
     pub fn validate(&self) -> Result<(), String> {
+        selected_text_rule(&self.selector)
+            .validate()
+            .map_err(|error| format!("Removed page selector is invalid: {error}"))?;
         match (self.text.as_deref(), self.regex.as_deref()) {
             (Some(text), None) if !text.trim().is_empty() => Ok(()),
             (None, Some(pattern)) => removed_page_regex(pattern).map(|_| ()),
@@ -275,6 +282,21 @@ mod tests {
 
         assert!(matched.is_notice("Sorry, the page you're looking for couldn't be found"));
         assert!(!matched.is_notice("Biedermeier Chair"));
+    }
+
+    #[test]
+    fn should_reject_a_template_whose_selector_does_not_parse() {
+        let invalid = RemovedPageSchema {
+            selector: CssSelector::from("["),
+            ..schema()
+        };
+
+        let err = invalid
+            .validate()
+            .expect_err("invalid selector is rejected");
+
+        assert!(err.starts_with("Removed page selector is invalid"), "{err}");
+        assert!(schema().validate().is_ok());
     }
 
     #[test]

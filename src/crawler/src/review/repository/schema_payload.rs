@@ -1,6 +1,7 @@
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
@@ -11,6 +12,10 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct ProductSchemaReviewCandidate {
     pub(super) schemas: Vec<ProductCssSelectorSchema>,
+    /// Removed-page templates the reviewer declares for pages that show a removal notice at
+    /// HTTP 200. Approval appends them to the ListingSource's stored templates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) removed_page_schemas: Vec<RemovedPageSchema>,
 }
 
 impl ProductSchemaReviewCandidate {
@@ -21,7 +26,16 @@ impl ProductSchemaReviewCandidate {
         let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
         validate_product_schemas(&candidate.schemas)?;
+        validate_removed_page_schemas(&candidate.removed_page_schemas)?;
         Ok(candidate)
+    }
+
+    /// A candidate of `schemas` without removed-page templates.
+    pub(super) fn of_schemas(schemas: &[ProductCssSelectorSchema]) -> Self {
+        Self {
+            schemas: schemas.to_vec(),
+            removed_page_schemas: Vec::new(),
+        }
     }
 
     /// Decodes a stored candidate without validating it, to compare it with the live schemas: a
@@ -32,7 +46,7 @@ impl ProductSchemaReviewCandidate {
 
     /// This candidate holding `schemas` instead of its own.
     pub(super) fn with_schemas(self, schemas: Vec<ProductCssSelectorSchema>) -> Self {
-        Self { schemas }
+        Self { schemas, ..self }
     }
 
     pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
@@ -47,6 +61,23 @@ pub(super) fn validate_product_schemas(
         return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
     }
     Ok(())
+}
+
+/// Validates removed-page templates against the contract a generated template meets.
+fn validate_removed_page_schemas(
+    removed_page_schemas: &[RemovedPageSchema],
+) -> Result<(), ReviewRepositoryError> {
+    removed_page_schemas
+        .iter()
+        .enumerate()
+        .try_for_each(|(index, schema)| {
+            schema
+                .validate()
+                .map_err(|reason| ReviewRepositoryError::InvalidRemovedPageTemplate {
+                    index,
+                    reason,
+                })
+        })
 }
 
 pub(super) fn approval_product_schemas(
@@ -190,6 +221,65 @@ mod tests {
                 ProductSchemaReviewCandidate::parse(&payload),
                 Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
             ));
+        }
+    }
+
+    fn removed_page_template(selector: &str, regex: &str) -> serde_json::Value {
+        serde_json::json!({ "selector": selector, "regex": regex })
+    }
+
+    #[test]
+    fn should_parse_a_candidate_with_a_removed_page_template_and_keep_it_through_field_edits() {
+        let payload = serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": [removed_page_template(".notice", "no longer available")],
+        });
+
+        let edited = update_schema_field_payload(&payload, 0, "price", Some(text_rule(".price")))
+            .expect("field edit keeps a valid candidate");
+
+        assert_eq!(edited.removed_page_schemas.len(), 1);
+        assert_eq!(
+            edited
+                .to_payload()
+                .ok()
+                .map(|payload| payload["removed_page_schemas"].clone()),
+            Some(payload["removed_page_schemas"].clone())
+        );
+    }
+
+    #[test]
+    fn should_store_a_candidate_without_templates_in_its_previous_shape() {
+        let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
+
+        let candidate = ProductSchemaReviewCandidate::parse(&payload).expect("valid candidate");
+
+        assert_eq!(candidate.to_payload().ok(), Some(payload));
+    }
+
+    #[test]
+    fn should_reject_a_removed_page_template_the_generated_contract_rejects() {
+        for (index, template) in [
+            removed_page_template(".notice", ".*"),
+            removed_page_template("[", "no longer available"),
+            serde_json::json!({ "selector": ".notice" }),
+            serde_json::json!({ "selector": ".notice", "text": "sold", "regex": "sold" }),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let payload = serde_json::json!({
+                "schemas": [schema("h1.product")],
+                "removed_page_schemas": [template],
+            });
+
+            assert!(
+                matches!(
+                    ProductSchemaReviewCandidate::parse(&payload),
+                    Err(ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. })
+                ),
+                "template {index} must be rejected"
+            );
         }
     }
 

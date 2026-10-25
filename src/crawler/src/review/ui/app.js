@@ -470,6 +470,7 @@ function renderSchemaWorkbench(detail, matrix) {
           ${workbenchTab('selector', 'Selector')}
           ${workbenchTab('data', 'Extracted Data')}
           ${workbenchTab('diff', 'Schema Diff')}
+          ${workbenchTab('removed', `Removed Page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -500,6 +501,7 @@ function workbenchTab(key, label) {
 function renderWorkbenchPanel(detail, matrix, schemas) {
     if (activeWorkbenchPanel === 'data') return renderDataPanel(matrix);
     if (activeWorkbenchPanel === 'diff') return renderDiffPanel(schemas);
+    if (activeWorkbenchPanel === 'removed') return renderRemovedPagePanel(detail, matrix);
     if (activeWorkbenchPanel === 'json') return renderJsonPanel(detail);
     return renderSelectorPanel(schemas, matrix);
 }
@@ -647,6 +649,131 @@ function renderDiffPanel(schemas) {
       </div>
       ${renderSchemaDiff(schemas[selectedSchemaIndex], schemas[compareSchemaIndex])}
     </div>`;
+}
+
+// Removed-page templates a reviewer declares for pages a shop serves at HTTP 200 with a
+// removal notice and no product markup. Approval stores them with the ListingSource's
+// removed-page templates; the matrix shows which review pages they match.
+function currentRemovedPageTemplates() {
+    return (((selectedDetail.review || {}).candidate_payload || {}).removed_page_schemas) || [];
+}
+
+function removedPageTemplatesEditable(detail) {
+    return detail.review.status === 'PENDING_REVIEW';
+}
+
+function renderRemovedPagePanel(detail, matrix) {
+    const editable = removedPageTemplatesEditable(detail);
+    const disabled = editable ? '' : 'disabled';
+    const templates = currentRemovedPageTemplates();
+    return `<div class="tab-panel">
+      <div class="panel-title">
+        <strong>Removed-page templates</strong>
+        <span class="muted">${editable
+            ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected.'
+            : 'Stored when the review was approved; declare further templates on a pending review.'}</span>
+      </div>
+      ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
+        || '<div class="muted">No removed-page template declared.</div>'}
+      <div class="actions">
+        <button ${disabled} onclick="addRemovedPageTemplate()">Add template${pickedSelector ? ' from picked selector' : ''}</button>
+        <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
+        <button ${disabled} onclick="discardEdits()">Discard edits</button>
+      </div>
+      <h3>Matched review pages</h3>
+      ${renderRemovedPageMatches(matrix, templates)}
+    </div>`;
+}
+
+function renderRemovedPageTemplate(template, index, disabled) {
+    const mode = template.regex !== undefined && template.regex !== null ? 'regex' : 'text';
+    const value = mode === 'regex' ? template.regex : (template.text || '');
+    return `<div class="field-grid removed-page-template">
+      <label>Template ${index + 1} selector
+        <input ${disabled} value="${escapeHtmlAttr(template.selector || '')}" oninput="setRemovedPageTemplate(${index}, {selector: this.value})">
+      </label>
+      <label>Match
+        <select ${disabled} onchange="setRemovedPageTemplateMode(${index}, this.value)">
+          <option value="text" ${mode === 'text' ? 'selected' : ''}>Text</option>
+          <option value="regex" ${mode === 'regex' ? 'selected' : ''}>Regex</option>
+        </select>
+      </label>
+      <label>${mode === 'regex' ? 'Regex' : 'Notice text'}
+        <input ${disabled} value="${escapeHtmlAttr(value)}" oninput="setRemovedPageTemplateValue(${index}, this.value)">
+      </label>
+      <div class="actions">
+        <button onclick="postHighlight(currentRemovedPageTemplates()[${index}].selector, 'Removed notice', '#dc2626')">Highlight</button>
+        <button ${disabled} ${pickedSelector ? '' : 'disabled'} onclick="setRemovedPageTemplate(${index}, {selector: pickedSelector}); rerenderWorkbench()">Use picked selector</button>
+        <button ${disabled} onclick="removeRemovedPageTemplate(${index})">Remove</button>
+      </div>
+    </div>`;
+}
+
+// Mirrors `removed_page_matches` in the schema matrix: the review pages the templates match,
+// and whether the scraper would capture each as removed or keep scraping it as a product
+// because a candidate schema still extracts it.
+function renderRemovedPageMatches(matrix, templates) {
+    if (!templates.length) return '<div class="muted">Declare a template to see the pages it matches.</div>';
+    if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
+    const matches = (matrix && matrix.removed_page_matches) || [];
+    if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
+    return `<table>
+      <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
+      <tbody>${matches.map(match => `<tr>
+        <td>${productPageLink(match.url)}</td>
+        <td>${escapeHtml(match.role)}</td>
+        <td>${match.outcome === 'REMOVED'
+            ? statusBadge('Captured as removed')
+            : statusBadge('Product wins: template over-broad for this page')}</td>
+        <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}`).join('<br>')}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function editRemovedPageTemplates(edit) {
+    const payload = schemasPayload();
+    payload.removed_page_schemas = payload.removed_page_schemas || [];
+    edit(payload.removed_page_schemas);
+    if (!payload.removed_page_schemas.length) delete payload.removed_page_schemas;
+    selectedDetail.review.candidate_payload = payload;
+    markDirty();
+}
+
+function setRemovedPageTemplate(index, changes) {
+    editRemovedPageTemplates(templates => Object.assign(templates[index], changes));
+}
+
+function setRemovedPageTemplateMode(index, mode) {
+    editRemovedPageTemplates(templates => {
+        const template = templates[index];
+        const value = template.regex ?? template.text ?? '';
+        delete template.text;
+        delete template.regex;
+        template[mode] = value;
+    });
+    rerenderWorkbench();
+}
+
+function setRemovedPageTemplateValue(index, value) {
+    editRemovedPageTemplates(templates => {
+        const template = templates[index];
+        if (template.regex !== undefined && template.regex !== null) template.regex = value;
+        else template.text = value;
+    });
+}
+
+function addRemovedPageTemplate() {
+    editRemovedPageTemplates(templates => templates.push({selector: pickedSelector || '', text: ''}));
+    rerenderWorkbench();
+}
+
+function removeRemovedPageTemplate(index) {
+    editRemovedPageTemplates(templates => templates.splice(index, 1));
+    rerenderWorkbench();
+}
+
+async function saveRemovedPageTemplates() {
+    await saveCandidatePayload(schemasPayload());
 }
 
 function renderJsonPanel(detail) {

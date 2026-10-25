@@ -1,14 +1,19 @@
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
+    CrawlerReviewPage, MatchedRemovedPageTemplate, RemovedPageTemplateMatch,
+    RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, SchemaExtraction,
 };
+use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
+};
+use crate::scraper::scraper_service::pipeline::scrape_product::{
+    RemovedPageVerdict, removed_page_verdict,
 };
 use scraper::{Html, Selector};
 use std::collections::HashMap;
@@ -23,11 +28,13 @@ struct MatrixPage<'a> {
     captured_identity: Option<&'a str>,
 }
 
-/// Evaluates the schemas on the live review pages. `captured_identities` maps a page URL
-/// to the source listing id its listing was captured under.
+/// Evaluates the schemas and removed-page templates on the live review pages.
+/// `captured_identities` maps a page URL to the source listing id its listing was captured
+/// under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
     schemas: &[ProductCssSelectorSchema],
+    removed_page_schemas: &[RemovedPageSchema],
     pages: &[(CrawlerReviewPage, String)],
     captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
@@ -46,6 +53,7 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     SchemaMatrix {
         review_id: Some(review_id),
         candidates: evaluate_candidates(schemas, &pages),
+        removed_page_matches: removed_page_matches(removed_page_schemas, schemas, &pages),
     }
 }
 
@@ -68,7 +76,65 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
     SchemaMatrix {
         review_id: None,
         candidates: evaluate_candidates(schemas, &pages),
+        // Generated-schema inputs carry no removed-page templates.
+        removed_page_matches: Vec::new(),
     }
+}
+
+/// The review pages the removed-page templates match, each with the verdict the scraper's
+/// removal guard reaches once `schemas` are live, so a reviewer sees an over-broad template
+/// before approving it. The page URL stands in for the crawler URL's record key: it only
+/// matters for a page that yields no identity of its own.
+fn removed_page_matches(
+    removed_page_schemas: &[RemovedPageSchema],
+    schemas: &[ProductCssSelectorSchema],
+    pages: &[MatrixPage<'_>],
+) -> Vec<RemovedPageTemplateMatch> {
+    pages
+        .iter()
+        .filter_map(|page| {
+            let (outcome, matches) = match removed_page_verdict(
+                removed_page_schemas.to_vec(),
+                schemas,
+                page.raw_html,
+                page.url,
+                page.captured_identity,
+            ) {
+                RemovedPageVerdict::NotRemoved => return None,
+                RemovedPageVerdict::Removed { matches } => {
+                    (RemovedPageTemplateOutcome::Removed, matches)
+                }
+                RemovedPageVerdict::ProductStillExtracts { matches } => {
+                    (RemovedPageTemplateOutcome::ProductStillExtracts, matches)
+                }
+            };
+            Some(RemovedPageTemplateMatch {
+                page_reference: page.page_reference.clone(),
+                url: page.url.to_owned(),
+                role: page.role.to_owned(),
+                outcome,
+                templates: matched_templates(removed_page_schemas, matches),
+            })
+        })
+        .collect()
+}
+
+fn matched_templates(
+    removed_page_schemas: &[RemovedPageSchema],
+    matches: Vec<RemovedPageMatch>,
+) -> Vec<MatchedRemovedPageTemplate> {
+    matches
+        .into_iter()
+        .filter_map(|matched| {
+            let template_index = removed_page_schemas
+                .iter()
+                .position(|schema| *schema == matched.schema)?;
+            Some(MatchedRemovedPageTemplate {
+                template_index,
+                notices: matched.notices,
+            })
+        })
+        .collect()
 }
 
 fn evaluate_candidates(
@@ -545,6 +611,97 @@ mod tests {
             raw_html: format!(
                 "<html><body><span id=\"product-id\">SKU</span><{title_tag}>Title</{title_tag}>{price_html}<span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>"
             ),
+        }
+    }
+
+    mod removed_page_templates {
+        use super::*;
+
+        const NOTICE_HTML: &str = "<html><body><main><p class=\"notice\">This item is no longer available</p>\
+            <p class=\"notice\">Please browse our catalogue</p></main></body></html>";
+
+        fn notice_template(selector: &str, text: &str) -> RemovedPageSchema {
+            RemovedPageSchema {
+                selector: CssSelector::from(selector),
+                text: Some(text.to_owned()),
+                regex: None,
+            }
+        }
+
+        fn matrix_page<'a>(role: &'a str, url: &'a str, raw_html: &'a str) -> MatrixPage<'a> {
+            MatrixPage {
+                page_reference: SchemaPageReference::Input { page_index: 0 },
+                url,
+                role,
+                raw_html,
+                captured_identity: None,
+            }
+        }
+
+        #[test]
+        fn should_show_the_notice_page_as_removed_and_leave_unmatched_pages_out() {
+            let product = page(PAGE_ROLE_SEED, "h1");
+            let templates = [
+                notice_template("footer", "never shown"),
+                notice_template(".notice", "no longer available"),
+            ];
+
+            let matches = removed_page_matches(
+                &templates,
+                &[schema("h1")],
+                &[
+                    matrix_page(PAGE_ROLE_SEED, &product.url, &product.raw_html),
+                    matrix_page("WAITING_PAGE", "https://example.com/sold", NOTICE_HTML),
+                ],
+            );
+
+            assert_eq!(
+                matches,
+                vec![RemovedPageTemplateMatch {
+                    page_reference: SchemaPageReference::Input { page_index: 0 },
+                    url: "https://example.com/sold".to_owned(),
+                    role: "WAITING_PAGE".to_owned(),
+                    outcome: RemovedPageTemplateOutcome::Removed,
+                    templates: vec![MatchedRemovedPageTemplate {
+                        template_index: 1,
+                        notices: vec!["this item is no longer available".to_owned()],
+                    }],
+                }]
+            );
+        }
+
+        /// An over-broad template matching a page a candidate still extracts is shown with the
+        /// scraper's precedence: the product wins.
+        #[test]
+        fn should_show_a_page_a_candidate_still_extracts_as_a_product() {
+            let product = page(PAGE_ROLE_SEED, "h1");
+
+            let matches = removed_page_matches(
+                &[notice_template("body", "available")],
+                &[schema("h1")],
+                &[matrix_page(PAGE_ROLE_SEED, &product.url, &product.raw_html)],
+            );
+
+            assert_eq!(matches.len(), 1);
+            assert_eq!(
+                matches[0].outcome,
+                RemovedPageTemplateOutcome::ProductStillExtracts
+            );
+        }
+
+        #[test]
+        fn should_list_no_page_without_templates() {
+            let matches = removed_page_matches(
+                &[],
+                &[schema("h1")],
+                &[matrix_page(
+                    "WAITING_PAGE",
+                    "https://example.com/sold",
+                    NOTICE_HTML,
+                )],
+            );
+
+            assert!(matches.is_empty());
         }
     }
 
@@ -1507,6 +1664,7 @@ mod tests {
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
                 &schemas,
+                &[],
                 &[(sold_page, product_html(53036, true))],
                 &captured,
             );

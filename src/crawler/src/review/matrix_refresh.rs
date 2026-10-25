@@ -129,6 +129,7 @@ mod tests {
         SchemaMatrix {
             review_id: None,
             candidates: Vec::new(),
+            removed_page_matches: Vec::new(),
         }
     }
 

@@ -154,7 +154,7 @@ pub(crate) enum RemovedPageVerdict {
     NotRemoved,
     /// A stored schema matches and no cached product schema still extracts this
     /// listing's product from the page.
-    Removed,
+    Removed { matches: Vec<RemovedPageMatch> },
     /// A stored schema matches, but a cached product schema still extracts this
     /// listing's product: the stored template is over-broad.
     ProductStillExtracts { matches: Vec<RemovedPageMatch> },
@@ -204,7 +204,7 @@ pub(crate) fn removed_page_verdict(
     if product_still_extracts {
         RemovedPageVerdict::ProductStillExtracts { matches }
     } else {
-        RemovedPageVerdict::Removed
+        RemovedPageVerdict::Removed { matches }
     }
 }
 
@@ -429,7 +429,7 @@ impl ScraperServiceImpl {
             last_source_listing_id,
         ) {
             RemovedPageVerdict::NotRemoved => {}
-            RemovedPageVerdict::Removed => {
+            RemovedPageVerdict::Removed { .. } => {
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details: "soft-404 removed page matched configured removed-page schema"

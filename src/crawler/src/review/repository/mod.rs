@@ -7,6 +7,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
+use crate::scraper::css_selector::removed_page_schema_repository::append_removed_page_schemas;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::utils::url::CrawledUrl;
@@ -56,6 +57,12 @@ pub enum ReviewRepositoryError {
     InvalidUrlPatternCandidate,
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
+    #[error("invalid removed-page template {index}: {reason}")]
+    InvalidRemovedPageTemplate { index: usize, reason: String },
+    #[error(
+        "approved review {0} already stored its removed-page templates; declare a new template on a pending review"
+    )]
+    ApprovedRemovedPageTemplatesChanged(CrawlerReviewId),
     #[error("review candidate or pages changed during schema-matrix evaluation")]
     CandidateChangedDuringEvaluation,
     #[error(
@@ -510,10 +517,7 @@ impl CrawlerReviewRepository {
             notes,
         } = input;
         validate_product_schemas(schemas)?;
-        let candidate_payload = ProductSchemaReviewCandidate {
-            schemas: schemas.to_vec(),
-        }
-        .to_payload()?;
+        let candidate_payload = ProductSchemaReviewCandidate::of_schemas(schemas).to_payload()?;
         let requested_review_id = CrawlerReviewId::new();
         let mut transaction = self.pool.begin().await?;
         let inserted = if status == STATUS_PENDING_REVIEW {
@@ -768,6 +772,15 @@ impl CrawlerReviewRepository {
         }
 
         let candidate = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
+        let stored_templates =
+            ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
+                .map(|stored| stored.removed_page_schemas)
+                .unwrap_or_default();
+        if candidate.removed_page_schemas != stored_templates {
+            return Err(ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(
+                review_id,
+            ));
+        }
         persist_approved_schema_edit(
             &mut transaction,
             review_id,
@@ -922,6 +935,20 @@ impl CrawlerReviewRepository {
                 let schemas =
                     approval_product_schemas(&reason, existing.as_ref(), reviewed.schemas.clone())?;
                 persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
+                if !reviewed.removed_page_schemas.is_empty() {
+                    append_removed_page_schemas(
+                        &mut transaction,
+                        &listing_source_id,
+                        &reviewed.removed_page_schemas,
+                    )
+                    .await?;
+                    info!(
+                        review_id = %review_id,
+                        listing_source_id = %listing_source_id,
+                        removed_page_template_count = reviewed.removed_page_schemas.len(),
+                        "Approved removed-page templates from a product schema review"
+                    );
+                }
                 if schemas != reviewed.schemas {
                     // The review keeps the merged list that went live, so edits through it are
                     // not refused as stale.
@@ -1064,6 +1091,7 @@ impl CrawlerReviewRepository {
             matrix: evaluate_schema_matrix_for_live_review_pages(
                 review_id,
                 &candidate.schemas,
+                &candidate.removed_page_schemas,
                 &pages,
                 &captured_identities,
             ),
