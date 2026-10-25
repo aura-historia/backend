@@ -116,6 +116,44 @@ const wal = () => ({
   monitoringUri: "restricted://wal",
   observedAt: new Date().toISOString(),
 });
+test("started CDC task observations retain an absent optional checkpoint but reject invalid values", () => {
+  const task = rawTask();
+  delete task.RecoveryCheckpoint;
+  const api = (_ctx, _service, operation, args) => describeTask(task, operation, args);
+  assert.equal(maintenance.readTask({}, "arn:task", api).checkpoint, null);
+  task.RecoveryCheckpoint = null;
+  assert.equal(maintenance.readTask({}, "arn:task", api).checkpoint, null);
+  for (const value of ["", "invalid", false, 0, "checkpoint:V1#invalid space"]) {
+    task.RecoveryCheckpoint = value;
+    assert.throws(() => maintenance.readTask({}, "arn:task", api), /malformed checkpoint/);
+  }
+  delete task.RecoveryCheckpoint;
+  delete task.ReplicationTaskStats.StartDate;
+  assert.throws(() => maintenance.readTask({}, "arn:task", api), /unstarted CDC task/);
+});
+test("absent checkpoints cannot authorize CDC pause or resume", async () => {
+  const store = memory();
+  admission.enterMaintenance(store, store.read().state, execution, "Reviewed maintenance");
+  const task = rawTask(), calls = [], journal = [];
+  const api = (_ctx, _service, operation, args) => {
+    calls.push(operation);
+    return describeTask(task, operation, args);
+  };
+  const prior = maintenance.readTask({}, "arn:task", api);
+  delete task.RecoveryCheckpoint;
+  const persist = async (name) => journal.push(name);
+  for (const status of ["running", "stopped"]) {
+    task.Status = status;
+    await assert.rejects(() => maintenance.pause({}, store, execution, "arn:task", wal(), persist, { api }),
+      /Recovery checkpoint required before pausing CDC/);
+  }
+  await assert.rejects(() => maintenance.resume({}, store, execution, {
+    operation: execution, prior, pauseIntentAt: new Date().toISOString(), wal: wal(), pauseOwned: true,
+    stopped: { ...prior, status: "stopped", checkpoint: null },
+  }, persist, { api }), /Stopped checkpoint changed or pause completion unknown/);
+  assert.deepEqual(journal, []);
+  assert.equal(calls.some((name) => name === "stop-replication-task" || name === "start-replication-task"), false);
+});
 test("ambiguous DMS stop/resume is observed once and deliberate stopped state stays stopped", async () => {
   const store = memory();
   admission.enterMaintenance(
