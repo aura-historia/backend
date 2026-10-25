@@ -39,7 +39,7 @@ function cumulativeSource(repo, baseline, candidate, maxBytes = 1200000) {
     "--",
     ".",
   ]);
-  const commits = git(["log", "--format=%H %s", `${baseline}..${candidate}`]);
+  const commits = git(["log", "--format=%H %B", `${baseline}..${candidate}`]);
   const paths = git([
     "diff",
     "--no-ext-diff",

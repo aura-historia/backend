@@ -24,6 +24,7 @@ const {
   smoke,
 } = require("./verification.cjs");
 const storage = require("./storage.cjs");
+const { reviewContext } = require("./review-context.cjs");
 
 function evidenceObject(reference, store = storage) {
   const uri = new URL(reference.uri);
@@ -102,6 +103,8 @@ function loadApproved(env, options = {}) {
   if (
     digest(model) !== report.reviewEvidenceDigest ||
     model.inputDigest !== digest(inventory) ||
+    model.contextDigest !== digest(reviewContext(inventory)) ||
+    model.contextDigest !== digest(model.context) ||
     inventory.hardFindings.length ||
     digest(inventory.config) !== report.configDigest ||
     inventory.database.ledger_fingerprint !== report.migrationLedgerDigest
