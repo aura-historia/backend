@@ -105,9 +105,11 @@ async function invoke(ctx, evidence, config, options = {}) {
 }
 async function review(ctx, evidence, binding, config, options = {}) {
   const findings = [...(evidence.hardFindings || [])];
-  let model, context = null;
+  let model, context = null, contextDigest = digest(null);
   try {
-    context = reviewContext(evidence);
+    const focused = reviewContext(evidence), fingerprint = digest(focused);
+    context = focused;
+    contextDigest = fingerprint;
     model = await invoke(ctx, context, config, options);
   } catch (error) {
     model = {
@@ -137,7 +139,7 @@ async function review(ctx, evidence, binding, config, options = {}) {
   const modelEvidence = {
     inputDigest: digest(evidence),
     context,
-    contextDigest: digest(context),
+    contextDigest,
     result: semantic,
     model: model.model,
     usage: model.usage,

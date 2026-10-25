@@ -43,8 +43,11 @@ function inventory() {
     database: { ledger: [], ledger_fingerprint: fixture.hash, schema: [] },
     schema: { before: [], after: [] },
     aws: { stacks: {}, activation: [], functions: [], capture: {}, health: {} },
-    plans: [], templateComparisons: {}, config: { target: "prod" },
+    plans: [], templateComparisons: {},
+    config: { target: "prod", account: "123456789012", region: "eu-central-1" },
     baselineState: { lastVerified: { sourceSha: fixture.sha } },
+    candidateBundleDigest: fixture.hash, observedAt: fixture.time,
+    capturedRelations: [], search: null, patches: [], tests: fixture.tests(),
     hardFindings: [],
   };
 }
