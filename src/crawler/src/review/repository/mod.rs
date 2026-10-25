@@ -1000,14 +1000,18 @@ impl CrawlerReviewRepository {
         &self,
         review_id: CrawlerReviewId,
         notes: Option<&str>,
-        needs_repair: bool,
     ) -> Result<(), ReviewRepositoryError> {
-        let status = if needs_repair {
-            STATUS_NEEDS_REPAIR
-        } else {
-            STATUS_REJECTED
-        };
-        self.set_review_status(review_id, status, notes).await
+        self.set_review_status(review_id, STATUS_REJECTED, notes)
+            .await
+    }
+
+    pub async fn request_repair(
+        &self,
+        review_id: CrawlerReviewId,
+        notes: Option<&str>,
+    ) -> Result<(), ReviewRepositoryError> {
+        self.set_review_status(review_id, STATUS_NEEDS_REPAIR, notes)
+            .await
     }
 
     pub async fn evaluate_schema_matrix_for_live_pages(

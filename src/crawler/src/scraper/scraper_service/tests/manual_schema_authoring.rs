@@ -214,7 +214,7 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
     let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
     repository
-        .reject_review(rejected, Some("not a product page"), false)
+        .reject_review(rejected, Some("not a product page"))
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let mut candidates = MockScraperCandidateService::new();

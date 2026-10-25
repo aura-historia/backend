@@ -514,7 +514,7 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .reject_review(review_id, payload.notes.as_deref(), false)
+                .reject_review(review_id, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -537,7 +537,7 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .reject_review(review_id, payload.notes.as_deref(), true)
+                .request_repair(review_id, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
