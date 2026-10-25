@@ -1,35 +1,57 @@
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+/// The candidate a product-schema review holds, as its `candidate_payload` stores it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductSchemaReviewCandidate {
-    schemas: Vec<ProductCssSelectorSchema>,
+pub(super) struct ProductSchemaReviewCandidate {
+    pub(super) schemas: Vec<ProductCssSelectorSchema>,
+    /// Removed-page templates the reviewer declares for pages that show a removal notice at
+    /// HTTP 200. Approval appends them to the ListingSource's stored templates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) removed_page_schemas: Vec<RemovedPageSchema>,
 }
 
-pub(super) fn parse_schemas_payload(
-    candidate_payload: &serde_json::Value,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let candidate =
-        serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
+impl ProductSchemaReviewCandidate {
+    /// Decodes and validates a candidate payload.
+    pub(super) fn parse(
+        candidate_payload: &serde_json::Value,
+    ) -> Result<Self, ReviewRepositoryError> {
+        let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-    validate_product_schemas(&candidate.schemas)?;
-    Ok(candidate.schemas)
-}
+        validate_product_schemas(&candidate.schemas)?;
+        validate_removed_page_schemas(&candidate.removed_page_schemas)?;
+        Ok(candidate)
+    }
 
-/// Decodes a stored candidate without validating it, to compare it with the live schemas: a
-/// candidate that today's validation rejects is still a fact about what was approved.
-pub(super) fn decode_stored_schemas_payload(
-    candidate_payload: &serde_json::Value,
-) -> Option<Vec<ProductCssSelectorSchema>> {
-    serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
-        .ok()
-        .map(|candidate| candidate.schemas)
+    /// A candidate of `schemas` without removed-page templates.
+    pub(super) fn of_schemas(schemas: &[ProductCssSelectorSchema]) -> Self {
+        Self {
+            schemas: schemas.to_vec(),
+            removed_page_schemas: Vec::new(),
+        }
+    }
+
+    /// Decodes a stored candidate without validating it, to compare it with the live schemas: a
+    /// candidate that today's validation rejects is still a fact about what was approved.
+    pub(super) fn decode_stored(candidate_payload: &serde_json::Value) -> Option<Self> {
+        serde_json::from_value::<Self>(candidate_payload.clone()).ok()
+    }
+
+    /// This candidate holding `schemas` instead of its own.
+    pub(super) fn with_schemas(self, schemas: Vec<ProductCssSelectorSchema>) -> Self {
+        Self { schemas, ..self }
+    }
+
+    pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
+        Ok(serde_json::to_value(self)?)
+    }
 }
 
 pub(super) fn validate_product_schemas(
@@ -39,6 +61,23 @@ pub(super) fn validate_product_schemas(
         return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
     }
     Ok(())
+}
+
+/// Validates removed-page templates against the contract a generated template meets.
+fn validate_removed_page_schemas(
+    removed_page_schemas: &[RemovedPageSchema],
+) -> Result<(), ReviewRepositoryError> {
+    removed_page_schemas
+        .iter()
+        .enumerate()
+        .try_for_each(|(index, schema)| {
+            schema
+                .validate()
+                .map_err(|reason| ReviewRepositoryError::InvalidRemovedPageTemplate {
+                    index,
+                    reason,
+                })
+        })
 }
 
 pub(super) fn approval_product_schemas(
@@ -62,13 +101,16 @@ pub(super) fn approval_product_schemas(
     Ok(schemas)
 }
 
+/// The candidate in `candidate_payload` with `field` of the schema at `schema_index` set to
+/// `rule`, validated.
 pub(super) fn update_schema_field_payload(
     candidate_payload: &serde_json::Value,
     schema_index: usize,
     field: &str,
     rule: Option<ExtractionRule>,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let mut schemas = parse_schemas_payload(candidate_payload)?;
+) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
+    let candidate = ProductSchemaReviewCandidate::parse(candidate_payload)?;
+    let mut schemas = candidate.schemas.clone();
     let Some(schema) = schemas.get_mut(schema_index) else {
         return Err(ReviewRepositoryError::InvalidSchemaField(format!(
             "schema index {schema_index}"
@@ -77,7 +119,7 @@ pub(super) fn update_schema_field_payload(
 
     update_schema_rule(schema, field, rule)?;
     validate_product_schemas(&schemas)?;
-    Ok(schemas)
+    Ok(candidate.with_schemas(schemas))
 }
 
 fn update_schema_rule(
@@ -176,9 +218,68 @@ mod tests {
             serde_json::json!({ "schemas": [], "unexpected": true }),
         ] {
             assert!(matches!(
-                parse_schemas_payload(&payload),
+                ProductSchemaReviewCandidate::parse(&payload),
                 Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
             ));
+        }
+    }
+
+    fn removed_page_template(selector: &str, regex: &str) -> serde_json::Value {
+        serde_json::json!({ "selector": selector, "regex": regex })
+    }
+
+    #[test]
+    fn should_parse_a_candidate_with_a_removed_page_template_and_keep_it_through_field_edits() {
+        let payload = serde_json::json!({
+            "schemas": [schema("h1.product")],
+            "removed_page_schemas": [removed_page_template(".notice", "no longer available")],
+        });
+
+        let edited = update_schema_field_payload(&payload, 0, "price", Some(text_rule(".price")))
+            .expect("field edit keeps a valid candidate");
+
+        assert_eq!(edited.removed_page_schemas.len(), 1);
+        assert_eq!(
+            edited
+                .to_payload()
+                .ok()
+                .map(|payload| payload["removed_page_schemas"].clone()),
+            Some(payload["removed_page_schemas"].clone())
+        );
+    }
+
+    #[test]
+    fn should_store_a_candidate_without_templates_in_its_previous_shape() {
+        let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
+
+        let candidate = ProductSchemaReviewCandidate::parse(&payload).expect("valid candidate");
+
+        assert_eq!(candidate.to_payload().ok(), Some(payload));
+    }
+
+    #[test]
+    fn should_reject_a_removed_page_template_the_generated_contract_rejects() {
+        for (index, template) in [
+            removed_page_template(".notice", ".*"),
+            removed_page_template("[", "no longer available"),
+            serde_json::json!({ "selector": ".notice" }),
+            serde_json::json!({ "selector": ".notice", "text": "sold", "regex": "sold" }),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let payload = serde_json::json!({
+                "schemas": [schema("h1.product")],
+                "removed_page_schemas": [template],
+            });
+
+            assert!(
+                matches!(
+                    ProductSchemaReviewCandidate::parse(&payload),
+                    Err(ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. })
+                ),
+                "template {index} must be rejected"
+            );
         }
     }
 
@@ -186,9 +287,9 @@ mod tests {
     fn parses_non_empty_product_schema_candidate() {
         let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
 
-        let parsed = parse_schemas_payload(&payload);
+        let parsed = ProductSchemaReviewCandidate::parse(&payload);
 
-        assert!(matches!(parsed, Ok(schemas) if schemas.len() == 1));
+        assert!(matches!(parsed, Ok(candidate) if candidate.schemas.len() == 1));
     }
 
     #[test]
@@ -203,7 +304,7 @@ mod tests {
 
         for payload in [invalid_primary, invalid_additional] {
             assert!(matches!(
-                parse_schemas_payload(&payload),
+                ProductSchemaReviewCandidate::parse(&payload),
                 Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
             ));
         }
@@ -240,7 +341,7 @@ mod tests {
         let mut schema = schema("h1.template-a");
         schema.price = Some(text_rule(".price"));
 
-        let schemas = update_schema_field_payload(
+        let candidate = update_schema_field_payload(
             &serde_json::json!({ "schemas": [schema] }),
             0,
             "price",
@@ -248,7 +349,7 @@ mod tests {
         )
         .expect("optional price rule can be deleted");
 
-        assert!(schemas[0].price.is_none());
+        assert!(candidate.schemas[0].price.is_none());
     }
 
     #[test]

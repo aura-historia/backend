@@ -492,6 +492,7 @@ impl ReviewServer {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
                 Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
@@ -576,11 +577,13 @@ impl ReviewServer {
                 Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
+                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
                     HttpResponse::json(409, &json!({ "error": err.to_string() }))
                 }
                 Err(err) => internal_error(err),
@@ -610,11 +613,13 @@ impl ReviewServer {
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
                 | Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
+                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
                     HttpResponse::json(409, &json!({ "error": err.to_string() }))
                 }
                 Err(err) => internal_error(err),

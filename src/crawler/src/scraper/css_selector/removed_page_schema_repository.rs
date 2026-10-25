@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::removed_page_schema::{
-    ListingSourceRemovedPageSchema, RemovedPageSchema,
+    ListingSourceRemovedPageSchema, RemovedPageSchema, extend_with_new_removed_page_schemas,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgPool, Row};
@@ -57,6 +57,45 @@ impl RemovedPageSchemaRepository for NullRemovedPageSchemaRepository {
     ) -> Result<ListingSourceRemovedPageSchema, sqlx::Error> {
         Err(sqlx::Error::RowNotFound)
     }
+}
+
+/// Appends `removed_page_schemas` to the ListingSource's stored removed-page templates inside the
+/// caller's transaction, skipping the ones already stored, so a template a reviewer approves is
+/// stored like a generated one and goes live with the rest of the approval. A stored row that no
+/// longer decodes fails the append instead of being overwritten.
+pub(crate) async fn append_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+    removed_page_schemas: &[RemovedPageSchema],
+) -> Result<(), sqlx::Error> {
+    let stored = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas
+         WHERE listing_source_id = $1
+         FOR UPDATE",
+    )
+    .bind(Uuid::from(*listing_source_id))
+    .fetch_optional(&mut *connection)
+    .await?;
+    let mut schemas: Vec<RemovedPageSchema> = stored
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?
+        .unwrap_or_default();
+    extend_with_new_removed_page_schemas(&mut schemas, removed_page_schemas.iter().cloned());
+    let schema_json =
+        serde_json::to_value(&schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas (listing_source_id, removed_page_schema, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (listing_source_id) DO UPDATE
+         SET removed_page_schema = EXCLUDED.removed_page_schema, updated = NOW()",
+    )
+    .bind(Uuid::from(*listing_source_id))
+    .bind(schema_json)
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
 }
 
 pub struct RemovedPageSchemaRepositoryImpl<'a> {

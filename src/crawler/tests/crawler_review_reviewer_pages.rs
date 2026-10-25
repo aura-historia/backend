@@ -369,6 +369,34 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_drop_generated_matrix_summary_with_cached_matrix_when_reviewer_adds_a_page() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET validation_summary = validation_summary \
+         || '{\"schema_matrix\": {}, \"schema_matrix_summary\": {}}' \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let sold_url = url("https://example.com/products/sold");
+
+    repository
+        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        detail.review.validation_summary,
+        json!({ "manual_authoring": true })
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_to_remove_review_page_when_reviewer_did_not_add_it() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
