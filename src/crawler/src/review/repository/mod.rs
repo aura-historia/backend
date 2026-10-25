@@ -1050,25 +1050,53 @@ impl CrawlerReviewRepository {
     }
 
     /// The source listing id each review page's listing was captured under, by page URL,
-    /// for the pages whose listing has been captured.
+    /// for the pages whose listing has been captured. A page is matched with the crawler URL
+    /// that names it, however the two spell it: a reviewer page is stored as fetched, often
+    /// with the trailing slash the crawler URL's normalization drops. The exact spelling
+    /// wins over another one.
     async fn captured_identities(
         &self,
         listing_source_id: uuid::Uuid,
         pages: &[(CrawlerReviewPage, String)],
     ) -> Result<HashMap<String, String>, ReviewRepositoryError> {
-        let urls: Vec<&str> = pages.iter().map(|(page, _)| page.url.as_str()).collect();
+        let pages: Vec<(&str, Option<ReviewPageIdentity>)> = pages
+            .iter()
+            .map(|(page, _)| (page.url.as_str(), ReviewPageIdentity::of_stored(&page.url)))
+            .collect();
+        let spellings: Vec<String> = pages
+            .iter()
+            .flat_map(|(url, _)| {
+                let spellings = Url::parse(url)
+                    .map(|url| ReviewPageIdentity::spellings(&url))
+                    .unwrap_or_default();
+                std::iter::once((*url).to_owned()).chain(spellings)
+            })
+            .collect();
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT url, last_source_listing_id
              FROM listing_source_urls
              WHERE listing_source_id = $1
                AND url = ANY($2)
-               AND last_source_listing_id IS NOT NULL",
+               AND last_source_listing_id IS NOT NULL
+             ORDER BY url",
         )
         .bind(listing_source_id)
-        .bind(&urls)
+        .bind(&spellings)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().collect())
+        Ok(pages
+            .into_iter()
+            .filter_map(|(page_url, identity)| {
+                rows.iter()
+                    .find(|(url, _)| url == page_url)
+                    .or_else(|| {
+                        rows.iter().find(|(url, _)| {
+                            identity.is_some() && ReviewPageIdentity::of_stored(url) == identity
+                        })
+                    })
+                    .map(|(_, captured)| (page_url.to_owned(), captured.clone()))
+            })
+            .collect())
     }
 
     pub async fn store_schema_matrix_if_current(

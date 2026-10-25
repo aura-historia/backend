@@ -843,7 +843,8 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
 }
 
 /// The live matrix compares each page's extraction with the identity the page's listing
-/// was captured under, read from the crawler URL of the review's ListingSource.
+/// was captured under, read from the crawler URL of the review's ListingSource that names
+/// the page, however the two URLs spell it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_captured_one() {
     let pool = get_postgres_client().await;
@@ -853,7 +854,15 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
     let domain_id = insert_domain(&pool, listing_source_id, "example.com").await;
     let captured_url = "https://example.com/products/1";
     let uncaptured_url = "https://example.com/products/2";
-    for (url, identity) in [(captured_url, Some("53036")), (uncaptured_url, None)] {
+    // A reviewer page is stored as fetched: the shop redirects to the trailing slash that
+    // the crawler URL's normalization drops.
+    let respelled_crawler_url = "https://example.com/products/3";
+    let respelled_page_url = "https://example.com/products/3/";
+    for (url, identity) in [
+        (captured_url, Some("53036")),
+        (uncaptured_url, None),
+        (respelled_crawler_url, Some("53037")),
+    ] {
         sqlx::query(
             "INSERT INTO listing_source_urls \
              (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_source_listing_id) \
@@ -868,7 +877,7 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
         .unwrap();
     }
     let html = "<html><body><span class=\"id\">product-53036</span><h1>Chair</h1><span class=\"state\">Sold</span><img class=\"product\" src=\"a.jpg\"></body></html>";
-    let pages = [captured_url, uncaptured_url]
+    let pages = [captured_url, uncaptured_url, respelled_page_url]
         .into_iter()
         .map(|url| SchemaReviewPageInput {
             url: url.to_owned(),
@@ -918,6 +927,14 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
         }])
     )));
     assert!(findings.contains(&(uncaptured_url.to_owned(), json!([]))));
+    assert!(findings.contains(&(
+        respelled_page_url.to_owned(),
+        json!([{
+            "field": "source_listing_id",
+            "check": "DIFFERS_FROM_CAPTURED_IDENTITY",
+            "values": ["53037"]
+        }])
+    )));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
