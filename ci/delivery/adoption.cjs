@@ -113,6 +113,7 @@ async function verifyStacks(
         )
           throw new Error('Invalid native Lambda code location');
         const response = await fetch(location, {
+          headers: { connection: 'close' },
           signal: AbortSignal.timeout(30000),
         });
         if (!response.ok)
