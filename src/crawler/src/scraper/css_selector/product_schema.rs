@@ -333,16 +333,20 @@ impl ProductCssSelectorSchema {
     }
 }
 
-/// The value of a required single-valued rule (`title`, `state`): its first value. A rule
-/// that matches no element fails the page. One whose matched elements are all empty yields
-/// an empty value instead, which the rejecting blank plausibility check rejects with the
-/// rest of the extraction intact, so a page that leaves the value empty is told apart from
-/// a page the schema does not fit.
+/// The value of a required single-valued rule (`title`, `state`): its first non-blank
+/// value, as cardinality `first` takes it, so a blank value means that every value the
+/// rule found is blank. A rule that matches no element fails the page. One whose matched
+/// elements are all empty yields an empty value instead, which the rejecting blank
+/// plausibility check rejects with the rest of the extraction intact, so a page that
+/// leaves the value empty is told apart from a page the schema does not fit.
 fn required_value(
     extraction: Result<Vec<String>, ExtractionError>,
 ) -> Result<String, ExtractionError> {
     match extraction {
-        Ok(values) => Ok(values.into_iter().next().unwrap_or_default()),
+        Ok(values) => Ok(values
+            .into_iter()
+            .find(|value| !value.trim().is_empty())
+            .unwrap_or_default()),
         Err(ExtractionError::EmptyValue { .. }) => Ok(String::new()),
         Err(error) => Err(error),
     }
@@ -1281,6 +1285,40 @@ mod tests {
                 .unwrap_or_else(|err| panic!("an empty state element must not fail apply: {err}"));
 
             assert_eq!(result.state, "");
+        }
+
+        /// A title rule with cardinality `all` whose first element is empty still names the
+        /// item when a later element does, so the page is not taken for an untitled one.
+        #[test]
+        fn should_take_the_first_non_blank_title_of_an_all_rule_whose_first_element_is_empty() {
+            let html = untitled_page(
+                r#"<span id="state">ok</span><h2 class="item-title">Pair of Chairs</h2>"#,
+            );
+            let schema = ProductCssSelectorSchema {
+                title: text_rule_all("h1.item-title, h2.item-title"),
+                ..schema()
+            };
+
+            let result = schema
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("a titled page must apply: {err}"));
+
+            assert_eq!(result.title, "Pair of Chairs");
+        }
+
+        #[test]
+        fn should_extract_a_blank_title_when_every_element_of_an_all_rule_is_empty() {
+            let html = untitled_page(r#"<span id="state">ok</span><h2 class="item-title"> </h2>"#);
+            let schema = ProductCssSelectorSchema {
+                title: text_rule_all("h1.item-title, h2.item-title"),
+                ..schema()
+            };
+
+            let result = schema
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("an untitled page must apply: {err}"));
+
+            assert_eq!(result.title, "");
         }
 
         #[test]
