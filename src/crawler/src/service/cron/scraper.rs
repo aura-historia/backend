@@ -31,9 +31,10 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
-/// Retry cooldown applied to URLs whose scrape failed on schema generation, review or
-/// LLM-budget outcomes rather than on transport, so the next pass does not re-spend
-/// LLM budget on the same ListingSource.
+/// Retry cooldown applied to URLs whose scrape failed on schema generation, review,
+/// identity-conflict or LLM-budget outcomes rather than on transport, so the next pass
+/// neither re-spends LLM budget on the same ListingSource nor refetches a page that waits
+/// for the reviewer.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";

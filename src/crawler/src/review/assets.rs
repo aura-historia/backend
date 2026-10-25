@@ -78,8 +78,9 @@ mod tests {
         }
     }
 
-    /// The console explains the per-page, cross-page and identity agreement check codes of the schema matrix
-    /// itself, so each code must keep the crawler's description and none may go stale.
+    /// The console explains the per-page, cross-page and identity agreement check codes of
+    /// the schema matrix itself, so each code must keep the crawler's description and none
+    /// may go stale.
     #[test]
     fn should_describe_every_plausibility_check_code_as_the_crawler_does() {
         let checks: Vec<(String, &str)> = PlausibilityCheck::ALL

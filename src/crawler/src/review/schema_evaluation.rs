@@ -1296,8 +1296,6 @@ mod tests {
         );
     }
 
-    /// The `images` field reports how many matched gallery elements the rule skipped
-    /// for having no image URL candidate.
     /// Hingstons Antiques: the add-to-cart button carries the identity on an active page
     /// and disappears when the product sells, so a schema written for the sold page reads
     /// the identity from another element.
@@ -1515,6 +1513,8 @@ mod tests {
         }
     }
 
+    /// The `images` field reports how many matched gallery elements the rule skipped
+    /// for having no image URL candidate.
     mod skipped_image_elements {
         use super::*;
 
