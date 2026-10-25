@@ -23,7 +23,6 @@ const PROD_API_CORS_ALLOW_ORIGINS = [
   "https://admin.shopify.com",
   "https://partners.shopify.com",
   "https://shopify.com",
-  "https://*.myshopify.com",
 ] as const;
 
 export interface CognitoEmailConfig {
